@@ -118,7 +118,7 @@ sequenceDiagram
     actor User
     participant UI as Frontend (React)
     participant API as Backend (FastAPI)
-    participant Loop as AgentLoop
+    participant AL as AgentLoop
     participant LLM as Gemini / Claude API
     participant Engine as ComputerUseEngine
     participant Container as Docker Container
@@ -127,21 +127,21 @@ sequenceDiagram
     UI->>API: POST /api/agent/start
     API->>API: Validate inputs (rate limit, model allowlist, API key)
     API->>Container: Auto-start container if needed
-    API->>Loop: Create AgentLoop, spawn asyncio task
+    API->>AL: Create AgentLoop, spawn asyncio task
     API-->>UI: { session_id, status: "running" }
 
     rect rgb(240, 248, 255)
-    note right of Loop: Repeats up to max_steps
-        Loop->>Engine: execute_task(goal, page, turn_limit)
+    note right of AL: Repeats up to max_steps
+        AL->>Engine: execute_task(goal, page, turn_limit)
         Engine->>Container: Capture screenshot (PNG)
         Engine->>LLM: Screenshot + task + history
         LLM-->>Engine: Structured CU action (function_call / tool_use)
         Engine->>Container: Execute action (Playwright or xdotool)
-        Engine-->>Loop: CUTurnRecord (actions, screenshot, text)
-        Loop-->>UI: WS events (step, log, screenshot)
+        Engine-->>AL: CUTurnRecord (actions, screenshot, text)
+        AL-->>UI: WS events (step, log, screenshot)
     end
 
-    Loop-->>UI: WS agent_finished { status, steps }
+    AL-->>UI: WS agent_finished { status, steps }
 ```
 
 ### Component Relationship
