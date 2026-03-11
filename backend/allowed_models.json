@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.0",
+  "description": "Canonical allowlist of models the CUA playground exposes. Edit THIS file to add/remove models — the backend and frontend read it at runtime.",
+  "models": [
+    {
+      "provider": "google",
+      "model_id": "gemini-3-flash-preview",
+      "display_name": "Gemini 3 Flash Preview",
+      "supports_computer_use": true,
+      "notes": "Fast, lightweight Gemini CU model."
+    },
+    {
+      "provider": "google",
+      "model_id": "gemini-3.1-pro-preview",
+      "display_name": "Gemini 3.1 Pro Preview",
+      "supports_computer_use": false,
+      "notes": "Stronger reasoning Gemini model. CU support unconfirmed — not listed in official CU docs as of 2026-03-11."
+    },
+    {
+      "provider": "anthropic",
+      "model_id": "claude-sonnet-4-6",
+      "display_name": "Claude Sonnet 4.6",
+      "supports_computer_use": true,
+      "cu_tool_version": "computer_20251124",
+      "cu_betas": ["computer-use-2025-11-24"],
+      "notes": "Claude Sonnet 4.6 — requires beta endpoint + computer_20251124 tool."
+    },
+    {
+      "provider": "anthropic",
+      "model_id": "claude-opus-4-6",
+      "display_name": "Claude Opus 4.6",
+      "supports_computer_use": true,
+      "cu_tool_version": "computer_20251124",
+      "cu_betas": ["computer-use-2025-11-24"],
+      "notes": "Claude Opus 4.6 — requires beta endpoint + computer_20251124 tool."
+    }
+  ]
+}
