@@ -1,0 +1,31 @@
+services:
+  cua-environment:
+    container_name: cua-environment
+    image: cua-ubuntu:latest
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    environment:
+      - DISPLAY=:99
+      - SCREEN_WIDTH=1440
+      - SCREEN_HEIGHT=900
+      - SCREEN_DEPTH=24
+      - AGENT_SERVICE_PORT=9222
+      - AGENT_MODE=browser
+      # - VNC_PASSWORD=changeme   # uncomment to require VNC auth
+    ports:
+      - "127.0.0.1:5900:5900"
+      - "127.0.0.1:6080:6080"
+      - "127.0.0.1:9222:9222"
+      - "127.0.0.1:9223:9223"
+    shm_size: "2gb"
+    init: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+          cpus: "2"
+
