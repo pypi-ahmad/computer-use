@@ -1,0 +1,251 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 580" font-family="'Segoe UI', system-ui, -apple-system, sans-serif">
+  <defs>
+    <filter id="shadow" x="-4%" y="-4%" width="108%" height="112%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.08"/>
+    </filter>
+    <linearGradient id="headerGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <marker id="arr" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+      <polygon points="0 0, 7 2.5, 0 5" fill="#94a3b8"/>
+    </marker>
+    <marker id="arrB" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+      <polygon points="0 0, 7 2.5, 0 5" fill="#3b82f6"/>
+    </marker>
+    <marker id="arrV" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+      <polygon points="0 0, 7 2.5, 0 5" fill="#7c3aed"/>
+    </marker>
+    <marker id="arrA" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+      <polygon points="0 0, 7 2.5, 0 5" fill="#d97706"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="960" height="580" rx="12" fill="#fafbfc"/>
+
+  <!-- Title -->
+  <rect width="960" height="50" rx="12" fill="url(#headerGrad)"/>
+  <rect y="38" width="960" height="12" fill="url(#headerGrad)"/>
+  <text x="480" y="33" text-anchor="middle" fill="white" font-size="16" font-weight="600">Component Relationship Map</text>
+
+  <!-- ============ FRONTEND COLUMN ============ -->
+  <rect x="20" y="66" width="260" height="494" rx="10" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.2"/>
+  <rect x="20" y="66" width="260" height="30" rx="10" fill="#3b82f6"/>
+  <rect x="20" y="86" width="260" height="10" fill="#3b82f6"/>
+  <text x="150" y="88" text-anchor="middle" fill="white" font-size="12" font-weight="700">FRONTEND — React 19</text>
+
+  <!-- Pages -->
+  <text x="36" y="118" fill="#1e40af" font-size="10" font-weight="700">Pages</text>
+  <g filter="url(#shadow)">
+    <rect x="32" y="124" width="110" height="40" rx="6" fill="white" stroke="#93c5fd" stroke-width="1"/>
+    <text x="87" y="144" text-anchor="middle" fill="#1e3a8a" font-size="10" font-weight="600">App.jsx</text>
+    <text x="87" y="157" text-anchor="middle" fill="#3b82f6" font-size="8">Dashboard /</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="156" y="124" width="112" height="40" rx="6" fill="white" stroke="#93c5fd" stroke-width="1"/>
+    <text x="212" y="144" text-anchor="middle" fill="#1e3a8a" font-size="10" font-weight="600">Workbench.jsx</text>
+    <text x="212" y="157" text-anchor="middle" fill="#3b82f6" font-size="8">Full config /workbench</text>
+  </g>
+
+  <!-- Components -->
+  <text x="36" y="186" fill="#1e40af" font-size="10" font-weight="700">Components</text>
+  <g filter="url(#shadow)">
+    <rect x="32" y="192" width="110" height="34" rx="6" fill="white" stroke="#93c5fd" stroke-width="1"/>
+    <text x="87" y="213" text-anchor="middle" fill="#1e3a8a" font-size="9" font-weight="600">ControlPanel</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="156" y="192" width="112" height="34" rx="6" fill="white" stroke="#93c5fd" stroke-width="1"/>
+    <text x="212" y="213" text-anchor="middle" fill="#1e3a8a" font-size="9" font-weight="600">ScreenView</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="32" y="234" width="110" height="34" rx="6" fill="white" stroke="#93c5fd" stroke-width="1"/>
+    <text x="87" y="255" text-anchor="middle" fill="#1e3a8a" font-size="9" font-weight="600">LogPanel</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="156" y="234" width="112" height="34" rx="6" fill="white" stroke="#93c5fd" stroke-width="1"/>
+    <text x="212" y="255" text-anchor="middle" fill="#1e3a8a" font-size="9" font-weight="600">Header</text>
+  </g>
+
+  <!-- Client services -->
+  <text x="36" y="290" fill="#1e40af" font-size="10" font-weight="700">Client Services</text>
+  <g filter="url(#shadow)">
+    <rect x="32" y="296" width="110" height="40" rx="6" fill="#dbeafe" stroke="#60a5fa" stroke-width="1"/>
+    <text x="87" y="316" text-anchor="middle" fill="#1e3a8a" font-size="10" font-weight="600">api.js</text>
+    <text x="87" y="329" text-anchor="middle" fill="#3b82f6" font-size="8">REST client (10 fn)</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="156" y="296" width="112" height="40" rx="6" fill="#dbeafe" stroke="#60a5fa" stroke-width="1"/>
+    <text x="212" y="316" text-anchor="middle" fill="#1e3a8a" font-size="10" font-weight="600">useWebSocket</text>
+    <text x="212" y="329" text-anchor="middle" fill="#3b82f6" font-size="8">WS + auto-reconnect</text>
+  </g>
+
+  <!-- Port label -->
+  <rect x="80" y="350" width="120" height="20" rx="10" fill="#eff6ff" stroke="#3b82f6" stroke-width="0.8"/>
+  <text x="140" y="364" text-anchor="middle" fill="#2563eb" font-size="9" font-weight="600">:3000 (Vite)</text>
+
+  <!-- ============ BACKEND COLUMN ============ -->
+  <rect x="320" y="66" width="310" height="494" rx="10" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.2"/>
+  <rect x="320" y="66" width="310" height="30" rx="10" fill="#7c3aed"/>
+  <rect x="320" y="86" width="310" height="10" fill="#7c3aed"/>
+  <text x="475" y="88" text-anchor="middle" fill="white" font-size="12" font-weight="700">BACKEND — FastAPI / Python 3.13</text>
+
+  <!-- Server -->
+  <text x="336" y="118" fill="#5b21b6" font-size="10" font-weight="700">API Layer</text>
+  <g filter="url(#shadow)">
+    <rect x="332" y="124" width="286" height="50" rx="6" fill="white" stroke="#a78bfa" stroke-width="1"/>
+    <text x="475" y="147" text-anchor="middle" fill="#4c1d95" font-size="11" font-weight="600">server.py</text>
+    <text x="475" y="165" text-anchor="middle" fill="#6d28d9" font-size="9">REST routes · WebSocket · noVNC proxy · Rate limiter</text>
+  </g>
+
+  <!-- Core -->
+  <text x="336" y="196" fill="#5b21b6" font-size="10" font-weight="700">Core Engine</text>
+  <g filter="url(#shadow)">
+    <rect x="332" y="202" width="140" height="46" rx="6" fill="white" stroke="#a78bfa" stroke-width="1"/>
+    <text x="402" y="222" text-anchor="middle" fill="#4c1d95" font-size="10" font-weight="600">engine.py</text>
+    <text x="402" y="237" text-anchor="middle" fill="#6d28d9" font-size="8">CU Engine + Executors</text>
+    <text x="402" y="245" text-anchor="middle" fill="#6d28d9" font-size="7">Gemini/Claude clients</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="480" y="202" width="138" height="46" rx="6" fill="white" stroke="#a78bfa" stroke-width="1"/>
+    <text x="549" y="222" text-anchor="middle" fill="#4c1d95" font-size="10" font-weight="600">agent/loop.py</text>
+    <text x="549" y="237" text-anchor="middle" fill="#6d28d9" font-size="8">AgentLoop</text>
+    <text x="549" y="245" text-anchor="middle" fill="#6d28d9" font-size="7">perceive → think → act</text>
+  </g>
+
+  <!-- Support modules -->
+  <text x="336" y="270" fill="#5b21b6" font-size="10" font-weight="700">Support Modules</text>
+  <g filter="url(#shadow)">
+    <rect x="332" y="276" width="92" height="36" rx="6" fill="#f5f3ff" stroke="#c4b5fd" stroke-width="1"/>
+    <text x="378" y="298" text-anchor="middle" fill="#5b21b6" font-size="9" font-weight="500">config.py</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="430" y="276" width="92" height="36" rx="6" fill="#f5f3ff" stroke="#c4b5fd" stroke-width="1"/>
+    <text x="476" y="298" text-anchor="middle" fill="#5b21b6" font-size="9" font-weight="500">models.py</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="528" y="276" width="92" height="36" rx="6" fill="#f5f3ff" stroke="#c4b5fd" stroke-width="1"/>
+    <text x="574" y="298" text-anchor="middle" fill="#5b21b6" font-size="9" font-weight="500">prompts.py</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="332" y="320" width="92" height="36" rx="6" fill="#f5f3ff" stroke="#c4b5fd" stroke-width="1"/>
+    <text x="378" y="342" text-anchor="middle" fill="#5b21b6" font-size="9" font-weight="500">screenshot.py</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="430" y="320" width="92" height="36" rx="6" fill="#f5f3ff" stroke="#c4b5fd" stroke-width="1"/>
+    <text x="476" y="342" text-anchor="middle" fill="#5b21b6" font-size="9" font-weight="500">docker_mgr.py</text>
+  </g>
+
+  <!-- Data files -->
+  <text x="336" y="380" fill="#5b21b6" font-size="10" font-weight="700">Data / Config</text>
+  <g filter="url(#shadow)">
+    <rect x="332" y="386" width="140" height="34" rx="6" fill="#faf5ff" stroke="#d8b4fe" stroke-width="1"/>
+    <text x="402" y="407" text-anchor="middle" fill="#7e22ce" font-size="9" font-weight="500">allowed_models.json</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="480" y="386" width="138" height="34" rx="6" fill="#faf5ff" stroke="#d8b4fe" stroke-width="1"/>
+    <text x="549" y="407" text-anchor="middle" fill="#7e22ce" font-size="9" font-weight="500">engine_capabilities.json</text>
+  </g>
+
+  <!-- Port label -->
+  <rect x="415" y="438" width="120" height="20" rx="10" fill="#f5f3ff" stroke="#7c3aed" stroke-width="0.8"/>
+  <text x="475" y="452" text-anchor="middle" fill="#6d28d9" font-size="9" font-weight="600">:8000 (Uvicorn)</text>
+
+  <!-- ============ DOCKER COLUMN ============ -->
+  <rect x="670" y="66" width="270" height="494" rx="10" fill="#fffbeb" stroke="#d97706" stroke-width="1.2"/>
+  <rect x="670" y="66" width="270" height="30" rx="10" fill="#d97706"/>
+  <rect x="670" y="86" width="270" height="10" fill="#d97706"/>
+  <text x="805" y="88" text-anchor="middle" fill="white" font-size="12" font-weight="700">DOCKER — Ubuntu 24.04</text>
+
+  <!-- Desktop -->
+  <text x="686" y="118" fill="#92400e" font-size="10" font-weight="700">Virtual Desktop</text>
+  <g filter="url(#shadow)">
+    <rect x="682" y="124" width="246" height="42" rx="6" fill="white" stroke="#fbbf24" stroke-width="1"/>
+    <text x="805" y="144" text-anchor="middle" fill="#92400e" font-size="10" font-weight="600">Xvfb :99 + XFCE 4</text>
+    <text x="805" y="159" text-anchor="middle" fill="#a16207" font-size="8">1440×900×24 virtual display</text>
+  </g>
+
+  <!-- VNC -->
+  <g filter="url(#shadow)">
+    <rect x="682" y="178" width="118" height="36" rx="6" fill="white" stroke="#fbbf24" stroke-width="1"/>
+    <text x="741" y="200" text-anchor="middle" fill="#92400e" font-size="9" font-weight="600">x11vnc :5900</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="810" y="178" width="118" height="36" rx="6" fill="white" stroke="#fbbf24" stroke-width="1"/>
+    <text x="869" y="200" text-anchor="middle" fill="#92400e" font-size="9" font-weight="600">noVNC :6080</text>
+  </g>
+
+  <!-- Agent service -->
+  <text x="686" y="236" fill="#92400e" font-size="10" font-weight="700">Agent Service</text>
+  <g filter="url(#shadow)">
+    <rect x="682" y="242" width="246" height="56" rx="6" fill="white" stroke="#f59e0b" stroke-width="1.2"/>
+    <text x="805" y="264" text-anchor="middle" fill="#78350f" font-size="11" font-weight="600">agent_service.py :9222</text>
+    <text x="805" y="280" text-anchor="middle" fill="#a16207" font-size="8">/action · /screenshot · /health · /mode</text>
+    <text x="805" y="292" text-anchor="middle" fill="#a16207" font-size="8">~119 functions · HTTP dispatch</text>
+  </g>
+
+  <!-- Modes -->
+  <g filter="url(#shadow)">
+    <rect x="682" y="310" width="118" height="50" rx="6" fill="#dbeafe" stroke="#3b82f6" stroke-width="1"/>
+    <text x="741" y="333" text-anchor="middle" fill="#1e40af" font-size="9" font-weight="600">🌐 Browser</text>
+    <text x="741" y="349" text-anchor="middle" fill="#2563eb" font-size="8">Playwright CDP</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="810" y="310" width="118" height="50" rx="6" fill="#fef9c3" stroke="#eab308" stroke-width="1"/>
+    <text x="869" y="333" text-anchor="middle" fill="#854d0e" font-size="9" font-weight="600">🖥️ Desktop</text>
+    <text x="869" y="349" text-anchor="middle" fill="#a16207" font-size="8">xdotool + scrot</text>
+  </g>
+
+  <!-- Chromium -->
+  <g filter="url(#shadow)">
+    <rect x="682" y="372" width="246" height="36" rx="6" fill="white" stroke="#fbbf24" stroke-width="1"/>
+    <text x="805" y="395" text-anchor="middle" fill="#92400e" font-size="10" font-weight="600">Chromium — CDP :9223</text>
+  </g>
+
+  <!-- Security -->
+  <rect x="682" y="424" width="246" height="28" rx="6" fill="#fef2f2" stroke="#fca5a5" stroke-width="0.8"/>
+  <text x="805" y="442" text-anchor="middle" fill="#991b1b" font-size="8" font-weight="600">4 GB · 2 CPU · no-new-privileges · localhost only</text>
+
+  <!-- Port label -->
+  <rect x="745" y="466" width="120" height="20" rx="10" fill="#fffbeb" stroke="#d97706" stroke-width="0.8"/>
+  <text x="805" y="480" text-anchor="middle" fill="#b45309" font-size="9" font-weight="600">:9222 (HTTP)</text>
+
+  <!-- ============ CLOUD REGION ============ -->
+  <g filter="url(#shadow)">
+    <rect x="332" y="478" width="286" height="76" rx="10" fill="#fdf2f8" stroke="#ec4899" stroke-width="1.2"/>
+    <text x="475" y="500" text-anchor="middle" fill="#831843" font-size="11" font-weight="700">☁️ LLM Cloud APIs</text>
+    <rect x="344" y="508" width="130" height="22" rx="4" fill="white" stroke="#f9a8d4" stroke-width="0.8"/>
+    <text x="356" y="523" fill="#4285F4" font-size="9" font-weight="700">G</text>
+    <text x="370" y="523" fill="#475569" font-size="9">Google Gemini</text>
+    <rect x="480" y="508" width="130" height="22" rx="4" fill="white" stroke="#f9a8d4" stroke-width="0.8"/>
+    <text x="492" y="523" fill="#CC785C" font-size="9" font-weight="700">C</text>
+    <text x="506" y="523" fill="#475569" font-size="9">Anthropic Claude</text>
+  </g>
+
+  <!-- ============ CONNECTION ARROWS ============ -->
+  <!-- Frontend → Backend (REST) -->
+  <line x1="280" y1="308" x2="332" y2="148" stroke="#3b82f6" stroke-width="1.8" marker-end="url(#arrB)"/>
+  <rect x="284" y="208" width="52" height="16" rx="3" fill="white" stroke="#93c5fd" stroke-width="0.5"/>
+  <text x="310" y="220" text-anchor="middle" fill="#2563eb" font-size="8" font-weight="500">REST</text>
+
+  <!-- Frontend → Backend (WS) -->
+  <line x1="280" y1="322" x2="332" y2="160" stroke="#8b5cf6" stroke-width="1.2" marker-end="url(#arrV)" stroke-dasharray="4 2"/>
+  <rect x="284" y="232" width="36" height="16" rx="3" fill="white" stroke="#c4b5fd" stroke-width="0.5"/>
+  <text x="302" y="244" text-anchor="middle" fill="#7c3aed" font-size="8" font-weight="500">WS</text>
+
+  <!-- Backend → Docker (agent service) -->
+  <line x1="630" y1="224" x2="682" y2="268" stroke="#d97706" stroke-width="1.8" marker-end="url(#arrA)"/>
+  <rect x="636" y="236" width="46" height="16" rx="3" fill="white" stroke="#fde68a" stroke-width="0.5"/>
+  <text x="659" y="248" text-anchor="middle" fill="#b45309" font-size="8" font-weight="500">HTTP</text>
+
+  <!-- Backend → LLM -->
+  <line x1="475" y1="420" x2="475" y2="478" stroke="#ec4899" stroke-width="1.5" marker-end="url(#arr)" stroke-dasharray="5 3"/>
+  <rect x="449" y="442" width="52" height="16" rx="3" fill="white" stroke="#f9a8d4" stroke-width="0.5"/>
+  <text x="475" y="454" text-anchor="middle" fill="#be185d" font-size="8" font-weight="500">SDK</text>
+
+  <!-- Backend → Docker (CDP) -->
+  <line x1="618" y1="210" x2="682" y2="386" stroke="#3b82f6" stroke-width="1" marker-end="url(#arrB)" stroke-dasharray="3 2" opacity="0.5"/>
+
+  <!-- Backend → noVNC proxy -->
+  <line x1="618" y1="150" x2="810" y2="196" stroke="#d97706" stroke-width="1" marker-end="url(#arrA)" stroke-dasharray="3 2" opacity="0.5"/>
+</svg>
