@@ -1,0 +1,98 @@
+# -------------------------
+# Python
+# -------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+
+# Virtualenv
+.venv/
+venv/
+env/
+
+# Testing / tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+*.log
+
+# Jupyter / notebooks
+.ipynb_checkpoints/
+
+# -------------------------
+# Environment / secrets
+# -------------------------
+.env
+.env.*
+!.env.example
+
+# -------------------------
+# Node / Frontend
+# -------------------------
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.cache/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# -------------------------
+# Playwright
+# -------------------------
+playwright-report/
+test-results/
+# Playwright trace files (*.zip in test-results, not globally)
+test-results/**/*.zip
+*.trace
+
+# -------------------------
+# IDE / Editor
+# -------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# -------------------------
+# Docker / local runtime
+# -------------------------
+docker/tmp/
+docker/.cache/
+**/.docker/
+**/*.pid
+
+# docker compose override (local only)
+docker-compose.override.yml
+
+# -------------------------
+# App artifacts (screenshots, recordings, reports)
+# -------------------------
+artifacts/
+outputs/
+reports/
+logs/
+recordings/
+screenshots/
+tmp/
+.cache/
+
+# If you store curated screenshots/gifs for README, keep them under:
+#   assets/
+# and do NOT ignore that folder.

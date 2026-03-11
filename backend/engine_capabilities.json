@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "3.0",
+  "description": "CUA Engine Capability Schema — computer_use engine only.",
+  "engines": {
+    "computer_use": {
+      "display_name": "Computer Use (Native CU Protocol) \u2605 Recommended",
+      "description": "Unified engine using Gemini 3 Flash and Claude 4.6 Sonnet native Computer Use tool protocols. Structured function_call / tool_use instead of text-parsed JSON. Supports browser (Playwright) and desktop (xdotool+scrot) backends.",
+      "fallback_priority": 6,
+      "recommended": true,
+      "categories": {
+        "navigation": [
+          "open_web_browser",
+          "navigate",
+          "go_back",
+          "go_forward",
+          "search"
+        ],
+        "mouse": [
+          "click_at",
+          "hover_at",
+          "drag_and_drop"
+        ],
+        "keyboard": [
+          "type_text_at",
+          "key_combination"
+        ],
+        "scroll": [
+          "scroll_document",
+          "scroll_at"
+        ],
+        "wait": [
+          "wait_5_seconds"
+        ],
+        "special": [
+          "done",
+          "error"
+        ]
+      },
+      "allowed_actions": [
+        "open_web_browser",
+        "navigate",
+        "go_back",
+        "go_forward",
+        "search",
+        "click_at",
+        "hover_at",
+        "drag_and_drop",
+        "type_text_at",
+        "key_combination",
+        "scroll_document",
+        "scroll_at",
+        "wait_5_seconds",
+        "done",
+        "error"
+      ],
+      "limitations": [
+        "Action vocabulary is fixed by the model's CU tool \u2014 cannot add custom actions",
+        "Gemini uses normalized 0-999 coordinates; Claude uses real pixels",
+        "No DOM/selector-level interaction (pixel-based only)",
+        "Safety confirmations require callback handling"
+      ],
+      "environment_requirements": [
+        "Playwright Chromium (browser mode)",
+        "Xvfb + xdotool + scrot (desktop mode)",
+        "DISPLAY=:99 set for desktop mode"
+      ]
+    }
+  }
+}
