@@ -10,8 +10,8 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Docker](https://img.shields.io/badge/Docker-Ubuntu_24.04-2496ED.svg?logo=docker&logoColor=white)](https://docker.com)
 [![Tests](https://img.shields.io/badge/Tests-119_passing-brightgreen.svg)](#-testing)
-[![Gemini](https://img.shields.io/badge/Gemini-CU_Native-4285F4.svg?logo=google&logoColor=white)](#supported-models)
-[![Claude](https://img.shields.io/badge/Claude-CU_Native-CC785C.svg?logo=anthropic&logoColor=white)](#supported-models)
+[![Gemini](https://img.shields.io/badge/Gemini-CU_Native-4285F4.svg?logo=google&logoColor=white)](#-supported-models)
+[![Claude](https://img.shields.io/badge/Claude-CU_Native-CC785C.svg?logo=anthropic&logoColor=white)](#-supported-models)
 
 ---
 
@@ -83,138 +83,35 @@ The system is a **three-process architecture** spanning the host and a Docker co
 
 ### High-Level Architecture
 
-```mermaid
-flowchart LR
-  U["👤 User Browser"]:::user -->|"HTTP :3000"| FE["Frontend\nReact / Vite"]
+<p align="center">
+  <img src="docs/assets/architecture.svg" alt="CUA High-Level Architecture" width="100%"/>
+</p>
 
-  subgraph Host["Host Machine"]
-    FE -->|"REST + WS"| BE["Backend\nFastAPI :8000"]
-  end
+<details>
+<summary>View connection details</summary>
 
-  subgraph Docker["Docker Container — Ubuntu 24.04"]
-    XVFB["Xvfb :99\n+ XFCE 4 Desktop"]
-    VNC["x11vnc :5900"]
-    NOVNC["noVNC\nwebsockify :6080"]
-    AS["agent_service.py\n:9222"]
-    CDP["Chromium\nCDP :9223"]
-    XVFB --- VNC --- NOVNC
-    XVFB --- AS
-    AS --- CDP
-  end
+| Path | Protocol | Description |
+|---|---|---|
+| Frontend → Backend | HTTP REST + WebSocket | `api.js` → `/api/*` endpoints; `useWebSocket.js` → `/ws` |
+| Frontend → Container | noVNC (WebSocket) | `ScreenView.jsx` → `/vnc/websockify` proxy in `server.py` |
+| Backend → Agent Service | HTTP | `loop.py` / `screenshot.py` → `:9222/action`, `:9222/screenshot` |
+| Backend → Chromium | CDP (WebSocket) | Playwright page acquisition via `:9223` |
+| Backend → LLM APIs | HTTPS | `google-genai` / `anthropic` SDKs → cloud endpoints |
+| Backend → Docker CLI | Subprocess | `docker_manager.py` → `docker build/run/rm/exec` |
 
-  BE -->|"HTTP /action\n/screenshot"| AS
-  BE -->|"CDP connect"| CDP
-  BE -->|"/vnc proxy"| NOVNC
-  BE <-->|"google-genai\nanthropic SDK"| LLM["☁️ Gemini / Claude\nAPIs"]:::cloud
+</details>
 
-  classDef user fill:#e1f5fe,stroke:#0288d1
-  classDef cloud fill:#fff3e0,stroke:#f57c00
-```
+### Agent Execution Flow
 
-### Agent Session Sequence
-
-```mermaid
-sequenceDiagram
-    actor User
-    participant UI as Frontend (React)
-    participant API as Backend (FastAPI)
-    participant AL as AgentLoop
-    participant LLM as Gemini / Claude API
-    participant Engine as ComputerUseEngine
-    participant Container as Docker Container
-
-    User->>UI: Enter task, select provider/model/mode
-    UI->>API: POST /api/agent/start
-    API->>API: Validate inputs (rate limit, model allowlist, API key)
-    API->>Container: Auto-start container if needed
-    API->>AL: Create AgentLoop, spawn asyncio task
-    API-->>UI: { session_id, status: "running" }
-
-    rect rgb(240, 248, 255)
-    note right of AL: Repeats up to max_steps
-        AL->>Engine: execute_task(goal, page, turn_limit)
-        Engine->>Container: Capture screenshot (PNG)
-        Engine->>LLM: Screenshot + task + history
-        LLM-->>Engine: Structured CU action (function_call / tool_use)
-        Engine->>Container: Execute action (Playwright or xdotool)
-        Engine-->>AL: CUTurnRecord (actions, screenshot, text)
-        AL-->>UI: WS events (step, log, screenshot)
-    end
-
-    AL-->>UI: WS agent_finished { status, steps }
-```
+<p align="center">
+  <img src="docs/assets/execution-flow.svg" alt="Agent Execution Flow — Perceive → Think → Act" width="100%"/>
+</p>
 
 ### Component Relationship
 
-```mermaid
-flowchart TD
-    subgraph Frontend
-        APP["App.jsx\n(Dashboard)"]
-        WB["Workbench.jsx\n(Full Config UI)"]
-        API_JS["api.js\n(REST Client)"]
-        WS["useWebSocket.js\n(WS Client)"]
-        CP["ControlPanel"]
-        SV["ScreenView"]
-        LP_FE["LogPanel"]
-        HD["Header"]
-    end
-
-    subgraph Backend
-        SRV["server.py\n(FastAPI Routes + WS)"]
-        LOOP["loop.py\n(AgentLoop Orchestrator)"]
-        ENG["engine.py\n(ComputerUseEngine)"]
-        CFG["config.py\n(Config + Key Resolution)"]
-        MDL["models.py\n(Pydantic Contracts)"]
-        PRMT["prompts.py\n(System Prompts)"]
-        SCR["screenshot.py\n(Capture Client)"]
-        DKR["docker_manager.py\n(Container Lifecycle)"]
-        ALLOW["allowed_models.json"]
-        CAPS["engine_capabilities.json"]
-    end
-
-    subgraph Container["Docker Container"]
-        AGENT["agent_service.py\n(HTTP Action Server)"]
-        PW["Playwright\n(Browser Mode)"]
-        XDO["xdotool + scrot\n(Desktop Mode)"]
-    end
-
-    APP & WB --> API_JS & WS
-    APP --> CP & SV & LP_FE & HD
-    API_JS --> SRV
-    WS --> SRV
-    SRV --> LOOP
-    SRV --> DKR
-    SRV --> CFG
-    LOOP --> ENG
-    LOOP --> PRMT
-    LOOP --> SCR
-    ENG --> PW
-    ENG --> XDO
-    ENG --> AGENT
-    SCR --> AGENT
-    SRV --> ALLOW
-    ENG --> ALLOW
-```
-
-### Execution Mode Routing
-
-```mermaid
-flowchart TD
-    START["POST /api/agent/start"] --> VAL{Validate Request}
-    VAL -->|Invalid| ERR400["400 Error"]
-    VAL -->|Valid| KEY{Resolve API Key}
-    KEY -->|Missing| ERR400
-    KEY -->|Resolved| PROV{Provider?}
-
-    PROV -->|google| GEMINI["GeminiCUClient\n(google-genai SDK)\nNormalized 0-999 coords"]
-    PROV -->|anthropic| CLAUDE["ClaudeCUClient\n(anthropic SDK)\nReal pixel coords"]
-
-    GEMINI & CLAUDE --> MODE{Mode?}
-    MODE -->|browser| PW_EXEC["PlaywrightExecutor\nCDP → page.mouse, page.keyboard, page.goto"]
-    MODE -->|desktop| DT_EXEC["DesktopExecutor\nHTTP → agent_service → xdotool, scrot, wmctrl"]
-
-    PW_EXEC & DT_EXEC --> SANDBOX["Docker Container\nUbuntu 24.04 + XFCE 4"]
-```
+<p align="center">
+  <img src="docs/assets/components.svg" alt="Component Relationship Map" width="100%"/>
+</p>
 
 ---
 
@@ -250,9 +147,9 @@ The model receives a **screenshot** (base64 PNG) and the **user's task**, then r
 
 ## 🔄 Agent Loop & Lifecycle
 
-### Core Loop (`backend/agent/loop.py`)
+### Core Loop
 
-`AgentLoop.run()` delegates to `_run_computer_use_engine()`, which constructs a `ComputerUseEngine` and calls `execute_task()`. The engine runs its own internal perceive → act → screenshot loop for up to `max_steps` turns (default 50, hard cap 200).
+`AgentLoop.run()` in `backend/agent/loop.py` delegates to `_run_computer_use_engine()`, which constructs a `ComputerUseEngine` and calls `execute_task()`. The engine runs its own internal perceive → act → screenshot loop for up to `max_steps` turns (default 50, hard cap 200).
 
 1. **Perceive** — capture screenshot via agent service HTTP API (`/screenshot`) or `docker exec scrot` fallback
 2. **Think** — send screenshot + task + conversation history to the LLM
@@ -775,6 +672,11 @@ computer-use/
 │       │   └── Workbench.css
 │       ├── utils/formatTime.js    # Timestamp formatter
 │       └── index.css              # Global styles
+├── docs/
+│   └── assets/                    # SVG architecture and flow diagrams
+│       ├── architecture.svg
+│       ├── execution-flow.svg
+│       └── components.svg
 ├── tests/
 │   ├── conftest.py                # Shared mock_page fixture
 │   ├── test_computer_use_engine.py
@@ -841,7 +743,7 @@ Contributions are welcome. To get started:
 pytest tests/ -v
 
 # Run a specific test file
-pytest tests/test_engine.py -v
+pytest tests/test_computer_use_engine.py -v
 
 # Start backend in debug mode (auto-reload)
 DEBUG=true python -m backend.main
