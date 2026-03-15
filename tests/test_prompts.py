@@ -24,6 +24,11 @@ class TestPromptSeparation:
         claude = get_system_prompt("computer_use", "browser", provider="anthropic")
         assert gemini != claude
 
+    def test_openai_prompt_mentions_computer_tool(self):
+        prompt = get_system_prompt("computer_use", "browser", provider="openai")
+        assert "computer tool" in prompt.lower()
+        assert "pixel" in prompt.lower()
+
     def test_viewport_dimensions_injected(self):
         prompt = get_system_prompt("computer_use", "browser", provider="google")
         # Should contain actual numbers, not placeholders
