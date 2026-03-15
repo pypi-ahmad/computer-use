@@ -61,7 +61,7 @@ A React web UI provides real-time desktop streaming (WebSocket screenshots + int
 |---|---|
 | **Native CU Engine** | Uses Gemini, Claude, and OpenAI native Computer Use tool protocols for structured, pixel-level browser and desktop automation |
 | **Two Execution Modes** | **Browser** — Playwright CDP page actions (mouse, keyboard, navigation) · **Desktop** — xdotool + scrot for any X11 application |
-| **Multi-Provider AI** | Google Gemini, Anthropic Claude, and OpenAI GPT-5.4 with a centralized model allowlist enforced at the API layer |
+| **Multi-Provider AI** | Google Gemini, Anthropic Claude, and OpenAI GPT-5.4 with a centralized model allowlist enforced at the API layer. OpenAI supports configurable reasoning effort (none/low/medium/high/xhigh) via UI dropdown or `OPENAI_REASONING_EFFORT` env var. |
 | **Docker Sandbox** | All automation runs inside an Ubuntu 24.04 container with resource limits, `no-new-privileges`, and localhost-only port bindings |
 | **Real-Time Streaming** | Live screenshot stream via WebSocket + interactive noVNC desktop access proxied through the backend |
 | **Cross-Platform Host** | Backend + frontend run on Windows, macOS, or Linux; Docker provides the sandboxed Linux desktop |
@@ -248,6 +248,7 @@ Defined in `backend/allowed_models.json` — the single source of truth for both
 | `max_steps` | `int` | `50` | 1–200 |
 | `engine` | `string` | `"computer_use"` | Only `"computer_use"` accepted |
 | `execution_target` | `string` | `"docker"` | Only `"docker"` accepted |
+| `reasoning_effort` | `string?` | `null` | OpenAI only: `"none"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`. Falls back to `OPENAI_REASONING_EFFORT` env var, then `"low"`. |
 
 ### WebSocket Events (`/ws`)
 
@@ -403,6 +404,7 @@ Keys are resolved in priority order — the first non-empty value wins:
 | `GOOGLE_API_KEY` | — | Google Gemini API key |
 | `ANTHROPIC_API_KEY` | — | Anthropic Claude API key |
 | `OPENAI_API_KEY` | — | OpenAI API key |
+| `OPENAI_REASONING_EFFORT` | `low` | OpenAI reasoning effort: `none`, `low`, `medium`, `high`, `xhigh` |
 | `GEMINI_MODEL` | `gemini-3-flash-preview` | Default model name |
 | `CONTAINER_NAME` | `cua-environment` | Docker container name |
 | `AGENT_SERVICE_HOST` | `127.0.0.1` | Agent service hostname |
