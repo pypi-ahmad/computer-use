@@ -2,16 +2,17 @@
 
 # 🖥️ CUA — Computer Using Agent
 
-**An open-source workbench for building, testing, and observing autonomous computer-using agents powered by native Computer Use protocols from Google Gemini and Anthropic Claude.**
+**An open-source workbench for building, testing, and observing autonomous computer-using agents powered by native Computer Use protocols from Google Gemini, Anthropic Claude, and OpenAI GPT-5.4.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.13+](https://img.shields.io/badge/Python-3.13+-3776AB.svg?logo=python&logoColor=white)](https://python.org)
 [![React 19](https://img.shields.io/badge/React-19-61DAFB.svg?logo=react&logoColor=black)](https://react.dev)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Docker](https://img.shields.io/badge/Docker-Ubuntu_24.04-2496ED.svg?logo=docker&logoColor=white)](https://docker.com)
-[![Tests](https://img.shields.io/badge/Tests-119_passing-brightgreen.svg)](#-testing)
+[![Tests](https://img.shields.io/badge/Tests-128_passing-brightgreen.svg)](#-testing)
 [![Gemini](https://img.shields.io/badge/Gemini-CU_Native-4285F4.svg?logo=google&logoColor=white)](#-supported-models)
 [![Claude](https://img.shields.io/badge/Claude-CU_Native-CC785C.svg?logo=anthropic&logoColor=white)](#-supported-models)
+[![OpenAI](https://img.shields.io/badge/OpenAI-GPT--5.4_CU-10A37F.svg?logo=openai&logoColor=white)](#-supported-models)
 
 ---
 
@@ -43,7 +44,7 @@ Run a full **Linux desktop + Chromium browser inside Docker**, stream it live to
 CUA implements a **perceive → think → act** loop for autonomous computer control:
 
 1. **Perceive** — capture a screenshot of a virtual Linux desktop running inside Docker
-2. **Think** — send the screenshot + user task to a vision-language model (Gemini or Claude)
+2. **Think** — send the screenshot + user task to a vision-language model (Gemini, Claude, or GPT-5.4)
 3. **Act** — receive a structured action command via the model's native Computer Use tool protocol and execute it inside the sandbox
 
 This cycle repeats until the task completes, an unrecoverable error occurs, or the step limit is reached.
@@ -58,16 +59,16 @@ A React web UI provides real-time desktop streaming (WebSocket screenshots + int
 
 | Category | Details |
 |---|---|
-| **Native CU Engine** | Uses Gemini and Claude native Computer Use tool protocols (`function_call` / `tool_use`) for structured, pixel-level browser and desktop automation |
+| **Native CU Engine** | Uses Gemini, Claude, and OpenAI native Computer Use tool protocols for structured, pixel-level browser and desktop automation |
 | **Two Execution Modes** | **Browser** — Playwright CDP page actions (mouse, keyboard, navigation) · **Desktop** — xdotool + scrot for any X11 application |
-| **Multi-Provider AI** | Google Gemini and Anthropic Claude with a centralized model allowlist enforced at the API layer |
+| **Multi-Provider AI** | Google Gemini, Anthropic Claude, and OpenAI GPT-5.4 with a centralized model allowlist enforced at the API layer |
 | **Docker Sandbox** | All automation runs inside an Ubuntu 24.04 container with resource limits, `no-new-privileges`, and localhost-only port bindings |
 | **Real-Time Streaming** | Live screenshot stream via WebSocket + interactive noVNC desktop access proxied through the backend |
 | **Cross-Platform Host** | Backend + frontend run on Windows, macOS, or Linux; Docker provides the sandboxed Linux desktop |
 | **Safety Confirmation** | CU safety gates (e.g., `require_confirmation`) surface to the UI for explicit user approval before execution |
 | **Input Validation** | Rate limiting (10 starts/min), concurrent session cap (3), model allowlist enforcement, UUID session IDs, task length bounds |
 | **Context Pruning** | Automatic pruning of old screenshots from the conversation context to prevent unbounded token growth |
-| **119 Hermetic Tests** | Unit tests using mocks/patches — no running container or network required |
+| **128 Hermetic Tests** | Unit tests using mocks/patches — no running container or network required |
 
 ---
 
@@ -117,20 +118,20 @@ The system is a **three-process architecture** spanning the host and a Docker co
 
 ## ⚙️ How The Engine Works
 
-The sole supported engine is **`computer_use`**, implementing the native Computer Use protocols from Gemini and Claude. Engine capabilities are registered in `backend/engine_capabilities.json` (schema v3.0).
+The sole supported engine is **`computer_use`**, implementing the native Computer Use protocols from Gemini, Claude, and OpenAI. Engine capabilities are registered in `backend/engine_capabilities.json` (schema v3.0).
 
-The model receives a **screenshot** (base64 PNG) and the **user's task**, then returns a structured action via `function_call` (Gemini) or `tool_use` (Claude). The engine executes that action inside the Docker container and captures a new screenshot. This loop repeats until the model determines the task is **done** or encounters an **error**.
+The model receives a **screenshot** (base64 PNG) and the **user's task**, then returns a structured action via Gemini `function_call`, Claude `tool_use`, or the OpenAI Responses API `computer_call`. The engine executes that action inside the Docker container and captures a new screenshot. This loop repeats until the model determines the task is **done** or encounters an **error**.
 
 ### Provider Comparison
 
-| | Google Gemini | Anthropic Claude |
-|---|---|---|
-| **SDK** | `google-genai` | `anthropic` |
-| **Tool Protocol** | `types.Tool(computer_use=...)` | `computer_20251124` tool + beta endpoint |
-| **Coordinates** | Normalized 0–999 grid, denormalized to pixels by engine | Real pixel values matching reported display size |
-| **Screenshot Handling** | Sent as inline `Part` | Pre-resized per Anthropic limits (max 1568px long edge, 1.15M total pixels) |
-| **Context Pruning** | Old screenshots replaced with text placeholders after 3 turns | Same pruning logic |
-| **System Prompt** | Detailed action instructions + coordinate semantics | Minimal — Anthropic auto-injects CU schema |
+| | Google Gemini | Anthropic Claude | OpenAI GPT-5.4 |
+|---|---|---|---|
+| **SDK** | `google-genai` | `anthropic` | `openai` |
+| **Tool Protocol** | `types.Tool(computer_use=...)` | `computer_20251124` tool + beta endpoint | Responses API built-in `computer` tool |
+| **Coordinates** | Normalized 0–999 grid, denormalized to pixels by engine | Real pixel values matching reported display size | Real pixel values matching the screenshot |
+| **Screenshot Handling** | Sent as inline `Part` | Pre-resized per Anthropic limits (max 1568px long edge, 1.15M total pixels) | Returned as `computer_call_output` with `detail: "original"` |
+| **Context Pruning** | Old screenshots replaced with text placeholders after 3 turns | Same pruning logic | Uses `previous_response_id` to continue the native loop |
+| **System Prompt** | Detailed action instructions + coordinate semantics | Minimal — Anthropic auto-injects CU schema | OpenAI-specific computer-tool guidance |
 
 ### Supported Actions (15)
 
@@ -204,6 +205,7 @@ Defined in `backend/allowed_models.json` — the single source of truth for both
 | Google | `gemini-3.1-pro-preview` | Gemini 3.1 Pro Preview | ⚠️ Unconfirmed | Stronger reasoning; CU not in official docs |
 | Anthropic | `claude-sonnet-4-6` | Claude Sonnet 4.6 | ✅ Native | Requires beta endpoint + `computer_20251124` tool |
 | Anthropic | `claude-opus-4-6` | Claude Opus 4.6 | ✅ Native | Requires beta endpoint + `computer_20251124` tool |
+| OpenAI | `gpt-5.4` | GPT-5.4 | ✅ Native | Responses API built-in `computer` tool |
 
 > **Adding models:** Edit `backend/allowed_models.json`, restart the backend. The UI auto-refreshes via `GET /api/models`.
 
@@ -239,7 +241,7 @@ Defined in `backend/allowed_models.json` — the single source of truth for both
 | Field | Type | Default | Constraints |
 |---|---|---|---|
 | `task` | `string` | *(required)* | Non-empty, max 10,000 chars |
-| `provider` | `string` | *(required)* | `"google"` or `"anthropic"` |
+| `provider` | `string` | *(required)* | `"google"`, `"anthropic"`, or `"openai"` |
 | `model` | `string` | `"gemini-3-flash-preview"` | Must be in allowlist |
 | `mode` | `string` | *(required)* | `"browser"` or `"desktop"` |
 | `api_key` | `string?` | `null` | Optional — resolved from env if empty |
@@ -302,6 +304,8 @@ Both scripts: verify prerequisites → build Docker image → create Python venv
 echo "GOOGLE_API_KEY=your-key-here" >> .env
 # or
 echo "ANTHROPIC_API_KEY=your-key-here" >> .env
+# or
+echo "OPENAI_API_KEY=your-key-here" >> .env
 
 # Option B: system environment variable
 # Option C: paste directly in the UI at runtime
@@ -355,6 +359,7 @@ cd frontend && npm install && cd ..
 | `fastapi` + `uvicorn` | HTTP API + WebSocket server |
 | `google-genai` | Google Gemini API client |
 | `anthropic` | Anthropic Claude API client |
+| `openai` | OpenAI API client |
 | `httpx` | Async HTTP client (agent service communication) |
 | `Pillow` | Screenshot resizing for Claude coordinate scaling |
 | `python-dotenv` | `.env` file loading |
@@ -386,7 +391,7 @@ Keys are resolved in priority order — the first non-empty value wins:
 | Priority | Source | Setup |
 |---|---|---|
 | 1 (highest) | **UI input** | Paste directly in the Workbench |
-| 2 | **`.env` file** | `GOOGLE_API_KEY=...` or `ANTHROPIC_API_KEY=...` in project root |
+| 2 | **`.env` file** | `GOOGLE_API_KEY=...`, `ANTHROPIC_API_KEY=...`, or `OPENAI_API_KEY=...` in project root |
 | 3 | **System env var** | Same variable names set in your shell |
 
 ### Environment Variables
@@ -397,6 +402,7 @@ Keys are resolved in priority order — the first non-empty value wins:
 |---|---|---|
 | `GOOGLE_API_KEY` | — | Google Gemini API key |
 | `ANTHROPIC_API_KEY` | — | Anthropic Claude API key |
+| `OPENAI_API_KEY` | — | OpenAI API key |
 | `GEMINI_MODEL` | `gemini-3-flash-preview` | Default model name |
 | `CONTAINER_NAME` | `cua-environment` | Docker container name |
 | `AGENT_SERVICE_HOST` | `127.0.0.1` | Agent service hostname |
@@ -638,7 +644,7 @@ computer-use/
 │   ├── models.py                  # ActionType enum, Pydantic request/response models
 │   ├── engine.py                  # ComputerUseEngine, GeminiCUClient, ClaudeCUClient,
 │   │                              #   PlaywrightExecutor, DesktopExecutor
-│   ├── allowed_models.json        # Canonical model allowlist (4 models, 2 providers)
+│   ├── allowed_models.json        # Canonical model allowlist  (5 models, 3 providers)
 │   ├── engine_capabilities.json   # Engine capability schema (v3.0)
 │   ├── engine_capabilities.py     # Schema loader for engine_capabilities.json
 │   ├── certifier.py               # Runtime engine certification checks
@@ -706,7 +712,7 @@ computer-use/
 - **No persistent storage** — session state lives in memory; lost on backend restart
 - **No authentication** — designed for local development, not production deployment
 - **Single container** — one Docker container serves all sessions; no per-session isolation
-- **Preview models** — Gemini and Claude CU capabilities are in preview/beta and subject to change
+- **Preview models** — Gemini, Claude, and OpenAI CU capabilities are in preview/beta and subject to change
 - **No CI/CD pipeline** — tests run locally; no automated GitHub Actions workflow yet
 - **Container size** — ~3–4 GB image due to full desktop environment
 - **Coordinate precision** — Gemini's 0–999 normalization can cause slight pixel misalignment on non-standard resolutions
