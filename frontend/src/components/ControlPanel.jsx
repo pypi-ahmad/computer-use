@@ -32,6 +32,7 @@ export default function ControlPanel({
   const [engine, setEngine] = useState('computer_use')
   const [engineList, setEngineList] = useState([])
   const [executionTarget, setExecutionTarget] = useState('docker')
+  const [reasoningEffort, setReasoningEffort] = useState('low')
   const [error, setError] = useState('')
 
   // computer_use always runs in Docker
@@ -128,6 +129,7 @@ export default function ControlPanel({
         engine,
         provider,
         executionTarget,
+        reasoningEffort: provider === 'openai' ? reasoningEffort : null,
       })
       if (res.error) {
         setError(res.error)
@@ -250,6 +252,21 @@ export default function ControlPanel({
             title="Where to run the engine — Docker (Ubuntu container)"
           >
             <option value="docker">🐳 Run in Docker (Ubuntu Container)</option>
+          </select>
+        )}
+        {provider === 'openai' && (
+          <select
+            className="model-select"
+            value={reasoningEffort}
+            onChange={(e) => setReasoningEffort(e.target.value)}
+            disabled={agentRunning}
+            title="OpenAI reasoning effort — higher values improve accuracy but increase cost and latency"
+          >
+            <option value="none">🧠 Reasoning: None</option>
+            <option value="low">🧠 Reasoning: Low</option>
+            <option value="medium">🧠 Reasoning: Medium</option>
+            <option value="high">🧠 Reasoning: High</option>
+            <option value="xhigh">🧠 Reasoning: X-High</option>
           </select>
         )}
         <Link to="/workbench" className="btn btn-secondary" style={{ textAlign: 'center', marginTop: 6, display: 'block', textDecoration: 'none' }}>
