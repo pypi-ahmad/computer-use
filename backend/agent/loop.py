@@ -59,6 +59,7 @@ class AgentLoop:
         engine: str = "computer_use",
         provider: str = "google",
         execution_target: str = "docker",
+        reasoning_effort: str | None = None,
         on_step: Optional[Callable] = None,
         on_log: Optional[Callable] = None,
         on_screenshot: Optional[Callable] = None,
@@ -76,6 +77,7 @@ class AgentLoop:
         self._mode = mode
         self._provider = provider
         self._execution_target = execution_target
+        self._reasoning_effort = reasoning_effort
         self._action_history: list[AgentAction] = []
         self._stop_requested = False
         self._consecutive_errors = 0
@@ -195,6 +197,7 @@ class AgentLoop:
             system_instruction=system_instruction,
             container_name=config.container_name,
             agent_service_url=config.agent_service_url,
+            reasoning_effort=self._reasoning_effort,
         )
 
         # For browser mode, acquire a Playwright page from the agent service
