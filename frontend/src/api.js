@@ -58,21 +58,23 @@ export async function stopContainer() {
  * @param {string} [params.executionTarget='docker'] - Execution target.
  * @returns {Promise<{session_id?: string, error?: string}>}
  */
-export async function startAgent({ task, apiKey, model, maxSteps, mode, provider, engine = 'computer_use', executionTarget = 'docker' }) {
+export async function startAgent({ task, apiKey, model, maxSteps, mode, provider, engine = 'computer_use', executionTarget = 'docker', reasoningEffort = null }) {
   try {
+    const body = {
+      task,
+      api_key: apiKey,
+      model,
+      max_steps: maxSteps,
+      mode,
+      engine,
+      provider,
+      execution_target: executionTarget,
+    }
+    if (reasoningEffort) body.reasoning_effort = reasoningEffort
     const res = await fetch(`${API_BASE}/agent/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        task,
-        api_key: apiKey,
-        model,
-        max_steps: maxSteps,
-        mode,
-        engine,
-        provider,
-        execution_target: executionTarget,
-      }),
+      body: JSON.stringify(body),
     })
 
     const ct = res.headers.get('content-type') || ''
