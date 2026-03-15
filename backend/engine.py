@@ -1611,11 +1611,14 @@ class OpenAICUClient:
     returns screenshots through ``computer_call_output`` items.
     """
 
+    VALID_REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh")
+
     def __init__(
         self,
         api_key: str,
         model: str = "gpt-5.4",
         system_prompt: str | None = None,
+        reasoning_effort: str = "low",
     ):
         try:
             from openai import OpenAI
@@ -1627,6 +1630,9 @@ class OpenAICUClient:
         self._client = OpenAI(api_key=api_key)
         self._model = model
         self._system_prompt = system_prompt or ""
+        if reasoning_effort not in self.VALID_REASONING_EFFORTS:
+            reasoning_effort = "low"
+        self._reasoning_effort = reasoning_effort
 
     async def _create_response(self, **kwargs: Any) -> Any:
         """Call the synchronous OpenAI SDK without blocking the event loop."""
@@ -1674,7 +1680,7 @@ class OpenAICUClient:
                 "input": next_input,
                 "tools": [{"type": "computer"}],
                 "parallel_tool_calls": False,
-                "reasoning": {"effort": "low"},
+                "reasoning": {"effort": self._reasoning_effort},
                 "truncation": "auto",
             }
             if previous_response_id:
@@ -1742,6 +1748,9 @@ class OpenAICUClient:
                 for action in actions:
                     result = await self._execute_openai_action(action, executor)
                     results.append(result)
+                    # Inter-action delay matching official CUA sample (120ms)
+                    if action is not actions[-1]:
+                        await asyncio.sleep(0.12)
 
                 screenshot_bytes = await executor.capture_screenshot()
                 screenshot_b64 = base64.standard_b64encode(screenshot_bytes).decode()
@@ -2020,6 +2029,7 @@ class ComputerUseEngine:
         excluded_actions: list[str] | None = None,
         container_name: str = "cua-environment",
         agent_service_url: str = "http://127.0.0.1:9222",
+        reasoning_effort: str | None = None,
     ):
         self.provider = provider
         self.environment = environment
@@ -2053,6 +2063,7 @@ class ComputerUseEngine:
                 api_key=api_key,
                 model=model or "gpt-5.4",
                 system_prompt=system_instruction,
+                reasoning_effort=reasoning_effort or "low",
             )
         else:
             raise ValueError(f"Unsupported provider: {provider}")

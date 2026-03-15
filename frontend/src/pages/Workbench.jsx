@@ -51,6 +51,7 @@ export default function Workbench() {
   const [keyStatuses, setKeyStatuses] = useState({}) // { google: {...}, anthropic: {...} }
   const [task, setTask] = useState('')
   const [maxSteps, setMaxSteps] = useState(50)
+  const [reasoningEffort, setReasoningEffort] = useState('low')
   const [error, setError] = useState('')
 
   // Timeline expansion
@@ -182,6 +183,7 @@ export default function Workbench() {
         maxSteps: Number(maxSteps),
         mode: runMode,
         provider,
+        reasoningEffort: provider === 'openai' ? reasoningEffort : null,
       })
       if (res.error) return setError(res.error)
       setSessionId(res.session_id)
@@ -319,6 +321,20 @@ export default function Workbench() {
             <label className="wb-label">Max Steps</label>
             <input type="number" className="wb-input wb-input-sm" min={1} max={200} value={maxSteps} onChange={(e) => setMaxSteps(e.target.value)} disabled={agentRunning} />
           </div>
+
+          {/* OpenAI Reasoning Effort */}
+          {provider === 'openai' && (
+            <div className="wb-section">
+              <label className="wb-label">Reasoning Effort</label>
+              <select className="wb-input" value={reasoningEffort} onChange={(e) => setReasoningEffort(e.target.value)} disabled={agentRunning}>
+                <option value="none">None</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="xhigh">X-High</option>
+              </select>
+            </div>
+          )}
 
           {/* Task */}
           <div className="wb-section wb-section-grow">

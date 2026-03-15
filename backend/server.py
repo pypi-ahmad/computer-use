@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 import uuid
 
@@ -311,6 +312,12 @@ async def api_start_agent(req: StartTaskRequest):
     # Cap max_steps to prevent runaway agents
     req.max_steps = min(req.max_steps, _MAX_STEPS_HARD_CAP)
 
+    # Resolve reasoning_effort: request > env var > default "low"
+    _VALID_REASONING_EFFORTS = {"none", "low", "medium", "high", "xhigh"}
+    reasoning_effort = (req.reasoning_effort or os.getenv("OPENAI_REASONING_EFFORT") or "low").lower()
+    if reasoning_effort not in _VALID_REASONING_EFFORTS:
+        reasoning_effort = "low"
+
     # Limit concurrent sessions
     active_count = sum(1 for t in _active_tasks.values() if not t.done())
     if active_count >= _MAX_CONCURRENT_SESSIONS:
@@ -335,6 +342,7 @@ async def api_start_agent(req: StartTaskRequest):
         engine=req.engine,
         provider=req.provider,
         execution_target=req.execution_target,
+        reasoning_effort=reasoning_effort if req.provider == "openai" else None,
         on_log=lambda entry: asyncio.ensure_future(
             _broadcast("log", {"log": entry.model_dump()})
         ),
