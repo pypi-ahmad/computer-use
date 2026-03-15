@@ -34,6 +34,13 @@
       "cu_tool_version": "computer_20251124",
       "cu_betas": ["computer-use-2025-11-24"],
       "notes": "Claude Opus 4.6 — requires beta endpoint + computer_20251124 tool."
+    },
+    {
+      "provider": "openai",
+      "model_id": "gpt-5.4",
+      "display_name": "GPT-5.4",
+      "supports_computer_use": true,
+      "notes": "OpenAI Responses API built-in computer tool."
     }
   ]
 }

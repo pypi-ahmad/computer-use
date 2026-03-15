@@ -53,10 +53,12 @@ export async function stopContainer() {
  * @param {string} params.model - Model identifier.
  * @param {number} params.maxSteps - Maximum agent steps.
  * @param {string} params.mode - Execution mode ('browser' | 'desktop').
- * @param {string} params.provider - AI provider ('google' | 'anthropic').
+ * @param {string} params.provider - AI provider ('google' | 'anthropic' | 'openai').
+ * @param {string} [params.engine='computer_use'] - Execution engine.
+ * @param {string} [params.executionTarget='docker'] - Execution target.
  * @returns {Promise<{session_id?: string, error?: string}>}
  */
-export async function startAgent({ task, apiKey, model, maxSteps, mode, provider }) {
+export async function startAgent({ task, apiKey, model, maxSteps, mode, provider, engine = 'computer_use', executionTarget = 'docker' }) {
   try {
     const res = await fetch(`${API_BASE}/agent/start`, {
       method: 'POST',
@@ -67,9 +69,9 @@ export async function startAgent({ task, apiKey, model, maxSteps, mode, provider
         model,
         max_steps: maxSteps,
         mode,
-        engine: 'computer_use',
+        engine,
         provider,
-        execution_target: 'docker',
+        execution_target: executionTarget,
       }),
     })
 

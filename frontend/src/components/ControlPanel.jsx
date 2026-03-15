@@ -2,6 +2,12 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { startAgent, stopAgent, getKeyStatuses, getEngines, getModels } from '../api'
 
+const PROVIDERS = [
+  { value: 'google', label: 'Google Gemini', envVar: 'GOOGLE_API_KEY', placeholder: 'AI...' },
+  { value: 'anthropic', label: 'Anthropic Claude', envVar: 'ANTHROPIC_API_KEY', placeholder: 'sk-ant-...' },
+  { value: 'openai', label: 'OpenAI GPT-5.4', envVar: 'OPENAI_API_KEY', placeholder: 'sk-...' },
+]
+
 /**
  * Left-panel form for configuring and controlling the CUA agent.
  * Handles provider/model selection, API key source, task input, and start/stop actions.
@@ -39,9 +45,12 @@ export default function ControlPanel({
   // Derive per-provider lists from fetched data only
   /** Maps a model record to a { value, label } option for the select dropdown. */
   const toOption = (m) => ({ value: m.model_id, label: `${m.display_name} (${m.model_id})` })
-  const googleModels = fetchedModels.filter(m => m.provider === 'google').map(toOption)
-  const anthropicModels = fetchedModels.filter(m => m.provider === 'anthropic').map(toOption)
-  const models = provider === 'anthropic' ? anthropicModels : googleModels
+  const modelsByProvider = fetchedModels.reduce((acc, item) => {
+    acc[item.provider] = (acc[item.provider] || []).concat(toOption(item))
+    return acc
+  }, {})
+  const models = modelsByProvider[provider] || []
+  const providerMeta = PROVIDERS.find(item => item.value === provider) || PROVIDERS[0]
 
   // Fetch API key statuses, engines, and models on mount
   useEffect(() => {
@@ -70,7 +79,7 @@ export default function ControlPanel({
           setFetchedModels(data.models)
           setModelsLoaded(true)
           // Auto-select first model for the default provider
-          const firstForProvider = data.models.find(m => m.provider === 'google')
+          const firstForProvider = data.models.find(m => m.provider === provider)
           if (firstForProvider) setModel(firstForProvider.model_id)
         }
       } catch { /* backend not ready — models will stay empty */ }
@@ -78,12 +87,12 @@ export default function ControlPanel({
     fetchKeys()
     fetchEngines()
     fetchModelList()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [provider])
 
   /** Switches the active provider, resets the selected model, and auto-selects key source. */
   const handleProviderChange = (newProvider) => {
     setProvider(newProvider)
-    const list = newProvider === 'anthropic' ? anthropicModels : googleModels
+    const list = modelsByProvider[newProvider] || []
     setModel(list.length > 0 ? list[0].value : '')
     // Auto-select key source
     const status = keyStatuses[newProvider]
@@ -155,8 +164,9 @@ export default function ControlPanel({
       <div className="panel-section">
         <h3>API Configuration</h3>
         <select className="model-select" value={provider} onChange={(e) => handleProviderChange(e.target.value)} disabled={agentRunning}>
-          <option value="google">Google Gemini</option>
-          <option value="anthropic">Anthropic Claude</option>
+          {PROVIDERS.map(item => (
+            <option key={item.value} value={item.value}>{item.label}</option>
+          ))}
         </select>
 
         {/* Key Source Toggle */}
@@ -197,7 +207,7 @@ export default function ControlPanel({
         )}
         {keySource !== 'ui' && !keyStatuses[provider]?.available && (
           <div style={{ fontSize: 11, color: 'var(--error, #f44336)', marginBottom: 6 }}>
-            ⚠️ No key found — {provider === 'google' ? 'set GOOGLE_API_KEY' : 'set ANTHROPIC_API_KEY'}
+            ⚠️ No key found — set {providerMeta.envVar}
           </div>
         )}
 
@@ -205,7 +215,7 @@ export default function ControlPanel({
           <input
             type="password"
             className="api-key-input"
-            placeholder={provider === 'anthropic' ? 'Anthropic API Key' : 'Gemini API Key'}
+            placeholder={`${providerMeta.label} API Key`}
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
             autoComplete="off"

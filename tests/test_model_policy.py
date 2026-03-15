@@ -41,7 +41,7 @@ class TestAllowedModelsSchema:
             assert not missing, f"Model {m.get('model_id', '?')} missing: {missing}"
 
     def test_valid_providers(self, models):
-        valid = {"google", "anthropic"}
+        valid = {"google", "anthropic", "openai"}
         for m in models:
             assert m["provider"] in valid, f"Invalid provider: {m['provider']}"
 
@@ -80,6 +80,12 @@ class TestModelPolicy:
             if m["model_id"] == "claude-opus-4-6":
                 assert m["supports_computer_use"] is True
                 assert m["cu_tool_version"] == "computer_20251124"
+
+    def test_gpt_54_is_cu_capable(self, models):
+        for m in models:
+            if m["model_id"] == "gpt-5.4":
+                assert m["provider"] == "openai"
+                assert m["supports_computer_use"] is True
 
     def test_no_duplicate_model_ids(self, models):
         ids = [m["model_id"] for m in models]
