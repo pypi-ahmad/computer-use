@@ -9,7 +9,7 @@
 [![React 19](https://img.shields.io/badge/React-19-61DAFB.svg?logo=react&logoColor=black)](https://react.dev)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Docker](https://img.shields.io/badge/Docker-Ubuntu_24.04-2496ED.svg?logo=docker&logoColor=white)](https://docker.com)
-[![Tests](https://img.shields.io/badge/Tests-128_passing-brightgreen.svg)](#-testing)
+[![Tests](https://img.shields.io/badge/Tests-131_passing-brightgreen.svg)](#-testing)
 [![Gemini](https://img.shields.io/badge/Gemini-CU_Native-4285F4.svg?logo=google&logoColor=white)](#-supported-models)
 [![Claude](https://img.shields.io/badge/Claude-CU_Native-CC785C.svg?logo=anthropic&logoColor=white)](#-supported-models)
 [![OpenAI](https://img.shields.io/badge/OpenAI-GPT--5.4_CU-10A37F.svg?logo=openai&logoColor=white)](#-supported-models)
@@ -49,7 +49,7 @@ CUA implements a **perceive → think → act** loop for autonomous computer con
 
 This cycle repeats until the task completes, an unrecoverable error occurs, or the step limit is reached.
 
-The system uses **native Computer Use protocols exclusively** — Gemini's `function_call` and Claude's `tool_use` — for pixel-level interaction. No text parsing of model responses is required. All actions execute inside a resource-limited Docker container in either **browser mode** (Playwright Chromium via CDP) or **desktop mode** (xdotool + scrot for any X11 application).
+The system uses **native Computer Use protocols exclusively** — Gemini's `function_call`, Claude's `tool_use`, and the OpenAI Responses API `computer_call` — for pixel-level interaction. No text parsing of model responses is required. All actions execute inside a resource-limited Docker container in either **browser mode** (Playwright Chromium via CDP) or **desktop mode** (xdotool + scrot for any X11 application).
 
 A React web UI provides real-time desktop streaming (WebSocket screenshots + interactive noVNC), session management, step-by-step action timeline, and log viewing.
 
@@ -68,7 +68,7 @@ A React web UI provides real-time desktop streaming (WebSocket screenshots + int
 | **Safety Confirmation** | CU safety gates (e.g., `require_confirmation`) surface to the UI for explicit user approval before execution |
 | **Input Validation** | Rate limiting (10 starts/min), concurrent session cap (3), model allowlist enforcement, UUID session IDs, task length bounds |
 | **Context Pruning** | Automatic pruning of old screenshots from the conversation context to prevent unbounded token growth |
-| **128 Hermetic Tests** | Unit tests using mocks/patches — no running container or network required |
+| **131 Hermetic Tests** | Unit tests using mocks/patches — no running container or network required |
 
 ---
 
@@ -97,7 +97,7 @@ The system is a **three-process architecture** spanning the host and a Docker co
 | Frontend → Container | noVNC (WebSocket) | `ScreenView.jsx` → `/vnc/websockify` proxy in `server.py` |
 | Backend → Agent Service | HTTP | `loop.py` / `screenshot.py` → `:9222/action`, `:9222/screenshot` |
 | Backend → Chromium | CDP (WebSocket) | Playwright page acquisition via `:9223` |
-| Backend → LLM APIs | HTTPS | `google-genai` / `anthropic` SDKs → cloud endpoints |
+| Backend → LLM APIs | HTTPS | `google-genai` / `anthropic` / `openai` SDKs → cloud endpoints |
 | Backend → Docker CLI | Subprocess | `docker_manager.py` → `docker build/run/rm/exec` |
 
 </details>
@@ -475,7 +475,7 @@ docker compose down
 | | |
 |---|---|
 | **Framework** | pytest |
-| **Tests** | 119 passing |
+| **Tests** | 131 passing |
 | **Hermetic** | All tests use mocks/patches — no running container or network required |
 
 ### Running Tests
@@ -526,7 +526,7 @@ Google Chrome, Playwright Chromium, xdotool, wmctrl, xclip, scrot, ffmpeg, Node.
 
 ### Agent Service (`docker/agent_service.py`)
 
-An HTTP server running inside the container with ~119 documented functions handling both Playwright (browser) and xdotool (desktop) dispatch:
+An HTTP server running inside the container handling both Playwright (browser) and xdotool (desktop) dispatch:
 
 | Endpoint | Method | Purpose |
 |---|---|---|
@@ -643,7 +643,7 @@ computer-use/
 │   ├── config.py                  # Config dataclass, env loading, API key resolution
 │   ├── models.py                  # ActionType enum, Pydantic request/response models
 │   ├── engine.py                  # ComputerUseEngine, GeminiCUClient, ClaudeCUClient,
-│   │                              #   PlaywrightExecutor, DesktopExecutor
+│   │                              #   OpenAICUClient, PlaywrightExecutor, DesktopExecutor
 │   ├── allowed_models.json        # Canonical model allowlist  (5 models, 3 providers)
 │   ├── engine_capabilities.json   # Engine capability schema (v3.0)
 │   ├── engine_capabilities.py     # Schema loader for engine_capabilities.json
@@ -654,7 +654,7 @@ computer-use/
 │   ├── streaming.py               # Streaming utilities
 │   └── agent/
 │       ├── loop.py                # AgentLoop orchestrator (perceive → think → act)
-│       ├── prompts.py             # System prompts for Gemini CU and Claude CU
+│       ├── prompts.py             # System prompts for Gemini, Claude, and OpenAI CU
 │       └── screenshot.py          # Screenshot capture via agent service + fallback
 ├── docker/
 │   ├── Dockerfile                 # Ubuntu 24.04, XFCE 4, Chrome, Playwright, desktop apps
