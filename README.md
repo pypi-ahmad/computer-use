@@ -491,15 +491,15 @@ pytest tests/ -q               # Quick summary
 
 | File | Scope |
 |---|---|
-| `test_computer_use_engine.py` | Coordinate denormalization, executor mocking, safety decisions |
+| `test_computer_use_engine.py` | Coordinate denormalization, executor mocking, safety decisions, OpenAI runtime path + helpers |
 | `test_claude_actions.py` | Claude action dispatch via PlaywrightExecutor |
 | `test_playwright_executor.py` | Gemini CU actions via PlaywrightExecutor (normalized coords) |
 | `test_coordinate_scaling.py` | Claude screenshot scaling & coordinate math |
 | `test_context_pruning.py` | Conversation context pruning logic |
-| `test_config.py` | Config singleton, `from_env()`, agent service URL |
+| `test_config.py` | Config singleton, `from_env()`, agent service URL, OpenAI key resolution |
 | `test_models.py` | ActionType enum, Pydantic model validation, StructuredError |
 | `test_model_policy.py` | `allowed_models.json` integrity, model endpoint, provider rejection |
-| `test_prompts.py` | Prompt separation (Gemini vs Claude), viewport injection, drift detection |
+| `test_prompts.py` | Prompt separation (Gemini vs Claude vs OpenAI), viewport injection, drift detection |
 | `test_server_validation.py` | API input validation: engines, providers, models, rate limiting, safety |
 | `test_docker_security.py` | Container security settings validation |
 | `conftest.py` | Shared `mock_page` fixture (mock Playwright page) |
