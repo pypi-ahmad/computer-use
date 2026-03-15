@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 _CU_ACTION_MAP: dict[str, ActionType] = {
     "click_at": ActionType.CLICK, "double_click": ActionType.DOUBLE_CLICK,
     "right_click": ActionType.RIGHT_CLICK, "triple_click": ActionType.CLICK,
+    "middle_click": ActionType.CLICK,
     "hover_at": ActionType.HOVER, "type_text_at": ActionType.TYPE,
     "type_at_cursor": ActionType.TYPE, "key_combination": ActionType.KEY,
     "scroll_document": ActionType.SCROLL, "scroll_at": ActionType.SCROLL,
@@ -38,6 +39,10 @@ _CU_ACTION_MAP: dict[str, ActionType] = {
     "open_web_browser": ActionType.OPEN_URL, "search": ActionType.OPEN_URL,
     "go_back": ActionType.GO_BACK, "go_forward": ActionType.GO_FORWARD,
     "wait_5_seconds": ActionType.WAIT,
+    "click": ActionType.CLICK, "move": ActionType.HOVER,
+    "type": ActionType.TYPE, "keypress": ActionType.KEY,
+    "scroll": ActionType.SCROLL, "drag": ActionType.DRAG,
+    "wait": ActionType.WAIT, "screenshot": ActionType.WAIT,
 }
 
 
@@ -163,7 +168,11 @@ class AgentLoop:
         self._emit_log("info", "Delegating to native Computer Use engine")
 
         # Map provider string → CU Provider enum
-        provider_map = {"google": Provider.GEMINI, "anthropic": Provider.CLAUDE}
+        provider_map = {
+            "google": Provider.GEMINI,
+            "anthropic": Provider.CLAUDE,
+            "openai": Provider.OPENAI,
+        }
         cu_provider = provider_map.get(self._provider)
         if cu_provider is None:
             self._emit_log("error", f"Unsupported CU provider: {self._provider}")

@@ -77,6 +77,58 @@ def _lookup_claude_cu_config(model_id: str) -> tuple[str | None, str | None]:
         pass
     return None, None
 
+
+def _to_plain_dict(value: Any) -> dict[str, Any]:
+    """Convert SDK objects or typed dict-like values into a plain dict."""
+    if isinstance(value, dict):
+        return dict(value)
+    if hasattr(value, "model_dump"):
+        return value.model_dump()
+    if hasattr(value, "dict"):
+        return value.dict()
+    if hasattr(value, "__dict__"):
+        return {
+            key: item for key, item in vars(value).items()
+            if not key.startswith("_")
+        }
+    return {}
+
+
+def _extract_openai_output_text(output_items: list[Any]) -> str:
+    """Collect assistant text blocks from a Responses API output list."""
+    text_parts: list[str] = []
+    for item in output_items:
+        if getattr(item, "type", None) != "message":
+            continue
+        for content_part in getattr(item, "content", []) or []:
+            if getattr(content_part, "type", None) != "output_text":
+                continue
+            text = getattr(content_part, "text", None)
+            if text:
+                text_parts.append(str(text).strip())
+    return "\n\n".join(part for part in text_parts if part)
+
+
+def _build_openai_computer_call_output(
+    call_id: str,
+    screenshot_b64: str,
+    *,
+    acknowledged_safety_checks: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Build the Responses API follow-up item for a computer call."""
+    payload: dict[str, Any] = {
+        "type": "computer_call_output",
+        "call_id": call_id,
+        "output": {
+            "type": "computer_screenshot",
+            "image_url": f"data:image/png;base64,{screenshot_b64}",
+            "detail": "original",
+        },
+    }
+    if acknowledged_safety_checks:
+        payload["acknowledged_safety_checks"] = acknowledged_safety_checks
+    return payload
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -119,6 +171,7 @@ class Provider(str, Enum):
 
     GEMINI = "gemini"
     CLAUDE = "claude"
+    OPENAI = "openai"
 
 
 class Environment(str, Enum):
@@ -343,11 +396,33 @@ class PlaywrightExecutor:
         await self.page.mouse.click(px, py)
         return {"pixel_x": px, "pixel_y": py}
 
+    async def _act_double_click(self, a: dict) -> dict:
+        """Double-click at the given coordinates."""
+        px, py = self._px(a["x"], a["y"])
+        await self.page.mouse.dblclick(px, py)
+        return {"pixel_x": px, "pixel_y": py}
+
+    async def _act_right_click(self, a: dict) -> dict:
+        """Right-click at the given coordinates."""
+        px, py = self._px(a["x"], a["y"])
+        await self.page.mouse.click(px, py, button="right")
+        return {"pixel_x": px, "pixel_y": py}
+
+    async def _act_middle_click(self, a: dict) -> dict:
+        """Middle-click at the given coordinates."""
+        px, py = self._px(a["x"], a["y"])
+        await self.page.mouse.click(px, py, button="middle")
+        return {"pixel_x": px, "pixel_y": py}
+
     async def _act_hover_at(self, a: dict) -> dict:
         """Move the mouse to the given coordinates without clicking."""
         px, py = self._px(a["x"], a["y"])
         await self.page.mouse.move(px, py)
         return {"pixel_x": px, "pixel_y": py}
+
+    async def _act_move(self, a: dict) -> dict:
+        """Alias for pointer movement used by OpenAI computer actions."""
+        return await self._act_hover_at(a)
 
     async def _act_type_text_at(self, a: dict) -> dict:
         """Click at coordinates, optionally clear the field, type text, and optionally press Enter."""
@@ -363,6 +438,15 @@ class PlaywrightExecutor:
         if press_enter:
             await self.page.keyboard.press("Enter")
         return {"pixel_x": px, "pixel_y": py, "text": text}
+
+    async def _act_type_at_cursor(self, a: dict) -> dict:
+        """Type text into the currently focused element without clicking first."""
+        text = a["text"]
+        press_enter = a.get("press_enter", False)
+        await self.page.keyboard.type(text)
+        if press_enter:
+            await self.page.keyboard.press("Enter")
+        return {"text": text}
 
     async def _act_key_combination(self, a: dict) -> dict:
         """Press a keyboard shortcut (e.g. ``Control+A``)."""
@@ -524,6 +608,14 @@ class DesktopExecutor:
         })
         return {"pixel_x": px, "pixel_y": py, **result}
 
+    async def _act_middle_click(self, a: dict) -> dict:
+        """Middle-click at coordinates via agent_service xdotool."""
+        px, py = self._px(a["x"], a["y"])
+        result = await self._post_action({
+            "action": "middle_click", "coordinates": [px, py], "mode": "desktop",
+        })
+        return {"pixel_x": px, "pixel_y": py, **result}
+
     async def _act_triple_click(self, a: dict) -> dict:
         """Simulate triple-click (select paragraph/line) via 3 rapid clicks."""
         px, py = self._px(a["x"], a["y"])
@@ -542,6 +634,10 @@ class DesktopExecutor:
             "action": "hover", "coordinates": [px, py], "mode": "desktop",
         })
         return {"pixel_x": px, "pixel_y": py, **result}
+
+    async def _act_move(self, a: dict) -> dict:
+        """Alias for pointer movement used by OpenAI computer actions."""
+        return await self._act_hover_at(a)
 
     async def _act_type_text_at(self, a: dict) -> dict:
         """Click at coordinates via agent_service, clear field, type text, and optionally press Enter."""
@@ -1507,6 +1603,348 @@ class ClaudeCUClient:
             return CUActionResult(name=action, success=False, error=str(exc))
 
 
+class OpenAICUClient:
+    """OpenAI Responses API computer-use client.
+
+    Uses the built-in ``computer`` tool with ``gpt-5.4`` or another
+    allowlisted OpenAI model. The harness executes all returned actions and
+    returns screenshots through ``computer_call_output`` items.
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "gpt-5.4",
+        system_prompt: str | None = None,
+    ):
+        try:
+            from openai import OpenAI
+        except ImportError as exc:
+            raise ImportError(
+                "openai is required. Install: pip install openai"
+            ) from exc
+
+        self._client = OpenAI(api_key=api_key)
+        self._model = model
+        self._system_prompt = system_prompt or ""
+
+    async def _create_response(self, **kwargs: Any) -> Any:
+        """Call the synchronous OpenAI SDK without blocking the event loop."""
+        return await asyncio.to_thread(self._client.responses.create, **kwargs)
+
+    async def run_loop(
+        self,
+        goal: str,
+        executor: ActionExecutor,
+        *,
+        turn_limit: int = DEFAULT_TURN_LIMIT,
+        on_safety: Callable[[str], bool] | None = None,
+        on_turn: Callable[[CUTurnRecord], None] | None = None,
+        on_log: Callable[[str, str], None] | None = None,
+    ) -> str:
+        """Run the OpenAI native computer-use loop via the Responses API."""
+        screenshot_bytes = await executor.capture_screenshot()
+        if not screenshot_bytes or len(screenshot_bytes) < 100:
+            if on_log:
+                on_log("error", "Initial screenshot capture failed or returned empty bytes")
+            return "Error: Could not capture initial screenshot"
+
+        next_input: list[dict[str, Any]] = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": goal},
+                    {
+                        "type": "input_image",
+                        "image_url": f"data:image/png;base64,{base64.standard_b64encode(screenshot_bytes).decode()}",
+                        "detail": "original",
+                    },
+                ],
+            }
+        ]
+        previous_response_id: str | None = None
+        final_text = ""
+
+        for turn in range(turn_limit):
+            if on_log:
+                on_log("info", f"OpenAI CU turn {turn + 1}/{turn_limit}")
+
+            request: dict[str, Any] = {
+                "model": self._model,
+                "input": next_input,
+                "tools": [{"type": "computer"}],
+                "parallel_tool_calls": False,
+                "reasoning": {"effort": "low"},
+                "truncation": "auto",
+            }
+            if previous_response_id:
+                request["previous_response_id"] = previous_response_id
+            if self._system_prompt:
+                request["instructions"] = self._system_prompt
+
+            response = await self._create_response(**request)
+            response_error = getattr(response, "error", None)
+            if response_error:
+                raise RuntimeError(getattr(response_error, "message", str(response_error)))
+
+            previous_response_id = getattr(response, "id", previous_response_id)
+            output_items = list(getattr(response, "output", []) or [])
+            turn_text = getattr(response, "output_text", "") or _extract_openai_output_text(output_items)
+            computer_calls = [
+                item for item in output_items
+                if getattr(item, "type", None) == "computer_call"
+            ]
+
+            if not computer_calls:
+                final_text = turn_text or "OpenAI completed without a final message."
+                if on_log:
+                    on_log("info", f"OpenAI CU completed: {final_text[:200]}")
+                if on_turn:
+                    on_turn(CUTurnRecord(turn=turn + 1, model_text=turn_text, actions=[]))
+                break
+
+            tool_outputs: list[dict[str, Any]] = []
+            results: list[CUActionResult] = []
+            screenshot_b64: str | None = None
+            terminated = False
+
+            for computer_call in computer_calls:
+                acknowledged_safety_checks: list[dict[str, Any]] | None = None
+                pending_checks = [
+                    _to_plain_dict(check)
+                    for check in (getattr(computer_call, "pending_safety_checks", None) or [])
+                ]
+                if pending_checks:
+                    explanation = " | ".join(
+                        check.get("message") or check.get("code") or "Safety acknowledgement required"
+                        for check in pending_checks
+                    )
+                    confirmed = on_safety(explanation) if on_safety else False
+                    if not confirmed:
+                        final_text = "Agent terminated: safety confirmation denied."
+                        terminated = True
+                        break
+                    acknowledged_safety_checks = []
+                    for check in pending_checks:
+                        ack: dict[str, Any] = {"id": check["id"]}
+                        if check.get("code") is not None:
+                            ack["code"] = check["code"]
+                        if check.get("message") is not None:
+                            ack["message"] = check["message"]
+                        acknowledged_safety_checks.append(ack)
+
+                actions = list(getattr(computer_call, "actions", None) or [])
+                if not actions:
+                    single_action = getattr(computer_call, "action", None)
+                    if single_action is not None:
+                        actions = [single_action]
+
+                for action in actions:
+                    result = await self._execute_openai_action(action, executor)
+                    results.append(result)
+
+                screenshot_bytes = await executor.capture_screenshot()
+                screenshot_b64 = base64.standard_b64encode(screenshot_bytes).decode()
+                tool_outputs.append(
+                    _build_openai_computer_call_output(
+                        getattr(computer_call, "call_id"),
+                        screenshot_b64,
+                        acknowledged_safety_checks=acknowledged_safety_checks,
+                    )
+                )
+
+            if on_turn:
+                on_turn(CUTurnRecord(
+                    turn=turn + 1,
+                    model_text=turn_text,
+                    actions=results,
+                    screenshot_b64=screenshot_b64,
+                ))
+
+            if terminated:
+                break
+            if not tool_outputs:
+                final_text = turn_text or "OpenAI returned no actionable computer calls."
+                break
+
+            next_input = tool_outputs
+        else:
+            final_text = f"OpenAI CU reached the turn limit ({turn_limit}) without a final response."
+
+        return final_text
+
+    async def _execute_openai_action(
+        self,
+        action: Any,
+        executor: ActionExecutor,
+    ) -> CUActionResult:
+        """Translate OpenAI computer actions to the shared executor contract."""
+        payload = _to_plain_dict(action)
+        action_type = str(payload.get("type", ""))
+
+        def _coords(*keys: str) -> tuple[int | None, ...]:
+            values: list[int | None] = []
+            for key in keys:
+                raw = payload.get(key)
+                values.append(int(raw) if isinstance(raw, (int, float)) else None)
+            return tuple(values)
+
+        if action_type == "screenshot":
+            return CUActionResult(name="screenshot")
+
+        if action_type == "click":
+            x, y = _coords("x", "y")
+            button = str(payload.get("button", "left")).lower()
+            if x is None or y is None:
+                return CUActionResult(name="click", success=False, error="Click action missing coordinates")
+            if button == "right":
+                return await executor.execute("right_click", {"x": x, "y": y})
+            if button in {"middle", "wheel"}:
+                return await executor.execute("middle_click", {"x": x, "y": y})
+            return await executor.execute("click_at", {"x": x, "y": y})
+
+        if action_type == "double_click":
+            x, y = _coords("x", "y")
+            if x is None or y is None:
+                return CUActionResult(name="double_click", success=False, error="Double-click action missing coordinates")
+            return await executor.execute("double_click", {"x": x, "y": y})
+
+        if action_type == "move":
+            x, y = _coords("x", "y")
+            if x is None or y is None:
+                return CUActionResult(name="move", success=False, error="Move action missing coordinates")
+            return await executor.execute("move", {"x": x, "y": y})
+
+        if action_type == "type":
+            return await executor.execute("type_at_cursor", {
+                "text": str(payload.get("text", "")),
+                "press_enter": False,
+            })
+
+        if action_type == "keypress":
+            keys = payload.get("keys")
+            if not isinstance(keys, list):
+                single_key = payload.get("key")
+                keys = [single_key] if single_key else []
+            normalized = "+".join(self._normalize_openai_keys(keys))
+            if not normalized:
+                return CUActionResult(name="keypress", success=False, error="Keypress action missing keys")
+            return await executor.execute("key_combination", {"keys": normalized})
+
+        if action_type == "wait":
+            duration_ms = payload.get("ms")
+            if not isinstance(duration_ms, (int, float)):
+                duration_ms = payload.get("duration_ms")
+            if not isinstance(duration_ms, (int, float)):
+                duration_ms = 2000
+            await asyncio.sleep(max(0.0, min(float(duration_ms), 30_000.0)) / 1000.0)
+            return CUActionResult(name="wait", extra={"duration_ms": int(duration_ms)})
+
+        if action_type == "scroll":
+            return await self._execute_openai_scroll(payload, executor)
+
+        if action_type == "drag":
+            path = payload.get("path")
+            start_x: int | None = None
+            start_y: int | None = None
+            end_x: int | None = None
+            end_y: int | None = None
+            if isinstance(path, list) and len(path) >= 2:
+                first = _to_plain_dict(path[0])
+                last = _to_plain_dict(path[-1])
+                start_x = int(first.get("x")) if isinstance(first.get("x"), (int, float)) else None
+                start_y = int(first.get("y")) if isinstance(first.get("y"), (int, float)) else None
+                end_x = int(last.get("x")) if isinstance(last.get("x"), (int, float)) else None
+                end_y = int(last.get("y")) if isinstance(last.get("y"), (int, float)) else None
+            if start_x is None or start_y is None:
+                start_x, start_y = _coords("x", "y")
+            if end_x is None or end_y is None:
+                end_x, end_y = _coords("destination_x", "destination_y")
+            if None in {start_x, start_y, end_x, end_y}:
+                return CUActionResult(name="drag", success=False, error="Drag action missing path coordinates")
+            return await executor.execute("drag_and_drop", {
+                "x": start_x,
+                "y": start_y,
+                "destination_x": end_x,
+                "destination_y": end_y,
+            })
+
+        return CUActionResult(
+            name=action_type or "unknown",
+            success=False,
+            error=f"Unsupported OpenAI action: {action_type}",
+        )
+
+    async def _execute_openai_scroll(
+        self,
+        payload: dict[str, Any],
+        executor: ActionExecutor,
+    ) -> CUActionResult:
+        """Execute OpenAI pixel scroll actions in browser or desktop mode."""
+        x = payload.get("x")
+        y = payload.get("y")
+        px = int(x) if isinstance(x, (int, float)) else None
+        py = int(y) if isinstance(y, (int, float)) else None
+        delta_x = payload.get("delta_x", payload.get("deltaX", 0))
+        delta_y = payload.get("delta_y", payload.get("deltaY", payload.get("scroll_y", 0)))
+        dx = int(delta_x) if isinstance(delta_x, (int, float)) else 0
+        dy = int(delta_y) if isinstance(delta_y, (int, float)) else 0
+
+        page = getattr(executor, "page", None)
+        if page is not None:
+            try:
+                if px is not None and py is not None:
+                    await page.mouse.move(px, py)
+                await page.mouse.wheel(dx, dy)
+                return CUActionResult(name="scroll", extra={
+                    "x": px, "y": py, "delta_x": dx, "delta_y": dy,
+                })
+            except Exception as exc:
+                return CUActionResult(name="scroll", success=False, error=str(exc))
+
+        dominant_y = abs(dy) >= abs(dx)
+        if dominant_y:
+            direction = "down" if dy >= 0 else "up"
+            magnitude = abs(dy)
+        else:
+            direction = "right" if dx >= 0 else "left"
+            magnitude = abs(dx)
+        args: dict[str, Any] = {
+            "direction": direction,
+            "magnitude": min(max(magnitude, 200), 999),
+        }
+        if px is not None and py is not None:
+            args["x"] = px
+            args["y"] = py
+        return await executor.execute("scroll_at", args)
+
+    @staticmethod
+    def _normalize_openai_keys(keys: list[Any]) -> list[str]:
+        """Normalize OpenAI keypress values for Playwright and xdotool."""
+        key_map = {
+            "SPACE": "Space",
+            "ENTER": "Enter",
+            "RETURN": "Enter",
+            "ESC": "Escape",
+            "ESCAPE": "Escape",
+            "CTRL": "Control",
+            "CMD": "Meta",
+            "COMMAND": "Meta",
+            "OPTION": "Alt",
+            "PGUP": "PageUp",
+            "PGDN": "PageDown",
+        }
+        normalized: list[str] = []
+        for key in keys:
+            if key is None:
+                continue
+            token = str(key).strip()
+            if not token:
+                continue
+            normalized.append(key_map.get(token.upper(), token))
+        return normalized
+
+
 # ---------------------------------------------------------------------------
 # Claude context pruning
 # ---------------------------------------------------------------------------
@@ -1609,6 +2047,12 @@ class ComputerUseEngine:
                 system_prompt=system_instruction,
                 tool_version=_tv,
                 beta_flag=_bf,
+            )
+        elif provider == Provider.OPENAI:
+            self._client = OpenAICUClient(
+                api_key=api_key,
+                model=model or "gpt-5.4",
+                system_prompt=system_instruction,
             )
         else:
             raise ValueError(f"Unsupported provider: {provider}")

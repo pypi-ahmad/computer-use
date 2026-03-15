@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 import pytest
 
 from backend.engine import (
     ComputerUseEngine,
+    CUActionResult,
     Environment,
+    OpenAICUClient,
     Provider,
     _lookup_claude_cu_config,
     _CONTEXT_PRUNE_KEEP_RECENT,
+    _build_openai_computer_call_output,
 )
 
 
@@ -40,6 +44,15 @@ class TestComputerUseEngine:
         with pytest.raises(ValueError, match="Unsupported provider"):
             ComputerUseEngine(provider="invalid", api_key="test")
 
+    def test_openai_provider_creates_openai_client(self):
+        with patch("openai.OpenAI"):
+            engine = ComputerUseEngine(
+                provider=Provider.OPENAI,
+                api_key="test-key",
+                model="gpt-5.4",
+            )
+        assert engine.provider == Provider.OPENAI
+
     def test_default_gemini_model(self):
         with patch("google.genai.Client"):
             engine = ComputerUseEngine(
@@ -55,6 +68,14 @@ class TestComputerUseEngine:
                 api_key="test-key",
             )
         assert engine._client._model == "claude-sonnet-4-6"
+
+    def test_default_openai_model(self):
+        with patch("openai.OpenAI"):
+            engine = ComputerUseEngine(
+                provider=Provider.OPENAI,
+                api_key="test-key",
+            )
+        assert engine._client._model == "gpt-5.4"
 
     def test_browser_env_requires_page(self):
         with patch("anthropic.Anthropic"):
@@ -103,3 +124,105 @@ class TestContextPruneConstant:
         """Should match Google reference MAX_RECENT_TURN_WITH_SCREENSHOTS and
         Anthropic reference only_n_most_recent_images defaults."""
         assert _CONTEXT_PRUNE_KEEP_RECENT == 3
+
+
+class TestOpenAIHelpers:
+    """Verify OpenAI computer-call follow-up payloads."""
+
+    def test_build_openai_computer_call_output(self):
+        payload = _build_openai_computer_call_output(
+            "call_123",
+            "ZmFrZS1pbWFnZQ==",
+            acknowledged_safety_checks=[{"id": "safety_1", "message": "approved"}],
+        )
+        assert payload["type"] == "computer_call_output"
+        assert payload["call_id"] == "call_123"
+        assert payload["output"]["type"] == "computer_screenshot"
+        assert payload["output"]["detail"] == "original"
+        assert payload["acknowledged_safety_checks"][0]["id"] == "safety_1"
+
+
+class TestOpenAIRuntimePath:
+    """Verify the OpenAI runtime loop sends the expected follow-up payloads."""
+
+    @pytest.mark.asyncio
+    async def test_run_loop_chains_previous_response_and_sends_computer_call_output(self):
+        screenshot_bytes = b"a" * 128
+
+        class FakeExecutor:
+            def __init__(self):
+                self.calls: list[tuple[str, dict]] = []
+
+            async def capture_screenshot(self):
+                return screenshot_bytes
+
+            async def execute(self, action, payload):
+                self.calls.append((action, payload))
+                return CUActionResult(name=action, extra=payload)
+
+        first_response = SimpleNamespace(
+            id="resp_1",
+            error=None,
+            output_text="",
+            output=[
+                SimpleNamespace(
+                    type="computer_call",
+                    call_id="call_123",
+                    pending_safety_checks=[
+                        SimpleNamespace(id="safe_1", code="confirm", message="Confirm action")
+                    ],
+                    actions=[
+                        SimpleNamespace(type="click", x=44, y=55),
+                        SimpleNamespace(type="keypress", keys=["CTRL", "L"]),
+                    ],
+                )
+            ],
+        )
+        second_response = SimpleNamespace(
+            id="resp_2",
+            error=None,
+            output_text="Task complete",
+            output=[],
+        )
+
+        with patch("openai.OpenAI") as mock_openai:
+            responses_create = Mock(side_effect=[first_response, second_response])
+            mock_openai.return_value.responses.create = responses_create
+            client = OpenAICUClient(api_key="test-key", model="gpt-5.4")
+
+        executor = FakeExecutor()
+        final_text = await client.run_loop(
+            "Open the page and stop",
+            executor,
+            on_safety=lambda _: True,
+        )
+
+        assert final_text == "Task complete"
+        assert executor.calls == [
+            ("click_at", {"x": 44, "y": 55}),
+            ("key_combination", {"keys": "Control+L"}),
+        ]
+        assert responses_create.call_count == 2
+
+        first_request = responses_create.call_args_list[0].kwargs
+        assert first_request["model"] == "gpt-5.4"
+        assert first_request["tools"] == [{"type": "computer"}]
+        assert first_request["input"][0]["role"] == "user"
+        assert first_request["input"][0]["content"][0] == {"type": "input_text", "text": "Open the page and stop"}
+        assert first_request["input"][0]["content"][1]["type"] == "input_image"
+        assert first_request["input"][0]["content"][1]["image_url"].startswith("data:image/png;base64,")
+
+        second_request = responses_create.call_args_list[1].kwargs
+        assert second_request["previous_response_id"] == "resp_1"
+        assert len(second_request["input"]) == 1
+        tool_output = second_request["input"][0]
+        assert tool_output["type"] == "computer_call_output"
+        assert tool_output["call_id"] == "call_123"
+        assert tool_output["output"]["type"] == "computer_screenshot"
+        assert tool_output["output"]["detail"] == "original"
+        assert tool_output["output"]["image_url"].startswith("data:image/png;base64,")
+        assert tool_output["acknowledged_safety_checks"] == [{
+            "id": "safe_1",
+            "code": "confirm",
+            "message": "Confirm action",
+        }]

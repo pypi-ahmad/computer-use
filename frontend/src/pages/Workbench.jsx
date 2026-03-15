@@ -6,6 +6,12 @@ import ScreenView from '../components/ScreenView'
 import formatTime from '../utils/formatTime'
 import './Workbench.css'
 
+const PROVIDERS = [
+  { value: 'google', label: 'Google Gemini', envVar: 'GOOGLE_API_KEY', placeholder: 'AI...' },
+  { value: 'anthropic', label: 'Anthropic Claude', envVar: 'ANTHROPIC_API_KEY', placeholder: 'sk-ant-...' },
+  { value: 'openai', label: 'OpenAI GPT-5.4', envVar: 'OPENAI_API_KEY', placeholder: 'sk-...' },
+]
+
 /** Maps action names to emoji icons for the step timeline. */
 const ACTION_ICONS = {
   click: '🖱️', double_click: '🖱️', right_click: '🖱️', hover: '👆',
@@ -59,9 +65,12 @@ export default function Workbench() {
   const [modelsLoaded, setModelsLoaded] = useState(false)
   /** Maps a model record to a { value, label } select option. */
   const toModelOption = (m) => ({ value: m.model_id, label: `${m.display_name} (${m.model_id})` })
-  const GOOGLE_MODELS = fetchedModels.filter(m => m.provider === 'google').map(toModelOption)
-  const ANTHROPIC_MODELS = fetchedModels.filter(m => m.provider === 'anthropic').map(toModelOption)
-  const models = provider === 'anthropic' ? ANTHROPIC_MODELS : GOOGLE_MODELS
+  const modelsByProvider = fetchedModels.reduce((acc, item) => {
+    acc[item.provider] = (acc[item.provider] || []).concat(toModelOption(item))
+    return acc
+  }, {})
+  const models = modelsByProvider[provider] || []
+  const providerMeta = PROVIDERS.find(item => item.value === provider) || PROVIDERS[0]
 
 
 
@@ -107,14 +116,14 @@ export default function Workbench() {
           setFetchedModels(data.models)
           setModelsLoaded(true)
           // Auto-select first model for the default provider
-          const firstForProvider = data.models.find(m => m.provider === 'google')
+          const firstForProvider = data.models.find(m => m.provider === provider)
           if (firstForProvider) setModel(firstForProvider.model_id)
         }
       } catch { /* backend not ready — models stay empty, Start disabled */ }
     }
     fetchKeys()
     fetchModelList()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [provider])
 
   // Auto-stop frontend when agent finishes (done/error/max-steps)
   useEffect(() => {
@@ -141,7 +150,7 @@ export default function Workbench() {
 
   // Sync model when provider changes
   useEffect(() => {
-    const list = provider === 'anthropic' ? ANTHROPIC_MODELS : GOOGLE_MODELS
+    const list = modelsByProvider[provider] || []
     setModel(list.length > 0 ? list[0].value : '')
     // Auto-select key source based on availability
     const status = keyStatuses[provider]
@@ -248,8 +257,9 @@ export default function Workbench() {
           <div className="wb-section">
             <label className="wb-label">Provider</label>
             <select className="wb-select" value={provider} onChange={(e) => setProvider(e.target.value)} disabled={agentRunning}>
-              <option value="google">Google Gemini</option>
-              <option value="anthropic">Anthropic Claude</option>
+              {PROVIDERS.map(item => (
+                <option key={item.value} value={item.value}>{item.label}</option>
+              ))}
             </select>
             <label className="wb-label">Model</label>
             <select className="wb-select" value={model} onChange={(e) => setModel(e.target.value)} disabled={agentRunning || models.length === 0}>
@@ -292,14 +302,14 @@ export default function Workbench() {
               <div className="wb-key-status">
                 <span className="wb-key-badge missing">⚠️ No key found</span>
                 <span className="wb-key-source-label">
-                  {provider === 'google' ? 'Set GOOGLE_API_KEY' : 'Set ANTHROPIC_API_KEY'}
+                  Set {providerMeta.envVar}
                 </span>
               </div>
             )}
             {keySource === 'ui' && (
               <>
                 <label className="wb-label">API Key</label>
-                <input type="password" className="wb-input" placeholder={provider === 'anthropic' ? 'sk-ant-...' : 'AI...'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" />
+                <input type="password" className="wb-input" placeholder={providerMeta.placeholder} value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" />
               </>
             )}
           </div>

@@ -61,14 +61,15 @@ app.add_middleware(
 # Security constants
 _MAX_CONCURRENT_SESSIONS = 3
 _MAX_STEPS_HARD_CAP = 200
-_VALID_PROVIDERS = {"google", "anthropic"}
 
 # ── Allowed models (single source of truth: backend/allowed_models.json) ──────
 
 _ALLOWED_MODELS: list[dict] = _load_allowed_models_json()
+_CU_ALLOWED_MODELS = [m for m in _ALLOWED_MODELS if m.get("supports_computer_use")]
+_VALID_PROVIDERS = {m["provider"] for m in _CU_ALLOWED_MODELS}
 
 _VALID_MODELS_BY_PROVIDER: dict[str, set[str]] = {}
-for _m in _ALLOWED_MODELS:
+for _m in _CU_ALLOWED_MODELS:
     _VALID_MODELS_BY_PROVIDER.setdefault(_m["provider"], set()).add(_m["model_id"])
 
 
@@ -179,7 +180,7 @@ async def api_models():
 
     Source of truth: backend/allowed_models.json
     """
-    return {"models": _ALLOWED_MODELS}
+    return {"models": _CU_ALLOWED_MODELS}
 
 @app.get("/api/engines")
 async def api_engines():
@@ -292,7 +293,10 @@ async def api_start_agent(req: StartTaskRequest):
     if req.provider not in _VALID_PROVIDERS:
         return JSONResponse(status_code=400, content={"error": f"Invalid provider: {req.provider}"})
     if req.model not in _VALID_MODELS_BY_PROVIDER.get(req.provider, set()):
-        allowed = ", ".join(m["model_id"] for m in _ALLOWED_MODELS)
+        allowed = ", ".join(
+            m["model_id"] for m in _CU_ALLOWED_MODELS
+            if m["provider"] == req.provider
+        )
         return JSONResponse(status_code=400, content={
             "error": f"Model '{req.model}' is not allowed. Supported models: {allowed}"
         })

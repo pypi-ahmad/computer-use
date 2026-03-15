@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from backend.config import Config, config
+from backend.config import Config, config, get_all_key_statuses, resolve_api_key
 
 
 class TestConfig:
@@ -26,3 +26,12 @@ class TestConfig:
         c = Config.from_env()
         assert c.container_name == "cua-environment"
         assert c.max_steps == 50
+
+    def test_resolve_openai_ui_key(self):
+        key, source = resolve_api_key("openai", "sk-test-openai")
+        assert key == "sk-test-openai"
+        assert source == "ui"
+
+    def test_key_statuses_include_openai(self):
+        providers = {entry["provider"] for entry in get_all_key_statuses()}
+        assert "openai" in providers
