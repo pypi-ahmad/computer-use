@@ -34,6 +34,7 @@ export default function ControlPanel({
   const [executionTarget, setExecutionTarget] = useState('docker')
   const [reasoningEffort, setReasoningEffort] = useState('low')
   const [error, setError] = useState('')
+  const runtimeMode = 'desktop'
 
   // computer_use always runs in Docker
   const ENGINES_WITH_TARGET = ['computer_use']
@@ -118,14 +119,12 @@ export default function ControlPanel({
     clearSteps()
 
     try {
-      // Derive agent service mode from engine selection
-      const engineMode = 'browser'
       const res = await startAgent({
         task: task.trim(),
         apiKey: keySource === 'ui' ? apiKey.trim() : '',
         model,
         maxSteps: Number(maxSteps),
-        mode: engineMode,
+        mode: runtimeMode,
         engine,
         provider,
         executionTarget,
@@ -254,6 +253,9 @@ export default function ControlPanel({
             <option value="docker">🐳 Run in Docker (Ubuntu Container)</option>
           </select>
         )}
+        <p style={{ color: 'var(--text-secondary)', fontSize: 11, margin: '4px 0 0' }}>
+          Runtime: desktop mode only.
+        </p>
         {provider === 'openai' && (
           <select
             className="model-select"

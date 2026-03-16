@@ -52,7 +52,7 @@ export async function stopContainer() {
  * @param {string} params.apiKey - API key (empty string = backend resolves from env).
  * @param {string} params.model - Model identifier.
  * @param {number} params.maxSteps - Maximum agent steps.
- * @param {string} params.mode - Execution mode ('browser' | 'desktop').
+ * @param {string} params.mode - Execution mode ('desktop' only).
  * @param {string} params.provider - AI provider ('google' | 'anthropic' | 'openai').
  * @param {string} [params.engine='computer_use'] - Execution engine.
  * @param {string} [params.executionTarget='docker'] - Execution target.
