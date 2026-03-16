@@ -1,4 +1,4 @@
-"""Unified Computer Use engine — native CU protocol for Gemini & Claude.
+"""Unified Computer Use engine — native CU protocol for supported providers.
 
 Replaces ad-hoc text-parsing of model responses with the structured
 ``computer_use`` tool protocol that both Gemini 3 Flash and Claude 4.6
@@ -12,7 +12,6 @@ Architecture
     ├── GeminiCUClient   (google-genai  types.Tool(computer_use=...))
     ├── ClaudeCUClient   (anthropic     computer_2025XXYY tool, auto-detected)
     └── Executors
-        ├── PlaywrightExecutor  (browser actions via Playwright page)
         └── DesktopExecutor     (desktop via agent_service HTTP API → xdotool + scrot)
 
 Usage::
@@ -20,9 +19,9 @@ Usage::
     engine = ComputerUseEngine(
         provider=Provider.GEMINI,
         api_key="...",
-        environment=Environment.BROWSER,
+        environment=Environment.DESKTOP,
     )
-    result = await engine.execute_task("Search for ...", page=playwright_page)
+    result = await engine.execute_task("Search for ...")
 """
 
 from __future__ import annotations
@@ -175,7 +174,7 @@ class Provider(str, Enum):
 
 
 class Environment(str, Enum):
-    """Execution environment — Playwright browser or xdotool desktop."""
+    """Execution environment selector for Computer Use execution."""
 
     BROWSER = "browser"
     DESKTOP = "desktop"
@@ -284,7 +283,7 @@ def resize_screenshot_for_claude(
 # ---------------------------------------------------------------------------
 
 class ActionExecutor(Protocol):
-    """Interface that both Playwright and Desktop executors implement."""
+    """Interface implemented by the supported computer-use executor."""
 
     screen_width: int
     screen_height: int
@@ -292,211 +291,6 @@ class ActionExecutor(Protocol):
     async def execute(self, name: str, args: dict[str, Any]) -> CUActionResult: ...
     async def capture_screenshot(self) -> bytes: ...
     def get_current_url(self) -> str: ...
-
-
-# ---------------------------------------------------------------------------
-# PlaywrightExecutor — browser-scoped actions
-# ---------------------------------------------------------------------------
-
-class PlaywrightExecutor:
-    """Translates CU actions into async Playwright calls.
-
-    Implements every action from the Gemini CU supported-actions table:
-    ``open_web_browser``, ``wait_5_seconds``, ``go_back``, ``go_forward``,
-    ``search``, ``navigate``, ``click_at``, ``hover_at``, ``type_text_at``,
-    ``key_combination``, ``scroll_document``, ``scroll_at``, ``drag_and_drop``.
-
-    Gemini sends normalized 0-999 coords → denormalized here.
-    Claude sends real pixel coords → passed through (``normalize_coords=False``).
-    """
-
-    def __init__(
-        self,
-        page: Any,
-        screen_width: int = DEFAULT_SCREEN_WIDTH,
-        screen_height: int = DEFAULT_SCREEN_HEIGHT,
-        normalize_coords: bool = True,
-    ):
-        self.page = page
-        self.screen_width = screen_width
-        self.screen_height = screen_height
-        self._normalize = normalize_coords
-
-    def _px(self, x: int, y: int) -> tuple[int, int]:
-        """Convert raw coordinates to pixel values, denormalizing if needed."""
-        if self._normalize:
-            return denormalize_x(x, self.screen_width), denormalize_y(y, self.screen_height)
-        return x, y
-
-    async def execute(self, name: str, args: dict[str, Any]) -> CUActionResult:
-        """Dispatch a CU action by name, wait for DOM settle, and return the result."""
-        safety = self._pop_safety(args)
-        handler = getattr(self, f"_act_{name}", None)
-        if handler is None:
-            return CUActionResult(name=name, success=False,
-                                  error=f"Unimplemented action: {name}", **safety)
-        try:
-            extra = await handler(args) or {}
-            try:
-                await self.page.wait_for_load_state("domcontentloaded", timeout=5000)
-            except Exception:
-                pass
-            await asyncio.sleep(0.4)  # UI settle delay
-            return CUActionResult(name=name, success=True, extra=extra, **safety)
-        except Exception as exc:
-            logger.error("PlaywrightExecutor %s failed: %s", name, exc, exc_info=True)
-            return CUActionResult(name=name, success=False, error=str(exc), **safety)
-
-    @staticmethod
-    def _pop_safety(args: dict) -> dict:
-        """Extract and normalize Gemini safety metadata from action args."""
-        sd = args.pop("safety_decision", None)
-        if isinstance(sd, dict):
-            return {
-                "safety_decision": SafetyDecision(sd.get("decision", "allowed")),
-                "safety_explanation": sd.get("explanation"),
-            }
-        return {}
-
-    # ── Action implementations ────────────────────────────────────────
-
-    async def _act_open_web_browser(self, a: dict) -> dict:
-        """No-op — browser is already open."""
-        return {}
-
-    async def _act_wait_5_seconds(self, a: dict) -> dict:
-        """Sleep for 5 seconds (model-requested pause)."""
-        await asyncio.sleep(5)
-        return {}
-
-    async def _act_go_back(self, a: dict) -> dict:
-        """Navigate one step back in browser history."""
-        await self.page.go_back()
-        return {}
-
-    async def _act_go_forward(self, a: dict) -> dict:
-        """Navigate one step forward in browser history."""
-        await self.page.go_forward()
-        return {}
-
-    async def _act_search(self, a: dict) -> dict:
-        """Open Google homepage to begin a search."""
-        await self.page.goto("https://www.google.com")
-        return {}
-
-    async def _act_navigate(self, a: dict) -> dict:
-        """Navigate to a specific URL."""
-        url = a["url"]
-        await self.page.goto(url)
-        return {"url": url}
-
-    async def _act_click_at(self, a: dict) -> dict:
-        """Click at the given coordinates."""
-        px, py = self._px(a["x"], a["y"])
-        await self.page.mouse.click(px, py)
-        return {"pixel_x": px, "pixel_y": py}
-
-    async def _act_double_click(self, a: dict) -> dict:
-        """Double-click at the given coordinates."""
-        px, py = self._px(a["x"], a["y"])
-        await self.page.mouse.dblclick(px, py)
-        return {"pixel_x": px, "pixel_y": py}
-
-    async def _act_right_click(self, a: dict) -> dict:
-        """Right-click at the given coordinates."""
-        px, py = self._px(a["x"], a["y"])
-        await self.page.mouse.click(px, py, button="right")
-        return {"pixel_x": px, "pixel_y": py}
-
-    async def _act_middle_click(self, a: dict) -> dict:
-        """Middle-click at the given coordinates."""
-        px, py = self._px(a["x"], a["y"])
-        await self.page.mouse.click(px, py, button="middle")
-        return {"pixel_x": px, "pixel_y": py}
-
-    async def _act_hover_at(self, a: dict) -> dict:
-        """Move the mouse to the given coordinates without clicking."""
-        px, py = self._px(a["x"], a["y"])
-        await self.page.mouse.move(px, py)
-        return {"pixel_x": px, "pixel_y": py}
-
-    async def _act_move(self, a: dict) -> dict:
-        """Alias for pointer movement used by OpenAI computer actions."""
-        return await self._act_hover_at(a)
-
-    async def _act_type_text_at(self, a: dict) -> dict:
-        """Click at coordinates, optionally clear the field, type text, and optionally press Enter."""
-        px, py = self._px(a["x"], a["y"])
-        text = a["text"]
-        press_enter = a.get("press_enter", True)
-        clear_before = a.get("clear_before_typing", True)
-        await self.page.mouse.click(px, py)
-        if clear_before:
-            await self.page.keyboard.press("Control+A")
-            await self.page.keyboard.press("Backspace")
-        await self.page.keyboard.type(text)
-        if press_enter:
-            await self.page.keyboard.press("Enter")
-        return {"pixel_x": px, "pixel_y": py, "text": text}
-
-    async def _act_type_at_cursor(self, a: dict) -> dict:
-        """Type text into the currently focused element without clicking first."""
-        text = a["text"]
-        press_enter = a.get("press_enter", False)
-        await self.page.keyboard.type(text)
-        if press_enter:
-            await self.page.keyboard.press("Enter")
-        return {"text": text}
-
-    async def _act_key_combination(self, a: dict) -> dict:
-        """Press a keyboard shortcut (e.g. ``Control+A``)."""
-        keys = a["keys"]
-        await self.page.keyboard.press(keys)
-        return {"keys": keys}
-
-    async def _act_scroll_document(self, a: dict) -> dict:
-        """Scroll the page in the given direction."""
-        direction = a["direction"]
-        dx, dy = self._scroll_delta(direction)
-        await self.page.mouse.wheel(dx, dy)
-        return {"direction": direction}
-
-    async def _act_scroll_at(self, a: dict) -> dict:
-        """Move to coordinates and scroll via Playwright mouse wheel."""
-        px, py = self._px(a["x"], a["y"])
-        direction = a["direction"]
-        magnitude = a.get("magnitude", 800)
-        await self.page.mouse.move(px, py)
-        dx, dy = self._scroll_delta(direction, magnitude)
-        await self.page.mouse.wheel(dx, dy)
-        return {"pixel_x": px, "pixel_y": py, "direction": direction}
-
-    async def _act_drag_and_drop(self, a: dict) -> dict:
-        """Drag from source to destination via Playwright mouse down/move/up."""
-        sx, sy = self._px(a["x"], a["y"])
-        dx, dy = self._px(a["destination_x"], a["destination_y"])
-        await self.page.mouse.move(sx, sy)
-        await self.page.mouse.down()
-        await self.page.mouse.move(dx, dy, steps=10)
-        await self.page.mouse.up()
-        return {"from": (sx, sy), "to": (dx, dy)}
-
-    @staticmethod
-    def _scroll_delta(direction: str, magnitude: int = 800) -> tuple[int, int]:
-        """Convert a scroll direction and normalized magnitude to pixel (dx, dy)."""
-        pixel_mag = int(magnitude / GEMINI_NORMALIZED_MAX * DEFAULT_SCREEN_HEIGHT)
-        return {
-            "up": (0, -pixel_mag), "down": (0, pixel_mag),
-            "left": (-pixel_mag, 0), "right": (pixel_mag, 0),
-        }.get(direction, (0, pixel_mag))
-
-    async def capture_screenshot(self) -> bytes:
-        """Capture the current page as a PNG screenshot."""
-        return await self.page.screenshot(type="png")
-
-    def get_current_url(self) -> str:
-        """Return the current page URL."""
-        return self.page.url
 
 
 # ---------------------------------------------------------------------------
@@ -686,12 +480,39 @@ class DesktopExecutor:
         return {"keys": keys}
 
     async def _act_scroll_document(self, a: dict) -> dict:
-        """Scroll the page in the given direction via Playwright mouse wheel."""
+        """Scroll the page in the given direction via desktop input events."""
         direction = a["direction"]
         await self._post_action({
             "action": "scroll", "text": direction, "mode": "desktop",
         })
         return {"direction": direction}
+
+    async def _act_left_mouse_down(self, a: dict) -> dict:
+        """Hold the left mouse button down at the current cursor position."""
+        result = await self._post_action({
+            "action": "left_mouse_down", "mode": "desktop",
+        })
+        return result
+
+    async def _act_left_mouse_up(self, a: dict) -> dict:
+        """Release the left mouse button at the current cursor position."""
+        result = await self._post_action({
+            "action": "left_mouse_up", "mode": "desktop",
+        })
+        return result
+
+    async def _act_hold_key(self, a: dict) -> dict:
+        """Hold a key for a short duration via xdotool keydown/keyup."""
+        key = str(a.get("key", ""))
+        duration = min(max(float(a.get("duration", 1)), 0.0), 10.0)
+        await self._post_action({
+            "action": "keydown", "text": key, "mode": "desktop",
+        })
+        await asyncio.sleep(duration)
+        result = await self._post_action({
+            "action": "keyup", "text": key, "mode": "desktop",
+        })
+        return {"key": key, "duration": duration, **result}
 
     async def _act_scroll_at(self, a: dict) -> dict:
         """Scroll at specific coordinates via agent_service xdotool."""
@@ -979,7 +800,7 @@ class GeminiCUClient:
 
         Args:
             goal: Natural language task.
-            executor: PlaywrightExecutor or DesktopExecutor.
+            executor: Desktop executor used for the local runtime harness.
             turn_limit: Max loop iterations.
             on_safety: Callback(explanation) → bool. True=confirm, False=deny.
             on_turn: Progress callback per turn.
@@ -1116,7 +937,7 @@ class GeminiCUClient:
 
                 # Extract safety_decision BEFORE passing args to executor.
                 # This ensures the acknowledgement is tracked regardless of
-                # which executor (Playwright or Desktop) is used.
+                # which executor implementation is used.
                 safety_confirmed = False
                 if "safety_decision" in args:
                     sd = args.pop("safety_decision")
@@ -1471,13 +1292,6 @@ class ClaudeCUClient:
 
         elif action == "type":
             text = action_input.get("text", "")
-            page = getattr(executor, "page", None)
-            if page:
-                try:
-                    await page.keyboard.type(text)
-                    return CUActionResult(name="type", extra={"text": text})
-                except Exception as exc:
-                    return CUActionResult(name="type", success=False, error=str(exc))
             try:
                 result = await executor.execute("type_at_cursor", {
                     "text": text,
@@ -1519,41 +1333,15 @@ class ClaudeCUClient:
             return await executor.execute("drag_and_drop", args)
 
         elif action == "left_mouse_down":
-            page = getattr(executor, "page", None)
-            if page:
-                try:
-                    await page.mouse.down()
-                    return CUActionResult(name="left_mouse_down")
-                except Exception as exc:
-                    return CUActionResult(name="left_mouse_down", success=False, error=str(exc))
-            return CUActionResult(name="left_mouse_down", success=False,
-                                  error="left_mouse_down not supported on desktop executor")
+            return await executor.execute("left_mouse_down", {})
 
         elif action == "left_mouse_up":
-            page = getattr(executor, "page", None)
-            if page:
-                try:
-                    await page.mouse.up()
-                    return CUActionResult(name="left_mouse_up")
-                except Exception as exc:
-                    return CUActionResult(name="left_mouse_up", success=False, error=str(exc))
-            return CUActionResult(name="left_mouse_up", success=False,
-                                  error="left_mouse_up not supported on desktop executor")
+            return await executor.execute("left_mouse_up", {})
 
         elif action == "hold_key":
             key = action_input.get("key", "")
             duration = action_input.get("duration", 1)
-            page = getattr(executor, "page", None)
-            if page:
-                try:
-                    await page.keyboard.down(key)
-                    await asyncio.sleep(min(duration, 10))
-                    await page.keyboard.up(key)
-                    return CUActionResult(name="hold_key", extra={"key": key, "duration": duration})
-                except Exception as exc:
-                    return CUActionResult(name="hold_key", success=False, error=str(exc))
-            return CUActionResult(name="hold_key", success=False,
-                                  error="hold_key not supported on desktop executor")
+            return await executor.execute("hold_key", {"key": key, "duration": duration})
 
         elif action == "wait":
             duration = action_input.get("duration", 5)
@@ -1573,30 +1361,8 @@ class ClaudeCUClient:
     async def _special_click(
         self, action: str, coord: list[int] | None, executor: ActionExecutor,
     ) -> CUActionResult:
-        """Handle double_click, right_click, triple_click, middle_click via Playwright/xdotool.
-
-        Playwright path uses native dblclick / button="right" / click_count=3 / button="middle".
-        Desktop path delegates to the executor's dedicated ``_act_*`` handlers.
-        """
+        """Handle double_click, right_click, triple_click, and middle_click."""
         x, y = (coord[0], coord[1]) if coord else (0, 0)
-        page = getattr(executor, "page", None)
-
-        if page:
-            try:
-                if action == "double_click":
-                    await page.mouse.dblclick(x, y)
-                elif action == "right_click":
-                    await page.mouse.click(x, y, button="right")
-                elif action == "triple_click":
-                    await page.mouse.click(x, y, click_count=3)
-                elif action == "middle_click":
-                    await page.mouse.click(x, y, button="middle")
-                return CUActionResult(name=action, extra={"x": x, "y": y})
-            except Exception as exc:
-                return CUActionResult(name=action, success=False, error=str(exc))
-
-        # Desktop path — use executor.execute which dispatches to
-        # _act_double_click / _act_right_click / _act_triple_click.
         try:
             return await executor.execute(action, {"x": x, "y": y})
         except Exception as exc:
@@ -1889,7 +1655,7 @@ class OpenAICUClient:
         payload: dict[str, Any],
         executor: ActionExecutor,
     ) -> CUActionResult:
-        """Execute OpenAI pixel scroll actions in browser or desktop mode."""
+        """Execute OpenAI pixel scroll actions through the shared executor."""
         x = payload.get("x")
         y = payload.get("y")
         px = int(x) if isinstance(x, (int, float)) else None
@@ -1898,18 +1664,6 @@ class OpenAICUClient:
         delta_y = payload.get("delta_y", payload.get("deltaY", payload.get("scroll_y", 0)))
         dx = int(delta_x) if isinstance(delta_x, (int, float)) else 0
         dy = int(delta_y) if isinstance(delta_y, (int, float)) else 0
-
-        page = getattr(executor, "page", None)
-        if page is not None:
-            try:
-                if px is not None and py is not None:
-                    await page.mouse.move(px, py)
-                await page.mouse.wheel(dx, dy)
-                return CUActionResult(name="scroll", extra={
-                    "x": px, "y": py, "delta_x": dx, "delta_y": dy,
-                })
-            except Exception as exc:
-                return CUActionResult(name="scroll", success=False, error=str(exc))
 
         dominant_y = abs(dy) >= abs(dx)
         if dominant_y:
@@ -1929,7 +1683,7 @@ class OpenAICUClient:
 
     @staticmethod
     def _normalize_openai_keys(keys: list[Any]) -> list[str]:
-        """Normalize OpenAI keypress values for Playwright and xdotool."""
+        """Normalize OpenAI keypress values for desktop execution."""
         key_map = {
             "SPACE": "Space",
             "ENTER": "Enter",
@@ -2001,19 +1755,17 @@ class ComputerUseEngine:
     """Single entry point for native Computer Use across providers and environments.
 
     The single engine for this application. Uses the native CU protocol
-    from Gemini or Claude with Playwright (browser) or xdotool (desktop)
-    executors.
+    from Gemini, Claude, or OpenAI with the desktop executor.
 
     Usage::
 
         engine = ComputerUseEngine(
             provider=Provider.GEMINI,
             api_key="AIza...",
-            environment=Environment.BROWSER,
+            environment=Environment.DESKTOP,
         )
         final_text = await engine.execute_task(
             "Search for flights to Paris",
-            page=playwright_page,
         )
     """
 
@@ -2022,7 +1774,7 @@ class ComputerUseEngine:
         provider: Provider,
         api_key: str,
         model: str | None = None,
-        environment: Environment = Environment.BROWSER,
+        environment: Environment = Environment.DESKTOP,
         screen_width: int = DEFAULT_SCREEN_WIDTH,
         screen_height: int = DEFAULT_SCREEN_HEIGHT,
         system_instruction: str | None = None,
@@ -2069,19 +1821,12 @@ class ComputerUseEngine:
             raise ValueError(f"Unsupported provider: {provider}")
 
     def _build_executor(self, page: Any = None) -> ActionExecutor:
-        """Build PlaywrightExecutor (browser) or DesktopExecutor (desktop)."""
+        """Build the supported desktop executor."""
         # Gemini uses normalized 0-999 coords; Claude uses real pixels
         normalize = self.provider == Provider.GEMINI
 
         if self.environment == Environment.BROWSER:
-            if page is None:
-                raise ValueError("Browser environment requires a Playwright page")
-            return PlaywrightExecutor(
-                page=page,
-                screen_width=self.screen_width,
-                screen_height=self.screen_height,
-                normalize_coords=normalize,
-            )
+            raise ValueError("Browser mode is no longer supported. Use Environment.DESKTOP.")
         return DesktopExecutor(
             screen_width=self.screen_width,
             screen_height=self.screen_height,
@@ -2104,7 +1849,7 @@ class ComputerUseEngine:
 
         Args:
             goal: Natural language task description.
-            page: Playwright async Page (required for BROWSER, optional for DESKTOP).
+            page: Unused legacy parameter retained for compatibility.
             turn_limit: Maximum agent loop iterations.
             on_safety: Callback for safety confirmations.
             on_turn: Progress callback per turn.

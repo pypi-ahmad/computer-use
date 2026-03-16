@@ -202,17 +202,19 @@ async def container_status():
 
 @app.get("/api/agent-service/health")
 async def agent_service_health():
-    """Check if the internal Playwright agent service is responding."""
+    """Check if the internal desktop agent service is responding."""
     healthy = await check_service_health()
     return {"healthy": healthy, "url": config.agent_service_url}
 
 
 @app.post("/api/agent-service/mode")
 async def set_agent_mode(body: dict):
-    """Switch the agent service between browser and desktop mode at runtime."""
-    mode = body.get("mode", "browser")
-    if mode not in ("browser", "desktop"):
-        return {"error": "mode must be 'browser' or 'desktop'"}
+    """Keep the agent service in the supported desktop mode."""
+    mode = body.get("mode", "desktop")
+    if mode != "desktop":
+        return JSONResponse(status_code=400, content={
+            "error": "Browser mode is no longer supported. Use mode='desktop'."
+        })
     url = f"{config.agent_service_url}/mode"
     async with httpx.AsyncClient(timeout=5.0) as client:
         try:
@@ -286,6 +288,10 @@ async def api_start_agent(req: StartTaskRequest):
     if req.engine != "computer_use":
         return JSONResponse(status_code=400, content={
             "error": f"Invalid engine: {req.engine}. Only 'computer_use' is supported."
+        })
+    if req.mode != "desktop":
+        return JSONResponse(status_code=400, content={
+            "error": "Browser mode is no longer supported. Use mode='desktop'."
         })
     if req.execution_target != "docker":
         return JSONResponse(status_code=400, content={

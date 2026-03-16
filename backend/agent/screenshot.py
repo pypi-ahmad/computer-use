@@ -1,7 +1,7 @@
 """Screenshot capture via the internal agent service.
 
 Calls the HTTP API exposed by the agent service running inside the
-container. Supports 'browser' (Playwright) and 'desktop' (scrot) modes.
+container. The supported runtime path is desktop capture via scrot.
 """
 
 from __future__ import annotations
@@ -28,13 +28,13 @@ def _get_client() -> httpx.AsyncClient:
     return _http_client
 
 
-async def capture_screenshot(mode: str = "browser") -> str:
+async def capture_screenshot(mode: str = "desktop") -> str:
     """Capture a PNG screenshot and return base64 string.
 
     The screenshot comes from the in-container agent service.
 
     Args:
-        mode: 'browser' or 'desktop'.
+        mode: 'desktop'. Browser mode is no longer supported.
 
     Returns:
         Base64-encoded PNG string.
