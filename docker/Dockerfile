@@ -124,7 +124,7 @@ COPY docker/agent_service.py /app/docker/agent_service.py
 
 # Copy entrypoint
 COPY docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 # 5900 = VNC, 6080 = noVNC web UI, 9222 = Agent Service API
 EXPOSE 5900 6080 9222
