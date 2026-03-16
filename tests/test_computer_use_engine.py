@@ -77,14 +77,14 @@ class TestComputerUseEngine:
             )
         assert engine._client._model == "gpt-5.4"
 
-    def test_browser_env_requires_page(self):
+    def test_browser_env_is_rejected(self):
         with patch("anthropic.Anthropic"):
             engine = ComputerUseEngine(
                 provider=Provider.CLAUDE,
                 api_key="test-key",
                 environment=Environment.BROWSER,
             )
-        with pytest.raises(ValueError, match="requires a Playwright page"):
+        with pytest.raises(ValueError, match="Browser mode is no longer supported"):
             engine._build_executor(page=None)
 
     def test_desktop_env_creates_desktop_executor(self):

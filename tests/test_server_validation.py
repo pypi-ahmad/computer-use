@@ -60,21 +60,54 @@ class TestHealthEndpoint:
         assert resp.json()["status"] == "ok"
 
 
+class TestAgentServiceModeEndpoint:
+    """Tests POST /api/agent-service/mode stays desktop-only."""
+
+    def test_browser_mode_switch_rejected(self, client):
+        resp = client.post("/api/agent-service/mode", json={"mode": "browser"})
+        assert resp.status_code == 400
+        assert "no longer supported" in resp.json().get("error", "").lower()
+
+    def test_desktop_mode_switch_allowed(self, client):
+        mock_response = Mock()
+        mock_response.json.return_value = {"mode": "desktop"}
+        mock_response.raise_for_status.return_value = None
+
+        mock_client = AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.__aexit__.return_value = None
+        mock_client.post.return_value = mock_response
+
+        with patch("backend.server.httpx.AsyncClient", return_value=mock_client):
+            resp = client.post("/api/agent-service/mode", json={"mode": "desktop"})
+
+        assert resp.status_code == 200
+        assert resp.json()["mode"] == "desktop"
+
+
 class TestAgentStartValidation:
     """Test input validation on POST /api/agent/start."""
 
     def test_invalid_engine_rejected(self, client):
         resp = client.post("/api/agent/start", json={
             "task": "test", "engine": "invalid", "provider": "google",
-            "model": "gemini-3-flash-preview", "mode": "browser",
+            "model": "gemini-3-flash-preview", "mode": "desktop",
         })
         assert resp.status_code == 400
         assert "engine" in resp.json().get("error", "").lower()
 
+    def test_browser_mode_rejected(self, client):
+        resp = client.post("/api/agent/start", json={
+            "task": "test", "engine": "computer_use", "provider": "google",
+            "model": "gemini-3-flash-preview", "mode": "browser",
+        })
+        assert resp.status_code == 400
+        assert "no longer supported" in resp.json().get("error", "").lower()
+
     def test_invalid_provider_rejected(self, client):
         resp = client.post("/api/agent/start", json={
             "task": "test", "engine": "computer_use", "provider": "invalid",
-            "model": "gemini-3-flash-preview", "mode": "browser",
+            "model": "gemini-3-flash-preview", "mode": "desktop",
         })
         assert resp.status_code == 400
         assert "provider" in resp.json().get("error", "").lower()
@@ -82,7 +115,7 @@ class TestAgentStartValidation:
     def test_invalid_model_rejected(self, client):
         resp = client.post("/api/agent/start", json={
             "task": "test", "engine": "computer_use", "provider": "google",
-            "model": "nonexistent-model", "mode": "browser",
+            "model": "nonexistent-model", "mode": "desktop",
         })
         assert resp.status_code == 400
         assert "not allowed" in resp.json().get("error", "").lower()
@@ -112,7 +145,7 @@ class TestAgentStartValidation:
                 "engine": "computer_use",
                 "provider": "openai",
                 "model": "gpt-5.4",
-                "mode": "browser",
+                "mode": "desktop",
                 "execution_target": "docker",
                 "max_steps": 5,
             })
@@ -122,7 +155,7 @@ class TestAgentStartValidation:
         assert data["session_id"] == "session-openai-1"
         assert data["status"] == "running"
         assert data["engine"] == "computer_use"
-        assert data["mode"] == "browser"
+        assert data["mode"] == "desktop"
         mock_agent_loop.assert_called_once()
         assert mock_agent_loop.call_args.kwargs["provider"] == "openai"
         assert mock_agent_loop.call_args.kwargs["model"] == "gpt-5.4"
@@ -153,7 +186,7 @@ class TestAgentStartValidation:
                 "engine": "computer_use",
                 "provider": "openai",
                 "model": openai_model,
-                "mode": "browser",
+                "mode": "desktop",
                 "execution_target": "docker",
                 "max_steps": 5,
             })
@@ -164,7 +197,7 @@ class TestAgentStartValidation:
     def test_invalid_execution_target_rejected(self, client):
         resp = client.post("/api/agent/start", json={
             "task": "test", "engine": "computer_use", "provider": "google",
-            "model": "gemini-3-flash-preview", "mode": "browser",
+            "model": "gemini-3-flash-preview", "mode": "desktop",
             "execution_target": "local",
         })
         assert resp.status_code == 400
@@ -173,7 +206,7 @@ class TestAgentStartValidation:
     def test_empty_task_rejected(self, client):
         resp = client.post("/api/agent/start", json={
             "task": "   ", "engine": "computer_use", "provider": "google",
-            "model": "gemini-3-flash-preview", "mode": "browser",
+            "model": "gemini-3-flash-preview", "mode": "desktop",
         })
         assert resp.status_code == 400
 
@@ -182,7 +215,7 @@ class TestAgentStartValidation:
         with patch("backend.server.resolve_api_key", return_value=("", "none")):
             resp = client.post("/api/agent/start", json={
                 "task": "test task", "engine": "computer_use", "provider": "google",
-                "model": "gemini-3-flash-preview", "mode": "browser",
+                "model": "gemini-3-flash-preview", "mode": "desktop",
             })
         # Should be 400 (no API key)
         assert resp.status_code == 400
