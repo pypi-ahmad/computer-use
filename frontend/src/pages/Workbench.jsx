@@ -29,7 +29,7 @@ const ACTION_ICONS = {
 
 /**
  * Full-featured workbench page with sidebar config, live screen view,
- * step timeline, and log panel. Supports browser/desktop run modes.
+ * step timeline, and log panel. Runs through the desktop-only backend mode.
  */
 export default function Workbench() {
   const { connected, lastScreenshot, logs, steps, agentFinished, clearLogs, clearSteps, clearFinished } = useWebSocket()
@@ -42,7 +42,7 @@ export default function Workbench() {
   const [sessionId, setSessionId] = useState(null)
 
   // Config
-  const [runMode, setRunMode] = useState('browser') // 'browser' | 'desktop'
+  const runMode = 'desktop'
   const [provider, setProvider] = useState('google')
   const [model, setModel] = useState('')
   // Engine and execution target are fixed for computer-use-only mode
@@ -246,13 +246,15 @@ export default function Workbench() {
       <div className="wb-body">
         {/* Left: Config */}
         <aside className="wb-sidebar">
-          {/* Run Mode Toggle */}
+          {/* Runtime Mode */}
           <div className="wb-section">
-            <label className="wb-label">Run Mode</label>
+            <label className="wb-label">Runtime Mode</label>
             <div className="wb-toggle-group">
-              <button className={`wb-toggle ${runMode === 'browser' ? 'active' : ''}`} onClick={() => setRunMode('browser')} disabled={agentRunning}>🌐 Browser</button>
-              <button className={`wb-toggle ${runMode === 'desktop' ? 'active' : ''}`} onClick={() => setRunMode('desktop')} disabled={agentRunning}>🖥️ Desktop</button>
+              <button className="wb-toggle active" disabled title="Browser mode was removed from the backend runtime">
+                🖥️ Desktop Only
+              </button>
             </div>
+            <p className="wb-key-source-label">Browser mode is no longer available in this build.</p>
           </div>
 
           {/* Provider & Model */}
