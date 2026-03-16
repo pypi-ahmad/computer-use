@@ -7,7 +7,6 @@ ENV SCREEN_HEIGHT=900
 ENV SCREEN_DEPTH=24
 ENV AGENT_SERVICE_PORT=9222
 ENV LIBGL_ALWAYS_SOFTWARE=1
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV PYTHONPATH=/app
 
 # GUI/runtime dependencies + build prerequisites + utilities + desktop apps
@@ -65,7 +64,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js LTS 20 (required for Playwright and npx)
+# Install Node.js LTS 20 for desktop tooling and optional in-container tasks
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get update \
     && apt-get install -y nodejs \
@@ -77,12 +76,7 @@ RUN python3 -m venv /opt/venv \
  && /opt/venv/bin/pip install --no-cache-dir --upgrade pip
 
 COPY requirements.txt /tmp/requirements.txt
-RUN /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt \
- && /opt/venv/bin/pip install --no-cache-dir playwright
-
-# Install Playwright Chromium browser + its OS-level dependencies
-RUN /opt/venv/bin/python -m playwright install --with-deps chromium
-RUN /opt/venv/bin/python -m playwright --version
+RUN /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt
 
 # --- Google Chrome (item 1) ---
 RUN wget -qO- https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google.gpg \
@@ -90,21 +84,6 @@ RUN wget -qO- https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor 
     > /etc/apt/sources.list.d/google-chrome.list \
  && apt-get update && apt-get install -y --no-install-recommends google-chrome-stable \
  && rm -rf /var/lib/apt/lists/*
-
-# Ensure Chrome binary exists at the path Playwright 'chrome' channel expects.
-# Prefer the real google-chrome if installed, otherwise fall back to the
-# Playwright-bundled Chromium so that the browser is always available
-# at /opt/google/chrome/chrome.
-RUN mkdir -p /opt/google/chrome \
- && if [ -x /usr/bin/google-chrome-stable ]; then \
-      ln -sf /usr/bin/google-chrome-stable /opt/google/chrome/chrome; \
-    elif [ -x /usr/bin/google-chrome ]; then \
-      ln -sf /usr/bin/google-chrome /opt/google/chrome/chrome; \
-    else \
-      CHROMIUM=$(find /ms-playwright -name chrome -type f -executable 2>/dev/null | head -1); \
-      [ -n "$CHROMIUM" ] && ln -sf "$CHROMIUM" /opt/google/chrome/chrome \
-        || echo 'WARNING: no Chrome/Chromium binary found for symlink'; \
-    fi
 
 # ── Pre-create Chrome profile to suppress first-run dialogs & keyring ────────
 # Static profile creation only — NO browser execution during build.
@@ -119,7 +98,7 @@ WORKDIR /app
 # Copy backend for shared tools (action aliases)
 COPY backend /app/backend
 
-# Copy agent service (Playwright-based control)
+# Copy agent service (desktop control)
 COPY docker/agent_service.py /app/docker/agent_service.py
 
 # Copy entrypoint

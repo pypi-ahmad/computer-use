@@ -1,9 +1,9 @@
 """System prompt for the Computer Use engine.
 
 Provides a single ``get_system_prompt("computer_use", mode)`` entry-point
-used by :class:`backend.agent.loop.AgentLoop`.  The prompt covers both
-*browser* and *desktop* modes and is compatible with the Gemini,
-Anthropic, and OpenAI native CU tool protocols.
+used by :class:`backend.agent.loop.AgentLoop`. The prompt targets the
+desktop-native execution path used by the Gemini, Anthropic, and OpenAI
+computer-use protocols.
 """
 
 from __future__ import annotations
@@ -25,8 +25,8 @@ You have native computer_use capabilities. The system will convert your tool cal
 into real UI interactions (mouse clicks, keyboard input, scrolling, navigation).
 
 ENVIRONMENT:
-- Screen resolution: {viewport_width}x{viewport_height} (browser) or 1440x900 (desktop).
-- Browser: Chromium via Playwright (browser mode) or any X11 application (desktop mode).
+- Screen resolution: 1440x900 desktop workspace.
+- Applications run inside an X11 desktop environment in Docker.
 - Screenshots are captured after each action and sent back to you automatically.
 
 INTERACTION RULES:
@@ -41,7 +41,7 @@ INTERACTION RULES:
 5. Scroll to find content not yet visible (scroll_document or scroll_at).
 6. Use key_combination for keyboard shortcuts (e.g., "Enter", "Control+C", "Tab").
 7. Use navigate to go to a specific URL directly.
-8. Use go_back / go_forward for browser history navigation.
+8. Use go_back / go_forward for application or browser history navigation.
 9. Use wait_5_seconds when a page or application needs time to load.
 
 COMPLETION:
@@ -58,7 +58,7 @@ SAFETY:
   task explicitly requires it and you have user confirmation.
 
 IMPORTANT:
-- You see the FULL screen (browser viewport or desktop).
+- You see the FULL desktop screen.
 - Coordinates are normalized (0-999 grid) — the system handles pixel scaling.
 """
 
@@ -69,8 +69,8 @@ You have native computer_use capabilities. Use your built-in computer tool for a
 UI interactions — do NOT describe actions in text; emit tool calls.
 
 ENVIRONMENT:
-- Screen resolution: {viewport_width}x{viewport_height} (browser) or 1440x900 (desktop).
-- Browser: Chromium via Playwright (browser mode) or any X11 application (desktop mode).
+- Screen resolution: 1440x900 desktop workspace.
+- Applications run inside an X11 desktop environment in Docker.
 - Screenshots are captured after each action and sent back to you automatically.
 
 INTERACTION RULES:
@@ -97,8 +97,8 @@ You have the built-in OpenAI computer tool. Use it for all UI interaction.
 Do NOT narrate clicks or typing when an action is needed; return computer actions.
 
 ENVIRONMENT:
-- Screen resolution: {viewport_width}x{viewport_height} (browser) or 1440x900 (desktop).
-- Browser: Chromium via Playwright (browser mode) or any X11 application (desktop mode).
+- Screen resolution: 1440x900 desktop workspace.
+- Applications run inside an X11 desktop environment in Docker.
 - The harness returns a fresh full-resolution screenshot after each batch of actions.
 
 INTERACTION RULES:
@@ -124,7 +124,7 @@ _DEFAULT_PROMPT_FOR_VALIDATION = SYSTEM_PROMPT_GEMINI_CU
 
 def get_system_prompt(
     engine: str = "computer_use",
-    mode: str = "browser",
+    mode: str = "desktop",
     *,
     provider: str = "google",
     **_kwargs: Any,
@@ -154,7 +154,7 @@ def get_system_prompt(
             engine,
         )
 
-    # Actual viewport dimensions (must match agent_service.py browser init)
+    # Desktop dimensions used by the agent service runtime.
     vw = str(config.screen_width - 100)
     vh = str(config.screen_height - 80)
 

@@ -5,7 +5,7 @@
   "engines": {
     "computer_use": {
       "display_name": "Computer Use (Native CU Protocol) \u2605 Recommended",
-      "description": "Unified engine using Gemini 3 Flash and Claude 4.6 Sonnet native Computer Use tool protocols. Structured function_call / tool_use instead of text-parsed JSON. Supports browser (Playwright) and desktop (xdotool+scrot) backends.",
+      "description": "Unified engine using Gemini 3 Flash, Claude 4.6, and GPT-5.4 native Computer Use tool protocols. Structured function_call / tool_use instead of text-parsed JSON. Runs through a desktop backend powered by xdotool and scrot.",
       "fallback_priority": 6,
       "recommended": true,
       "categories": {
@@ -61,8 +61,7 @@
         "Safety confirmations require callback handling"
       ],
       "environment_requirements": [
-        "Playwright Chromium (browser mode)",
-        "Xvfb + xdotool + scrot (desktop mode)",
+        "Xvfb + xdotool + scrot",
         "DISPLAY=:99 set for desktop mode"
       ]
     }

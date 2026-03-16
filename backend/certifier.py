@@ -39,7 +39,6 @@ _REQUIREMENT_BINARY_MAP: Dict[str, str] = {
     "wmctrl": "wmctrl",
     "scrot": "scrot",
     "xclip": "xclip",
-    "playwright": "npx",
     "node.js": "node",
     "node": "node",
 }

@@ -1,8 +1,8 @@
 """Agent loop — the core orchestrator for the Computer Use engine.
 
-Delegates to the native CU protocol (Gemini / Claude) for the
-perceive → act → screenshot cycle.  Manages session lifecycle,
-callbacks, and Playwright browser acquisition for browser mode.
+Delegates to the native CU protocol for the perceive → act → screenshot
+cycle. Manages session lifecycle and callbacks for the desktop-native
+runtime path.
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ class AgentLoop:
         api_key: str,
         model: str | None = None,
         max_steps: int | None = None,
-        mode: str = "browser",
+        mode: str = "desktop",
         engine: str = "computer_use",
         provider: str = "google",
         execution_target: str = "docker",
@@ -87,11 +87,6 @@ class AgentLoop:
         self._on_step = on_step
         self._on_log = on_log
         self._on_screenshot = on_screenshot
-
-        # Playwright lifecycle refs (cleaned up on session end)
-        self._pw = None
-        self._browser = None
-        self._context = None
 
     @property
     def session_id(self) -> str:
@@ -181,9 +176,7 @@ class AgentLoop:
             self.session.status = SessionStatus.ERROR
             return self.session
 
-        # Map mode string → CU Environment enum
-        env_map = {"browser": Environment.BROWSER, "desktop": Environment.DESKTOP}
-        cu_env = env_map.get(self._mode, Environment.BROWSER)
+        cu_env = Environment.DESKTOP
 
         system_instruction = get_system_prompt("computer_use", self._mode, provider=self._provider)
 
@@ -199,15 +192,6 @@ class AgentLoop:
             agent_service_url=config.agent_service_url,
             reasoning_effort=self._reasoning_effort,
         )
-
-        # For browser mode, acquire a Playwright page from the agent service
-        page = None
-        if cu_env == Environment.BROWSER:
-            page = await self._acquire_playwright_page()
-            if page is None:
-                self._emit_log("error", "Failed to acquire Playwright page for CU engine")
-                self.session.status = SessionStatus.ERROR
-                return self.session
 
         def _on_turn(record: CUTurnRecord) -> None:
             """Map CU turn records to session step records + broadcast."""
@@ -307,7 +291,6 @@ class AgentLoop:
         try:
             final_text = await engine.execute_task(
                 goal=self.session.task,
-                page=page,
                 turn_limit=self.session.max_steps,
                 on_safety=_on_safety,
                 on_turn=_on_turn,
@@ -318,106 +301,8 @@ class AgentLoop:
         except Exception as exc:
             self._emit_log("error", f"CU engine failed: {exc}")
             self.session.status = SessionStatus.ERROR
-        finally:
-            await self._cleanup_playwright()
 
         return self.session
-
-    async def _acquire_playwright_page(self):
-        """Acquire a Playwright page for the CU browser engine.
-
-        Connects to the agent_service's Chromium browser via CDP.  The
-        container's Playwright instance is launched with
-        ``--remote-debugging-port=9223`` so the host backend can attach
-        to it.  If the agent_service exposes ``cdp_url`` in its health
-        response we use that; otherwise we construct a default from the
-        well-known debugging port.
-
-        Returns the Page object or None on failure.
-        """
-        try:
-            import httpx
-
-            # 1. Ask agent_service for a CDP URL (may or may not be present)
-            cdp_url: str | None = None
-            try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    resp = await client.get(f"{config.agent_service_url}/health")
-                    health = resp.json()
-                    cdp_url = health.get("cdp_url")
-            except Exception as exc:
-                self._emit_log("warning", f"Agent service health check failed: {exc}")
-
-            # 2. Fallback: well-known debugging endpoint on container
-            if not cdp_url:
-                cdp_url = f"http://127.0.0.1:9223"
-                self._emit_log(
-                    "info",
-                    "No cdp_url in health response, trying default "
-                    f"debugging endpoint: {cdp_url}",
-                )
-
-            # 3. Connect via CDP
-            from playwright.async_api import async_playwright
-            pw = await async_playwright().start()
-            self._pw = pw
-            try:
-                browser = await pw.chromium.connect_over_cdp(cdp_url)
-            except Exception as cdp_exc:
-                self._emit_log("error", f"CDP connect failed ({cdp_exc}). Container may not be ready.")
-                # Retry with backoff instead of falling back to host browser
-                for attempt in range(3):
-                    await asyncio.sleep(2 * (attempt + 1))
-                    self._emit_log("info", f"CDP retry attempt {attempt + 1}/3")
-                    try:
-                        browser = await pw.chromium.connect_over_cdp(cdp_url)
-                        break
-                    except Exception:
-                        continue
-                else:
-                    self._emit_log("error", "CDP connection failed after 3 retries")
-                    await pw.stop()
-                    self._pw = None
-                    return None
-            self._browser = browser
-
-            contexts = browser.contexts
-            if contexts:
-                pages = contexts[0].pages
-                if pages:
-                    self._emit_log("info", "Acquired Playwright page via CDP")
-                    return pages[0]
-                page = await contexts[0].new_page()
-            else:
-                ctx = await browser.new_context()
-                self._context = ctx
-                page = await ctx.new_page()
-            self._emit_log("info", "Created new Playwright page")
-            return page
-
-        except Exception as exc:
-            self._emit_log("error", f"Failed to acquire Playwright page: {exc}")
-            return None
-
-    async def _cleanup_playwright(self) -> None:
-        """Close Playwright context, browser, and process safely."""
-        for label, obj in [
-            ("context", self._context),
-            ("browser", self._browser),
-            ("playwright", self._pw),
-        ]:
-            if obj is None:
-                continue
-            try:
-                if label == "playwright":
-                    await obj.stop()
-                else:
-                    await obj.close()
-            except Exception:
-                logger.debug("Error closing %s", label, exc_info=True)
-        self._context = None
-        self._browser = None
-        self._pw = None
 
     def _fire_callback(self, cb: Optional[Callable], *args) -> None:
         """Invoke a callback, swallowing exceptions to keep the loop alive."""
