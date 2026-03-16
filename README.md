@@ -9,14 +9,14 @@
 [![React 19](https://img.shields.io/badge/React-19-61DAFB.svg?logo=react&logoColor=black)](https://react.dev)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Docker](https://img.shields.io/badge/Docker-Ubuntu_24.04-2496ED.svg?logo=docker&logoColor=white)](https://docker.com)
-[![Tests](https://img.shields.io/badge/Tests-131_passing-brightgreen.svg)](#-testing)
+[![Tests](https://img.shields.io/badge/Tests-118_passing-brightgreen.svg)](#-testing)
 [![Gemini](https://img.shields.io/badge/Gemini-CU_Native-4285F4.svg?logo=google&logoColor=white)](#-supported-models)
 [![Claude](https://img.shields.io/badge/Claude-CU_Native-CC785C.svg?logo=anthropic&logoColor=white)](#-supported-models)
 [![OpenAI](https://img.shields.io/badge/OpenAI-GPT--5.4_CU-10A37F.svg?logo=openai&logoColor=white)](#-supported-models)
 
 ---
 
-Run a full **Linux desktop + Chromium browser inside Docker**, stream it live to a **React web UI**, and let a vision-language model drive browser and desktop tasks autonomously using pixel-level **perceive → think → act** loops.
+Run a full **Linux desktop inside Docker**, stream it live to a **React web UI**, and let a vision-language model drive desktop tasks autonomously using pixel-level **perceive → think → act** loops.
 
 **For:** AI/ML engineers, researchers, and developers who want a local, sandboxed environment to experiment with computer-using agents without giving LLMs access to their real machines.
 
@@ -49,7 +49,7 @@ CUA implements a **perceive → think → act** loop for autonomous computer con
 
 This cycle repeats until the task completes, an unrecoverable error occurs, or the step limit is reached.
 
-The system uses **native Computer Use protocols exclusively** — Gemini's `function_call`, Claude's `tool_use`, and the OpenAI Responses API `computer_call` — for pixel-level interaction. No text parsing of model responses is required. All actions execute inside a resource-limited Docker container in either **browser mode** (Playwright Chromium via CDP) or **desktop mode** (xdotool + scrot for any X11 application).
+The system uses **native Computer Use protocols exclusively** — Gemini's `function_call`, Claude's `tool_use`, and the OpenAI Responses API `computer_call` — for pixel-level interaction. No text parsing of model responses is required. All actions execute inside a resource-limited Docker container through a **desktop mode** runtime powered by `xdotool` + `scrot` for any X11 application.
 
 A React web UI provides real-time desktop streaming (WebSocket screenshots + interactive noVNC), session management, step-by-step action timeline, and log viewing.
 
@@ -59,8 +59,8 @@ A React web UI provides real-time desktop streaming (WebSocket screenshots + int
 
 | Category | Details |
 |---|---|
-| **Native CU Engine** | Uses Gemini, Claude, and OpenAI native Computer Use tool protocols for structured, pixel-level browser and desktop automation |
-| **Two Execution Modes** | **Browser** — Playwright CDP page actions (mouse, keyboard, navigation) · **Desktop** — xdotool + scrot for any X11 application |
+| **Native CU Engine** | Uses Gemini, Claude, and OpenAI native Computer Use tool protocols for structured, pixel-level desktop automation |
+| **Desktop Runtime** | Uses xdotool + scrot to control and observe any X11 application inside the sandbox |
 | **Multi-Provider AI** | Google Gemini, Anthropic Claude, and OpenAI GPT-5.4 with a centralized model allowlist enforced at the API layer. OpenAI supports configurable reasoning effort (none/low/medium/high/xhigh) via UI dropdown or `OPENAI_REASONING_EFFORT` env var. |
 | **Docker Sandbox** | All automation runs inside an Ubuntu 24.04 container with resource limits, `no-new-privileges`, and localhost-only port bindings |
 | **Real-Time Streaming** | Live screenshot stream via WebSocket + interactive noVNC desktop access proxied through the backend |
@@ -68,7 +68,7 @@ A React web UI provides real-time desktop streaming (WebSocket screenshots + int
 | **Safety Confirmation** | CU safety gates (e.g., `require_confirmation`) surface to the UI for explicit user approval before execution |
 | **Input Validation** | Rate limiting (10 starts/min), concurrent session cap (3), model allowlist enforcement, UUID session IDs, task length bounds |
 | **Context Pruning** | Automatic pruning of old screenshots from the conversation context to prevent unbounded token growth |
-| **131 Hermetic Tests** | Unit tests using mocks/patches — no running container or network required |
+| **Hermetic Test Suite** | Unit tests using mocks/patches — no running container or network required |
 
 ---
 
@@ -80,7 +80,7 @@ The system is a **three-process architecture** spanning the host and a Docker co
 |---|---|---|---|
 | **Frontend** | React 19 / Vite 6 / React Router 7 | `frontend/src/main.jsx` | `3000` |
 | **Backend** | Python 3.13 / FastAPI / Uvicorn | `backend/main.py` → `backend.server:app` | `8000` |
-| **Container** | Ubuntu 24.04 / XFCE 4 / Xvfb / Playwright | `docker/entrypoint.sh` → `docker/agent_service.py` | `9222` |
+| **Container** | Ubuntu 24.04 / XFCE 4 / Xvfb / desktop automation tools | `docker/entrypoint.sh` → `docker/agent_service.py` | `9222` |
 
 ### High-Level Architecture
 
@@ -96,7 +96,6 @@ The system is a **three-process architecture** spanning the host and a Docker co
 | Frontend → Backend | HTTP REST + WebSocket | `api.js` → `/api/*` endpoints; `useWebSocket.js` → `/ws` |
 | Frontend → Container | noVNC (WebSocket) | `ScreenView.jsx` → `/vnc/websockify` proxy in `server.py` |
 | Backend → Agent Service | HTTP | `loop.py` / `screenshot.py` → `:9222/action`, `:9222/screenshot` |
-| Backend → Chromium | CDP (WebSocket) | Playwright page acquisition via `:9223` |
 | Backend → LLM APIs | HTTPS | `google-genai` / `anthropic` / `openai` SDKs → cloud endpoints |
 | Backend → Docker CLI | Subprocess | `docker_manager.py` → `docker build/run/rm/exec` |
 
@@ -154,7 +153,7 @@ The model receives a **screenshot** (base64 PNG) and the **user's task**, then r
 
 1. **Perceive** — capture screenshot via agent service HTTP API (`/screenshot`) or `docker exec scrot` fallback
 2. **Think** — send screenshot + task + conversation history to the LLM
-3. **Act** — receive structured CU action, execute via PlaywrightExecutor or DesktopExecutor
+3. **Act** — receive structured CU action, execute via the desktop executor
 4. **Record** — emit `CUTurnRecord` to the loop, which maps it to a `StepRecord` and broadcasts via WebSocket
 5. **Loop or terminate** — continue on success; stop on `done`/`error` from model, user stop request, or step limit
 
@@ -199,13 +198,15 @@ _safety_events: dict[str, Event]        # session_id → safety confirmation eve
 
 Defined in `backend/allowed_models.json` — the single source of truth for both backend validation and frontend dropdowns.
 
-| Provider | Model ID | Display Name | CU Support | Notes |
-|---|---|---|---|---|
-| Google | `gemini-3-flash-preview` | Gemini 3 Flash Preview | ✅ Native | Fast, lightweight CU model |
-| Google | `gemini-3.1-pro-preview` | Gemini 3.1 Pro Preview | ⚠️ Unconfirmed | Stronger reasoning; CU not in official docs |
-| Anthropic | `claude-sonnet-4-6` | Claude Sonnet 4.6 | ✅ Native | Requires beta endpoint + `computer_20251124` tool |
-| Anthropic | `claude-opus-4-6` | Claude Opus 4.6 | ✅ Native | Requires beta endpoint + `computer_20251124` tool |
-| OpenAI | `gpt-5.4` | GPT-5.4 | ✅ Native | Responses API built-in `computer` tool |
+| Provider | Model ID | Display Name | Runtime Mode | CU Support | Notes |
+|---|---|---|---|---|---|
+| Google | `gemini-3-flash-preview` | Gemini 3 Flash Preview | Desktop | ✅ Native | Fast, lightweight CU model |
+| Google | `gemini-3.1-pro-preview` | Gemini 3.1 Pro Preview | Desktop | ⚠️ Unconfirmed | Stronger reasoning; CU not in official docs |
+| Anthropic | `claude-sonnet-4-6` | Claude Sonnet 4.6 | Desktop | ✅ Native | Requires beta endpoint + `computer_20251124` tool |
+| Anthropic | `claude-opus-4-6` | Claude Opus 4.6 | Desktop | ✅ Native | Requires beta endpoint + `computer_20251124` tool |
+| OpenAI | `gpt-5.4` | GPT-5.4 | Desktop | ✅ Native | Responses API built-in `computer` tool |
+
+> Browser mode was removed from the backend and frontend runtime. All supported providers now run through the desktop harness only.
 
 > **Adding models:** Edit `backend/allowed_models.json`, restart the backend. The UI auto-refreshes via `GET /api/models`.
 
@@ -227,7 +228,7 @@ Defined in `backend/allowed_models.json` — the single source of truth for both
 | `POST` | `/api/container/stop` | Stop all agents then remove the container |
 | `POST` | `/api/container/build` | Trigger Docker image build |
 | `GET` | `/api/agent-service/health` | Check if the in-container agent service responds |
-| `POST` | `/api/agent-service/mode` | Switch agent service mode (`browser` / `desktop`) |
+| `POST` | `/api/agent-service/mode` | Confirm desktop mode; reject browser mode |
 | `POST` | `/api/agent/start` | **Start a new agent session** (see payload below) |
 | `POST` | `/api/agent/stop/{session_id}` | Stop a running session |
 | `GET` | `/api/agent/status/{session_id}` | Session status + last action |
@@ -243,7 +244,7 @@ Defined in `backend/allowed_models.json` — the single source of truth for both
 | `task` | `string` | *(required)* | Non-empty, max 10,000 chars |
 | `provider` | `string` | *(required)* | `"google"`, `"anthropic"`, or `"openai"` |
 | `model` | `string` | `"gemini-3-flash-preview"` | Must be in allowlist |
-| `mode` | `string` | *(required)* | `"browser"` or `"desktop"` |
+| `mode` | `string` | *(required)* | `"desktop"` only |
 | `api_key` | `string?` | `null` | Optional — resolved from env if empty |
 | `max_steps` | `int` | `50` | 1–200 |
 | `engine` | `string` | `"computer_use"` | Only `"computer_use"` accepted |
@@ -378,8 +379,7 @@ cd frontend && npm install && cd ..
 ### Platform Notes
 
 - **Docker container** is always Linux (Ubuntu 24.04) regardless of host OS
-- **Playwright** is installed inside the container, not on the host; the host backend connects via CDP
-- The Docker image is **~3–4 GB** due to XFCE desktop, Chrome, Playwright, and desktop applications
+- The Docker image is still large because it includes XFCE, Chrome, LibreOffice, and other desktop applications
 
 ---
 
@@ -409,7 +409,7 @@ Keys are resolved in priority order — the first non-empty value wins:
 | `CONTAINER_NAME` | `cua-environment` | Docker container name |
 | `AGENT_SERVICE_HOST` | `127.0.0.1` | Agent service hostname |
 | `AGENT_SERVICE_PORT` | `9222` | Agent service port |
-| `AGENT_MODE` | `browser` | Default mode (`browser` / `desktop`) |
+| `AGENT_MODE` | `desktop` | Default and only supported runtime mode |
 | `SCREEN_WIDTH` | `1440` | Virtual display width (pixels) |
 | `SCREEN_HEIGHT` | `900` | Virtual display height (pixels) |
 | `MAX_STEPS` | `50` | Default max steps per session |
@@ -439,7 +439,7 @@ The default view shows:
 ### Workbench (`/workbench`)
 
 A more advanced interface with:
-- **Run Mode toggle** — browser or desktop
+- **Desktop-only runtime indicator** — confirms the supported runtime mode
 - **Step Timeline** — expandable step-by-step view: action name, coordinates, reasoning, errors, raw JSON
 - **Progress bar** — visual steps-used-vs-max indicator
 - **Log download** — export logs as timestamped `.txt` file
@@ -477,7 +477,7 @@ docker compose down
 | | |
 |---|---|
 | **Framework** | pytest |
-| **Tests** | 131 passing |
+| **Tests** | See current `pytest tests` output |
 | **Hermetic** | All tests use mocks/patches — no running container or network required |
 
 ### Running Tests
@@ -494,17 +494,15 @@ pytest tests/ -q               # Quick summary
 | File | Scope |
 |---|---|
 | `test_computer_use_engine.py` | Coordinate denormalization, executor mocking, safety decisions, OpenAI runtime path + helpers |
-| `test_claude_actions.py` | Claude action dispatch via PlaywrightExecutor |
-| `test_playwright_executor.py` | Gemini CU actions via PlaywrightExecutor (normalized coords) |
+| `test_claude_actions.py` | Claude action dispatch into the shared desktop executor interface |
 | `test_coordinate_scaling.py` | Claude screenshot scaling & coordinate math |
 | `test_context_pruning.py` | Conversation context pruning logic |
 | `test_config.py` | Config singleton, `from_env()`, agent service URL, OpenAI key resolution |
 | `test_models.py` | ActionType enum, Pydantic model validation, StructuredError |
 | `test_model_policy.py` | `allowed_models.json` integrity, model endpoint, provider rejection |
 | `test_prompts.py` | Prompt separation (Gemini vs Claude vs OpenAI), viewport injection, drift detection |
-| `test_server_validation.py` | API input validation: engines, providers, models, rate limiting, safety |
+| `test_server_validation.py` | API input validation: engines, providers, models, desktop-only mode enforcement, rate limiting, safety |
 | `test_docker_security.py` | Container security settings validation |
-| `conftest.py` | Shared `mock_page` fixture (mock Playwright page) |
 
 ---
 
@@ -524,18 +522,18 @@ Built from `docker/Dockerfile` on **Ubuntu 24.04**. The entrypoint (`docker/entr
 
 ### Pre-installed Software
 
-Google Chrome, Playwright Chromium, xdotool, wmctrl, xclip, scrot, ffmpeg, Node.js 20, LibreOffice, VLC, gedit, file manager, terminal emulators
+Google Chrome, xdotool, wmctrl, xclip, scrot, ffmpeg, Node.js 20, LibreOffice, VLC, gedit, file manager, terminal emulators
 
 ### Agent Service (`docker/agent_service.py`)
 
-An HTTP server running inside the container handling both Playwright (browser) and xdotool (desktop) dispatch:
+An HTTP server running inside the container handling desktop automation and screenshot capture:
 
 | Endpoint | Method | Purpose |
 |---|---|---|
-| `/health` | GET | Liveness check (reports mode + CDP url) |
-| `/screenshot` | GET | Capture via Playwright (browser) or scrot (desktop) |
-| `/action` | POST | Execute a single action in the active mode |
-| `/mode` | POST | Switch between browser and desktop mode at runtime |
+| `/health` | GET | Liveness check with supported mode metadata |
+| `/screenshot` | GET | Capture the desktop via scrot |
+| `/action` | POST | Execute a single desktop action |
+| `/mode` | POST | Confirm desktop mode; reject browser mode |
 
 ### Port Map
 
@@ -546,7 +544,6 @@ An HTTP server running inside the container handling both Playwright (browser) a
 | `6080` | noVNC (websockify) | `127.0.0.1` |
 | `8000` | Backend API (FastAPI) | `0.0.0.0` |
 | `9222` | Agent Service | `127.0.0.1` |
-| `9223` | Chromium CDP | `127.0.0.1` |
 
 ---
 
@@ -590,7 +587,7 @@ Gemini uses normalized 0–999 coordinates, which the engine denormalizes using 
 
 ### Container build takes a long time
 
-Expected — the image installs XFCE, Chrome, Playwright Chromium, LibreOffice, and many utilities. First build is ~3–4 GB; subsequent builds use layer cache.
+Expected — the image installs XFCE, Chrome, LibreOffice, and many utilities. First build is still large; subsequent builds use layer cache.
 
 ---
 
@@ -645,7 +642,7 @@ computer-use/
 │   ├── config.py                  # Config dataclass, env loading, API key resolution
 │   ├── models.py                  # ActionType enum, Pydantic request/response models
 │   ├── engine.py                  # ComputerUseEngine, GeminiCUClient, ClaudeCUClient,
-│   │                              #   OpenAICUClient, PlaywrightExecutor, DesktopExecutor
+│   │                              #   OpenAICUClient, DesktopExecutor
 │   ├── allowed_models.json        # Canonical model allowlist  (5 models, 3 providers)
 │   ├── engine_capabilities.json   # Engine capability schema (v3.0)
 │   ├── engine_capabilities.py     # Schema loader for engine_capabilities.json
@@ -659,7 +656,7 @@ computer-use/
 │       ├── prompts.py             # System prompts for Gemini, Claude, and OpenAI CU
 │       └── screenshot.py          # Screenshot capture via agent service + fallback
 ├── docker/
-│   ├── Dockerfile                 # Ubuntu 24.04, XFCE 4, Chrome, Playwright, desktop apps
+│   ├── Dockerfile                 # Ubuntu 24.04, XFCE 4, Chrome, desktop apps
 │   ├── entrypoint.sh              # Service startup: Xvfb → XFCE → VNC → agent service
 │   └── agent_service.py           # In-container HTTP server: action dispatch + screenshots
 ├── frontend/
@@ -686,10 +683,8 @@ computer-use/
 │       ├── execution-flow.svg
 │       └── components.svg
 ├── tests/
-│   ├── conftest.py                # Shared mock_page fixture
 │   ├── test_computer_use_engine.py
 │   ├── test_claude_actions.py
-│   ├── test_playwright_executor.py
 │   ├── test_coordinate_scaling.py
 │   ├── test_context_pruning.py
 │   ├── test_config.py
