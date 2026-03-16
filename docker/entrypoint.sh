@@ -12,21 +12,6 @@ export PYTHONPATH=/app
 echo "=== CUA Container Starting (XFCE4 Mode) ==="
 
 # ─────────────────────────────────────────────
-# 0. Ensure Chrome symlink for Playwright browser mode
-# ─────────────────────────────────────────────
-if [ ! -x /opt/google/chrome/chrome ]; then
-    echo "[Chrome] Symlink missing or broken — repairing..."
-    mkdir -p /opt/google/chrome
-    CHROMIUM=$(find /ms-playwright -name chrome -type f -executable 2>/dev/null | head -1)
-    if [ -n "$CHROMIUM" ]; then
-        ln -sf "$CHROMIUM" /opt/google/chrome/chrome
-        echo "[Chrome] Linked /opt/google/chrome/chrome -> $CHROMIUM"
-    else
-        echo "[Chrome] WARNING: no Chromium binary found in /ms-playwright"
-    fi
-fi
-
-# ─────────────────────────────────────────────
 # 1. DBus (system + session)
 # ─────────────────────────────────────────────
 mkdir -p /var/run/dbus

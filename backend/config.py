@@ -33,7 +33,7 @@ class Config:
     # Agent service inside container
     agent_service_host: str = "127.0.0.1"
     agent_service_port: int = 9222
-    agent_mode: str = "browser"  # "browser" or "desktop"
+    agent_mode: str = "desktop"
 
     # Screenshot
     screen_width: int = 1440

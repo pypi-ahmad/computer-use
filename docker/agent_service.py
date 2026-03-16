@@ -1,12 +1,8 @@
 """Internal agent service — runs INSIDE the Docker container.
 
-Provides a lightweight HTTP API with two automation modes:
-
-  • browser  — Playwright (page.mouse.click, page.keyboard.type, page.goto)
-  • desktop  — xdotool + scrot (works with ANY X11 application)
-
-The backend selects the mode per-request via a `mode` field.  Screenshots
-and actions are dispatched to the appropriate handler automatically.
+Provides a lightweight HTTP API for desktop automation using xdotool and
+scrot. Applications run inside the X11 desktop and are controlled through
+desktop input events only.
 """
 
 from __future__ import annotations
@@ -42,16 +38,12 @@ except ImportError:
 
 # ── Globals ───────────────────────────────────────────────────────────────────
 
-_playwright = None
-_browser = None
-_context = None
-_page = None
 _lock = Lock()
 
 SCREEN_WIDTH = int(os.environ.get("SCREEN_WIDTH", "1440"))
 SCREEN_HEIGHT = int(os.environ.get("SCREEN_HEIGHT", "900"))
 SERVICE_PORT = int(os.environ.get("AGENT_SERVICE_PORT", "9222"))
-DEFAULT_MODE = os.environ.get("AGENT_MODE", "browser")  # "browser" or "desktop"
+DEFAULT_MODE = os.environ.get("AGENT_MODE", "desktop")
 ACTION_DELAY = float(os.environ.get("ACTION_DELAY", "0.05"))
 
 
@@ -122,85 +114,9 @@ os.environ["DISPLAY"] = ":99"
 
 
 
-# ── Playwright lifecycle ──────────────────────────────────────────────────────
-
-def _init_browser():
-    """Launch Playwright + Chromium synchronously."""
-    global _playwright, _browser, _context, _page
-
-    try:
-        subprocess.run(["xclip", "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except FileNotFoundError:
-        logger.warning("xclip not found - clipboard actions (paste/copy) in desktop mode may fail")
-    
-    from playwright.sync_api import sync_playwright
-
-    logger.info("Initializing Playwright...")
-    _playwright = sync_playwright().start()
-
-    _browser = _playwright.chromium.launch(
-        headless=False,  # Visible on Xvfb
-        args=[
-            "--no-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-gpu",
-            f"--window-size={SCREEN_WIDTH - 100},{SCREEN_HEIGHT - 80}",
-            "--window-position=50,10",
-            "--disable-extensions",
-            "--disable-background-timer-throttling",
-            "--disable-backgrounding-occluded-windows",
-            "--disable-renderer-backgrounding",
-            "--force-device-scale-factor=1",
-            "--remote-debugging-port=9223",
-        ],
-    )
-
-    _context = _browser.new_context(
-        viewport={"width": SCREEN_WIDTH - 100, "height": SCREEN_HEIGHT - 80},
-        device_scale_factor=1,
-    )
-
-    _page = _context.new_page()
-    _page.goto("about:blank")
-
-    logger.info("Playwright browser ready: %dx%d", SCREEN_WIDTH, SCREEN_HEIGHT)
-
-
-def _get_page():
-    """Return the active page, creating if needed."""
-    global _page
-    if _page is None or _page.is_closed():
-        if _context:
-            _page = _context.new_page()
-            _page.goto("about:blank")
-    return _page
-
-
-def _shutdown_browser():
-    """Tear down Playwright browser, context, and page."""
-    global _playwright, _browser, _context, _page
-    try:
-        if _page and not _page.is_closed():
-            _page.close()
-        if _context:
-            _context.close()
-        if _browser:
-            _browser.close()
-        if _playwright:
-            _playwright.stop()
-    except Exception as e:
-        logger.warning("Shutdown error: %s", e)
-
-
 # ══════════════════════════════════════════════════════════════════════════════
 #  Screenshots
 # ══════════════════════════════════════════════════════════════════════════════
-
-def _screenshot_playwright() -> str:
-    """Capture current browser tab as PNG via Playwright."""
-    page = _get_page()
-    png_bytes = page.screenshot(type="png", full_page=False)
-    return base64.b64encode(png_bytes).decode("ascii")
 
 
 def _screenshot_desktop() -> str:
@@ -211,500 +127,6 @@ def _screenshot_desktop() -> str:
     )
     with open("/tmp/screenshot.png", "rb") as f:
         return base64.b64encode(f.read()).decode("ascii")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  Actions — Playwright (browser mode)
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _pw_click(x: int, y: int) -> dict:
-    """Click at pixel coordinates via Playwright."""
-    page = _get_page()
-    page.mouse.click(x, y)
-    return {"success": True, "message": f"Clicked at ({x}, {y})"}
-
-
-def _pw_double_click(x: int, y: int) -> dict:
-    """Double-click at pixel coordinates via Playwright."""
-    page = _get_page()
-    page.mouse.dblclick(x, y)
-    return {"success": True, "message": f"Double-clicked at ({x}, {y})"}
-
-
-def _pw_right_click(x: int, y: int) -> dict:
-    """Right-click at pixel coordinates via Playwright."""
-    page = _get_page()
-    page.mouse.click(x, y, button="right")
-    return {"success": True, "message": f"Right-clicked at ({x}, {y})"}
-
-
-def _pw_type(text: str, coords: list = None, selector: str = None) -> dict:
-    """Type text, ensuring focus if coordinates or selector are provided."""
-    page = _get_page()
-    
-    # 1. Try to click coordinates or selector if provided to ensure focus
-    if selector:
-        try:
-            page.click(selector)
-            time.sleep(0.1)
-        except Exception as e:
-            logger.warning(f"Safe type click selector failed: {e}")
-    elif coords and len(coords) >= 2:
-        try:
-            page.mouse.click(coords[0], coords[1])
-            time.sleep(0.1)
-        except Exception as e:
-            logger.warning(f"Safe type click coords failed: {e}")
-
-    # 2. Verify focus (optional but good for debugging)
-    try:
-        active_tag = page.evaluate("document.activeElement ? document.activeElement.tagName : ''")
-        if active_tag == 'BODY':
-            logger.warning("Typing with focus on BODY - input might fail")
-    except Exception:
-        pass
-
-    # 3. Type directly (retry/fallback handled by executor)
-    page.keyboard.type(text, delay=50)
-    time.sleep(ACTION_DELAY)
-    return {"success": True, "message": f"Typed: {text[:50]}", "error_type": None}
-
-
-def _pw_scroll(x: int, y: int, direction: str) -> dict:
-    """Scroll at the given coordinates in the specified direction."""
-    page = _get_page()
-    page.mouse.move(x, y)
-    delta = -300 if direction == "up" else 300
-    page.mouse.wheel(0, delta)
-    return {"success": True, "message": f"Scrolled {direction} at ({x}, {y})"}
-
-
-def _pw_navigate(url: str) -> dict:
-    """Navigate the browser to *url*, prepending https:// if needed."""
-    page = _get_page()
-    if not url.startswith(("http://", "https://")):
-        url = "https://" + url
-    page.goto(url, wait_until="domcontentloaded", timeout=30000)
-    return {"success": True, "message": f"Navigated to {url}"}
-
-
-def _pw_key(key: str) -> dict:
-    """Press a keyboard key or combo via Playwright."""
-    page = _get_page()
-    combo = _map_key_combo(key)
-    page.keyboard.press(combo)
-    return {"success": True, "message": f"Pressed key: {key}"}
-
-
-def _pw_drag(x1: int, y1: int, x2: int, y2: int) -> dict:
-    """Drag from (x1,y1) to (x2,y2) via Playwright mouse."""
-    page = _get_page()
-    page.mouse.move(x1, y1)
-    page.mouse.down()
-    page.mouse.move(x2, y2, steps=10)
-    page.mouse.up()
-    return {"success": True, "message": f"Dragged ({x1},{y1}) → ({x2},{y2})"}
-
-
-def _pw_hover(x: int, y: int) -> dict:
-    """Move the mouse to (x,y) without clicking."""
-    page = _get_page()
-    page.mouse.move(x, y)
-    return {"success": True, "message": f"Hovered at ({x}, {y})"}
-
-
-def _pw_middle_click(x: int, y: int) -> dict:
-    """Middle-click at pixel coordinates via Playwright."""
-    page = _get_page()
-    page.mouse.click(x, y, button="middle")
-    return {"success": True, "message": f"Middle-clicked at ({x}, {y})"}
-
-
-def _pw_fill(selector: str, text: str) -> dict:
-    """Fill an input using Playwright's reliable fill() — clears first.
-
-    On selector failure, auto-discovers available form fields and returns
-    them in the error message so the model can retry with the correct selector.
-    """
-    page = _get_page()
-    try:
-        page.fill(selector, text, timeout=5000)
-        return {"success": True, "message": f"Filled '{selector}' with: {text[:50]}"}
-    except Exception as fill_err:
-        # Auto-discover available form fields so the model can self-correct
-        try:
-            fields_json = page.evaluate(
-                "[...document.querySelectorAll('input,textarea,select')]"
-                ".map(e=>({tag:e.tagName,name:e.name,id:e.id,type:e.type,"
-                "placeholder:e.placeholder||''}))"
-            )
-            field_hints = json.dumps(fields_json, separators=(",", ":"))
-            if len(field_hints) > 1500:
-                field_hints = field_hints[:1500] + "…]"
-        except Exception:
-            field_hints = "(could not discover fields)"
-        return {
-            "success": False,
-            "message": (
-                f"fill('{selector}') failed: {fill_err}. "
-                f"Available fields: {field_hints}"
-            ),
-        }
-
-
-def _pw_hotkey(keys: list[str]) -> dict:
-    """Press multiple keys simultaneously (e.g. ['ctrl','shift','t'])."""
-    page = _get_page()
-    combo = "+".join(_map_key_combo(k) for k in keys)
-    page.keyboard.press(combo)
-    return {"success": True, "message": f"Hotkey: {'+'.join(keys)}"}
-
-
-def _pw_clear_input(selector: str) -> dict:
-    """Clear an input field by filling it with an empty string."""
-    page = _get_page()
-    page.locator(selector).fill("")
-    return {"success": True, "message": f"Cleared input: {selector}"}
-
-
-def _pw_select_option(selector: str, value: str) -> dict:
-    """Select a <select> option by value via Playwright."""
-    page = _get_page()
-    page.select_option(selector, value, timeout=5000)
-    return {"success": True, "message": f"Selected '{value}' in {selector}"}
-
-
-def _pw_paste(text: str) -> dict:
-    """Clipboard-based paste (reliable fallback for typing)."""
-    page = _get_page()
-    page.evaluate(f"navigator.clipboard.writeText({json.dumps(text)})")
-    page.keyboard.press("Control+v")
-    time.sleep(0.1)
-    return {"success": True, "message": f"Pasted: {text[:50]}"}
-
-
-def _pw_copy() -> dict:
-    """Copy the current selection to clipboard via Ctrl+C."""
-    page = _get_page()
-    page.keyboard.press("Control+c")
-    return {"success": True, "message": "Copied selection to clipboard"}
-
-
-def _pw_reload() -> dict:
-    """Reload the current page."""
-    page = _get_page()
-    page.reload(wait_until="domcontentloaded", timeout=30000)
-    return {"success": True, "message": "Page reloaded"}
-
-
-def _pw_go_back() -> dict:
-    """Navigate back one page."""
-    page = _get_page()
-    page.go_back(wait_until="domcontentloaded", timeout=30000)
-    return {"success": True, "message": "Navigated back"}
-
-
-def _pw_go_forward() -> dict:
-    """Navigate forward one page."""
-    page = _get_page()
-    page.go_forward(wait_until="domcontentloaded", timeout=30000)
-    return {"success": True, "message": "Navigated forward"}
-
-
-def _pw_new_tab(url: str = "") -> dict:
-    """Open a new browser tab, optionally navigating to *url*."""
-    global _page
-    target = url or "about:blank"
-    if url and not url.startswith(("http://", "https://")):
-        target = "https://" + url
-    page = _context.new_page()
-    page.goto(target)
-    _page = page
-    return {"success": True, "message": f"Opened new tab: {target}"}
-
-
-def _pw_close_tab() -> dict:
-    """Close the currently active browser tab."""
-    global _page
-    page = _get_page()
-    page.close()
-    pages = _context.pages
-    _page = pages[-1] if pages else None
-    return {"success": True, "message": "Closed current tab"}
-
-
-def _pw_switch_tab(identifier: str) -> dict:
-    """Switch tab by index (0-based) or partial title/URL match."""
-    global _page
-    pages = _context.pages
-    # Try numeric index first
-    try:
-        idx = int(identifier)
-        if 0 <= idx < len(pages):
-            _page = pages[idx]
-            _page.bring_to_front()
-            return {"success": True, "message": f"Switched to tab {idx}: {_page.url}"}
-    except ValueError:
-        pass
-    # Search by title or URL
-    needle = identifier.lower()
-    for p in pages:
-        if needle in p.title().lower() or needle in p.url.lower():
-            _page = p
-            _page.bring_to_front()
-            return {"success": True, "message": f"Switched to tab: {_page.url}"}
-    return {"success": False, "message": f"No tab matching '{identifier}'"}
-
-
-def _pw_scroll_to(selector: str) -> dict:
-    """Scroll the element matching *selector* into view."""
-    page = _get_page()
-    page.evaluate(f"document.querySelector({json.dumps(selector)})?.scrollIntoView({{behavior:'smooth',block:'center'}})")
-    return {"success": True, "message": f"Scrolled to: {selector}"}
-
-
-def _pw_get_text(selector: str) -> dict:
-    """Extract text content from the element matching *selector*."""
-    page = _get_page()
-    text = page.text_content(selector, timeout=5000) or ""
-    return {"success": True, "message": f"Text: {text[:500]}"}
-
-
-def _pw_find_element(description: str) -> dict:
-    """Find element by text content and return its bounding box."""
-    page = _get_page()
-    loc = page.get_by_text(description, exact=False).first
-    box = loc.bounding_box(timeout=5000)
-    if box:
-        cx = int(box["x"] + box["width"] / 2)
-        cy = int(box["y"] + box["height"] / 2)
-        return {"success": True, "message": f"Found '{description}' at center ({cx}, {cy}), box={box}"}
-    return {"success": False, "message": f"Element '{description}' not found"}
-
-
-def _pw_evaluate_js(script: str) -> dict:
-    """Evaluate arbitrary JavaScript in the page context."""
-    page = _get_page()
-    result = page.evaluate(script)
-    return {"success": True, "message": f"JS result: {str(result)[:500]}"}
-
-
-def _pw_wait_for(selector: str) -> dict:
-    """Wait up to 10 s for a DOM element matching *selector* to appear."""
-    page = _get_page()
-    page.wait_for_selector(selector, timeout=10000)
-    return {"success": True, "message": f"Element appeared: {selector}"}
-
-
-def _pw_screenshot_region(x: int, y: int, w: int, h: int) -> str:
-    """Capture a region of the page as base64 PNG."""
-    page = _get_page()
-    png_bytes = page.screenshot(
-        type="png",
-        clip={"x": x, "y": y, "width": w, "height": h},
-    )
-    return base64.b64encode(png_bytes).decode("ascii")
-
-
-def _pw_screenshot_viewport() -> str:
-    """Capture the current viewport as base64 PNG."""
-    page = _get_page()
-    png_bytes = page.screenshot(type="png", full_page=False)
-    return base64.b64encode(png_bytes).decode("ascii")
-
-
-def _pw_screenshot_element(selector: str) -> str:
-    """Capture a specific element as base64 PNG."""
-    page = _get_page()
-    try:
-        element = page.locator(selector).first
-        if element.is_visible():
-            png_bytes = element.screenshot(type="png")
-            return base64.b64encode(png_bytes).decode("ascii")
-    except Exception as e:
-        logger.warning(f"Failed to screenshot element {selector}: {e}")
-    return ""  # Return empty string on failure, handled by caller
-
-
-def _pw_scroll_into_view(selector: str) -> dict:
-    """Scroll the element into the visible viewport if needed."""
-    page = _get_page()
-    try:
-        page.locator(selector).first.scroll_into_view_if_needed(timeout=5000)
-        return {"success": True, "message": f"Scrolled into view: {selector}"}
-    except Exception as e:
-        return {"success": False, "message": f"Failed to scroll to {selector}: {e}"}
-
-
-def _pw_set_viewport(width: int, height: int) -> dict:
-    """Resize the Playwright viewport to *width* x *height*."""
-    page = _get_page()
-    page.set_viewport_size({"width": width, "height": height})
-    return {"success": True, "message": f"Viewport set to {width}x{height}"}
-
-
-def _pw_zoom(level: float) -> dict:
-    """Set zoom level (e.g. 1.0, 1.5, 0.8). Playwright uses CSS zoom or scale."""
-    page = _get_page()
-    page.evaluate(f"document.body.style.zoom = '{level}'")
-    return {"success": True, "message": f"Zoom set to {level}"}
-
-
-def _pw_block_resource(resource_type: str) -> dict:
-    """Block resource types (image, font, css, etc.)."""
-    page = _get_page()
-    normalized = (resource_type or "").strip().lower()
-    if not normalized:
-        return {"success": False, "message": "block_resource requires a resource type"}
-
-    page.route(
-        "**/*",
-        lambda route: route.abort()
-        if route.request.resource_type == normalized
-        else route.continue_(),
-    )
-    return {"success": True, "message": f"Blocked resource type: {resource_type}"}
-
-
-def _pw_export_page_pdf() -> str:
-    """Export page as PDF (base64)."""
-    page = _get_page()
-    pdf_bytes = page.pdf()
-    return base64.b64encode(pdf_bytes).decode("ascii")
-
-
-def _pw_get_html(selector: str = None) -> dict:
-    """Return inner HTML of *selector*, or full page HTML if omitted."""
-    page = _get_page()
-    if selector:
-        html = page.inner_html(selector, timeout=5000)
-    else:
-        html = page.content()
-    return {"success": True, "message": f"HTML: {html[:500]}"}
-
-
-def _pw_get_attribute(selector: str, attribute: str) -> dict:
-    """Read a DOM attribute from the element matching *selector*."""
-    page = _get_page()
-    val = page.get_attribute(selector, attribute, timeout=5000)
-    return {"success": True, "message": f"Attribute {attribute}: {val}"}
-
-
-def _pw_query_selector(selector: str) -> dict:
-    """Check whether a DOM element matching *selector* exists."""
-    page = _get_page()
-    element = page.query_selector(selector)
-    if element:
-        return {"success": True, "message": f"Element found: {selector}"}
-    return {"success": False, "message": f"Element not found: {selector}"}
-
-
-def _pw_query_all(selector: str) -> dict:
-    """Count all DOM elements matching *selector*."""
-    page = _get_page()
-    elements = page.query_selector_all(selector)
-    return {"success": True, "message": f"Found {len(elements)} elements matching: {selector}"}
-
-
-def _pw_get_bounding_box(selector: str) -> dict:
-    """Return the bounding box of the first element matching *selector*."""
-    page = _get_page()
-    element = page.query_selector(selector)
-    if element:
-        box = element.bounding_box()
-        return {"success": True, "message": f"Bounding box for {selector}: {box}"}
-    return {"success": False, "message": f"Element not found: {selector}"}
-
-
-def _pw_get_visible_elements(selector: str) -> dict:
-    """Count visible elements matching *selector*."""
-    page = _get_page()
-    elements = page.query_selector_all(selector)
-    visible_count = sum(1 for el in elements if el.is_visible())
-    return {"success": True, "message": f"Found {visible_count} visible elements matching: {selector}"}
-
-
-def _pw_evaluate_on_selector(selector: str, script: str) -> dict:
-    """Evaluate *script* in the context of the element matching *selector*."""
-    page = _get_page()
-    try:
-        result = page.eval_on_selector(selector, script)
-        return {"success": True, "message": f"JS result on {selector}: {str(result)[:500]}"}
-    except Exception as e:
-        return {"success": False, "message": f"Failed to evaluate on {selector}: {e}"}
-
-
-def _pw_wait_for_navigation() -> dict:
-    """Block until the page reaches the 'load' state."""
-    page = _get_page()
-    page.wait_for_load_state("load", timeout=30000)
-    return {"success": True, "message": "Navigation complete"}
-
-
-def _pw_upload_file(selector: str, file_path: str) -> dict:
-    """Set input file on the element matching *selector* (path-restricted)."""
-    page = _get_page()
-    # Directory traversal protection
-    resolved = os.path.realpath(file_path)
-    if not any(resolved.startswith(p) for p in _UPLOAD_ALLOWED_PREFIXES):
-        return {"success": False, "message": f"Upload restricted to {_UPLOAD_ALLOWED_PREFIXES}"}
-    page.set_input_files(selector, file_path)
-    return {"success": True, "message": f"Uploaded {file_path} to {selector}"}
-
-
-def _pw_download_file(selector: str) -> dict:
-    """Download a file (stub — not yet implemented)."""
-    return {"success": False, "message": "Not implemented yet"}
-
-
-def _pw_set_cookies(cookies: list) -> dict:
-    """Add cookies to the current browser context."""
-    global _context
-    _context.add_cookies(cookies)
-    return {"success": True, "message": "Cookies set"}
-
-
-def _pw_get_cookies() -> dict:
-    """Retrieve all cookies from the current browser context."""
-    global _context
-    cookies = _context.cookies()
-    return {"success": True, "message": f"Got {len(cookies)} cookies"}
-
-
-def _pw_clear_cookies() -> dict:
-    """Clear all cookies from the current browser context."""
-    global _context
-    _context.clear_cookies()
-    return {"success": True, "message": "Cookies cleared"}
-
-
-def _pw_new_context() -> dict:
-    """Create a fresh Playwright browser context (clears state)."""
-    global _playwright, _browser, _context, _page
-    if _context:
-        _context.close()
-    _context = _browser.new_context(
-        viewport={"width": SCREEN_WIDTH - 100, "height": SCREEN_HEIGHT - 80},
-        device_scale_factor=1,
-    )
-    _page = _context.new_page()
-    _page.goto("about:blank")
-    return {"success": True, "message": "New context created"}
-
-
-def _pw_switch_context(identifier: str) -> dict:
-    """Switch browser context (stub — not yet implemented)."""
-    return {"success": False, "message": "Not implemented yet"}
-
-
-def _pw_close_context() -> dict:
-    """Close the current browser context and release its page."""
-    global _context, _page
-    if _context:
-        _context.close()
-    _context = None
-    _page = None
-    return {"success": True, "message": "Context closed"}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1075,6 +497,18 @@ def _xdo_drag(x1: int, y1: int, x2: int, y2: int) -> dict:
     _xdo(["mousemove", "--sync", str(x2), str(y2)])
     _xdo(["mouseup", "1"])
     return {"success": True, "message": f"Dragged ({x1},{y1}) → ({x2},{y2})"}
+
+
+def _xdo_left_mouse_down() -> dict:
+    """Hold the left mouse button down."""
+    _xdo(["mousedown", "1"])
+    return {"success": True, "message": "Left mouse button down"}
+
+
+def _xdo_left_mouse_up() -> dict:
+    """Release the left mouse button."""
+    _xdo(["mouseup", "1"])
+    return {"success": True, "message": "Left mouse button up"}
 
 
 # ── Deterministic browser launch (shared by xdotool open_url) ─────────────
@@ -1522,19 +956,6 @@ def _wmctrl_resize_window(identifier: str, w: int, h: int) -> dict:
 
 
 
-_KEY_MAP = {
-    "enter": "Enter", "return": "Enter",
-    "tab": "Tab",
-    "escape": "Escape", "esc": "Escape",
-    "backspace": "Backspace",
-    "delete": "Delete",
-    "space": " ",
-    "up": "ArrowUp", "down": "ArrowDown",
-    "left": "ArrowLeft", "right": "ArrowRight",
-    "home": "Home", "end": "End",
-    "pageup": "PageUp", "pagedown": "PageDown",
-}
-
 _KEY_MAP_XDO = {
     "enter": "Return", "return": "Return",
     "tab": "Tab",
@@ -1547,47 +968,6 @@ _KEY_MAP_XDO = {
     "home": "Home", "end": "End",
     "pageup": "Prior", "pagedown": "Next",
 }
-
-
-def _map_key_combo(key: str) -> str:
-    """Map a user key string to a Playwright key combo."""
-    if "+" in key:
-        parts = [p.strip() for p in key.split("+")]
-        modifiers = []
-        for p in parts[:-1]:
-            pl = p.lower()
-            if pl in ("ctrl", "control"):
-                modifiers.append("Control")
-            elif pl == "alt":
-                modifiers.append("Alt")
-            elif pl == "shift":
-                modifiers.append("Shift")
-            elif pl in ("meta", "super", "win", "cmd"):
-                modifiers.append("Meta")
-            else:
-                # Add other modifiers if any, or just ignore
-                pass
-        
-        # Handle the last part (the actual key)
-        last_part = parts[-1]
-        # Normalize last part
-        final = _KEY_MAP.get(last_part.lower(), last_part)
-        
-        # Special case: ensure single char keys are proper case if needed?
-        # Playwright usually handles "a", "A", etc.
-        
-        return "+".join(modifiers + [final])
-    
-    # Single key
-    k = key.lower()
-    if k in ("ctrl", "control"): return "Control"
-    if k == "alt": return "Alt"
-    if k == "shift": return "Shift"
-    if k in ("meta", "super", "win", "cmd"): return "Meta"
-    
-    return _KEY_MAP.get(k, key)
-
-
 def _map_key_combo_xdotool(key: str) -> str:
     """Map a user key string to an xdotool key combo."""
     if "+" in key:
@@ -1621,7 +1001,7 @@ def _do_wait(duration: float) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class AgentHandler(BaseHTTPRequestHandler):
-    """HTTP handler supporting both browser and desktop modes."""
+    """HTTP handler for the supported desktop automation mode."""
 
     def log_message(self, fmt, *args):
         """Redirect HTTP request logging to the module logger."""
@@ -1653,27 +1033,22 @@ class AgentHandler(BaseHTTPRequestHandler):
         if self.path == "/health":
             self._respond(200, {
                 "status": "ok",
-                "browser": _browser is not None,
+                "browser": False,
                 "default_mode": DEFAULT_MODE,
-                "cdp_url": "http://127.0.0.1:9223",
+                "supported_modes": ["desktop"],
             })
             return
 
         if self.path.startswith("/screenshot"):
-            # Parse ?mode=desktop|browser from query string
+            # Parse ?mode=desktop from query string
             mode = self._parse_mode_from_query()
             with _lock:
                 try:
-                    if mode == "desktop":
-                        b64 = _screenshot_desktop()
-                        self._respond(200, {"screenshot": b64, "method": "desktop"})
-                    else:
-                        try:
-                            b64 = _screenshot_playwright()
-                            self._respond(200, {"screenshot": b64, "method": "playwright"})
-                        except Exception:
-                            b64 = _screenshot_desktop()
-                            self._respond(200, {"screenshot": b64, "method": "desktop_fallback"})
+                    if mode != "desktop":
+                        self._respond(400, {"error": "Browser mode is no longer supported"})
+                        return
+                    b64 = _screenshot_desktop()
+                    self._respond(200, {"screenshot": b64, "method": "desktop"})
                 except Exception as e:
                     self._respond(500, {"error": str(e)})
             return
@@ -1712,15 +1087,14 @@ class AgentHandler(BaseHTTPRequestHandler):
             return
 
         if self.path == "/mode":
-            # Switch default mode at runtime
-            new_mode = body.get("mode", "").lower()
-            if new_mode in ("browser", "desktop"):
-                global DEFAULT_MODE
-                DEFAULT_MODE = new_mode
-                logger.info("Default mode switched to: %s", DEFAULT_MODE)
-                self._respond(200, {"mode": DEFAULT_MODE})
-            else:
-                self._respond(400, {"error": "mode must be 'browser' or 'desktop'"})
+            new_mode = body.get("mode", "desktop").lower()
+            if new_mode != "desktop":
+                self._respond(400, {"error": "Browser mode is no longer supported"})
+                return
+            global DEFAULT_MODE
+            DEFAULT_MODE = "desktop"
+            logger.info("Default mode confirmed: %s", DEFAULT_MODE)
+            self._respond(200, {"mode": DEFAULT_MODE})
             return
 
         self._respond(404, {"error": "not found"})
@@ -1734,7 +1108,7 @@ class AgentHandler(BaseHTTPRequestHandler):
             for part in qs.split("&"):
                 if part.startswith("mode="):
                     val = part.split("=", 1)[1].lower()
-                    if val in ("browser", "desktop"):
+                    if val == "desktop":
                         return val
         return DEFAULT_MODE
 
@@ -1765,12 +1139,11 @@ class AgentHandler(BaseHTTPRequestHandler):
                     except ValueError:
                         pass
                 result = _do_wait(duration)
-            
-            # Dispatch to mode-specific handlers
-            elif mode == "desktop":
-                result = self._dispatch_desktop(action, x, y, text, coords, target)
             else:
-                result = self._dispatch_browser(action, x, y, text, coords, target)
+                if mode != "desktop":
+                    result = {"success": False, "message": "Browser mode is no longer supported"}
+                else:
+                    result = self._dispatch_desktop(action, x, y, text, coords, target)
         except Exception as e:
             logger.exception(f"Action {action} failed")
             result = {"success": False, "message": str(e)}
@@ -1787,245 +1160,6 @@ class AgentHandler(BaseHTTPRequestHandler):
         logger.info(json.dumps(log_entry))
         
         return result
-
-    def _dispatch_browser(self, action: str, x: int, y: int, text: str, coords: list, target: str = "") -> dict:
-        """Dispatch a single action to the Playwright browser engine."""
-        # ── Mouse / Interaction ───────────────────────────────────────
-        if action == "click":
-            return _pw_click(x, y)
-        elif action == "double_click":
-            return _pw_double_click(x, y)
-        elif action == "right_click":
-            return _pw_right_click(x, y)
-        elif action == "middle_click":
-            return _pw_middle_click(x, y)
-        elif action == "hover":
-            return _pw_hover(x, y)
-        elif action == "drag":
-            if len(coords) >= 4:
-                return _pw_drag(coords[0], coords[1], coords[2], coords[3])
-            return {"success": False, "message": "drag requires 4 coordinates [x1, y1, x2, y2]"}
-        # ── Input ─────────────────────────────────────────────────────
-        elif action == "type":
-            selector = target or (text.split("|")[0] if "|" in text else "")
-            value = text.split("|")[1] if "|" in text else text
-            if not target and not "|" in text:
-                 return _pw_type(text, coords)
-            return _pw_type(value, coords, selector)
-        elif action == "fill":
-            selector = target or (text.split("|")[0] if "|" in text else "")
-            value = text.split("|")[1] if "|" in text else text
-            if not selector:
-                return {"success": False, "message": "fill requires target (CSS selector)"}
-            return _pw_fill(selector, value)
-        elif action == "key":
-            return _pw_key(text)
-        elif action == "hotkey":
-            keys = [k.strip() for k in text.split("+")]
-            return _pw_hotkey(keys)
-        elif action == "clear_input":
-            selector = target or text
-            if not selector:
-                return {"success": False, "message": "clear_input requires target (CSS selector)"}
-            return _pw_clear_input(selector)
-        elif action == "select_option":
-            selector = target or ""
-            if not selector:
-                return {"success": False, "message": "select_option requires target (CSS selector)"}
-            return _pw_select_option(selector, text)
-        elif action == "paste":
-            return _pw_paste(text)
-        elif action == "copy":
-            return _pw_copy()
-        # ── Navigation ────────────────────────────────────────────────
-        elif action == "open_url":
-            return _pw_navigate(text)
-        elif action == "reload":
-            return _pw_reload()
-        elif action == "go_back":
-            return _pw_go_back()
-        elif action == "go_forward":
-            return _pw_go_forward()
-        # ── Tabs ──────────────────────────────────────────────────────
-        elif action == "new_tab":
-            return _pw_new_tab(text)
-        elif action == "close_tab":
-            return _pw_close_tab()
-        elif action == "switch_tab":
-            return _pw_switch_tab(text or target)
-        # ── Scrolling ─────────────────────────────────────────────────
-        elif action == "scroll":
-            direction = text.lower() if text else "down"
-            return _pw_scroll(x, y, direction)
-        elif action == "scroll_to":
-            selector = target or text
-            if not selector:
-                return {"success": False, "message": "scroll_to requires target (CSS selector)"}
-            return _pw_scroll_to(selector)
-        elif action == "scroll_into_view":
-            selector = target or text
-            if not selector:
-                return {"success": False, "message": "scroll_into_view requires target (CSS selector)"}
-            return _pw_scroll_into_view(selector)
-        # ── DOM / Semantic ────────────────────────────────────────────
-        elif action == "get_text":
-            selector = target or text
-            if not selector:
-                return {"success": False, "message": "get_text requires target (CSS selector)"}
-            return _pw_get_text(selector)
-        elif action == "find_element":
-            description = target or text
-            if not description:
-                return {"success": False, "message": "find_element requires target (text description)"}
-            return _pw_find_element(description)
-        # ── JavaScript ────────────────────────────────────────────────
-        elif action == "evaluate_js":
-            if not text:
-                return {"success": False, "message": "evaluate_js requires text (JS code)"}
-            return _pw_evaluate_js(text)
-        # ── Control ───────────────────────────────────────────────────
-        elif action == "wait_for":
-            selector = target or text
-            if not selector:
-                return {"success": False, "message": "wait_for requires target (CSS selector)"}
-            return _pw_wait_for(selector)
-        elif action == "wait_for_navigation":
-            return _pw_wait_for_navigation()
-        elif action == "screenshot_region":
-            if len(coords) >= 4:
-                b64 = _pw_screenshot_region(coords[0], coords[1], coords[2], coords[3])
-                return {"success": True, "message": f"Region screenshot captured", "screenshot": b64}
-            return {"success": False, "message": "screenshot_region needs 4 coords [x, y, width, height]"}
-        elif action == "screenshot_viewport":
-            b64 = _pw_screenshot_viewport()
-            return {"success": True, "message": "Viewport screenshot captured", "screenshot": b64}
-        elif action == "screenshot_element":
-            selector = target or text
-            if not selector:
-                return {"success": False, "message": "screenshot_element requires target"}
-            b64 = _pw_screenshot_element(selector)
-            if b64:
-                return {"success": True, "message": "Element screenshot captured", "screenshot": b64}
-            return {"success": False, "message": "Failed to capture element screenshot"}
-        elif action == "get_html":
-            selector = target or text
-            return _pw_get_html(selector)
-        elif action == "get_attribute":
-            selector = target or (text.split("|")[0] if "|" in text else "")
-            attribute = text.split("|")[1] if "|" in text else ""
-            if not selector or not attribute:
-                return {"success": False, "message": "get_attribute requires target (selector) and attribute (in text as selector|attribute)"}
-            return _pw_get_attribute(selector, attribute)
-        elif action == "query_selector":
-            selector = target or text
-            if not selector:
-                return {"success": False, "message": "query_selector requires target (CSS selector)"}
-            return _pw_query_selector(selector)
-        elif action == "query_all":
-            selector = target or text
-            if not selector:
-                return {"success": False, "message": "query_all requires target (CSS selector)"}
-            return _pw_query_all(selector)
-        elif action == "get_bounding_box":
-            selector = target or text
-            if not selector:
-                return {"success": False, "message": "get_bounding_box requires target (CSS selector)"}
-            return _pw_get_bounding_box(selector)
-        elif action == "get_visible_elements":
-            selector = target or text
-            if not selector:
-                return {"success": False, "message": "get_visible_elements requires target (CSS selector)"}
-            return _pw_get_visible_elements(selector)
-        elif action == "evaluate_on_selector":
-            selector = target or (text.split("|")[0] if "|" in text else "")
-            script = text.split("|")[1] if "|" in text else ""
-            if not selector or not script:
-                 return {"success": False, "message": "evaluate_on_selector requires target and script"}
-            return _pw_evaluate_on_selector(selector, script)
-        elif action == "upload_file":
-            selector = target or (text.split("|")[0] if "|" in text else "")
-            file_path = text.split("|")[1] if "|" in text else text
-            if not selector or not file_path:
-                 return {"success": False, "message": "upload_file requires target and file path"}
-            return _pw_upload_file(selector, file_path)
-        elif action == "download_file":
-            selector = target or text
-            return _pw_download_file(selector)
-        elif action == "handle_file_chooser":
-            return {"success": False, "message": "Not implemented yet"}
-        elif action == "set_cookies":
-            try:
-                cookies = json.loads(text)
-                return _pw_set_cookies(cookies)
-            except Exception as e:
-                return {"success": False, "message": f"set_cookies requires JSON text: {e}"}
-        elif action == "get_cookies":
-            return _pw_get_cookies()
-        elif action == "clear_cookies":
-            return _pw_clear_cookies()
-        elif action == "storage_state":
-            return {"success": False, "message": "Not implemented yet"}
-        elif action == "new_context":
-            return _pw_new_context()
-        elif action == "switch_context":
-            identifier = target or text
-            return _pw_switch_context(identifier)
-        elif action == "close_context":
-            return _pw_close_context()
-        elif action == "intercept_request":
-            return {"success": False, "message": "Not implemented yet"}
-        elif action == "monitor_requests":
-            return {"success": False, "message": "Not implemented yet"}
-        elif action == "get_response_body":
-            return {"success": False, "message": "Not implemented yet"}
-        elif action == "assert_element_present":
-            selector = target or text
-            if not selector:
-                return {"success": False, "message": "assert_element_present requires target (CSS selector)"}
-            return _pw_query_selector(selector)
-        elif action == "verify_text":
-            selector = target or "body"
-            needle = text or ""
-            if not needle:
-                return {"success": False, "message": "verify_text requires text to verify"}
-            res = _pw_get_text(selector)
-            if not res.get("success"):
-                return res
-            found = needle.lower() in res.get("message", "").lower()
-            return {"success": found, "message": f"verify_text={'ok' if found else 'not found'}: {needle[:120]}"}
-        elif action == "retry_last_action":
-            return {"success": False, "message": "Not implemented yet"}
-        elif action == "fallback_strategy":
-            return {"success": False, "message": "Not implemented yet"}
-        elif action == "set_viewport":
-            if len(coords) >= 2:
-                return _pw_set_viewport(coords[0], coords[1])
-            return {"success": False, "message": "set_viewport requires width and height"}
-        elif action == "zoom":
-            try:
-                level = float(text)
-                return _pw_zoom(level)
-            except ValueError:
-                return {"success": False, "message": "zoom requires a float value"}
-        elif action == "block_resource":
-            return _pw_block_resource(text)
-        elif action == "type_at":
-            if not coords or len(coords) < 2:
-                 return {"success": False, "message": "type_at requires coordinates [x, y]"}
-            return _pw_type(text, coords)
-        elif action == "press_sequential":
-            # Stub: treat as type
-            return _pw_type(text, coords)
-        elif action == "scroll_to_selector":
-            selector = target or text
-            if not selector:
-                return {"success": False, "message": "scroll_to_selector requires target"}
-            return _pw_scroll_to(selector)
-        elif action == "export_page_pdf":
-            b64 = _pw_export_page_pdf()
-            return {"success": True, "message": "PDF exported", "pdf": b64}
-        else:
-            return {"success": False, "message": f"Unsupported action '{action}' in browser mode", "hint": "Check engine capability mapping"}
 
     def _dispatch_desktop(self, action: str, x: int, y: int, text: str, coords: list, target: str = "") -> dict:
         """Dispatch a single action to the xdotool desktop engine."""
@@ -2044,6 +1178,10 @@ class AgentHandler(BaseHTTPRequestHandler):
             if len(coords) >= 4:
                 return _xdo_drag(coords[0], coords[1], coords[2], coords[3])
             return {"success": False, "message": "drag requires 4 coordinates [x1, y1, x2, y2]"}
+        elif action == "left_mouse_down":
+            return _xdo_left_mouse_down()
+        elif action == "left_mouse_up":
+            return _xdo_left_mouse_up()
         # ── Input ─────────────────────────────────────────────────────
         elif action == "type":
             if coords and len(coords) >= 2:
@@ -2259,14 +1397,8 @@ class AgentHandler(BaseHTTPRequestHandler):
 
 
 def main():
-    """Start the HTTP agent service and initialise the browser."""
+    """Start the HTTP agent service for desktop automation."""
     logger.info("Starting agent service on port %d (default_mode=%s)", SERVICE_PORT, DEFAULT_MODE)
-
-    # Initialize Playwright browser (available even in desktop mode for fallback)
-    try:
-        _init_browser()
-    except Exception as e:
-        logger.warning("Playwright init failed (desktop mode still works): %s", e)
 
     server = HTTPServer(("0.0.0.0", SERVICE_PORT), AgentHandler)
     logger.info("Agent service listening on 0.0.0.0:%d", SERVICE_PORT)
@@ -2274,7 +1406,6 @@ def main():
     def _handle_signal(sig, frame):
         """Gracefully shut down the server on SIGTERM/SIGINT."""
         logger.info("Shutting down...")
-        _shutdown_browser()
         server.shutdown()
         sys.exit(0)
 
@@ -2286,7 +1417,6 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        _shutdown_browser()
         server.server_close()
 
 
