@@ -69,6 +69,8 @@ class Config:
             screen_height=int(os.getenv("SCREEN_HEIGHT", str(cls.screen_height))),
             max_steps=int(os.getenv("MAX_STEPS", str(cls.max_steps))),
             step_timeout=float(os.getenv("STEP_TIMEOUT", str(cls.step_timeout))),
+            host=os.getenv("HOST", cls.host),
+            port=int(os.getenv("PORT", str(cls.port))),
             debug=os.getenv("DEBUG", "").lower() in ("1", "true", "yes"),
         )
 
