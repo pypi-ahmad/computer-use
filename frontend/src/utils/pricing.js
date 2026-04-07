@@ -6,15 +6,13 @@
  */
 const MODEL_PRICING = {
   // Google Gemini
-  'gemini-2.5-flash-preview-04-17': { input: 0.15, output: 0.60 },
-  'gemini-2.5-pro-preview-03-25': { input: 1.25, output: 5.00 },
-  'gemini-2.0-flash': { input: 0.10, output: 0.40 },
-  'gemini-2.0-flash-lite': { input: 0.075, output: 0.30 },
+  'gemini-3-flash-preview': { input: 0.15, output: 0.60 },
+  'gemini-3.1-pro-preview': { input: 1.25, output: 5.00 },
   // Anthropic Claude
-  'claude-sonnet-4-20250514': { input: 3.00, output: 15.00 },
-  'claude-3-7-sonnet-20250219': { input: 3.00, output: 15.00 },
+  'claude-sonnet-4-6': { input: 3.00, output: 15.00 },
+  'claude-opus-4-6': { input: 15.00, output: 75.00 },
   // OpenAI
-  'computer-use-preview': { input: 3.00, output: 12.00 },
+  'gpt-5.4': { input: 3.00, output: 12.00 },
 }
 
 // Rough average tokens per CU step (screenshot + prompt + response)

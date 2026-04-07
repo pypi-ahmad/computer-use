@@ -339,7 +339,7 @@ async def api_start_agent(req: StartTaskRequest):
 
     container_ok = await start_container()
     if not container_ok:
-        return {"error": "Failed to start Docker container"}
+        return {"error": "Could not start the virtual environment. Please check that the system is set up correctly."}
 
     loop = AgentLoop(
         task=req.task,

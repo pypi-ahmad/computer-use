@@ -1,25 +1,30 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 const WELCOME_KEY = 'cua_welcomed'
 
 /**
- * First-run welcome overlay. Shows once, then remembers dismissal in localStorage.
+ * First-run welcome overlay. Shows once on first visit, and can be re-opened via the help button.
  */
-export default function WelcomeOverlay() {
+export default function WelcomeOverlay({ show, onDismiss }) {
   const [visible, setVisible] = useState(() => !localStorage.getItem(WELCOME_KEY))
+
+  useEffect(() => {
+    if (show) setVisible(true)
+  }, [show])
 
   if (!visible) return null
 
   const dismiss = () => {
     localStorage.setItem(WELCOME_KEY, '1')
     setVisible(false)
+    if (onDismiss) onDismiss()
   }
 
   return (
     <div className="welcome-overlay" role="dialog" aria-modal="true" aria-label="Welcome to CUA">
       <div className="welcome-modal">
         <h2>Welcome to CUA</h2>
-        <p>CUA lets you run a full Linux desktop inside Docker and use AI to automate tasks on it.</p>
+        <p>CUA gives you a virtual desktop and lets AI automate tasks on it.</p>
         <div className="welcome-steps">
           <div className="welcome-step">
             <span className="welcome-num">1</span>
