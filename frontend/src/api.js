@@ -110,12 +110,32 @@ export async function getKeyStatuses() {
   return request('/keys/status')
 }
 
-/** Fetches the list of available CUA engines from the backend. */
-export async function getEngines() {
-  return request('/engines')
-}
-
 /** Fetches the list of available AI models from the backend. */
 export async function getModels() {
   return request('/models')
+}
+
+/**
+ * Responds to a safety confirmation prompt for a running session.
+ * @param {string} sessionId - Session ID.
+ * @param {boolean} confirm - True to approve, false to deny.
+ */
+export async function confirmSafety(sessionId, confirm) {
+  return request('/agent/safety-confirm', {
+    method: 'POST',
+    body: JSON.stringify({ session_id: sessionId, confirm }),
+  })
+}
+
+/**
+ * Lightweight API key pre-validation.
+ * @param {string} provider - Provider name.
+ * @param {string} apiKey - Key to validate.
+ * @returns {Promise<{valid: boolean, message: string}>}
+ */
+export async function validateKey(provider, apiKey) {
+  return request('/keys/validate', {
+    method: 'POST',
+    body: JSON.stringify({ provider, api_key: apiKey }),
+  })
 }
