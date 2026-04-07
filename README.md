@@ -2,7 +2,7 @@
 
 # 🖥️ CUA — Computer Using Agent
 
-**An open-source workbench for building, testing, and observing autonomous computer-using agents powered by native Computer Use protocols from Google Gemini, Anthropic Claude, and OpenAI GPT-5.4.**
+**An open-source workbench for building, testing, and observing autonomous computer-using agents powered by native Computer Use protocols from Google Gemini, Anthropic Claude, and OpenAI.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.13+](https://img.shields.io/badge/Python-3.13+-3776AB.svg?logo=python&logoColor=white)](https://python.org)
@@ -12,13 +12,13 @@
 [![Tests](https://img.shields.io/badge/Tests-118_passing-brightgreen.svg)](#-testing)
 [![Gemini](https://img.shields.io/badge/Gemini-CU_Native-4285F4.svg?logo=google&logoColor=white)](#-supported-models)
 [![Claude](https://img.shields.io/badge/Claude-CU_Native-CC785C.svg?logo=anthropic&logoColor=white)](#-supported-models)
-[![OpenAI](https://img.shields.io/badge/OpenAI-GPT--5.4_CU-10A37F.svg?logo=openai&logoColor=white)](#-supported-models)
+[![OpenAI](https://img.shields.io/badge/OpenAI-CU_Native-10A37F.svg?logo=openai&logoColor=white)](#-supported-models)
 
 ---
 
 Run a full **Linux desktop inside Docker**, stream it live to a **React web UI**, and let a vision-language model drive desktop tasks autonomously using pixel-level **perceive → think → act** loops.
 
-**For:** AI/ML engineers, researchers, and developers who want a local, sandboxed environment to experiment with computer-using agents without giving LLMs access to their real machines.
+**Built for** AI/ML engineers, researchers, and developers who need a local, sandboxed environment to experiment with computer-using agents — without giving LLMs access to their real machines.
 
 [Quickstart](#-quickstart) · [Architecture](#-architecture) · [API Reference](#-api--websocket-reference) · [Configuration](#-configuration) · [Contributing](#-contributing)
 
@@ -41,17 +41,17 @@ Run a full **Linux desktop inside Docker**, stream it live to a **React web UI**
 
 ## 🔭 Overview
 
-CUA implements a **perceive → think → act** loop for autonomous computer control:
+CUA implements a closed-loop **perceive → think → act** cycle for autonomous computer control:
 
-1. **Perceive** — capture a screenshot of a virtual Linux desktop running inside Docker
-2. **Think** — send the screenshot + user task to a vision-language model (Gemini, Claude, or GPT-5.4)
+1. **Perceive** — capture a screenshot of a virtual Linux desktop running inside a Docker container
+2. **Think** — send the screenshot and user task to a vision-language model (Gemini, Claude, or OpenAI)
 3. **Act** — receive a structured action command via the model's native Computer Use tool protocol and execute it inside the sandbox
 
-This cycle repeats until the task completes, an unrecoverable error occurs, or the step limit is reached.
+The cycle repeats until the task completes, an unrecoverable error occurs, or the configured step limit is reached.
 
-The system uses **native Computer Use protocols exclusively** — Gemini's `function_call`, Claude's `tool_use`, and the OpenAI Responses API `computer_call` — for pixel-level interaction. No text parsing of model responses is required. All actions execute inside a resource-limited Docker container through a **desktop mode** runtime powered by `xdotool` + `scrot` for any X11 application.
+The system uses **native Computer Use protocols exclusively** — Gemini `function_call`, Claude `tool_use`, and the OpenAI Responses API `computer_call` — for pixel-level interaction. No text parsing or regex extraction is required. All actions execute inside a resource-constrained Docker container through a **desktop-mode** runtime powered by `xdotool` + `scrot` for any X11 application.
 
-A React web UI provides real-time desktop streaming (WebSocket screenshots + interactive noVNC), session management, step-by-step action timeline, and log viewing.
+A single-page React workbench provides real-time desktop streaming (WebSocket screenshots + interactive noVNC), a step-by-step action timeline, session management, log viewing, JSON/HTML export, approximate cost estimation, dark/light theming, and a first-run onboarding overlay.
 
 ---
 
@@ -59,16 +59,23 @@ A React web UI provides real-time desktop streaming (WebSocket screenshots + int
 
 | Category | Details |
 |---|---|
-| **Native CU Engine** | Uses Gemini, Claude, and OpenAI native Computer Use tool protocols for structured, pixel-level desktop automation |
-| **Desktop Runtime** | Uses xdotool + scrot to control and observe any X11 application inside the sandbox |
-| **Multi-Provider AI** | Google Gemini, Anthropic Claude, and OpenAI GPT-5.4 with a centralized model allowlist enforced at the API layer. OpenAI supports configurable reasoning effort (none/low/medium/high/xhigh) via UI dropdown or `OPENAI_REASONING_EFFORT` env var. |
-| **Docker Sandbox** | All automation runs inside an Ubuntu 24.04 container with resource limits, `no-new-privileges`, and localhost-only port bindings |
+| **Native CU Engine** | Gemini, Claude, and OpenAI native Computer Use tool protocols — structured, pixel-level desktop automation with no prompt hacks |
+| **Desktop Runtime** | `xdotool` + `scrot` to control and observe any X11 application inside the sandbox |
+| **Multi-Provider AI** | Google Gemini, Anthropic Claude, and OpenAI with a centralized model allowlist enforced at the API layer. OpenAI supports configurable reasoning effort (`none`/`low`/`medium`/`high`/`xhigh`) |
+| **Docker Sandbox** | Ubuntu 24.04 container with resource limits (4 GB RAM, 2 CPUs), `no-new-privileges`, and localhost-only port bindings |
 | **Real-Time Streaming** | Live screenshot stream via WebSocket + interactive noVNC desktop access proxied through the backend |
 | **Cross-Platform Host** | Backend + frontend run on Windows, macOS, or Linux; Docker provides the sandboxed Linux desktop |
-| **Safety Confirmation** | CU safety gates (e.g., `require_confirmation`) surface to the UI for explicit user approval before execution |
-| **Input Validation** | Rate limiting (10 starts/min), concurrent session cap (3), model allowlist enforcement, UUID session IDs, task length bounds |
-| **Context Pruning** | Automatic pruning of old screenshots from the conversation context to prevent unbounded token growth |
-| **Hermetic Test Suite** | Unit tests using mocks/patches — no running container or network required |
+| **Safety Confirmation** | CU safety gates surface to the UI with a 60-second countdown — auto-deny on timeout |
+| **API Key Validation** | Pre-flight key validation via `POST /api/keys/validate` with provider-specific format checks |
+| **Input Validation** | Rate limiting (10 starts/min), concurrent session cap (3), model allowlist enforcement, UUID session IDs, task length bounds (10 000 chars) |
+| **Context Pruning** | Automatic pruning of old screenshots from conversation context to prevent unbounded token growth |
+| **Session History** | Bounded localStorage history (50 sessions) with task, model, step count, and status |
+| **Export** | One-click JSON and HTML session reports with safely escaped content |
+| **Cost Estimation** | Approximate per-session cost display based on centralized model pricing data |
+| **Theming** | Dark and light themes with persistent toggle via `data-theme` attribute |
+| **Onboarding** | First-run welcome overlay with 3-step guide, dismissible and remembered via localStorage |
+| **Accessibility** | Minimum 12 px font sizes, SVG icons via `lucide-react`, `aria-label` on all icon-only buttons, keyboard-navigable timeline, focus-visible outlines |
+| **Hermetic Test Suite** | 118 unit tests using mocks/patches — no running container or network required |
 
 ---
 
@@ -201,9 +208,9 @@ Defined in `backend/allowed_models.json` — the single source of truth for both
 | Provider | Model ID | Display Name | Runtime Mode | CU Support | Notes |
 |---|---|---|---|---|---|
 | Google | `gemini-3-flash-preview` | Gemini 3 Flash Preview | Desktop | ✅ Native | Fast, lightweight CU model |
-| Google | `gemini-3.1-pro-preview` | Gemini 3.1 Pro Preview | Desktop | ⚠️ Unconfirmed | Stronger reasoning; CU not in official docs |
-| Anthropic | `claude-sonnet-4-6` | Claude Sonnet 4.6 | Desktop | ✅ Native | Requires beta endpoint + `computer_20251124` tool |
-| Anthropic | `claude-opus-4-6` | Claude Opus 4.6 | Desktop | ✅ Native | Requires beta endpoint + `computer_20251124` tool |
+| Google | `gemini-3.1-pro-preview` | Gemini 3.1 Pro Preview | Desktop | ⚠️ Unconfirmed | Stronger reasoning; CU not yet in official docs |
+| Anthropic | `claude-sonnet-4-6` | Claude Sonnet 4.6 | Desktop | ✅ Native | Beta endpoint + `computer_20251124` tool |
+| Anthropic | `claude-opus-4-6` | Claude Opus 4.6 | Desktop | ✅ Native | Beta endpoint + `computer_20251124` tool |
 | OpenAI | `gpt-5.4` | GPT-5.4 | Desktop | ✅ Native | Responses API built-in `computer` tool |
 
 > Browser mode was removed from the backend and frontend runtime. All supported providers now run through the desktop harness only.
@@ -222,6 +229,7 @@ Defined in `backend/allowed_models.json` — the single source of truth for both
 | `GET` | `/api/models` | Canonical model allowlist for frontend dropdowns |
 | `GET` | `/api/engines` | Available engines (currently only `computer_use`) |
 | `GET` | `/api/keys/status` | API key availability per provider (masked preview) |
+| `POST` | `/api/keys/validate` | Pre-flight API key validation (provider-specific format checks) |
 | `GET` | `/api/screenshot` | Current screenshot as base64 PNG |
 | `GET` | `/api/container/status` | Docker container + agent service health |
 | `POST` | `/api/container/start` | Build-if-needed and start the sandbox container |
@@ -373,8 +381,9 @@ cd frontend && npm install && cd ..
 | Package | Purpose |
 |---|---|
 | `react` 19 + `react-dom` | UI framework |
-| `react-router-dom` 7 | Client-side routing (`/` dashboard, `/workbench`) |
-| `vite` 6 | Dev server with API proxy |
+| `react-router-dom` 7 | Client-side routing (`/` → Workbench, `/workbench` → redirect, `*` → 404) |
+| `lucide-react` | SVG icon library (replaces emoji icons) |
+| `vite` 6 | Dev server with HMR + configurable API proxy |
 
 ### Platform Notes
 
@@ -414,7 +423,10 @@ Keys are resolved in priority order — the first non-empty value wins:
 | `SCREEN_HEIGHT` | `900` | Virtual display height (pixels) |
 | `MAX_STEPS` | `50` | Default max steps per session |
 | `STEP_TIMEOUT` | `30.0` | Per-step timeout (seconds) |
-| `DEBUG` | `false` | Enable debug logging + uvicorn reload |
+| `HOST` | `0.0.0.0` | Backend server bind address |
+| `PORT` | `8000` | Backend server port |
+| `DEBUG` | `false` | Enable debug logging + Uvicorn reload |
+| `CORS_ORIGINS` | `localhost:3000,localhost:5173` | Comma-separated allowed CORS origins |
 
 **Container-side** (set in `docker-compose.yml`):
 
@@ -428,38 +440,53 @@ Keys are resolved in priority order — the first non-empty value wins:
 
 ## ▶️ Usage
 
-### Dashboard (`/`)
+### Workbench (`/`)
 
-The default view shows:
-- **Header** — connection status, container start/stop controls, agent service readiness badge
-- **Control Panel** — provider/model selection, API key source toggle, task input, start/stop
-- **Screen View** — live desktop via interactive noVNC iframe (falls back to periodic WebSocket screenshots)
-- **Log Panel** — real-time agent logs with timestamps and severity levels
+The single-page workbench is the canonical interface — a responsive three-pane layout:
 
-### Workbench (`/workbench`)
+| Pane | Content |
+|---|---|
+| **Left sidebar** | Provider/model selection, API key source toggle (manual / `.env` / system), key validation, collapsible advanced settings (max steps, reasoning effort), task textarea with character counter, example task chips, Start/Stop/Clear buttons |
+| **Center** | Live desktop via interactive noVNC iframe (falls back to WebSocket screenshots), progress bar during agent execution |
+| **Right panel** | Expandable step-by-step timeline with action icons, session history toggle, log panel with severity badges, JSON/HTML export, log download |
 
-A more advanced interface with:
-- **Desktop-only runtime indicator** — confirms the supported runtime mode
-- **Step Timeline** — expandable step-by-step view: action name, coordinates, reasoning, errors, raw JSON
-- **Progress bar** — visual steps-used-vs-max indicator
-- **Log download** — export logs as timestamped `.txt` file
+**Header** includes: environment start/stop controls with loading state, connection status pill, agent running indicator, approximate cost estimate, step counter, API docs link, and dark/light theme toggle.
+
+**Routing:**
+
+| Path | Behavior |
+|---|---|
+| `/` | Workbench (canonical) |
+| `/workbench` | Redirects to `/` |
+| `*` | 404 page with link back to `/` |
 
 ### Typical Workflow
 
-1. **Select provider/model** — e.g., Google / `gemini-3-flash-preview`
-2. **Configure API key** — use .env, system env, or paste in UI
+1. **Select provider and model** — e.g., Google / `gemini-3-flash-preview`
+2. **Configure API key** — use `.env`, system env, or paste in UI (with pre-flight validation)
 3. **Describe the task** — *"Go to wikipedia.org and search for 'artificial intelligence'"*
-4. **Click Start** — the container auto-starts, the agent loop begins
-5. **Observe** — watch the live desktop, step timeline, and logs
-6. **Result** — the agent reports completion in its final text response
+4. **Click Start** — the container auto-starts if needed, the agent loop begins
+5. **Observe** — watch the live desktop, step timeline, and logs in real time
+6. **Result** — a completion banner shows the outcome; session is saved to history
+
+### First Run
+
+On first visit, a welcome overlay explains the 3-step flow (choose provider → describe task → watch). It is dismissed once and remembered via localStorage.
 
 ### Viewing the Desktop
 
-| Method | URL | Description |
-|---|---|---|
-| **noVNC** (interactive) | Built into the UI (`ScreenView`) | Full desktop interaction in the browser — the default when container is running |
-| **noVNC** (standalone) | `http://127.0.0.1:6080` | Direct noVNC access outside the app |
-| **Screenshot stream** | Automatic in the UI | Periodic base64 PNGs via WebSocket when noVNC is unavailable |
+| Method | Description |
+|---|---|
+| **noVNC** (embedded) | Full interactive desktop in the center pane — the default when the container is running |
+| **noVNC** (standalone) | `http://127.0.0.1:6080` — direct noVNC access outside the app |
+| **Screenshot stream** | Automatic base64 PNGs via WebSocket when noVNC is unavailable |
+
+### Export & History
+
+- **JSON export** — full session data (task, steps, logs, timestamps)
+- **HTML export** — formatted, self-contained session report with safely escaped content
+- **Log download** — timestamped `.txt` file
+- **Session history** — last 50 sessions stored in localStorage, viewable from the timeline panel
 
 ### Stopping
 
@@ -638,19 +665,18 @@ Actions flagged with `require_confirmation` by the Gemini CU protocol are **not 
 computer-use/
 ├── backend/
 │   ├── main.py                    # Uvicorn entry point
-│   ├── server.py                  # FastAPI routes, WebSocket, noVNC proxy
+│   ├── server.py                  # FastAPI routes, WebSocket, noVNC proxy, key validation
 │   ├── config.py                  # Config dataclass, env loading, API key resolution
 │   ├── models.py                  # ActionType enum, Pydantic request/response models
 │   ├── engine.py                  # ComputerUseEngine, GeminiCUClient, ClaudeCUClient,
 │   │                              #   OpenAICUClient, DesktopExecutor
-│   ├── allowed_models.json        # Canonical model allowlist  (5 models, 3 providers)
+│   ├── allowed_models.json        # Canonical model allowlist (5 models, 3 providers)
 │   ├── engine_capabilities.json   # Engine capability schema (v3.0)
 │   ├── engine_capabilities.py     # Schema loader for engine_capabilities.json
 │   ├── certifier.py               # Runtime engine certification checks
 │   ├── parity_check.py            # ActionType ↔ capabilities ↔ prompt drift audit
 │   ├── action_aliases.py          # CU action alias resolution
 │   ├── docker_manager.py          # Container lifecycle (build, start, stop, health)
-│   ├── streaming.py               # Streaming utilities
 │   └── agent/
 │       ├── loop.py                # AgentLoop orchestrator (perceive → think → act)
 │       ├── prompts.py             # System prompts for Gemini, Claude, and OpenAI CU
@@ -660,24 +686,33 @@ computer-use/
 │   ├── entrypoint.sh              # Service startup: Xvfb → XFCE → VNC → agent service
 │   └── agent_service.py           # In-container HTTP server: action dispatch + screenshots
 ├── frontend/
-│   ├── package.json               # React 19, Vite 6, React Router 7
-│   ├── vite.config.js             # Dev server + API/WS/VNC proxy config
+│   ├── package.json               # React 19, Vite 6, React Router 7, lucide-react
+│   ├── vite.config.js             # Dev server + configurable API/WS/VNC/docs proxy
+│   ├── index.html                 # Meta tags, OG tags, SVG favicon
 │   └── src/
-│       ├── main.jsx               # Router: / → App, /workbench → Workbench
-│       ├── App.jsx                # Dashboard layout with adaptive status polling
-│       ├── api.js                 # REST client (10 functions)
-│       ├── hooks/useWebSocket.js  # WS client with auto-reconnect + heartbeat
+│       ├── main.jsx               # Router: / → Workbench, /workbench → redirect, * → 404
+│       ├── api.js                 # REST client (9 exports incl. validateKey)
+│       ├── index.css              # Global styles, design tokens, light theme, component CSS
+│       ├── hooks/
+│       │   └── useWebSocket.js    # WS with auto-reconnect (2s), heartbeat (15s), safety detection
 │       ├── components/
-│       │   ├── ControlPanel.jsx   # Provider/model/key/task config + start/stop
-│       │   ├── Header.jsx         # Connection + container status bar
 │       │   ├── ScreenView.jsx     # noVNC iframe + screenshot fallback
-│       │   └── LogPanel.jsx       # Auto-scrolling log viewer
+│       │   ├── SafetyModal.jsx    # 60s countdown, approve/deny, auto-deny on timeout
+│       │   ├── CompletionBanner.jsx  # Success/error/stopped banner with lucide icons
+│       │   ├── ToastContainer.jsx # Toast notification system (4s auto-dismiss)
+│       │   ├── WelcomeOverlay.jsx # First-run 3-step onboarding guide
+│       │   └── ErrorBoundary.jsx  # React error boundary with recovery UI
 │       ├── pages/
-│       │   ├── Workbench.jsx      # Full workbench: sidebar + screen + timeline + logs
-│       │   └── Workbench.css
-│       ├── utils/formatTime.js    # Timestamp formatter
-│       └── index.css              # Global styles
+│       │   ├── Workbench.jsx      # Canonical single-page: sidebar + screen + timeline + logs
+│       │   ├── Workbench.css      # 3-pane layout, responsive breakpoints, theme toggle
+│       │   └── NotFound.jsx       # 404 page with link to /
+│       └── utils/
+│           ├── formatTime.js      # Timestamp → locale time string
+│           ├── pricing.js         # Centralized approximate model pricing + estimateCost()
+│           ├── sessionHistory.js  # Bounded localStorage session history (50 cap)
+│           └── theme.js           # Theme get/set/init with data-theme attribute
 ├── docs/
+│   ├── USAGE.md                   # Detailed usage guide
 │   └── assets/                    # SVG architecture and flow diagrams
 │       ├── architecture.svg
 │       ├── execution-flow.svg
@@ -695,6 +730,7 @@ computer-use/
 │   └── test_docker_security.py
 ├── docker-compose.yml             # Container orchestration (resource limits, ports)
 ├── requirements.txt               # Python dependencies
+├── pyproject.toml                 # Project metadata
 ├── setup.bat                      # Windows one-command setup
 ├── setup.sh                       # Linux/macOS one-command setup
 └── LICENSE                        # MIT License
@@ -706,22 +742,24 @@ computer-use/
 
 ### Current Limitations
 
-- **No persistent storage** — session state lives in memory; lost on backend restart
+- **No persistent storage** — session state lives in memory; lost on backend restart. localStorage-based session history captures task/model/status but not full replay data.
 - **No authentication** — designed for local development, not production deployment
 - **Single container** — one Docker container serves all sessions; no per-session isolation
 - **Preview models** — Gemini, Claude, and OpenAI CU capabilities are in preview/beta and subject to change
 - **No CI/CD pipeline** — tests run locally; no automated GitHub Actions workflow yet
 - **Container size** — ~3–4 GB image due to full desktop environment
 - **Coordinate precision** — Gemini's 0–999 normalization can cause slight pixel misalignment on non-standard resolutions
+- **Cost estimates** — based on approximate per-token pricing; actual costs depend on token usage patterns
 
 ### Potential Future Work
 
-- Persistent session storage (SQLite or Redis)
+- Persistent session storage (SQLite or Redis) with full replay
 - Per-session container isolation
 - Authentication and role-based access
 - CI/CD with automated test runs
 - Production deployment configuration (TLS, reverse proxy)
 - Additional model providers as CU support expands
+- Configurable action timeouts and retry policies
 
 ---
 
@@ -733,8 +771,8 @@ Contributions are welcome. To get started:
 2. Run `setup.sh` or `setup.bat` for a complete local environment
 3. Create a **feature branch** from `main`
 4. Make changes — follow existing code conventions:
-   - Python: `"""triple-quote"""` docstrings, type hints, `black`-compatible formatting
-   - JS/JSX: `/** JSDoc */` comments on all functions and components
+   - Python: `"""triple-quote"""` docstrings, type hints, consistent formatting
+   - JS/JSX: `/** JSDoc */` comments on exported functions and components, `lucide-react` for icons
 5. **Write tests** — maintain ≥80% coverage on changed files; tests must be hermetic (mocks, no network)
 6. **Run the test suite**: `pytest tests/ -v --tb=short`
 7. **Open a pull request** with a clear description of changes
