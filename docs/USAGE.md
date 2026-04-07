@@ -1,11 +1,12 @@
 # CUA Usage Guide
 
-A comprehensive guide to setting up, running, and using all features of the CUA workbench.
+Comprehensive reference for setting up, running, and operating the CUA (Computer Using Agent) workbench — a local AI agent that controls a sandboxed Ubuntu desktop through native Computer Use APIs.
 
 ---
 
 ## Table of Contents
 
+- [Who This Is For](#who-this-is-for)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Running Locally](#running-locally)
@@ -18,8 +19,7 @@ A comprehensive guide to setting up, running, and using all features of the CUA 
   - [Monitoring Execution](#monitoring-execution)
   - [Safety Confirmations](#safety-confirmations)
   - [Stopping a Session](#stopping-a-session)
-  - [Viewing the Live Desktop](#viewing-the-live-desktop)
-- [Features In Depth](#features-in-depth)
+- [Features](#features)
   - [Multi-Provider AI Support](#multi-provider-ai-support)
   - [Docker Sandbox](#docker-sandbox)
   - [Real-Time Streaming](#real-time-streaming)
@@ -43,6 +43,17 @@ A comprehensive guide to setting up, running, and using all features of the CUA 
 - [WebSocket Events](#websocket-events)
 - [Keyboard Shortcuts](#keyboard-shortcuts)
 - [Troubleshooting](#troubleshooting)
+- [Limitations](#limitations)
+
+---
+
+## Who This Is For
+
+- Developers evaluating Computer Use capabilities across Google, Anthropic, and OpenAI
+- Researchers benchmarking multi-step desktop automation tasks
+- Teams building internal tooling on top of CU APIs and needing a local sandbox
+
+No cloud infrastructure is required. Everything runs on your machine.
 
 ---
 
@@ -75,11 +86,14 @@ setup.bat
 bash setup.sh
 ```
 
-Both scripts will:
-1. Verify prerequisites (Docker, Python, Node.js)
-2. Build the Docker image (Ubuntu 24.04 desktop environment)
-3. Create a Python virtual environment and install backend dependencies
-4. Install frontend npm packages
+Both scripts perform the same steps:
+
+1. Verify prerequisites (Docker CLI + daemon, Python, Node.js)
+2. Build the Docker image via `docker compose build` (Ubuntu 24.04 desktop)
+3. Create a Python virtual environment (`.venv/`) and install backend dependencies from `requirements.txt`
+4. Run `npm install` inside the `frontend/` directory
+
+Pass `--clean` to either script to tear down existing containers, images, and volumes before rebuilding.
 
 ### Manual Setup
 
@@ -106,7 +120,7 @@ cd frontend && npm install && cd ..
 
 ## Running Locally
 
-Start two processes (the Docker container auto-starts from the UI when needed):
+Start two processes. The Docker container starts automatically from the UI when you launch a task.
 
 | Terminal | Command | Serves |
 |---|---|---|
@@ -115,9 +129,9 @@ Start two processes (the Docker container auto-starts from the UI when needed):
 
 Open **http://127.0.0.1:3000** in your browser.
 
-> **Tip:** The Docker container starts automatically when you launch an agent task, so there is no need to run `docker compose up` manually.
+> **Tip:** There is no need to run `docker compose up` manually — the backend starts and stops the container on demand.
 
-> **Port conflict?** Set `PORT=8001` before starting the backend, and `VITE_API_PORT=8001` for the frontend so the dev proxy routes to the correct backend.
+> **Port conflict?** Set `PORT=8001` before starting the backend, and `VITE_API_PORT=8001` for the frontend so the Vite dev proxy routes to the correct backend.
 
 > **Windows:** Prefer `127.0.0.1` over `localhost` to avoid IPv6 binding issues with Docker.
 
@@ -133,27 +147,27 @@ On your first visit, a **welcome overlay** explains the three-step flow:
 2. Describe a task for the agent to perform
 3. Watch the agent work in real time on the live desktop
 
-The overlay is dismissed once and remembered in `localStorage`. It will not appear again unless you clear browser data.
+The overlay is dismissed once and stored in `localStorage` (`cua_welcomed`). It will not appear again unless you clear browser data.
 
 ### Starting the Environment
 
-The Docker container (a full Ubuntu desktop with XFCE, Chrome, LibreOffice, and more) can be started two ways:
+The Docker container (Ubuntu 24.04 with XFCE4, Chrome, LibreOffice, and development tools) can be started two ways:
 
-- **Automatically** — clicking **Start Agent** will start the container if it is not already running
+- **Automatically** — clicking **Start Agent** starts the container if it is not already running
 - **Manually** — click the **Start Environment** button in the header
 
-The header displays real-time status: `Environment Ready` (green) or `Environment Offline` (red). A loading indicator appears during startup and shutdown. If a container operation fails, an actionable error message is shown inline.
+The header displays real-time status: `Environment Ready` (green) or `Environment Offline` (red). Container status is polled every 5 seconds. A loading indicator appears during startup and shutdown. If an operation fails, an error message is shown inline.
 
 ### Selecting a Provider and Model
 
 1. **Provider** — choose from Google Gemini, Anthropic Claude, or OpenAI
-2. **Model** — the dropdown auto-populates when a provider is selected, sourced from `GET /api/models`
+2. **Model** — the dropdown auto-populates from `GET /api/models` when a provider is selected
 
-Models are validated server-side against `backend/allowed_models.json`. If no models appear, check that the backend is running and reachable.
+Only models with `supports_computer_use: true` in `backend/allowed_models.json` appear in the dropdown. The backend validates the selected model against the provider's allowlist before starting a session.
 
 ### Configuring API Keys
 
-Three sources are available, in priority order:
+Three sources are available, resolved in priority order:
 
 | Priority | Source | How to Set |
 |---|---|---|
@@ -161,9 +175,9 @@ Three sources are available, in priority order:
 | 2 | **`.env` file** | Add `GOOGLE_API_KEY=...`, `ANTHROPIC_API_KEY=...`, or `OPENAI_API_KEY=...` in the project root `.env` |
 | 3 | **System environment** | Export the same variable names in your shell |
 
-The API key source toggle shows availability with checkmarks (✓) and masked previews (e.g., `AIza...4xQk`). You can switch between sources at any time when the agent is not running.
+The key source toggle shows availability with checkmarks (✓) and masked previews (e.g., `AIza...4xQk`). You can switch between sources at any time when the agent is not running.
 
-> **Security:** API keys entered in the UI are sent to the backend per-request and are never written to `localStorage` or any persistent storage.
+> **Security:** API keys entered in the UI are sent to the backend per-request over localhost and are never written to `localStorage` or any persistent storage.
 
 ### Running an Agent Task
 
@@ -182,11 +196,11 @@ While the agent runs, the workbench provides:
 
 | Element | Location | Description |
 |---|---|---|
-| **Live desktop** | Center pane | Interactive noVNC iframe or screenshot stream |
+| **Live desktop** | Center pane | Interactive noVNC iframe with screenshot fallback |
 | **Progress bar** | Below the desktop | Visual indicator of steps used vs. maximum |
-| **Step timeline** | Right panel (top) | Expandable items with action type, icon, target, coordinates, reasoning, raw JSON |
+| **Step timeline** | Right panel (top) | Expandable items showing action type, icon, target, coordinates, reasoning, raw JSON |
 | **Log panel** | Right panel (bottom) | Scrollable real-time logs with severity badges (info / error / warning / debug) |
-| **Step counter** | Header | `Steps: N/M` with tabular-nums formatting |
+| **Step counter** | Header | `Steps: N/M` |
 | **Cost estimate** | Header | Approximate session cost (hover for caveat tooltip) |
 | **Agent Running pill** | Header | Blue status badge visible while the agent is active |
 
@@ -194,11 +208,11 @@ Both the timeline and log panel auto-scroll to the latest entry.
 
 ### Safety Confirmations
 
-When the AI model flags an action that requires explicit human approval:
+When the AI model flags an action that requires explicit approval:
 
 1. A **modal dialog** appears with the action explanation
 2. A **60-second countdown** timer is displayed
-3. You can click **Approve** to proceed or **Deny** to block the action
+3. Click **Approve** to proceed or **Deny** to block the action
 4. If no response is given within 60 seconds, the action is **automatically denied**
 
 The agent pauses until you respond. After approval or denial, execution resumes.
@@ -212,13 +226,13 @@ The agent pauses until you respond. After approval or denial, execution resumes.
 
 ---
 
-## Features In Depth
+## Features
 
 ### Multi-Provider AI Support
 
 | Provider | Protocol | Coordinates | Key Env Var |
 |---|---|---|---|
-| **Google Gemini** | `function_call` | Normalized 0–999 grid → denormalized to pixels | `GOOGLE_API_KEY` |
+| **Google Gemini** | `function_call` | Normalized 0–999 grid → denormalized to screen pixels | `GOOGLE_API_KEY` |
 | **Anthropic Claude** | `tool_use` with `computer_20251124` | Real pixel values with pre-resize scaling | `ANTHROPIC_API_KEY` |
 | **OpenAI** | Responses API `computer` tool | Real pixel values matching the screenshot | `OPENAI_API_KEY` |
 
@@ -229,10 +243,11 @@ Each provider's native Computer Use API is used directly — no prompt-only work
 All agent actions execute inside an isolated Docker container:
 
 - **Ubuntu 24.04** with XFCE4 desktop environment
-- **Resource limits:** 4 GB RAM, 2 CPUs
-- **Security:** `no-new-privileges`, localhost-only port bindings
-- **Pre-installed:** Google Chrome, LibreOffice, VLC, Node.js 20, Python 3, terminal emulators, file manager
-- **Virtual display:** Xvfb at configurable resolution (default 1440×900)
+- **Resource limits:** 4 GB RAM, 2 CPUs, 2 GB shared memory (`shm_size`)
+- **Security:** `no-new-privileges`, `init: true`, localhost-only port bindings (`127.0.0.1`)
+- **Pre-installed software:** Google Chrome, LibreOffice, VLC, Node.js 20, Python 3, terminal emulators, file manager
+- **Virtual display:** Xvfb at configurable resolution (default 1440×900, 24-bit color)
+- **Restart policy:** `unless-stopped`
 
 Your host machine is never exposed to the agent.
 
@@ -242,7 +257,7 @@ The backend broadcasts events over a persistent WebSocket connection at `/ws`:
 
 | Event | Payload | Description |
 |---|---|---|
-| `screenshot` / `screenshot_stream` | base64 PNG | Live desktop captures |
+| `screenshot` / `screenshot_stream` | base64 PNG | Live desktop captures (stream interval: 1.5 s) |
 | `step` | Structured step record | Action details with timestamps |
 | `log` | Log entry | Backend log messages with level |
 | `agent_finished` | Session result | Completion notification with status and step count |
@@ -251,13 +266,14 @@ The frontend auto-reconnects after 2 seconds on disconnect and sends heartbeat p
 
 ### Step Timeline
 
-Each agent step is rendered as an expandable timeline item with:
+Each agent step is rendered as an expandable timeline item:
 
-- **SVG icon** matching the action type (lucide-react: mouse, keyboard, scroll, navigate, etc.)
-- **Action name** and **target** (truncated with tooltip)
-- **Timestamp** in locale format
+- **Icon** matching the action type (30+ mappings via lucide-react: mouse, keyboard, scroll, navigate, clipboard, etc.)
+- **Action name** and **target** (truncated at 20 chars with tooltip for full text)
+- **Typed text** preview for input actions (quoted, truncated)
+- **Timestamp** formatted as `HH:MM:SS` (24-hour)
 - **Expand** to see: reasoning text, exact coordinates, error details, and raw JSON payload
-- **Keyboard accessible** — `Tab` to focus, `Enter`/`Space` to toggle, `focus-visible` outline
+- **Keyboard accessible** — `Tab` to focus, `Enter`/`Space` to toggle
 
 ### Session History
 
@@ -272,34 +288,38 @@ The last 50 sessions are stored in `localStorage` (`cua_session_history_v1`):
 
 Three export formats are available from the log panel header:
 
-| Format | Contents | Icon |
+| Format | Contents | Filename Pattern |
 |---|---|---|
-| **JSON** | Task, model, provider, all steps (action, error, timestamp), all logs, export timestamp | `FileJson` |
-| **HTML** | Self-contained styled report with timeline and log table. All content is HTML-escaped via a centralized `esc()` function. | `FileText` |
-| **Logs (.txt)** | Timestamped log lines: `[HH:MM:SS] [LEVEL] message` | `Download` |
+| **JSON** | Task, model, provider, all steps (action, error, timestamp), all logs, export timestamp | `cua_session_<ISO-timestamp>.json` |
+| **HTML** | Self-contained styled report with timeline and log table; all content is HTML-escaped | `cua_session_<ISO-timestamp>.html` |
+| **Logs (.txt)** | Timestamped log lines: `[HH:MM:SS] [LEVEL] message` | `CUA_logs_<YYYYMMDD>_<HHMMSS>.txt` |
+
+Export buttons are disabled when there is no data to export.
 
 ### Cost Estimation
 
 An approximate cost is displayed in the header during and after sessions:
 
-- Based on centralized per-model pricing in `frontend/src/utils/pricing.js`
+- Based on per-model pricing constants in `frontend/src/utils/pricing.js`
 - Uses rough averages of ~3,500 input tokens and ~800 output tokens per step
 - Clearly labeled as approximate — hover to see the caveat tooltip
-- Returns `null` for models without pricing data
+- Returns `null` (no display) for models without a pricing entry
+
+> **Note:** The pricing table may not include entries for all models in the allowlist. If your model is not in the pricing table, no cost estimate is shown. This is expected behavior.
 
 ### Context Pruning
 
-To prevent unbounded token growth in long sessions, the engine automatically replaces old screenshots with text placeholders after **3 turns**. This keeps the conversation context within model limits while preserving recent visual context for accurate action planning.
+To prevent unbounded token growth in long sessions, the engine automatically replaces old screenshots with text placeholders (e.g., `[screenshot omitted]`), keeping the most recent **3 turns** intact. This applies to both Gemini and Claude conversation histories. The pruning keeps the context within model limits while preserving recent visual context for accurate action planning.
 
 ### Safety Confirmation Flow
 
 When the CU engine encounters a `require_confirmation` safety decision:
 
-1. Engine emits safety callback → `AgentLoop` broadcasts a `safety_confirmation` WebSocket event
-2. Frontend shows a modal with countdown timer
-3. User clicks Approve or Deny → `POST /api/agent/safety-confirm`
-4. Backend signals the waiting `asyncio.Event` → engine resumes or skips
-5. **Timeout:** 60 seconds → auto-deny
+1. Engine emits safety callback → `AgentLoop` broadcasts a `safety_confirmation` event via the `log` WebSocket message
+2. Frontend detects `log.data.type === 'safety_confirmation'` and shows a modal with countdown timer
+3. User clicks Approve or Deny → frontend calls `POST /api/agent/safety-confirm`
+4. Backend signals the waiting `asyncio.Event` → engine resumes or skips the action
+5. **Timeout:** 60 seconds → automatic deny
 
 ### OpenAI Reasoning Effort
 
@@ -313,48 +333,55 @@ When using OpenAI models, control the depth of chain-of-thought reasoning:
 | `high` | Thorough reasoning |
 | `xhigh` | Maximum reasoning effort |
 
-Set via the UI dropdown (under Advanced Settings) or the `OPENAI_REASONING_EFFORT` environment variable.
+Set via the UI dropdown (visible under Advanced Settings only when the OpenAI provider is selected) or the `OPENAI_REASONING_EFFORT` environment variable. The reasoning effort parameter is only sent to the backend when the provider is OpenAI.
 
 ### API Key Management
 
-- Keys entered in the UI are sent to the backend per-request only — never stored
-- `.env` and system env keys are loaded at backend startup
-- `GET /api/keys/status` returns availability and masked previews per provider
-- The UI auto-selects the best available source on provider change
+- Keys entered in the UI are sent to the backend per-request only — never stored on disk or in the browser
+- `.env` and system env keys are loaded at backend startup (`.env` does not override existing system env vars)
+- `GET /api/keys/status` returns availability, source (`env` / `dotenv` / `none`), and masked previews per provider
+- The UI auto-selects the best available source when the provider changes
 
 ### Key Validation
 
-Before starting a session, you can validate an API key via the check button next to the key input:
+Before starting a session, you can validate an API key via the check button (✓) next to the key input field:
 
-- Frontend calls `POST /api/keys/validate` with provider and key
-- Backend performs provider-specific format validation (prefix, length, character set)
-- Result shown inline: green checkmark for valid, red message for invalid
+- Frontend calls `POST /api/keys/validate` with the provider name and key
+- Backend makes a **lightweight HTTP request to the provider's API** to verify the key is functional:
+  - **Google:** `GET https://generativelanguage.googleapis.com/v1beta/models?key=<key>`
+  - **Anthropic:** `GET https://api.anthropic.com/v1/models` with `x-api-key` header
+  - **OpenAI:** `GET https://api.openai.com/v1/models` with `Authorization: Bearer` header
+- Result shown inline: green "Key is valid" on success, red error message on failure
+- Validation has a 10-second timeout — if the request times out, a retry message is shown
+
+> This is a **live API call**, not a format check. An internet connection is required for validation.
 
 ### noVNC Desktop Access
 
 An interactive noVNC viewer is embedded in the center pane:
 
 - Full keyboard and mouse interaction with the container desktop
-- All traffic proxied through the backend (`/vnc/websockify`) — the browser never connects directly to Docker
-- Falls back to WebSocket screenshot stream if noVNC is unavailable
-- Standalone access available at `http://127.0.0.1:6080`
+- All traffic proxied through the backend (`/vnc/websockify` WebSocket, `/vnc/*` static files) — the browser never connects directly to Docker-mapped ports
+- Falls back to a static base64 screenshot stream if the noVNC iframe fails to load
+- A toggle button lets you switch between interactive (VNC) and screenshot views
+- Direct noVNC access is also available at `http://127.0.0.1:6080` (bypasses the backend proxy)
 
 ### Dark / Light Theme
 
 - Toggle via the Sun/Moon button in the header
 - Persisted in `localStorage` (`cua_theme`)
-- Applied via `data-theme="light"` attribute on `<html>`, overriding CSS custom properties
+- Applied via `data-theme` attribute on `<html>`, overriding CSS custom properties
 - Default is dark
 
 ### Toast Notifications
 
-Non-blocking toast messages appear in the top-right corner:
+Non-blocking toast messages appear for key events:
 
 - **Success** (green): agent started, task complete
 - **Error** (red): task failed
 - **Info** (blue): agent stopped
 - Auto-dismiss after 4 seconds
-- Implemented via `useToasts()` hook in `ToastContainer.jsx`
+- Rendered in an `aria-live="polite"` container for screen reader accessibility
 
 ### Error Boundary
 
@@ -364,15 +391,18 @@ A React error boundary wraps the entire application. If an unhandled exception o
 
 ## Supported Models
 
-| Provider | Model ID | Computer Use | Notes |
-|---|---|---|---|
-| Google | `gemini-3-flash-preview` | ✅ Native | Fast, lightweight |
-| Google | `gemini-3.1-pro-preview` | ⚠️ Unconfirmed | Stronger reasoning |
-| Anthropic | `claude-sonnet-4-6` | ✅ Native | Beta endpoint |
-| Anthropic | `claude-opus-4-6` | ✅ Native | Beta endpoint |
-| OpenAI | `gpt-5.4` | ✅ Native | Responses API |
+Only models with `supports_computer_use: true` in `backend/allowed_models.json` are available in the UI.
 
-To add models: edit `backend/allowed_models.json` and restart the backend. The UI auto-refreshes via `GET /api/models`.
+| Provider | Model ID | Display Name | Notes |
+|---|---|---|---|
+| Google | `gemini-3-flash-preview` | Gemini 3 Flash Preview | Fast, lightweight |
+| Anthropic | `claude-sonnet-4-6` | Claude Sonnet 4.6 | Requires beta endpoint + `computer_20251124` tool |
+| Anthropic | `claude-opus-4-6` | Claude Opus 4.6 | Requires beta endpoint + `computer_20251124` tool |
+| OpenAI | `gpt-5.4` | GPT-5.4 | Responses API built-in computer tool |
+
+> `gemini-3.1-pro-preview` is present in `allowed_models.json` with `supports_computer_use: false` and is excluded from the UI. It is reserved for future use if Google confirms CU support.
+
+To add or remove models: edit `backend/allowed_models.json`, set `supports_computer_use` appropriately, and restart the backend. The frontend reads the list dynamically via `GET /api/models`.
 
 ---
 
@@ -399,51 +429,56 @@ Action names are normalized via `action_aliases.py` — e.g., `press` → `key`,
 
 ## Configuration Reference
 
-Set as environment variables or in a `.env` file in the project root:
+Set as environment variables or in a `.env` file in the project root. The `.env` file does not override existing system environment variables.
 
 | Variable | Default | Description |
 |---|---|---|
 | `GOOGLE_API_KEY` | — | Google Gemini API key |
 | `ANTHROPIC_API_KEY` | — | Anthropic Claude API key |
 | `OPENAI_API_KEY` | — | OpenAI API key |
-| `OPENAI_REASONING_EFFORT` | `low` | Reasoning: `none` / `low` / `medium` / `high` / `xhigh` |
+| `OPENAI_REASONING_EFFORT` | `low` | Reasoning depth: `none` / `low` / `medium` / `high` / `xhigh` |
 | `GEMINI_MODEL` | `gemini-3-flash-preview` | Default Gemini model |
 | `CONTAINER_NAME` | `cua-environment` | Docker container name |
 | `AGENT_SERVICE_HOST` | `127.0.0.1` | Agent service host inside the container |
 | `AGENT_SERVICE_PORT` | `9222` | Agent service port |
 | `SCREEN_WIDTH` | `1440` | Virtual display width (px) |
 | `SCREEN_HEIGHT` | `900` | Virtual display height (px) |
-| `MAX_STEPS` | `50` | Default max steps per session |
+| `MAX_STEPS` | `50` | Default max steps per session (UI cap: 200) |
 | `STEP_TIMEOUT` | `30.0` | Per-step timeout (seconds) |
 | `HOST` | `0.0.0.0` | Backend bind address |
 | `PORT` | `8000` | Backend port |
-| `DEBUG` | `false` | Enable debug logging + Uvicorn auto-reload |
-| `CORS_ORIGINS` | `localhost:3000,localhost:5173` | Comma-separated allowed CORS origins |
-| `VNC_PASSWORD` | *(unset)* | Optional VNC authentication password |
-| `VITE_API_PORT` | `8000` | Frontend proxy target port (Vite dev server only) |
+| `DEBUG` | `false` | Enable verbose logging (`1`, `true`, or `yes`) |
+| `CORS_ORIGINS` | *(see below)* | Comma-separated allowed CORS origins |
+| `VNC_PASSWORD` | *(unset)* | Optional VNC authentication password (uncomment in `docker-compose.yml`) |
+| `VITE_API_PORT` | `8000` | Frontend Vite dev server proxy target port |
+
+**CORS defaults** (when `CORS_ORIGINS` is not set):
+`http://localhost:5173`, `http://127.0.0.1:5173`, `http://localhost:3000`, `http://127.0.0.1:3000`
 
 ---
 
 ## API Endpoints
 
+All endpoints are served by the FastAPI backend. Interactive docs are available at `/docs` (Swagger UI) and `/redoc`.
+
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/api/health` | Liveness check |
-| `GET` | `/api/models` | List allowed models |
-| `GET` | `/api/engines` | List available engines |
-| `GET` | `/api/keys/status` | API key status per provider (masked) |
-| `POST` | `/api/keys/validate` | Pre-flight key validation |
+| `GET` | `/api/models` | List allowed CU models (filtered by `supports_computer_use`) |
+| `GET` | `/api/engines` | List available engines (`computer_use` only) |
+| `GET` | `/api/keys/status` | API key availability per provider (masked) |
+| `POST` | `/api/keys/validate` | Live key validation via provider API |
 | `GET` | `/api/screenshot` | Current desktop screenshot (base64) |
-| `GET` | `/api/container/status` | Container and agent service health |
+| `GET` | `/api/container/status` | Container running state and agent service health |
 | `POST` | `/api/container/start` | Build (if needed) and start the container |
-| `POST` | `/api/container/stop` | Stop agents and remove the container |
+| `POST` | `/api/container/stop` | Stop all agents and remove the container |
 | `POST` | `/api/container/build` | Trigger Docker image rebuild |
 | `GET` | `/api/agent-service/health` | Agent service health check |
-| `POST` | `/api/agent-service/mode` | Confirm desktop mode |
+| `POST` | `/api/agent-service/mode` | Confirm desktop mode (only `desktop` accepted) |
 | `POST` | `/api/agent/start` | Start an agent session |
 | `POST` | `/api/agent/stop/{session_id}` | Stop a running session |
 | `GET` | `/api/agent/status/{session_id}` | Session status and last action |
-| `GET` | `/api/agent/history/{session_id}` | Full step history (without screenshots) |
+| `GET` | `/api/agent/history/{session_id}` | Full step history (excludes screenshots) |
 | `POST` | `/api/agent/safety-confirm` | Respond to a safety confirmation prompt |
 
 ### `POST /api/agent/start` — Request Body
@@ -466,10 +501,10 @@ Set as environment variables or in a `.env` file in the project root:
 |---|---|---|---|
 | `task` | `string` | Yes | Non-empty, max 10,000 chars |
 | `provider` | `string` | Yes | `"google"` / `"anthropic"` / `"openai"` |
-| `model` | `string` | No | Must be in allowlist (defaults to provider default) |
+| `model` | `string` | Yes | Must be in the CU allowlist for the given provider |
 | `mode` | `string` | Yes | `"desktop"` only |
-| `api_key` | `string` | No | Empty string → resolved from env |
-| `max_steps` | `int` | No | 1–200 (default 50) |
+| `api_key` | `string` | No | Empty string → resolved from `.env` or system env |
+| `max_steps` | `int` | No | 1–200 (default 50, hard cap 200) |
 | `engine` | `string` | No | `"computer_use"` only |
 | `execution_target` | `string` | No | `"docker"` only |
 | `reasoning_effort` | `string` | No | OpenAI only: `"none"` / `"low"` / `"medium"` / `"high"` / `"xhigh"` |
@@ -483,7 +518,7 @@ Set as environment variables or in a `.env` file in the project root:
 }
 ```
 
-Returns `{ "valid": true, "message": "Key format looks correct" }` or `{ "valid": false, "message": "..." }`.
+Returns `{ "valid": true, "message": "Key is valid" }` or `{ "valid": false, "message": "Invalid API key" }`.
 
 ---
 
@@ -495,10 +530,10 @@ Connect to `ws://127.0.0.1:8000/ws` (or proxied via Vite at `ws://127.0.0.1:3000
 
 | Event | Payload | Description |
 |---|---|---|
-| `screenshot` | `{ screenshot: <base64> }` | Screenshot from agent step |
-| `screenshot_stream` | `{ screenshot: <base64> }` | Periodic desktop capture |
-| `step` | `{ step: StepRecord }` | Step completion (action, timestamp, error) |
-| `log` | `{ log: LogEntry }` | Backend log message (may include `safety_confirmation` data) |
+| `screenshot` | `{ screenshot: <base64> }` | Screenshot from an agent step |
+| `screenshot_stream` | `{ screenshot: <base64> }` | Periodic desktop capture (every 1.5 s) |
+| `step` | `{ step: StepRecord }` | Step completion (action, timestamp, error; excludes `screenshot_b64` and `raw_model_response`) |
+| `log` | `{ log: LogEntry }` | Backend log message (may include `data.type: "safety_confirmation"` for safety prompts) |
 | `agent_finished` | `{ session_id, status, steps }` | Agent loop terminated |
 | `pong` | `{}` | Heartbeat response |
 
@@ -524,7 +559,7 @@ Send `{ "type": "ping" }` every 15 seconds to maintain the connection.
 ### Container won't start
 
 - Ensure Docker Desktop is running with BuildKit enabled
-- Check that ports `5900`, `6080`, and `9222` are not in use: `netstat -ano | findstr :5900`
+- Check that ports `5900`, `6080`, `9222`, and `9223` are not in use: `netstat -ano | findstr :5900`
 - Rebuild the image: `docker compose build`
 - On Windows, use `127.0.0.1` instead of `localhost`
 
@@ -532,7 +567,7 @@ Send `{ "type": "ping" }` every 15 seconds to maintain the connection.
 
 - Verify your API key is valid for the selected provider (use the ✓ validation button)
 - Check the log panel for error messages
-- Ensure the agent service is healthy (green "Environment Ready" pill in the header)
+- Ensure the container is healthy (green "Environment Ready" pill in the header)
 - Wait 10–20 seconds after container start for XFCE + agent service to fully boot
 
 ### Backend port conflict
@@ -557,21 +592,31 @@ VITE_API_PORT=8001 npm run dev
 
 ### Model not listed
 
-- Only models in `backend/allowed_models.json` appear in the dropdown
-- Edit the file, restart the backend, and the UI will refresh automatically
+- Only models with `supports_computer_use: true` in `backend/allowed_models.json` appear in the dropdown
+- After editing the file, restart the backend — the UI fetches the list dynamically
 
 ### Rate limit errors (429)
 
 - Agent starts are limited to **10 per minute** with a maximum of **3 concurrent sessions**
-- Wait and try again if you hit the limit
+- Wait and retry if you hit the limit
 
 ### Session state lost after restart
 
-- All session state is **in-memory only** — restarting the backend clears active sessions
-- Session history (task/model/status) persists in the browser's localStorage
-- The Docker container persists independently
+- All active session state is **in-memory only** — restarting the backend clears running sessions
+- Session history (task, model, status) persists in the browser's `localStorage` (up to 50 entries)
+- The Docker container persists independently of the backend
 
 ### Cost estimate shows nothing
 
-- Cost data is only available for models listed in `frontend/src/utils/pricing.js`
-- Unknown models show no estimate — the feature degrades gracefully
+- Cost data is only available for models with pricing entries in `frontend/src/utils/pricing.js`
+- If your model is not in the pricing table, no estimate is shown — the feature degrades gracefully
+
+---
+
+## Limitations
+
+- **Single host only.** The system is designed for local development — there is no authentication, multi-user support, or production deployment configuration.
+- **In-memory sessions.** All active session state lives in the backend process. Restarting the backend loses running sessions (browser history persists).
+- **Desktop mode only.** The `mode` parameter only accepts `"desktop"`. Browser-only mode is not supported.
+- **Cost estimates are approximate.** Token counts are rough averages, and pricing entries may not cover all models in the allowlist.
+- **No persistent storage.** Files created inside the Docker container are lost when the container is removed. Mount a volume if you need to preserve work.
