@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 
 from backend.config import config, get_all_key_statuses, resolve_api_key
 from backend.engine import _load_allowed_models_json
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from backend.models import (
     AgentAction,
     LogEntry,
@@ -43,8 +43,12 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="CUA — Computer Using Agent", version="1.0.0")
 
-# CORS: restrict to local dev origins by default
+# CORS: restrict to local dev origins by default; override with CORS_ORIGINS env var
 _ALLOWED_ORIGINS = [
+    o.strip()
+    for o in os.getenv("CORS_ORIGINS", "").split(",")
+    if o.strip()
+] or [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
@@ -449,6 +453,70 @@ class SafetyConfirmRequest(BaseModel):
     """Body for the safety-confirm endpoint."""
     session_id: str
     confirm: bool = False
+
+
+class ValidateKeyRequest(BaseModel):
+    """Body for the key validation endpoint."""
+    provider: str = Field(max_length=20)
+    api_key: str = Field(max_length=256)
+
+
+@app.post("/api/keys/validate")
+async def api_validate_key(req: ValidateKeyRequest):
+    """Lightweight API key validation — makes a minimal call to the provider.
+
+    Returns ``{valid: true/false, message: ...}``.  Never logs the raw key.
+    """
+    if req.provider not in _VALID_PROVIDERS:
+        return JSONResponse(status_code=400, content={"error": f"Invalid provider: {req.provider}"})
+
+    if not req.api_key or len(req.api_key) < 8:
+        return {"valid": False, "message": "Key is too short"}
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            if req.provider == "google":
+                resp = await client.get(
+                    "https://generativelanguage.googleapis.com/v1beta/models",
+                    params={"key": req.api_key},
+                )
+                if resp.status_code == 200:
+                    return {"valid": True, "message": "Key is valid"}
+                if resp.status_code in (400, 403) or "API_KEY_INVALID" in resp.text:
+                    return {"valid": False, "message": "Invalid API key"}
+                return {"valid": False, "message": "Could not validate key"}
+
+            elif req.provider == "anthropic":
+                resp = await client.get(
+                    "https://api.anthropic.com/v1/models",
+                    headers={
+                        "x-api-key": req.api_key,
+                        "anthropic-version": "2023-06-01",
+                    },
+                )
+                if resp.status_code == 200:
+                    return {"valid": True, "message": "Key is valid"}
+                if resp.status_code == 401:
+                    return {"valid": False, "message": "Invalid API key"}
+                return {"valid": False, "message": "Could not validate key"}
+
+            elif req.provider == "openai":
+                resp = await client.get(
+                    "https://api.openai.com/v1/models",
+                    headers={"Authorization": f"Bearer {req.api_key}"},
+                )
+                if resp.status_code == 200:
+                    return {"valid": True, "message": "Key is valid"}
+                if resp.status_code == 401:
+                    return {"valid": False, "message": "Invalid API key"}
+                return {"valid": False, "message": "Could not validate key"}
+
+    except httpx.TimeoutException:
+        return {"valid": False, "message": "Validation timed out — try again"}
+    except Exception:
+        return {"valid": False, "message": "Could not validate key"}
+
+    return {"valid": False, "message": "Unknown provider"}
 
 
 @app.post("/api/agent/safety-confirm")
