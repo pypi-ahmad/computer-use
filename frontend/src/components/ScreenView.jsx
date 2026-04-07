@@ -57,8 +57,8 @@ export default function ScreenView({ screenshot, containerRunning }) {
                 <rect x="2" y="3" width="20" height="14" rx="2" />
                 <path d="M8 21h8M12 17v4" />
             </svg>
-            <span>No screen capture available</span>
-            <span style={{ fontSize: 12 }}>Start the environment to see the live desktop</span>
+            <span>Start the environment to see the desktop here</span>
+            <span style={{ fontSize: 12 }}>The live desktop will appear once the environment is running</span>
             </div>
         )}
 

@@ -14,14 +14,14 @@ import {
   MousePointer2, Keyboard, Type as TypeIcon, ScrollText, Globe, ArrowLeft,
   ArrowRight, Timer, Clipboard, Copy, RefreshCw, Plus, X as XIcon,
   Shuffle, Search, Monitor, Rocket, Camera, CheckCircle2, AlertCircle,
-  Zap, Download, Sun, Moon, BookOpen, Check, History, FileJson, FileText, Trash2
+  Zap, Download, Sun, Moon, BookOpen, Check, History, FileJson, FileText, Trash2, HelpCircle
 } from 'lucide-react'
 import './Workbench.css'
 
 const PROVIDERS = [
-  { value: 'google', label: 'Google Gemini', envVar: 'GOOGLE_API_KEY', placeholder: 'AI...' },
-  { value: 'anthropic', label: 'Anthropic Claude', envVar: 'ANTHROPIC_API_KEY', placeholder: 'sk-ant-...' },
-  { value: 'openai', label: 'OpenAI GPT-5.4', envVar: 'OPENAI_API_KEY', placeholder: 'sk-...' },
+  { value: 'google', label: 'Google Gemini', envVar: 'GOOGLE_API_KEY', placeholder: 'Paste your Google API key' },
+  { value: 'anthropic', label: 'Anthropic Claude', envVar: 'ANTHROPIC_API_KEY', placeholder: 'Paste your Anthropic API key' },
+  { value: 'openai', label: 'OpenAI GPT-5.4', envVar: 'OPENAI_API_KEY', placeholder: 'Paste your OpenAI API key' },
 ]
 
 const ICON_SIZE = 14
@@ -36,6 +36,27 @@ const ACTION_ICON_MAP = {
   focus_window: Monitor, open_app: Rocket,
   wait: Timer, wait_for: Timer, screenshot_region: Camera,
   done: CheckCircle2, error: AlertCircle,
+}
+
+const ACTION_LABEL_MAP = {
+  click: 'Clicked', double_click: 'Double-clicked', right_click: 'Right-clicked', hover: 'Hovered',
+  type: 'Typed text', fill: 'Filled field', key: 'Pressed key', hotkey: 'Pressed keys',
+  paste: 'Pasted', copy: 'Copied',
+  open_url: 'Opened URL', reload: 'Reloaded page', go_back: 'Went back', go_forward: 'Went forward',
+  new_tab: 'Opened new tab', close_tab: 'Closed tab', switch_tab: 'Switched tab',
+  scroll: 'Scrolled', scroll_to: 'Scrolled to',
+  get_text: 'Read text', find_element: 'Found element', evaluate_js: 'Ran script',
+  focus_window: 'Switched window', open_app: 'Opened app',
+  wait: 'Waited', wait_for: 'Waited for', screenshot_region: 'Captured region',
+  done: 'Finished', error: 'Error',
+}
+
+const MODEL_HINTS = {
+  'gemini-3-flash-preview': { hint: 'Fast and affordable — good for simple tasks', tier: 'Budget' },
+  'gemini-3.1-pro-preview': { hint: 'Stronger reasoning — computer use support unconfirmed', tier: 'Mid-range' },
+  'claude-sonnet-4-6': { hint: 'Balanced speed and capability — recommended for most tasks', tier: 'Mid-range', recommended: true },
+  'claude-opus-4-6': { hint: 'Most capable — best for complex multi-step tasks', tier: 'Premium' },
+  'gpt-5.4': { hint: 'OpenAI\'s built-in computer use model', tier: 'Mid-range' },
 }
 
 const TASK_EXAMPLES = [
@@ -93,18 +114,25 @@ export default function Workbench() {
   const [showHistory, setShowHistory] = useState(false)
   const [sessionHistory, setSessionHistoryState] = useState(getSessionHistory)
 
+  // Logs panel
+  const [logsExpanded, setLogsExpanded] = useState(false)
+
+  // Welcome/help overlay
+  const [showWelcome, setShowWelcome] = useState(false)
+
   // Timeline expansion
   const [expandedStep, setExpandedStep] = useState(null)
 
   // Refs
   const timelineRef = useRef(null)
   const logRef = useRef(null)
+  const sessionStartTime = useRef(null)
 
   // Dynamic model list
   const [fetchedModels, setFetchedModels] = useState([])
   const [modelsLoaded, setModelsLoaded] = useState(false)
   const [modelsLoading, setModelsLoading] = useState(true)
-  const toModelOption = (m) => ({ value: m.model_id, label: `${m.display_name} (${m.model_id})` })
+  const toModelOption = (m) => ({ value: m.model_id, label: m.display_name })
   const modelsByProvider = fetchedModels.reduce((acc, item) => {
     acc[item.provider] = (acc[item.provider] || []).concat(toModelOption(item))
     return acc
@@ -177,7 +205,9 @@ export default function Workbench() {
     if (agentFinished && agentRunning) {
       setAgentRunning(false)
       setSessionId(null)
-      setCompletionData(agentFinished)
+      const elapsed = sessionStartTime.current ? Math.round((Date.now() - sessionStartTime.current) / 1000) : null
+      sessionStartTime.current = null
+      setCompletionData({ ...agentFinished, elapsedSeconds: elapsed })
       const status = agentFinished.status || 'completed'
       addToast(
         status === 'completed' ? `Task complete — ${agentFinished.steps ?? steps.length} steps` : `Task ${status}`,
@@ -186,6 +216,7 @@ export default function Workbench() {
       addSessionToHistory({
         task: task.slice(0, 100),
         model,
+        modelDisplayName: (fetchedModels.find(m => m.model_id === model))?.display_name || model,
         provider,
         steps: agentFinished.steps ?? steps.length,
         status,
@@ -230,7 +261,7 @@ export default function Workbench() {
       await startContainer()
       await refreshContainer()
     } catch {
-      setContainerError('Could not start environment. Is Docker running?')
+      setContainerError('Could not start the environment. Please ensure the system is set up correctly.')
     } finally {
       setContainerLoading(false)
     }
@@ -266,7 +297,7 @@ export default function Workbench() {
           await startContainer()
           await refreshContainer()
         } catch {
-          setContainerError('Could not start environment. Is Docker running?')
+          setContainerError('Could not start the environment. Please ensure the system is set up correctly.')
           setStarting(false)
           setContainerLoading(false)
           return
@@ -289,6 +320,7 @@ export default function Workbench() {
       }
       setSessionId(res.session_id)
       setAgentRunning(true)
+      sessionStartTime.current = Date.now()
       addToast('Agent started', 'success')
     } catch (e) {
       setError(`Failed to start: ${e.message}`)
@@ -350,10 +382,18 @@ export default function Workbench() {
   const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
   const handleExportJSON = () => {
+    const modelMeta = fetchedModels.find(m => m.model_id === model)
+    const cost = estimateCost(model, steps.length)
     const data = {
       task, model, provider,
-      steps: steps.map(s => ({ step_number: s.step_number, action: s.action, error: s.error, timestamp: s.timestamp })),
+      modelDisplayName: modelMeta?.display_name || model,
+      steps: steps.map(s => ({ step_number: s.step_number, action: s.action, actionLabel: ACTION_LABEL_MAP[s.action?.action] || s.action?.action || 'Unknown', error: s.error, timestamp: s.timestamp })),
       logs: logs.map(l => ({ timestamp: l.timestamp, level: l.level, message: l.message })),
+      summary: {
+        totalSteps: steps.length,
+        estimatedCost: cost ? `~$${cost.cost.toFixed(4)}` : null,
+        costNote: cost?.note || null,
+      },
       exportedAt: new Date().toISOString(),
     }
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
@@ -366,19 +406,30 @@ export default function Workbench() {
   }
 
   const handleExportHTML = () => {
+    const modelMeta = fetchedModels.find(m => m.model_id === model)
+    const displayModel = modelMeta?.display_name || model
+    const cost = estimateCost(model, steps.length)
     const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>CUA Session Report</title>
-<style>body{font-family:system-ui;max-width:800px;margin:40px auto;padding:0 20px;color:#333}h1{color:#6c63ff}table{width:100%;border-collapse:collapse;margin:16px 0}th,td{padding:8px;border:1px solid #ddd;text-align:left}th{background:#f5f5f5}.step{margin:8px 0;padding:8px;background:#f9f9f9;border-radius:4px}.error{color:#dc3545}</style></head><body>
-<h1>CUA Session Report</h1>
+<style>body{font-family:system-ui;max-width:800px;margin:40px auto;padding:0 20px;color:#333}h1{color:#6c63ff}.summary{background:#f5f5ff;border:1px solid #e0e0ff;border-radius:8px;padding:16px;margin:16px 0}.summary p{margin:4px 0}.summary strong{display:inline-block;min-width:120px}table{width:100%;border-collapse:collapse;margin:16px 0}th,td{padding:8px;border:1px solid #ddd;text-align:left}th{background:#f5f5f5}.step{margin:8px 0;padding:10px 12px;background:#f9f9f9;border-radius:6px;border-left:3px solid #6c63ff}.step-label{font-weight:600;color:#333}.reasoning{color:#666;font-style:italic;margin-top:4px}.error{color:#dc3545}h2{margin-top:32px;border-bottom:1px solid #eee;padding-bottom:8px}.footer{margin-top:40px;padding-top:16px;border-top:1px solid #eee;font-size:12px;color:#999}</style></head><body>
+<h1>Session Report</h1>
+<div class="summary">
 <p><strong>Task:</strong> ${esc(task)}</p>
-<p><strong>Model:</strong> ${esc(model)} (${esc(provider)})</p>
+<p><strong>Model:</strong> ${esc(displayModel)} (${esc(provider)})</p>
 <p><strong>Steps:</strong> ${steps.length}</p>
+${cost ? `<p><strong>Estimated Cost:</strong> ~$${cost.cost.toFixed(4)} <span style="color:#999;font-size:12px">(${esc(cost.note)})</span></p>` : ''}
 <p><strong>Generated:</strong> ${new Date().toLocaleString()}</p>
+</div>
 <h2>Timeline</h2>
-${steps.map(s => `<div class="step"><strong>#${s.step_number}</strong> &mdash; ${esc(s.action?.action)}${s.action?.reasoning ? `<br><em>${esc(s.action.reasoning)}</em>` : ''}${s.error ? `<br><span class="error">${esc(s.error)}</span>` : ''}</div>`).join('')}
+${steps.map(s => {
+  const label = ACTION_LABEL_MAP[s.action?.action] || s.action?.action || 'Unknown'
+  return `<div class="step"><span class="step-label">#${s.step_number} &mdash; ${esc(label)}</span>${s.action?.reasoning ? `<div class="reasoning">${esc(s.action.reasoning)}</div>` : ''}${s.error ? `<div class="error">${esc(s.error)}</div>` : ''}</div>`
+}).join('')}
 <h2>Logs</h2>
 <table><tr><th>Time</th><th>Level</th><th>Message</th></tr>
 ${logs.map(l => `<tr><td>${formatTime(l.timestamp)}</td><td>${esc(l.level)}</td><td>${esc(l.message)}</td></tr>`).join('')}
-</table></body></html>`
+</table>
+<div class="footer">Generated by CUA — Computer Using Agent</div>
+</body></html>`
     const blob = new Blob([html], { type: 'text/html' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -390,16 +441,18 @@ ${logs.map(l => `<tr><td>${formatTime(l.timestamp)}</td><td>${esc(l.level)}</td>
 
   const costEstimate = estimateCost(model, steps.length)
 
-  const canStart = models.length > 0 && !agentRunning && !starting
+  const hasKey = keySource === 'ui' ? apiKey.trim().length >= 8 : !!keyStatuses[provider]?.available
+  const canStart = models.length > 0 && !agentRunning && !starting && hasKey
 
   return (
     <div className="wb">
       {/* Header */}
       <header className="wb-header">
         <div className="wb-header-left">
-          <h1><span style={{ color: 'var(--accent)' }}>CUA</span> \u2014 Computer Using Agent</h1>
+          <h1><span style={{ color: 'var(--accent)' }}>CUA</span> <span style={{ fontWeight: 400, color: 'var(--text-secondary)', fontSize: 13 }}>Computer Using Agent</span></h1>
+          <span style={{ fontSize: 11, color: 'var(--text-secondary)', opacity: 0.6 }}>v1.0.0</span>
           <span className={`wb-status-pill ${containerRunning ? 'up' : 'down'}`}>
-            {containerRunning ? 'Environment Ready' : 'Environment Offline'}
+            {containerRunning ? 'Environment Ready' : 'Not Started'}
           </span>
           {!containerRunning && !containerLoading && (
             <button className="wb-btn wb-btn-secondary wb-header-btn" onClick={handleStartContainer} disabled={containerLoading}>
@@ -413,9 +466,7 @@ ${logs.map(l => `<tr><td>${formatTime(l.timestamp)}</td><td>${esc(l.level)}</td>
           )}
           {containerLoading && <span className="wb-status-pill running">Starting…</span>}
           {containerError && <span style={{ fontSize: 12, color: 'var(--error)' }}>{containerError}</span>}
-          <span className={`wb-status-pill ${connected ? 'up' : 'down'}`}>
-            {connected ? 'Connected' : 'Reconnecting\u2026'}
-          </span>
+          {!connected && <span className="wb-status-pill down">Reconnecting…</span>}
           {agentRunning && <span className="wb-status-pill running">Agent Running</span>}
         </div>
         <div className="wb-header-right">
@@ -428,6 +479,9 @@ ${logs.map(l => `<tr><td>${formatTime(l.timestamp)}</td><td>${esc(l.level)}</td>
           <a href="/docs" target="_blank" rel="noopener noreferrer" className="wb-header-link" title="API Documentation" aria-label="API Documentation">
             <BookOpen size={16} />
           </a>
+          <button onClick={() => setShowWelcome(true)} className="wb-theme-toggle" title="How it works" aria-label="How it works">
+            <HelpCircle size={16} />
+          </button>
           <button onClick={toggleTheme} className="wb-theme-toggle" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}>
             {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
           </button>
@@ -437,6 +491,7 @@ ${logs.map(l => `<tr><td>${formatTime(l.timestamp)}</td><td>${esc(l.level)}</td>
       <CompletionBanner
         finishData={completionData}
         stepCount={steps.length}
+        costEstimate={completionData ? estimateCost(model, completionData.steps ?? steps.length) : null}
         onDismiss={() => setCompletionData(null)}
       />
 
@@ -459,6 +514,14 @@ ${logs.map(l => `<tr><td>${formatTime(l.timestamp)}</td><td>${esc(l.level)}</td>
                 <option value="">No models available</option>
               )}
             </select>
+            {model && MODEL_HINTS[model] && (
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '4px 0 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ padding: '1px 6px', borderRadius: 8, fontSize: 11, background: MODEL_HINTS[model].recommended ? 'var(--accent)' : 'var(--bg-primary)', color: MODEL_HINTS[model].recommended ? '#fff' : 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+                  {MODEL_HINTS[model].tier}
+                </span>
+                <span>{MODEL_HINTS[model].hint}</span>
+              </div>
+            )}
             {modelsLoaded && models.length === 0 && (
               <p className="wb-error" style={{ margin: '4px 0 0' }}>No models available for this provider.</p>
             )}
@@ -467,29 +530,33 @@ ${logs.map(l => `<tr><td>${formatTime(l.timestamp)}</td><td>${esc(l.level)}</td>
               <button className={`wb-key-src-btn ${keySource === 'ui' ? 'active' : ''}`} onClick={() => setKeySource('ui')} disabled={agentRunning} title="Enter key manually" aria-label="Enter API key manually">
                 Manual
               </button>
+              {keyStatuses[provider]?.source === 'dotenv' && (
               <button
-                className={`wb-key-src-btn ${keySource === 'dotenv' ? 'active' : ''} ${keyStatuses[provider]?.source === 'dotenv' ? 'available' : ''}`}
+                className={`wb-key-src-btn ${keySource === 'dotenv' ? 'active' : ''} available`}
                 onClick={() => setKeySource('dotenv')}
-                disabled={agentRunning || keyStatuses[provider]?.source !== 'dotenv'}
-                title={keyStatuses[provider]?.source === 'dotenv' ? `Found in .env (${keyStatuses[provider]?.masked_key})` : 'No key in .env file'}
-                aria-label="Use API key from .env file"
+                disabled={agentRunning}
+                title={`Found in config file (${keyStatuses[provider]?.masked_key})`}
+                aria-label="Use API key from config file"
               >
-                .env File {keyStatuses[provider]?.source === 'dotenv' && '✓'}
+                Config File ✓
               </button>
+              )}
+              {keyStatuses[provider]?.source === 'env' && (
               <button
-                className={`wb-key-src-btn ${keySource === 'env' ? 'active' : ''} ${keyStatuses[provider]?.source === 'env' ? 'available' : ''}`}
+                className={`wb-key-src-btn ${keySource === 'env' ? 'active' : ''} available`}
                 onClick={() => setKeySource('env')}
-                disabled={agentRunning || keyStatuses[provider]?.source !== 'env'}
-                title={keyStatuses[provider]?.source === 'env' ? `Found in system env (${keyStatuses[provider]?.masked_key})` : 'No system env variable set'}
-                aria-label="Use API key from system environment"
+                disabled={agentRunning}
+                title={`Pre-configured (${keyStatuses[provider]?.masked_key})`}
+                aria-label="Use pre-configured API key"
               >
-                System {keyStatuses[provider]?.source === 'env' && '✓'}
+                Pre-configured ✓
               </button>
+              )}
             </div>
             {keySource !== 'ui' && keyStatuses[provider]?.available && (
               <div className="wb-key-status">
                 <span className="wb-key-badge ok">{keyStatuses[provider]?.masked_key}</span>
-                <span className="wb-key-source-label">from {keySource === 'env' ? 'system variable' : '.env file'}</span>
+                <span className="wb-key-source-label">from {keySource === 'env' ? 'pre-configured source' : 'config file'}</span>
               </div>
             )}
             {keySource !== 'ui' && !keyStatuses[provider]?.available && (
@@ -532,17 +599,18 @@ ${logs.map(l => `<tr><td>${formatTime(l.timestamp)}</td><td>${esc(l.level)}</td>
             </button>
             {showAdvanced && (
               <div style={{ paddingLeft: 8, borderLeft: '2px solid var(--border)', marginTop: 4 }}>
-                <label className="wb-label">Max Steps</label>
+                <label className="wb-label">Step Limit</label>
                 <input type="number" className="wb-input wb-input-sm" min={1} max={200} value={maxSteps} onChange={(e) => setMaxSteps(e.target.value)} disabled={agentRunning} />
+                <span style={{ fontSize: 11, color: 'var(--text-secondary)', display: 'block', marginTop: 2 }}>Maximum actions the agent can take before stopping</span>
                 {provider === 'openai' && (
                   <>
-                    <label className="wb-label">Reasoning Effort</label>
+                    <label className="wb-label">Thinking Depth</label>
                     <select className="wb-input" value={reasoningEffort} onChange={(e) => setReasoningEffort(e.target.value)} disabled={agentRunning}>
-                      <option value="none">None</option>
-                      <option value="low">Low</option>
-                      <option value="medium">Medium</option>
-                      <option value="high">High</option>
-                      <option value="xhigh">Extra High</option>
+                      <option value="none">None — fastest, minimal reasoning</option>
+                      <option value="low">Low — quick decisions</option>
+                      <option value="medium">Medium — balanced</option>
+                      <option value="high">High — thorough reasoning</option>
+                      <option value="xhigh">Extra High — deepest analysis</option>
                     </select>
                   </>
                 )}
@@ -585,7 +653,7 @@ ${logs.map(l => `<tr><td>${formatTime(l.timestamp)}</td><td>${esc(l.level)}</td>
             {error && <p className="wb-error">{error}</p>}
             <div className="wb-btn-row">
               <button className="wb-btn wb-btn-primary" onClick={handleStart} disabled={!canStart}>
-                {starting ? 'Starting…' : agentRunning ? 'Running…' : models.length === 0 ? 'No Models Loaded' : 'Start Agent'}
+                {starting ? 'Starting…' : agentRunning ? 'Running…' : modelsLoading ? 'Loading Models…' : models.length === 0 ? 'No Models for This Provider' : !hasKey ? 'Enter API Key to Start' : 'Start Agent'}
               </button>
               <button className="wb-btn wb-btn-danger" onClick={handleStop} disabled={!agentRunning}>Stop</button>
               <button className="wb-btn wb-btn-secondary" onClick={() => { clearSteps(); clearLogs(); setCompletionData(null) }} disabled={agentRunning} aria-label="Clear steps and logs">Clear</button>
@@ -617,7 +685,7 @@ ${logs.map(l => `<tr><td>${formatTime(l.timestamp)}</td><td>${esc(l.level)}</td>
             </div>
             {showHistory ? (
               <div className="wb-timeline">
-                {sessionHistory.length === 0 && <p className="wb-empty">No past sessions.</p>}
+                {sessionHistory.length === 0 && <p className="wb-empty">Complete a task to see session history here.</p>}
                 {sessionHistory.map((s, i) => (
                   <div key={i} className="wb-timeline-item" style={{ cursor: 'default' }}>
                     <div className="wb-timeline-head">
@@ -626,7 +694,7 @@ ${logs.map(l => `<tr><td>${formatTime(l.timestamp)}</td><td>${esc(l.level)}</td>
                       <span className="wb-step-time">{s.steps} steps</span>
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--text-secondary)', paddingLeft: 4, marginTop: 2 }}>
-                      {s.model} · {new Date(s.timestamp).toLocaleString()}
+                      {s.modelDisplayName || s.model} · {new Date(s.timestamp).toLocaleString()}
                     </div>
                   </div>
                 ))}
@@ -636,7 +704,7 @@ ${logs.map(l => `<tr><td>${formatTime(l.timestamp)}</td><td>${esc(l.level)}</td>
               </div>
             ) : (
             <div className="wb-timeline" ref={timelineRef}>
-              {steps.length === 0 && <p className="wb-empty">No steps yet.</p>}
+              {steps.length === 0 && <p className="wb-empty">Start a task to see the agent's actions here.</p>}
               {steps.map((step, i) => (
                 <div key={i} className={`wb-timeline-item ${step.error ? 'has-error' : ''} ${expandedStep === i ? 'expanded' : ''}`}
                   onClick={() => setExpandedStep(expandedStep === i ? null : i)}
@@ -646,7 +714,7 @@ ${logs.map(l => `<tr><td>${formatTime(l.timestamp)}</td><td>${esc(l.level)}</td>
                   <div className="wb-timeline-head">
                     <span className="wb-step-num">#{step.step_number}</span>
                     <span className="wb-action-icon">{getActionIcon(step.action?.action)}</span>
-                    <span className="wb-action-name">{step.action?.action || 'unknown'}</span>
+                    <span className="wb-action-name">{ACTION_LABEL_MAP[step.action?.action] || step.action?.action || 'Unknown'}</span>
                     {step.action?.target && <span className="wb-action-target" title={step.action.target}>{step.action.target.length > 20 ? step.action.target.slice(0, 20) + '…' : step.action.target}</span>}
                     {step.action?.text && step.action.action !== 'done' && (
                       <span className="wb-action-text" title={step.action.text}>"{step.action.text.length > 20 ? step.action.text.slice(0, 20) + '…' : step.action.text}"</span>
@@ -656,9 +724,13 @@ ${logs.map(l => `<tr><td>${formatTime(l.timestamp)}</td><td>${esc(l.level)}</td>
                   {expandedStep === i && (
                     <div className="wb-timeline-detail">
                       {step.action?.reasoning && <p className="wb-reasoning">{step.action.reasoning}</p>}
-                      {step.action?.coordinates && <p className="wb-coords">Coords: [{step.action.coordinates.join(', ')}]</p>}
+                      {!step.action?.reasoning && <p className="wb-reasoning" style={{ fontStyle: 'italic', opacity: 0.6 }}>No explanation provided</p>}
                       {step.error && <p className="wb-step-error">Error: {step.error}</p>}
-                      <pre className="wb-json">{JSON.stringify(step.action, null, 2)}</pre>
+                      <details className="wb-raw-details" onClick={(e) => e.stopPropagation()}>
+                        <summary style={{ fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer', userSelect: 'none' }}>Show raw data</summary>
+                        {step.action?.coordinates && <p className="wb-coords">Coords: [{step.action.coordinates.join(', ')}]</p>}
+                        <pre className="wb-json">{JSON.stringify(step.action, null, 2)}</pre>
+                      </details>
                     </div>
                   )}
                 </div>
@@ -668,32 +740,34 @@ ${logs.map(l => `<tr><td>${formatTime(l.timestamp)}</td><td>${esc(l.level)}</td>
           </div>
 
           {/* Logs */}
-          <div className="wb-log-section">
-            <div className="wb-panel-header">
-              <h3>Logs ({logs.length})</h3>
-              <div className="wb-log-actions">
+          <div className={`wb-log-section ${logsExpanded ? 'expanded' : 'collapsed'}`}>
+            <div className="wb-panel-header" onClick={() => setLogsExpanded(!logsExpanded)} style={{ cursor: 'pointer', userSelect: 'none' }}>
+              <h3>{logsExpanded ? '▾' : '▸'} Logs {logs.length > 0 ? `(${logs.length})` : ''}</h3>
+              <div className="wb-log-actions" onClick={(e) => e.stopPropagation()}>
                 <button className="wb-download-btn" onClick={handleExportJSON} disabled={steps.length === 0 && logs.length === 0} title="Export session as JSON" aria-label="Export as JSON"><FileJson size={14} /></button>
                 <button className="wb-download-btn" onClick={handleExportHTML} disabled={steps.length === 0 && logs.length === 0} title="Export session as HTML report" aria-label="Export as HTML"><FileText size={14} /></button>
                 <button className="wb-download-btn" onClick={handleDownloadLogs} disabled={logs.length === 0} title="Download logs as .txt" aria-label="Download logs"><Download size={14} /></button>
                 <button className="wb-clear-btn" onClick={clearLogs} aria-label="Clear logs"><Trash2 size={14} /></button>
               </div>
             </div>
+            {logsExpanded && (
             <div className="wb-logs" ref={logRef}>
-              {logs.length === 0 && <p className="wb-empty">Waiting for logs...</p>}
+              {logs.length === 0 && <p className="wb-empty">Logs will appear here once a task is running.</p>}
               {logs.map((log, i) => (
                 <div key={i} className="wb-log-entry">
                   <span className="wb-log-time">{formatTime(log.timestamp)}</span>
-                  <span className={`wb-log-level ${log.level}`}>{log.level}</span>
+                  <span className={`wb-log-level ${log.level}`}>{log.level === 'info' ? 'Info' : log.level === 'error' ? 'Error' : log.level === 'warning' ? 'Warning' : log.level === 'debug' ? 'Debug' : log.level}</span>
                   <span className="wb-log-msg">{log.message}</span>
                 </div>
               ))}
             </div>
+            )}
           </div>
         </aside>
       </div>
       <SafetyModal prompt={safetyPrompt} onDismiss={clearSafetyPrompt} />
       <ToastContainer toasts={toasts} />
-      <WelcomeOverlay />
+      <WelcomeOverlay show={showWelcome} onDismiss={() => setShowWelcome(false)} />
     </div>
   )
 }
