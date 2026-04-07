@@ -89,12 +89,6 @@ The system is a **three-process architecture** spanning the host and a Docker co
 | **Backend** | Python 3.13 / FastAPI / Uvicorn | `backend/main.py` → `backend.server:app` | `8000` |
 | **Container** | Ubuntu 24.04 / XFCE 4 / Xvfb / desktop automation tools | `docker/entrypoint.sh` → `docker/agent_service.py` | `9222` |
 
-### High-Level Architecture
-
-<p align="center">
-  <img src="docs/assets/architecture.svg" alt="CUA High-Level Architecture" width="100%"/>
-</p>
-
 <details>
 <summary>View connection details</summary>
 
@@ -107,18 +101,6 @@ The system is a **three-process architecture** spanning the host and a Docker co
 | Backend → Docker CLI | Subprocess | `docker_manager.py` → `docker build/run/rm/exec` |
 
 </details>
-
-### Agent Execution Flow
-
-<p align="center">
-  <img src="docs/assets/execution-flow.svg" alt="Agent Execution Flow — Perceive → Think → Act" width="100%"/>
-</p>
-
-### Component Relationship
-
-<p align="center">
-  <img src="docs/assets/components.svg" alt="Component Relationship Map" width="100%"/>
-</p>
 
 ---
 
@@ -724,7 +706,7 @@ computer-use/
 ├── frontend/
 │   ├── package.json               # React 19, Vite 6, React Router 7, lucide-react
 │   ├── vite.config.js             # Dev server + configurable API/WS/VNC/docs proxy
-│   ├── index.html                 # Meta tags, OG tags, SVG favicon
+│   ├── index.html                 # Meta tags, OG tags
 │   └── src/
 │       ├── main.jsx               # Router: / → Workbench, /workbench → redirect, * → 404
 │       ├── api.js                 # REST client (9 exports incl. validateKey)
@@ -748,11 +730,7 @@ computer-use/
 │           ├── sessionHistory.js  # Bounded localStorage session history (50 cap)
 │           └── theme.js           # Theme get/set/init with data-theme attribute
 ├── docs/
-│   ├── USAGE.md                   # Detailed usage guide
-│   └── assets/                    # SVG architecture and flow diagrams
-│       ├── architecture.svg
-│       ├── execution-flow.svg
-│       └── components.svg
+│   └── USAGE.md                   # Detailed usage guide
 ├── tests/
 │   ├── test_computer_use_engine.py
 │   ├── test_claude_actions.py
