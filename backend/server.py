@@ -18,8 +18,6 @@ from backend.engine import _load_allowed_models_json
 from pydantic import BaseModel, Field
 from backend.models import (
     AgentAction,
-    LogEntry,
-    SessionStatus,
     StartTaskRequest,
     TaskStatusResponse,
 )

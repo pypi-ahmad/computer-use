@@ -11,7 +11,7 @@ services:
       - SCREEN_HEIGHT=900
       - SCREEN_DEPTH=24
       - AGENT_SERVICE_PORT=9222
-      - AGENT_MODE=browser
+      - AGENT_MODE=desktop
       # - VNC_PASSWORD=changeme   # uncomment to require VNC auth
     ports:
       - "127.0.0.1:5900:5900"

@@ -66,7 +66,7 @@ A single-page React workbench provides real-time desktop streaming (WebSocket sc
 | **Real-Time Streaming** | Live screenshot stream via WebSocket + interactive noVNC desktop access proxied through the backend |
 | **Cross-Platform Host** | Backend + frontend run on Windows, macOS, or Linux; Docker provides the sandboxed Linux desktop |
 | **Safety Confirmation** | CU safety gates surface to the UI with a 60-second countdown — auto-deny on timeout |
-| **API Key Validation** | Pre-flight key validation via `POST /api/keys/validate` with provider-specific format checks |
+| **API Key Validation** | Pre-flight key validation via `POST /api/keys/validate` — makes a lightweight live API call to the provider (not just format checks) |
 | **Input Validation** | Rate limiting (10 starts/min), concurrent session cap (3), model allowlist enforcement, UUID session IDs, task length bounds (10 000 chars) |
 | **Context Pruning** | Automatic pruning of old screenshots from conversation context to prevent unbounded token growth |
 | **Session History** | Bounded localStorage history (50 sessions) with task, model, step count, and status |
@@ -208,7 +208,7 @@ Defined in `backend/allowed_models.json` — the single source of truth for both
 | Provider | Model ID | Display Name | Runtime Mode | CU Support | Notes |
 |---|---|---|---|---|---|
 | Google | `gemini-3-flash-preview` | Gemini 3 Flash Preview | Desktop | ✅ Native | Fast, lightweight CU model |
-| Google | `gemini-3.1-pro-preview` | Gemini 3.1 Pro Preview | Desktop | ⚠️ Unconfirmed | Stronger reasoning; CU not yet in official docs |
+| Google | `gemini-3.1-pro-preview` | Gemini 3.1 Pro Preview | Desktop | ❌ `supports_computer_use: false` | Present in allowlist but **excluded from UI** — reserved for future CU support |
 | Anthropic | `claude-sonnet-4-6` | Claude Sonnet 4.6 | Desktop | ✅ Native | Beta endpoint + `computer_20251124` tool |
 | Anthropic | `claude-opus-4-6` | Claude Opus 4.6 | Desktop | ✅ Native | Beta endpoint + `computer_20251124` tool |
 | OpenAI | `gpt-5.4` | GPT-5.4 | Desktop | ✅ Native | Responses API built-in `computer` tool |
@@ -229,7 +229,7 @@ Defined in `backend/allowed_models.json` — the single source of truth for both
 | `GET` | `/api/models` | Canonical model allowlist for frontend dropdowns |
 | `GET` | `/api/engines` | Available engines (currently only `computer_use`) |
 | `GET` | `/api/keys/status` | API key availability per provider (masked preview) |
-| `POST` | `/api/keys/validate` | Pre-flight API key validation (provider-specific format checks) |
+| `POST` | `/api/keys/validate` | Live API key validation (lightweight call to the provider) |
 | `GET` | `/api/screenshot` | Current screenshot as base64 PNG |
 | `GET` | `/api/container/status` | Docker container + agent service health |
 | `POST` | `/api/container/start` | Build-if-needed and start the sandbox container |
@@ -266,7 +266,7 @@ Defined in `backend/allowed_models.json` — the single source of truth for both
 | Event | Payload | Description |
 |---|---|---|
 | `screenshot` | `{ screenshot: <base64> }` | Screenshot from agent step |
-| `screenshot_stream` | `{ screenshot: <base64> }` | Periodic desktop capture (configurable interval) |
+| `screenshot_stream` | `{ screenshot: <base64> }` | Periodic desktop capture (1.5 s interval) |
 | `log` | `{ log: LogEntry }` | Agent log message |
 | `step` | `{ step: StepRecord }` | Step completion (action, timestamp, error) |
 | `agent_finished` | `{ session_id, status, steps }` | Agent loop terminated |
@@ -305,7 +305,7 @@ setup.bat
 bash setup.sh
 ```
 
-Both scripts: verify prerequisites → build Docker image → create Python venv → install pip dependencies → install frontend npm packages.
+Both scripts: verify prerequisites → build Docker image → create Python venv → install pip dependencies → install frontend npm packages. Pass `--clean` for a destructive rebuild (removes containers, images, and volumes first).
 
 ### 3. Configure API Key (at least one required)
 
@@ -406,7 +406,7 @@ Keys are resolved in priority order — the first non-empty value wins:
 
 ### Environment Variables
 
-**Backend** (set in `.env` or system environment):
+**Backend** (set in `.env` or system environment — `.env` values do not override existing system environment variables):
 
 | Variable | Default | Description |
 |---|---|---|
@@ -426,7 +426,13 @@ Keys are resolved in priority order — the first non-empty value wins:
 | `HOST` | `0.0.0.0` | Backend server bind address |
 | `PORT` | `8000` | Backend server port |
 | `DEBUG` | `false` | Enable debug logging + Uvicorn reload |
-| `CORS_ORIGINS` | `localhost:3000,localhost:5173` | Comma-separated allowed CORS origins |
+| `CORS_ORIGINS` | *(see below)* | Comma-separated allowed CORS origins |
+
+**Frontend** (set in system environment before running `npm run dev`):
+
+| Variable | Default | Description |
+|---|---|---|
+| `VITE_API_PORT` | `8000` | Backend port for the Vite dev proxy (must match `PORT`) |
 
 **Container-side** (set in `docker-compose.yml`):
 
@@ -435,6 +441,9 @@ Keys are resolved in priority order — the first non-empty value wins:
 | `VNC_PASSWORD` | *(unset)* | Set to require VNC authentication |
 | `DISPLAY` | `:99` | X11 display identifier |
 | `SCREEN_DEPTH` | `24` | X11 color depth |
+
+**CORS defaults** (when `CORS_ORIGINS` is not set):
+`http://localhost:5173`, `http://127.0.0.1:5173`, `http://localhost:3000`, `http://127.0.0.1:3000`
 
 ---
 
@@ -496,6 +505,32 @@ docker compose down
 
 # Stop backend/frontend: Ctrl+C in their respective terminals
 ```
+
+### 📖 Detailed Usage Guide
+
+For in-depth operational documentation — including feature-by-feature breakdowns, every configuration option, full API/WebSocket references, keyboard shortcuts, troubleshooting, and known limitations — see the **[Usage Guide](docs/USAGE.md)**.
+
+<details>
+<summary>Usage Guide contents</summary>
+
+| Section | Topics |
+|---|---|
+| [Who This Is For](docs/USAGE.md#who-this-is-for) | Target audience |
+| [Prerequisites](docs/USAGE.md#prerequisites) | Docker, Python, Node.js requirements |
+| [Installation](docs/USAGE.md#installation) | Automated and manual setup |
+| [Running Locally](docs/USAGE.md#running-locally) | Starting the backend, frontend, and container |
+| [Using the Workbench](docs/USAGE.md#using-the-workbench) | First run, environment, providers, API keys, tasks, monitoring, safety, stopping |
+| [Features](docs/USAGE.md#features) | Multi-provider AI, Docker sandbox, streaming, timeline, history, export, cost estimation, context pruning, safety flow, reasoning effort, key management, noVNC, theming, toasts, error boundary |
+| [Supported Models](docs/USAGE.md#supported-models) | Model allowlist and how to add models |
+| [Supported Actions](docs/USAGE.md#supported-actions) | High-level actions and low-level primitives |
+| [Configuration Reference](docs/USAGE.md#configuration-reference) | All environment variables with defaults |
+| [API Endpoints](docs/USAGE.md#api-endpoints) | Full REST API reference with request/response schemas |
+| [WebSocket Events](docs/USAGE.md#websocket-events) | Server→Client and Client→Server event contracts |
+| [Keyboard Shortcuts](docs/USAGE.md#keyboard-shortcuts) | Workbench keyboard bindings |
+| [Troubleshooting](docs/USAGE.md#troubleshooting) | Common issues and fixes |
+| [Limitations](docs/USAGE.md#limitations) | Known constraints and caveats |
+
+</details>
 
 ---
 
