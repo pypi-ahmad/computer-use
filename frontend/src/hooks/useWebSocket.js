@@ -18,6 +18,7 @@ export default function useWebSocket() {
   const [logs, setLogs] = useState([])
   const [steps, setSteps] = useState([])
   const [agentFinished, setAgentFinished] = useState(null)
+  const [safetyPrompt, setSafetyPrompt] = useState(null)
   const reconnectTimer = useRef(null)
 
   const connect = useCallback(() => {
@@ -47,6 +48,14 @@ export default function useWebSocket() {
             setLastScreenshot(msg.screenshot)
             break
           case 'log':
+            // Check if this log carries a safety_confirmation payload
+            if (msg.log?.data?.type === 'safety_confirmation') {
+              setSafetyPrompt({
+                sessionId: msg.log.data.session_id,
+                explanation: msg.log.data.explanation,
+                timestamp: Date.now(),
+              })
+            }
             setLogs((prev) => [...prev.slice(-200), msg.log])
             break
           case 'step':
@@ -54,6 +63,7 @@ export default function useWebSocket() {
             break
           case 'agent_finished':
             setAgentFinished(msg)
+            setSafetyPrompt(null)
             break
           case 'pong':
             break
@@ -90,6 +100,7 @@ export default function useWebSocket() {
   const clearLogs = useCallback(() => setLogs([]), [])
   const clearSteps = useCallback(() => setSteps([]), [])
   const clearFinished = useCallback(() => setAgentFinished(null), [])
+  const clearSafetyPrompt = useCallback(() => setSafetyPrompt(null), [])
 
-  return { connected, lastScreenshot, logs, steps, agentFinished, clearLogs, clearSteps, clearFinished }
+  return { connected, lastScreenshot, logs, steps, agentFinished, safetyPrompt, clearLogs, clearSteps, clearFinished, clearSafetyPrompt }
 }

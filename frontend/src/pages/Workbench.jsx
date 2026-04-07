@@ -1,9 +1,21 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Link } from 'react-router-dom'
 import useWebSocket from '../hooks/useWebSocket'
-import { startAgent, stopAgent, getContainerStatus, startContainer, getKeyStatuses, getModels } from '../api'
+import { startAgent, stopAgent, getContainerStatus, startContainer, stopContainer, getKeyStatuses, getModels, validateKey } from '../api'
 import ScreenView from '../components/ScreenView'
+import SafetyModal from '../components/SafetyModal'
+import CompletionBanner from '../components/CompletionBanner'
+import ToastContainer, { useToasts } from '../components/ToastContainer'
+import WelcomeOverlay from '../components/WelcomeOverlay'
 import formatTime from '../utils/formatTime'
+import { estimateCost } from '../utils/pricing'
+import { getSessionHistory, addSessionToHistory, clearSessionHistory } from '../utils/sessionHistory'
+import { getTheme, setTheme as applyTheme, initTheme } from '../utils/theme'
+import {
+  MousePointer2, Keyboard, Type as TypeIcon, ScrollText, Globe, ArrowLeft,
+  ArrowRight, Timer, Clipboard, Copy, RefreshCw, Plus, X as XIcon,
+  Shuffle, Search, Monitor, Rocket, Camera, CheckCircle2, AlertCircle,
+  Zap, Download, Sun, Moon, BookOpen, Check, History, FileJson, FileText, Trash2
+} from 'lucide-react'
 import './Workbench.css'
 
 const PROVIDERS = [
@@ -12,47 +24,74 @@ const PROVIDERS = [
   { value: 'openai', label: 'OpenAI GPT-5.4', envVar: 'OPENAI_API_KEY', placeholder: 'sk-...' },
 ]
 
-/** Maps action names to emoji icons for the step timeline. */
-const ACTION_ICONS = {
-  click: '🖱️', double_click: '🖱️', right_click: '🖱️', hover: '👆',
-  type: '⌨️', fill: '📝', key: '⌨️', hotkey: '⌨️', paste: '📋', copy: '📋',
-  open_url: '🌐', reload: '🔄', go_back: '◀', go_forward: '▶',
-  new_tab: '➕', close_tab: '✖', switch_tab: '🔀',
-  scroll: '📜', scroll_to: '📜',
-  get_text: '📖', find_element: '🔍', evaluate_js: '💻',
-  focus_window: '🪟', open_app: '🚀',
-  wait: '⏳', wait_for: '⏳', screenshot_region: '📸',
-  done: '✅', error: '❌',
+const ICON_SIZE = 14
+const ACTION_ICON_MAP = {
+  click: MousePointer2, double_click: MousePointer2, right_click: MousePointer2, hover: MousePointer2,
+  type: Keyboard, fill: TypeIcon, key: Keyboard, hotkey: Keyboard,
+  paste: Clipboard, copy: Copy,
+  open_url: Globe, reload: RefreshCw, go_back: ArrowLeft, go_forward: ArrowRight,
+  new_tab: Plus, close_tab: XIcon, switch_tab: Shuffle,
+  scroll: ScrollText, scroll_to: ScrollText,
+  get_text: Search, find_element: Search, evaluate_js: Monitor,
+  focus_window: Monitor, open_app: Rocket,
+  wait: Timer, wait_for: Timer, screenshot_region: Camera,
+  done: CheckCircle2, error: AlertCircle,
 }
 
-// No hardcoded fallback — models come exclusively from GET /api/models.
+const TASK_EXAMPLES = [
+  'Open Chrome and search for "weather in New York"',
+  'Open LibreOffice Writer and type a short letter',
+  'Open the file manager and create a folder called "Projects"',
+  'Open the terminal and check the current date',
+  'Open Chrome and navigate to wikipedia.org',
+]
 
-/**
- * Full-featured workbench page with sidebar config, live screen view,
- * step timeline, and log panel. Runs through the desktop-only backend mode.
- */
+const SETTINGS_KEY = 'cua_settings_v1'
+const MAX_TASK_LENGTH = 10000
+
+function loadSettings() {
+  try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {} } catch { return {} }
+}
+function saveSettings(s) {
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)) } catch { /* ignore */ }
+}
 export default function Workbench() {
-  const { connected, lastScreenshot, logs, steps, agentFinished, clearLogs, clearSteps, clearFinished } = useWebSocket()
+  const { connected, lastScreenshot, logs, steps, agentFinished, safetyPrompt, clearLogs, clearSteps, clearFinished, clearSafetyPrompt } = useWebSocket()
+  const { toasts, addToast } = useToasts()
 
   // Container state
   const [containerRunning, setContainerRunning] = useState(false)
+  const [containerLoading, setContainerLoading] = useState(false)
+  const [containerError, setContainerError] = useState('')
 
   // Agent state
   const [agentRunning, setAgentRunning] = useState(false)
   const [sessionId, setSessionId] = useState(null)
+  const [starting, setStarting] = useState(false)
+  const [completionData, setCompletionData] = useState(null)
 
   // Config
-  const runMode = 'desktop'
-  const [provider, setProvider] = useState('google')
+  const saved = loadSettings()
+  const [provider, setProvider] = useState(saved.provider || 'google')
   const [model, setModel] = useState('')
-  // Engine and execution target are fixed for computer-use-only mode
   const [apiKey, setApiKey] = useState('')
-  const [keySource, setKeySource] = useState('ui') // 'ui' | 'env' | 'dotenv'
-  const [keyStatuses, setKeyStatuses] = useState({}) // { google: {...}, anthropic: {...} }
+  const [keySource, setKeySource] = useState('ui')
+  const [keyStatuses, setKeyStatuses] = useState({})
   const [task, setTask] = useState('')
-  const [maxSteps, setMaxSteps] = useState(50)
-  const [reasoningEffort, setReasoningEffort] = useState('low')
+  const [maxSteps, setMaxSteps] = useState(saved.maxSteps || 50)
+  const [reasoningEffort, setReasoningEffort] = useState(saved.reasoningEffort || 'low')
   const [error, setError] = useState('')
+  const [showAdvanced, setShowAdvanced] = useState(false)
+
+  // Theme
+  const [theme, setThemeState] = useState(getTheme)
+
+  // Key validation
+  const [keyValidation, setKeyValidation] = useState(null)
+
+  // Session history
+  const [showHistory, setShowHistory] = useState(false)
+  const [sessionHistory, setSessionHistoryState] = useState(getSessionHistory)
 
   // Timeline expansion
   const [expandedStep, setExpandedStep] = useState(null)
@@ -61,10 +100,10 @@ export default function Workbench() {
   const timelineRef = useRef(null)
   const logRef = useRef(null)
 
-  // Dynamic model list — fetched exclusively from GET /api/models (no fallback)
+  // Dynamic model list
   const [fetchedModels, setFetchedModels] = useState([])
   const [modelsLoaded, setModelsLoaded] = useState(false)
-  /** Maps a model record to a { value, label } select option. */
+  const [modelsLoading, setModelsLoading] = useState(true)
   const toModelOption = (m) => ({ value: m.model_id, label: `${m.display_name} (${m.model_id})` })
   const modelsByProvider = fetchedModels.reduce((acc, item) => {
     acc[item.provider] = (acc[item.provider] || []).concat(toModelOption(item))
@@ -73,7 +112,13 @@ export default function Workbench() {
   const models = modelsByProvider[provider] || []
   const providerMeta = PROVIDERS.find(item => item.value === provider) || PROVIDERS[0]
 
+  // Init theme on mount
+  useEffect(() => { initTheme() }, [])
 
+  // Persist settings
+  useEffect(() => {
+    saveSettings({ provider, maxSteps, reasoningEffort })
+  }, [provider, maxSteps, reasoningEffort])
 
   // Poll container
   /** Polls container running status from the backend. */
@@ -111,26 +156,42 @@ export default function Workbench() {
     }
 
     const fetchModelList = async () => {
+      setModelsLoading(true)
       try {
         const data = await getModels()
         if (data.models?.length) {
           setFetchedModels(data.models)
           setModelsLoaded(true)
-          // Auto-select first model for the default provider
           const firstForProvider = data.models.find(m => m.provider === provider)
           if (firstForProvider) setModel(firstForProvider.model_id)
         }
-      } catch { /* backend not ready — models stay empty, Start disabled */ }
+      } catch { /* backend not ready */ }
+      setModelsLoading(false)
     }
     fetchKeys()
     fetchModelList()
   }, [provider])
 
-  // Auto-stop frontend when agent finishes (done/error/max-steps)
+  // Auto-stop frontend when agent finishes
   useEffect(() => {
     if (agentFinished && agentRunning) {
       setAgentRunning(false)
       setSessionId(null)
+      setCompletionData(agentFinished)
+      const status = agentFinished.status || 'completed'
+      addToast(
+        status === 'completed' ? `Task complete — ${agentFinished.steps ?? steps.length} steps` : `Task ${status}`,
+        status === 'completed' ? 'success' : 'error'
+      )
+      addSessionToHistory({
+        task: task.slice(0, 100),
+        model,
+        provider,
+        steps: agentFinished.steps ?? steps.length,
+        status,
+        timestamp: new Date().toISOString(),
+      })
+      setSessionHistoryState(getSessionHistory())
       clearFinished()
     }
   }, [agentFinished, agentRunning, clearFinished])
@@ -162,41 +223,87 @@ export default function Workbench() {
     }
   }, [provider, keyStatuses])
 
-  /** Validates inputs, auto-starts container if needed, and launches the agent. */
+  const handleStartContainer = async () => {
+    setContainerLoading(true)
+    setContainerError('')
+    try {
+      await startContainer()
+      await refreshContainer()
+    } catch {
+      setContainerError('Could not start environment. Is Docker running?')
+    } finally {
+      setContainerLoading(false)
+    }
+  }
+
+  const handleStopContainer = async () => {
+    setContainerLoading(true)
+    setContainerError('')
+    try {
+      await stopContainer()
+      await refreshContainer()
+    } catch {
+      setContainerError('Could not stop environment.')
+    } finally {
+      setContainerLoading(false)
+    }
+  }
+
   const handleStart = async () => {
-    if (keySource === 'ui' && !apiKey.trim()) return setError('API key is required')
+    if (keySource === 'ui' && !apiKey.trim()) return setError('Please enter your API key above to continue.')
     if (!task.trim()) return setError('Task description is required')
     setError('')
     clearSteps()
     clearLogs()
+    setCompletionData(null)
+    setStarting(true)
 
     try {
       if (!containerRunning) {
-        await startContainer()
-        await refreshContainer()
+        setContainerLoading(true)
+        setContainerError('')
+        try {
+          await startContainer()
+          await refreshContainer()
+        } catch {
+          setContainerError('Could not start environment. Is Docker running?')
+          setStarting(false)
+          setContainerLoading(false)
+          return
+        }
+        setContainerLoading(false)
       }
 
       const res = await startAgent({
         task: task.trim(),
-        apiKey: keySource === 'ui' ? apiKey.trim() : '', // empty = backend resolves from env
+        apiKey: keySource === 'ui' ? apiKey.trim() : '',
         model,
         maxSteps: Number(maxSteps),
-        mode: runMode,
+        mode: 'desktop',
         provider,
         reasoningEffort: provider === 'openai' ? reasoningEffort : null,
       })
-      if (res.error) return setError(res.error)
+      if (res.error) {
+        setStarting(false)
+        return setError(res.error)
+      }
       setSessionId(res.session_id)
       setAgentRunning(true)
+      addToast('Agent started', 'success')
     } catch (e) {
       setError(`Failed to start: ${e.message}`)
     }
+    setStarting(false)
   }
 
-  /** Stops the running agent session and clears the session ID. */
   const handleStop = async () => {
     if (!sessionId) return
-    try { await stopAgent(sessionId) } catch { /* ignore */ }
+    try {
+      await stopAgent(sessionId)
+      addToast('Agent stopped', 'info')
+    } catch {
+      setError('Could not stop the agent. Try again or restart the environment.')
+    }
     setAgentRunning(false)
     setSessionId(null)
   }
@@ -220,43 +327,122 @@ export default function Workbench() {
     URL.revokeObjectURL(url)
   }
 
-  /** Returns the emoji icon for a given action name, defaulting to ⚡. */
-  const getActionIcon = (action) => ACTION_ICONS[action] || '⚡'
+  /** Returns the SVG icon for a given action name. */
+  const getActionIcon = (action) => { const Icon = ACTION_ICON_MAP[action] || Zap; return <Icon size={ICON_SIZE} /> }
+
+  const toggleTheme = () => {
+    const next = theme === 'dark' ? 'light' : 'dark'
+    setThemeState(next)
+    applyTheme(next)
+  }
+
+  const handleValidateKey = async () => {
+    if (!apiKey.trim() || apiKey.length < 8) return
+    setKeyValidation('checking')
+    try {
+      const res = await validateKey(provider, apiKey.trim())
+      setKeyValidation(res)
+    } catch {
+      setKeyValidation({ valid: false, message: 'Validation failed' })
+    }
+  }
+
+  const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+  const handleExportJSON = () => {
+    const data = {
+      task, model, provider,
+      steps: steps.map(s => ({ step_number: s.step_number, action: s.action, error: s.error, timestamp: s.timestamp })),
+      logs: logs.map(l => ({ timestamp: l.timestamp, level: l.level, message: l.message })),
+      exportedAt: new Date().toISOString(),
+    }
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `cua_session_${new Date().toISOString().replace(/[:.]/g, '-')}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleExportHTML = () => {
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>CUA Session Report</title>
+<style>body{font-family:system-ui;max-width:800px;margin:40px auto;padding:0 20px;color:#333}h1{color:#6c63ff}table{width:100%;border-collapse:collapse;margin:16px 0}th,td{padding:8px;border:1px solid #ddd;text-align:left}th{background:#f5f5f5}.step{margin:8px 0;padding:8px;background:#f9f9f9;border-radius:4px}.error{color:#dc3545}</style></head><body>
+<h1>CUA Session Report</h1>
+<p><strong>Task:</strong> ${esc(task)}</p>
+<p><strong>Model:</strong> ${esc(model)} (${esc(provider)})</p>
+<p><strong>Steps:</strong> ${steps.length}</p>
+<p><strong>Generated:</strong> ${new Date().toLocaleString()}</p>
+<h2>Timeline</h2>
+${steps.map(s => `<div class="step"><strong>#${s.step_number}</strong> &mdash; ${esc(s.action?.action)}${s.action?.reasoning ? `<br><em>${esc(s.action.reasoning)}</em>` : ''}${s.error ? `<br><span class="error">${esc(s.error)}</span>` : ''}</div>`).join('')}
+<h2>Logs</h2>
+<table><tr><th>Time</th><th>Level</th><th>Message</th></tr>
+${logs.map(l => `<tr><td>${formatTime(l.timestamp)}</td><td>${esc(l.level)}</td><td>${esc(l.message)}</td></tr>`).join('')}
+</table></body></html>`
+    const blob = new Blob([html], { type: 'text/html' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `cua_session_${new Date().toISOString().replace(/[:.]/g, '-')}.html`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const costEstimate = estimateCost(model, steps.length)
+
+  const canStart = models.length > 0 && !agentRunning && !starting
 
   return (
     <div className="wb">
       {/* Header */}
       <header className="wb-header">
         <div className="wb-header-left">
-          <Link to="/" className="wb-back">← Back</Link>
-          <h1>CUA Workbench</h1>
+          <h1><span style={{ color: 'var(--accent)' }}>CUA</span> \u2014 Computer Using Agent</h1>
           <span className={`wb-status-pill ${containerRunning ? 'up' : 'down'}`}>
-            {containerRunning ? 'Container Up' : 'Container Down'}
+            {containerRunning ? 'Environment Ready' : 'Environment Offline'}
           </span>
+          {!containerRunning && !containerLoading && (
+            <button className="wb-btn wb-btn-secondary wb-header-btn" onClick={handleStartContainer} disabled={containerLoading}>
+              Start Environment
+            </button>
+          )}
+          {containerRunning && !agentRunning && (
+            <button className="wb-btn wb-btn-secondary wb-header-btn" onClick={handleStopContainer} disabled={containerLoading}>
+              Stop Environment
+            </button>
+          )}
+          {containerLoading && <span className="wb-status-pill running">Starting…</span>}
+          {containerError && <span style={{ fontSize: 12, color: 'var(--error)' }}>{containerError}</span>}
           <span className={`wb-status-pill ${connected ? 'up' : 'down'}`}>
-            {connected ? 'WS Connected' : 'WS Disconnected'}
+            {connected ? 'Connected' : 'Reconnecting\u2026'}
           </span>
           {agentRunning && <span className="wb-status-pill running">Agent Running</span>}
         </div>
         <div className="wb-header-right">
+          {costEstimate && steps.length > 0 && (
+            <span className="wb-cost" title={costEstimate.note}>
+              ~${costEstimate.cost.toFixed(4)}
+            </span>
+          )}
           <span className="wb-step-counter">Steps: {steps.length}/{maxSteps}</span>
+          <a href="/docs" target="_blank" rel="noopener noreferrer" className="wb-header-link" title="API Documentation" aria-label="API Documentation">
+            <BookOpen size={16} />
+          </a>
+          <button onClick={toggleTheme} className="wb-theme-toggle" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}>
+            {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
         </div>
       </header>
+
+      <CompletionBanner
+        finishData={completionData}
+        stepCount={steps.length}
+        onDismiss={() => setCompletionData(null)}
+      />
 
       <div className="wb-body">
         {/* Left: Config */}
         <aside className="wb-sidebar">
-          {/* Runtime Mode */}
-          <div className="wb-section">
-            <label className="wb-label">Runtime Mode</label>
-            <div className="wb-toggle-group">
-              <button className="wb-toggle active" disabled title="Browser mode was removed from the backend runtime">
-                🖥️ Desktop Only
-              </button>
-            </div>
-            <p className="wb-key-source-label">Browser mode is no longer available in this build.</p>
-          </div>
-
           {/* Provider & Model */}
           <div className="wb-section">
             <label className="wb-label">Provider</label>
@@ -267,44 +453,48 @@ export default function Workbench() {
             </select>
             <label className="wb-label">Model</label>
             <select className="wb-select" value={model} onChange={(e) => setModel(e.target.value)} disabled={agentRunning || models.length === 0}>
-              {models.length > 0 ? models.map(m => <option key={m.value} value={m.value}>{m.label}</option>) : (
+              {modelsLoading ? (
                 <option value="">Loading models…</option>
+              ) : models.length > 0 ? models.map(m => <option key={m.value} value={m.value}>{m.label}</option>) : (
+                <option value="">No models available</option>
               )}
             </select>
             {modelsLoaded && models.length === 0 && (
-              <p className="wb-error" style={{ margin: '4px 0 0', fontSize: 11 }}>No models available for this provider.</p>
+              <p className="wb-error" style={{ margin: '4px 0 0' }}>No models available for this provider.</p>
             )}
             <label className="wb-label">API Key Source</label>
             <div className="wb-key-source-group">
-              <button className={`wb-key-src-btn ${keySource === 'ui' ? 'active' : ''}`} onClick={() => setKeySource('ui')} disabled={agentRunning} title="Enter key manually">
-                ✏️ Manual
+              <button className={`wb-key-src-btn ${keySource === 'ui' ? 'active' : ''}`} onClick={() => setKeySource('ui')} disabled={agentRunning} title="Enter key manually" aria-label="Enter API key manually">
+                Manual
               </button>
               <button
                 className={`wb-key-src-btn ${keySource === 'dotenv' ? 'active' : ''} ${keyStatuses[provider]?.source === 'dotenv' ? 'available' : ''}`}
                 onClick={() => setKeySource('dotenv')}
                 disabled={agentRunning || keyStatuses[provider]?.source !== 'dotenv'}
                 title={keyStatuses[provider]?.source === 'dotenv' ? `Found in .env (${keyStatuses[provider]?.masked_key})` : 'No key in .env file'}
+                aria-label="Use API key from .env file"
               >
-                📄 .env {keyStatuses[provider]?.source === 'dotenv' && '✓'}
+                .env File {keyStatuses[provider]?.source === 'dotenv' && '✓'}
               </button>
               <button
                 className={`wb-key-src-btn ${keySource === 'env' ? 'active' : ''} ${keyStatuses[provider]?.source === 'env' ? 'available' : ''}`}
                 onClick={() => setKeySource('env')}
                 disabled={agentRunning || keyStatuses[provider]?.source !== 'env'}
                 title={keyStatuses[provider]?.source === 'env' ? `Found in system env (${keyStatuses[provider]?.masked_key})` : 'No system env variable set'}
+                aria-label="Use API key from system environment"
               >
-                💻 System {keyStatuses[provider]?.source === 'env' && '✓'}
+                System {keyStatuses[provider]?.source === 'env' && '✓'}
               </button>
             </div>
             {keySource !== 'ui' && keyStatuses[provider]?.available && (
               <div className="wb-key-status">
-                <span className="wb-key-badge ok">🔑 {keyStatuses[provider]?.masked_key}</span>
+                <span className="wb-key-badge ok">{keyStatuses[provider]?.masked_key}</span>
                 <span className="wb-key-source-label">from {keySource === 'env' ? 'system variable' : '.env file'}</span>
               </div>
             )}
             {keySource !== 'ui' && !keyStatuses[provider]?.available && (
               <div className="wb-key-status">
-                <span className="wb-key-badge missing">⚠️ No key found</span>
+                <span className="wb-key-badge missing">No key found</span>
                 <span className="wb-key-source-label">
                   Set {providerMeta.envVar}
                 </span>
@@ -313,44 +503,92 @@ export default function Workbench() {
             {keySource === 'ui' && (
               <>
                 <label className="wb-label">API Key</label>
-                <input type="password" className="wb-input" placeholder={providerMeta.placeholder} value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" />
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <input type="password" className="wb-input" style={{ flex: 1 }} placeholder={providerMeta.placeholder} value={apiKey} onChange={(e) => { setApiKey(e.target.value); setKeyValidation(null) }} autoComplete="off" />
+                  <button className="wb-btn wb-btn-secondary" style={{ padding: '6px 10px', flex: 'none' }} onClick={handleValidateKey} disabled={!apiKey.trim() || apiKey.length < 8 || keyValidation === 'checking'} title="Validate API key" aria-label="Validate API key">
+                    {keyValidation === 'checking' ? '…' : <Check size={14} />}
+                  </button>
+                </div>
+                {keyValidation && keyValidation !== 'checking' && (
+                  <span style={{ fontSize: 12, color: keyValidation.valid ? 'var(--success)' : 'var(--error)', marginTop: 2, display: 'block' }}>
+                    {keyValidation.message}
+                  </span>
+                )}
               </>
             )}
           </div>
 
-          {/* Max Steps */}
+          {/* Advanced Settings */}
           <div className="wb-section">
-            <label className="wb-label">Max Steps</label>
-            <input type="number" className="wb-input wb-input-sm" min={1} max={200} value={maxSteps} onChange={(e) => setMaxSteps(e.target.value)} disabled={agentRunning} />
+            <button
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              style={{
+                width: '100%', padding: '4px 0', fontSize: 12,
+                background: 'none', border: 'none', color: 'var(--text-secondary)',
+                cursor: 'pointer', textAlign: 'left',
+              }}
+            >
+              {showAdvanced ? '▾' : '▸'} Advanced Settings
+            </button>
+            {showAdvanced && (
+              <div style={{ paddingLeft: 8, borderLeft: '2px solid var(--border)', marginTop: 4 }}>
+                <label className="wb-label">Max Steps</label>
+                <input type="number" className="wb-input wb-input-sm" min={1} max={200} value={maxSteps} onChange={(e) => setMaxSteps(e.target.value)} disabled={agentRunning} />
+                {provider === 'openai' && (
+                  <>
+                    <label className="wb-label">Reasoning Effort</label>
+                    <select className="wb-input" value={reasoningEffort} onChange={(e) => setReasoningEffort(e.target.value)} disabled={agentRunning}>
+                      <option value="none">None</option>
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                      <option value="xhigh">Extra High</option>
+                    </select>
+                  </>
+                )}
+              </div>
+            )}
           </div>
-
-          {/* OpenAI Reasoning Effort */}
-          {provider === 'openai' && (
-            <div className="wb-section">
-              <label className="wb-label">Reasoning Effort</label>
-              <select className="wb-input" value={reasoningEffort} onChange={(e) => setReasoningEffort(e.target.value)} disabled={agentRunning}>
-                <option value="none">None</option>
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-                <option value="xhigh">X-High</option>
-              </select>
-            </div>
-          )}
 
           {/* Task */}
           <div className="wb-section wb-section-grow">
             <label className="wb-label">Task</label>
-            <textarea className="wb-textarea" placeholder="Describe what the agent should do..." value={task} onChange={(e) => setTask(e.target.value)} disabled={agentRunning}
-              onKeyDown={(e) => { if (e.key === 'Enter' && e.ctrlKey && !agentRunning) handleStart() }}
+            <textarea className="wb-textarea" placeholder="Describe what the agent should do..." value={task}
+              onChange={(e) => setTask(e.target.value.slice(0, MAX_TASK_LENGTH))} disabled={agentRunning}
+              onKeyDown={(e) => { if (e.key === 'Enter' && e.ctrlKey && !agentRunning && !starting) handleStart() }}
             />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
+              <span style={{ fontSize: 12, color: task.length > MAX_TASK_LENGTH * 0.9 ? 'var(--warning)' : 'var(--text-secondary)' }}>
+                {task.length.toLocaleString()} / {MAX_TASK_LENGTH.toLocaleString()}
+              </span>
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Ctrl+Enter to start</span>
+            </div>
+            {/* Task examples */}
+            {!task && !agentRunning && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                {TASK_EXAMPLES.slice(0, 3).map((ex, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setTask(ex)}
+                    style={{
+                      fontSize: 12, padding: '3px 8px', borderRadius: 12, cursor: 'pointer',
+                      background: 'var(--bg-primary)', color: 'var(--text-secondary)',
+                      border: '1px solid var(--border)', whiteSpace: 'nowrap', overflow: 'hidden',
+                      textOverflow: 'ellipsis', maxWidth: '100%',
+                    }}
+                  >
+                    {ex}
+                  </button>
+                ))}
+              </div>
+            )}
             {error && <p className="wb-error">{error}</p>}
             <div className="wb-btn-row">
-              <button className="wb-btn wb-btn-primary" onClick={handleStart} disabled={agentRunning || models.length === 0}>
-                {agentRunning ? 'Running...' : models.length === 0 ? 'No Models Loaded' : 'Start Agent'}
+              <button className="wb-btn wb-btn-primary" onClick={handleStart} disabled={!canStart}>
+                {starting ? 'Starting…' : agentRunning ? 'Running…' : models.length === 0 ? 'No Models Loaded' : 'Start Agent'}
               </button>
               <button className="wb-btn wb-btn-danger" onClick={handleStop} disabled={!agentRunning}>Stop</button>
-              <button className="wb-btn wb-btn-secondary" onClick={() => { clearSteps(); clearLogs() }} disabled={agentRunning}>Clear</button>
+              <button className="wb-btn wb-btn-secondary" onClick={() => { clearSteps(); clearLogs(); setCompletionData(null) }} disabled={agentRunning} aria-label="Clear steps and logs">Clear</button>
             </div>
           </div>
         </aside>
@@ -372,12 +610,39 @@ export default function Workbench() {
           {/* Timeline */}
           <div className="wb-timeline-section">
             <div className="wb-panel-header">
-              <h3>Timeline ({steps.length})</h3>
+              <h3>{showHistory ? 'Session History' : `Timeline (${steps.length})`}</h3>
+              <button onClick={() => setShowHistory(!showHistory)} className="wb-clear-btn" aria-label={showHistory ? 'Show timeline' : 'Show session history'}>
+                {showHistory ? 'Timeline' : <History size={14} />}
+              </button>
             </div>
+            {showHistory ? (
+              <div className="wb-timeline">
+                {sessionHistory.length === 0 && <p className="wb-empty">No past sessions.</p>}
+                {sessionHistory.map((s, i) => (
+                  <div key={i} className="wb-timeline-item" style={{ cursor: 'default' }}>
+                    <div className="wb-timeline-head">
+                      <span className={`wb-log-level ${s.status === 'completed' ? 'info' : 'error'}`}>{s.status}</span>
+                      <span className="wb-action-name" style={{ flex: 1, fontWeight: 400 }}>{s.task}</span>
+                      <span className="wb-step-time">{s.steps} steps</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', paddingLeft: 4, marginTop: 2 }}>
+                      {s.model} · {new Date(s.timestamp).toLocaleString()}
+                    </div>
+                  </div>
+                ))}
+                {sessionHistory.length > 0 && (
+                  <button onClick={() => { clearSessionHistory(); setSessionHistoryState([]) }} className="wb-clear-btn" style={{ margin: '8px auto', display: 'block' }}>Clear History</button>
+                )}
+              </div>
+            ) : (
             <div className="wb-timeline" ref={timelineRef}>
               {steps.length === 0 && <p className="wb-empty">No steps yet.</p>}
               {steps.map((step, i) => (
-                <div key={i} className={`wb-timeline-item ${step.error ? 'has-error' : ''} ${expandedStep === i ? 'expanded' : ''}`} onClick={() => setExpandedStep(expandedStep === i ? null : i)}>
+                <div key={i} className={`wb-timeline-item ${step.error ? 'has-error' : ''} ${expandedStep === i ? 'expanded' : ''}`}
+                  onClick={() => setExpandedStep(expandedStep === i ? null : i)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedStep(expandedStep === i ? null : i) } }}
+                  role="button" tabIndex={0} aria-expanded={expandedStep === i}
+                >
                   <div className="wb-timeline-head">
                     <span className="wb-step-num">#{step.step_number}</span>
                     <span className="wb-action-icon">{getActionIcon(step.action?.action)}</span>
@@ -399,6 +664,7 @@ export default function Workbench() {
                 </div>
               ))}
             </div>
+            )}
           </div>
 
           {/* Logs */}
@@ -406,8 +672,10 @@ export default function Workbench() {
             <div className="wb-panel-header">
               <h3>Logs ({logs.length})</h3>
               <div className="wb-log-actions">
-                <button className="wb-download-btn" onClick={handleDownloadLogs} disabled={logs.length === 0} title="Download logs as .txt">⬇ Download</button>
-                <button className="wb-clear-btn" onClick={clearLogs}>Clear</button>
+                <button className="wb-download-btn" onClick={handleExportJSON} disabled={steps.length === 0 && logs.length === 0} title="Export session as JSON" aria-label="Export as JSON"><FileJson size={14} /></button>
+                <button className="wb-download-btn" onClick={handleExportHTML} disabled={steps.length === 0 && logs.length === 0} title="Export session as HTML report" aria-label="Export as HTML"><FileText size={14} /></button>
+                <button className="wb-download-btn" onClick={handleDownloadLogs} disabled={logs.length === 0} title="Download logs as .txt" aria-label="Download logs"><Download size={14} /></button>
+                <button className="wb-clear-btn" onClick={clearLogs} aria-label="Clear logs"><Trash2 size={14} /></button>
               </div>
             </div>
             <div className="wb-logs" ref={logRef}>
@@ -423,6 +691,9 @@ export default function Workbench() {
           </div>
         </aside>
       </div>
+      <SafetyModal prompt={safetyPrompt} onDismiss={clearSafetyPrompt} />
+      <ToastContainer toasts={toasts} />
+      <WelcomeOverlay />
     </div>
   )
 }
