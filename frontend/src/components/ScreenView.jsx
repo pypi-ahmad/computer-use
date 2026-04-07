@@ -58,7 +58,7 @@ export default function ScreenView({ screenshot, containerRunning }) {
                 <path d="M8 21h8M12 17v4" />
             </svg>
             <span>No screen capture available</span>
-            <span style={{ fontSize: 12 }}>Start the container to see the live view</span>
+            <span style={{ fontSize: 12 }}>Start the environment to see the live desktop</span>
             </div>
         )}
 
@@ -70,7 +70,7 @@ export default function ScreenView({ screenshot, containerRunning }) {
                     <button
                         onClick={() => setUseVnc(true)}
                         style={{
-                            marginLeft: 8, padding: '2px 8px', fontSize: 11,
+                            marginLeft: 8, padding: '2px 8px', fontSize: 12,
                             background: 'rgba(0,0,0,0.5)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)',
                             borderRadius: 4, cursor: 'pointer',
                         }}
