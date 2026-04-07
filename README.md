@@ -325,12 +325,11 @@ echo "OPENAI_API_KEY=your-key-here" >> .env
 
 | Terminal | Command |
 |---|---|
-| **① Container** | `docker compose up -d` |
-| **② Backend** | `python -m backend.main` (activate venv first) |
-| **③ Frontend** | `cd frontend && npm run dev` |
-| **④ Open** | [http://127.0.0.1:3000](http://127.0.0.1:3000) |
+| **Backend** | `python -m backend.main` (activate venv first) |
+| **Frontend** | `cd frontend && npm run dev` |
+| **Open** | [http://127.0.0.1:3000](http://127.0.0.1:3000) |
 
-> **Tip:** The container auto-starts when you launch an agent task from the UI, so step ① is optional.
+> **Container:** The Docker container starts automatically when you click **Start Agent** in the UI. You can also start it manually with `docker compose up -d` if you want the desktop available before launching a task.
 
 > **Windows:** Prefer `127.0.0.1` over `localhost` to avoid IPv6 binding issues with Docker.
 
@@ -375,6 +374,8 @@ cd frontend && npm install && cd ..
 | `python-dotenv` | `.env` file loading |
 | `pydantic` | Request/response validation |
 | `websockets` | noVNC WebSocket proxy |
+| `opencv-python-headless` | Image processing for screenshot handling |
+| `numpy` | Array operations used alongside OpenCV |
 
 **Frontend** (`package.json`):
 
@@ -539,7 +540,7 @@ For in-depth operational documentation — including feature-by-feature breakdow
 | | |
 |---|---|
 | **Framework** | pytest |
-| **Tests** | See current `pytest tests` output |
+| **Tests** | 118 tests across 10 files |
 | **Hermetic** | All tests use mocks/patches — no running container or network required |
 
 ### Running Tests
@@ -808,7 +809,7 @@ Contributions are welcome. To get started:
 4. Make changes — follow existing code conventions:
    - Python: `"""triple-quote"""` docstrings, type hints, consistent formatting
    - JS/JSX: `/** JSDoc */` comments on exported functions and components, `lucide-react` for icons
-5. **Write tests** — maintain ≥80% coverage on changed files; tests must be hermetic (mocks, no network)
+5. **Write tests** for any new behavior; keep tests hermetic (mocks/patches, no live network or container required)
 6. **Run the test suite**: `pytest tests/ -v --tb=short`
 7. **Open a pull request** with a clear description of changes
 

@@ -29,11 +29,12 @@ Comprehensive reference for setting up, running, and operating the CUA (Computer
   - [Cost Estimation](#cost-estimation)
   - [Context Pruning](#context-pruning)
   - [Safety Confirmation Flow](#safety-confirmation-flow)
-  - [OpenAI Reasoning Effort](#openai-reasoning-effort)
+  - [OpenAI Reasoning Effort (Thinking Depth)](#openai-reasoning-effort-thinking-depth)
   - [API Key Management](#api-key-management)
   - [Key Validation](#key-validation)
   - [noVNC Desktop Access](#novnc-desktop-access)
   - [Dark / Light Theme](#dark--light-theme)
+  - [Help Button](#help-button)
   - [Toast Notifications](#toast-notifications)
   - [Error Boundary](#error-boundary)
 - [Supported Models](#supported-models)
@@ -156,7 +157,7 @@ The Docker container (Ubuntu 24.04 with XFCE4, Chrome, LibreOffice, and developm
 - **Automatically** — clicking **Start Agent** starts the container if it is not already running
 - **Manually** — click the **Start Environment** button in the header
 
-The header displays real-time status: `Environment Ready` (green) or `Environment Offline` (red). Container status is polled every 5 seconds. A loading indicator appears during startup and shutdown. If an operation fails, an error message is shown inline.
+The header displays real-time status: `Environment Ready` (green) when the container is running, or `Not Started` (grey) when it is stopped. Container status is polled every 5 seconds. A loading indicator appears during startup and shutdown. If an operation fails, an error message is shown inline.
 
 ### Selecting a Provider and Model
 
@@ -169,20 +170,20 @@ Only models with `supports_computer_use: true` in `backend/allowed_models.json` 
 
 Three sources are available, resolved in priority order:
 
-| Priority | Source | How to Set |
+| Priority | UI Label | How to Set |
 |---|---|---|
-| 1 (highest) | **Manual input** | Type or paste directly in the UI (`type="password"`, never persisted) |
-| 2 | **`.env` file** | Add `GOOGLE_API_KEY=...`, `ANTHROPIC_API_KEY=...`, or `OPENAI_API_KEY=...` in the project root `.env` |
-| 3 | **System environment** | Export the same variable names in your shell |
+| 1 (highest) | **Manual** | Type or paste directly in the UI (`type="password"`, never persisted) |
+| 2 | **Config File ✓** | Add `GOOGLE_API_KEY=...`, `ANTHROPIC_API_KEY=...`, or `OPENAI_API_KEY=...` in the project root `.env` |
+| 3 | **Pre-configured ✓** | Export the same variable names in your shell before starting the backend |
 
-The key source toggle shows availability with checkmarks (✓) and masked previews (e.g., `AIza...4xQk`). You can switch between sources at any time when the agent is not running.
+The **Config File** and **Pre-configured** buttons are only shown when a key is actually found from that source. Each displays a checkmark and a masked preview (e.g., `AIza...4xQk`). You can switch between available sources at any time when the agent is not running.
 
 > **Security:** API keys entered in the UI are sent to the backend per-request over localhost and are never written to `localStorage` or any persistent storage.
 
 ### Running an Agent Task
 
 1. **Describe the task** in the textarea (max 10,000 characters). Example task chips appear when the field is empty — click one to populate it.
-2. Optionally expand **Advanced Settings** to adjust max steps (1–200, default 50) or OpenAI reasoning effort.
+2. Optionally expand **Advanced Settings** to adjust the **Step Limit** (1–200, default 50) or, for OpenAI models, the **Thinking Depth** (reasoning effort).
 3. Click **Start Agent** (or press **Ctrl+Enter**).
 
 The agent will:
@@ -221,7 +222,7 @@ The agent pauses until you respond. After approval or denial, execution resumes.
 
 - Click **Stop** to halt the agent immediately
 - The container remains running for manual inspection
-- A **completion banner** appears showing the outcome (completed / failed / stopped) and step count
+- A **completion banner** appears showing the outcome (completed / failed / stopped), step count, elapsed time, and approximate cost (if pricing data is available for the selected model)
 - The session is recorded in **session history**
 
 ---
@@ -286,6 +287,8 @@ The last 50 sessions are stored in `localStorage` (`cua_session_history_v1`):
 
 ### Export (JSON, HTML, Logs)
 
+The log panel starts **collapsed** by default. Click the panel header to expand it.
+
 Three export formats are available from the log panel header:
 
 | Format | Contents | Filename Pattern |
@@ -321,19 +324,19 @@ When the CU engine encounters a `require_confirmation` safety decision:
 4. Backend signals the waiting `asyncio.Event` → engine resumes or skips the action
 5. **Timeout:** 60 seconds → automatic deny
 
-### OpenAI Reasoning Effort
+### OpenAI Reasoning Effort (Thinking Depth)
 
-When using OpenAI models, control the depth of chain-of-thought reasoning:
+When using OpenAI models, control the depth of chain-of-thought reasoning. The setting appears in **Advanced Settings** as **Thinking Depth** and is only visible when OpenAI is the selected provider:
 
-| Level | Description |
-|---|---|
-| `none` | No extended reasoning |
-| `low` | Minimal reasoning (default) |
-| `medium` | Moderate reasoning |
-| `high` | Thorough reasoning |
-| `xhigh` | Maximum reasoning effort |
+| Value | UI Label | Description |
+|---|---|---|
+| `none` | None — fastest, minimal reasoning | No extended reasoning |
+| `low` | Low — quick decisions | Minimal reasoning (default) |
+| `medium` | Medium — balanced | Moderate reasoning |
+| `high` | High — thorough reasoning | Thorough reasoning |
+| `xhigh` | Extra High — deepest analysis | Maximum reasoning effort |
 
-Set via the UI dropdown (visible under Advanced Settings only when the OpenAI provider is selected) or the `OPENAI_REASONING_EFFORT` environment variable. The reasoning effort parameter is only sent to the backend when the provider is OpenAI.
+Can also be set via the `OPENAI_REASONING_EFFORT` environment variable. The parameter is only sent to the backend when the provider is OpenAI.
 
 ### API Key Management
 
@@ -372,6 +375,10 @@ An interactive noVNC viewer is embedded in the center pane:
 - Persisted in `localStorage` (`cua_theme`)
 - Applied via `data-theme` attribute on `<html>`, overriding CSS custom properties
 - Default is dark
+
+### Help Button
+
+Click the **?** (HelpCircle) icon in the header to re-open the welcome overlay at any time. The overlay explains the three-step flow and can be dismissed again without losing session state.
 
 ### Toast Notifications
 
@@ -581,7 +588,7 @@ VITE_API_PORT=8001 npm run dev
 
 ### Screenshots not updating
 
-- Check the WebSocket connection status (header shows "Connected" or "Reconnecting…")
+- Check the WebSocket connection status — the header shows a `Reconnecting…` pill when the connection is lost; no pill means connected
 - The frontend auto-reconnects after 2 seconds — if it persists, refresh the page
 - Check browser DevTools → Network → WS tab for connection issues
 

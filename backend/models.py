@@ -58,13 +58,6 @@ class ActionType(str, enum.Enum):
     ERROR = "error"
 
 
-class AgentMode(str, enum.Enum):
-    """Agent operating mode — browser or full desktop."""
-
-    BROWSER = "browser"
-    DESKTOP = "desktop"
-
-
 class AgentAction(BaseModel):
     """Structured action returned by the LLM."""
     action: ActionType
