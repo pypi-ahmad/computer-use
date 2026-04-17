@@ -28,4 +28,12 @@ services:
         limits:
           memory: 4g
           cpus: "2"
+    healthcheck:
+      # Verify the in-container agent service is responding.
+      # (Backend /api/health is a separate process outside compose.)
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:9222/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 

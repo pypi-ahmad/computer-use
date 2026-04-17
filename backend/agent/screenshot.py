@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import os
 
 import httpx
 
@@ -18,6 +19,12 @@ logger = logging.getLogger(__name__)
 
 # Reusable async client
 _http_client: httpx.AsyncClient | None = None
+
+
+def _auth_headers() -> dict[str, str]:
+    """Return the shared-secret header for authenticated agent_service calls."""
+    token = os.environ.get("AGENT_SERVICE_TOKEN", "").strip()
+    return {"X-Agent-Token": token} if token else {}
 
 
 def _get_client() -> httpx.AsyncClient:
@@ -44,7 +51,7 @@ async def capture_screenshot(mode: str = "desktop") -> str:
     client = _get_client()
 
     try:
-        resp = await client.get(url)
+        resp = await client.get(url, headers=_auth_headers())
         resp.raise_for_status()
         data = resp.json()
 

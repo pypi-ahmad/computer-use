@@ -20,6 +20,7 @@ export default function useWebSocket() {
   const [agentFinished, setAgentFinished] = useState(null)
   const [safetyPrompt, setSafetyPrompt] = useState(null)
   const reconnectTimer = useRef(null)
+  const reconnectAttempts = useRef(0)
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
@@ -29,6 +30,7 @@ export default function useWebSocket() {
 
     ws.onopen = () => {
       setConnected(true)
+      reconnectAttempts.current = 0
       // Heartbeat
       const ping = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
@@ -78,8 +80,10 @@ export default function useWebSocket() {
     ws.onclose = () => {
       setConnected(false)
       clearInterval(ws._pingInterval)
-      // Reconnect after 2s
-      reconnectTimer.current = setTimeout(connect, 2000)
+      // Exponential backoff capped at 30s (2s, 4s, 8s, 16s, 30s, 30s, …)
+      const attempt = reconnectAttempts.current++
+      const delay = Math.min(2000 * Math.pow(2, attempt), 30000)
+      reconnectTimer.current = setTimeout(connect, delay)
     }
 
     ws.onerror = () => {
