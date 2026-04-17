@@ -53,6 +53,7 @@ fi
 # ─────────────────────────────────────────────
 echo "[Desktop] Starting XFCE4..."
 startxfce4 &
+XFCE_PID=$!
 
 # Wait for the window manager to be fully operational
 for i in $(seq 1 30); do
@@ -65,6 +66,17 @@ done
 
 # Give desktop time to stabilise
 sleep 1
+
+# D1 — verify XFCE4 launcher is still alive (set -e does not catch
+# background fork-then-exit failures).
+if ! kill -0 "$XFCE_PID" 2>/dev/null; then
+    echo "ERROR: startxfce4 exited unexpectedly"
+    exit 1
+fi
+if ! pgrep -x xfwm4 >/dev/null 2>&1 && ! pgrep -x xfce4-session >/dev/null 2>&1; then
+    echo "ERROR: no xfwm4 / xfce4-session process found after startup"
+    exit 1
+fi
 
 # ─────────────────────────────────────────────
 # 4. x11vnc
@@ -81,11 +93,28 @@ else
     x11vnc -display :99 -forever -nopw -shared -rfbport 5900 -bg -o "$VNC_LOG"
 fi
 
+# D1 — x11vnc uses -bg (daemonise) so we need to confirm a process
+# actually survived and is listening on :5900 before moving on.
+sleep 1
+if ! pgrep -x x11vnc >/dev/null 2>&1; then
+    echo "ERROR: x11vnc failed to start (see $VNC_LOG)"
+    exit 1
+fi
+
 # ─────────────────────────────────────────────
 # 5. noVNC (Web access)
 # ─────────────────────────────────────────────
 echo "[noVNC] Starting websockify..."
 websockify --web=/usr/share/novnc/ 6080 localhost:5900 &
+WS_PID=$!
+
+# D1 — websockify is a foreground daemon; verify it didn't crash in
+# the first second (e.g. port 6080 already bound).
+sleep 1
+if ! kill -0 "$WS_PID" 2>/dev/null; then
+    echo "ERROR: websockify exited unexpectedly (is port 6080 in use?)"
+    exit 1
+fi
 
 # ─────────────────────────────────────────────
 # 5b. Browser bootstrap — default browser + pre-warm Chrome profile

@@ -946,3 +946,99 @@ class TestSafetyTimeoutAutoDeny:
             level == "warning" and "timed out" in msg.lower()
             for level, msg in logs
         ), f"expected a 'timed out' warning log, got {logs}"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# D1 — entrypoint.sh verifies every critical background service
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class TestEntrypointServiceVerification:
+    def test_entrypoint_verifies_xfce_x11vnc_websockify(self):
+        from pathlib import Path
+
+        path = Path(__file__).parent.parent / "docker" / "entrypoint.sh"
+        src = path.read_text(encoding="utf-8")
+
+        # XFCE: kill -0 on the backgrounded PID + a pgrep sanity check.
+        assert 'kill -0 "$XFCE_PID"' in src, (
+            "D1: XFCE backgrounded PID must be verified"
+        )
+        assert "pgrep -x xfwm4" in src or "pgrep -x xfce4-session" in src, (
+            "D1: at least one XFCE process must be verified via pgrep"
+        )
+
+        # x11vnc: uses -bg so must be pgrep-checked after launch.
+        assert "pgrep -x x11vnc" in src, (
+            "D1: x11vnc must be verified via pgrep after -bg launch"
+        )
+
+        # websockify: PID must be kept + checked.
+        assert "WS_PID=$!" in src, "D1: websockify PID must be captured"
+        assert 'kill -0 "$WS_PID"' in src, (
+            "D1: websockify PID must be verified"
+        )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# D2 — Dockerfile splits apt-get installs into stable-to-volatile layers
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class TestDockerfileLayerSplit:
+    def test_apt_install_is_split_into_multiple_layers(self):
+        from pathlib import Path
+        import re
+
+        path = Path(__file__).parent.parent / "docker" / "Dockerfile"
+        src = path.read_text(encoding="utf-8")
+
+        apt_installs = re.findall(r"apt-get install -y", src)
+        # Expect at least: (a) core tools, (b) python, (c) desktop+apps,
+        # plus (d) nodejs and (e) google-chrome, so >= 5 apt-get install
+        # invocations total.
+        assert len(apt_installs) >= 5, (
+            f"D2: expected at least 5 apt-get install layers, found "
+            f"{len(apt_installs)}"
+        )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# D3 — docker-compose health check has a generous start_period
+# D4 — compose hardening: no-new-privileges, cap_drop: ALL, tmpfs writable dirs
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class TestComposeHardening:
+    def test_healthcheck_has_start_period(self):
+        from pathlib import Path
+
+        path = Path(__file__).parent.parent / "docker-compose.yml"
+        src = path.read_text(encoding="utf-8")
+        assert "start_period: 30s" in src or "start_period: 20s" in src, (
+            "D3: healthcheck must include a start_period of ≥ 20s"
+        )
+
+    def test_compose_drops_all_capabilities(self):
+        from pathlib import Path
+
+        path = Path(__file__).parent.parent / "docker-compose.yml"
+        src = path.read_text(encoding="utf-8")
+        assert "cap_drop:" in src and "- ALL" in src, (
+            "D4: docker-compose.yml must drop all Linux capabilities"
+        )
+
+    def test_compose_uses_no_new_privileges_and_tmpfs(self):
+        from pathlib import Path
+        import yaml
+
+        path = Path(__file__).parent.parent / "docker-compose.yml"
+        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+        svc = doc["services"]["cua-environment"]
+        assert "no-new-privileges:true" in svc.get("security_opt", []), (
+            "D4: no-new-privileges must remain set"
+        )
+        tmpfs = svc.get("tmpfs") or []
+        assert any("/tmp" in entry for entry in tmpfs), (
+            "D4: /tmp must be mounted as tmpfs for read-only image tolerance"
+        )
