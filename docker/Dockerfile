@@ -105,6 +105,19 @@ COPY docker/agent_service.py /app/docker/agent_service.py
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
+# ── Non-root user ────────────────────────────────────────────────────────────
+# Run the agent as UID 1000 to reduce blast radius if the model is tricked
+# into running something malicious. `/app`, `/opt/venv`, and `/tmp/chrome-profile`
+# are chown'd so the agent can read/write them; `/var/run/dbus` is created with
+# world-writable perms so the session bus works (system bus is not required).
+RUN useradd -m -u 1000 -s /bin/bash agent \
+    && mkdir -p /var/run/dbus \
+    && chmod 1777 /var/run/dbus \
+    && chown -R agent:agent /app /opt/venv /tmp/chrome-profile \
+    && chown agent:agent /entrypoint.sh
+USER agent
+WORKDIR /home/agent
+
 # 5900 = VNC, 6080 = noVNC web UI, 9222 = Agent Service API
 EXPOSE 5900 6080 9222
 

@@ -32,6 +32,7 @@ import io
 import logging
 import math
 import os
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Protocol
@@ -39,6 +40,7 @@ from typing import Any, Callable, Protocol
 import httpx
 
 from backend.config import config as _app_config
+from backend._models_loader import load_allowed_models_json as _load_allowed_models_json
 
 logger = logging.getLogger(__name__)
 
@@ -46,20 +48,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _load_allowed_models_json() -> list[dict]:
-    """Load the canonical model allowlist from allowed_models.json.
-
-    Shared helper — used by both engine.py and server.py.
-    """
-    import json as _json
-    from pathlib import Path as _Path
-
-    fpath = _Path(__file__).resolve().parent / "allowed_models.json"
-    with open(fpath, encoding="utf-8") as f:
-        data = _json.load(f)
-    return data.get("models", [])
-
 
 def _lookup_claude_cu_config(model_id: str) -> tuple[str | None, str | None]:
     """Look up cu_tool_version / cu_betas from allowed_models.json.
@@ -929,8 +917,12 @@ class GeminiCUClient:
         ]
 
         final_text = ""
+        _turn_start: float | None = None
 
         for turn in range(turn_limit):
+            if _turn_start is not None and on_log:
+                on_log("info", f"turn_duration_ms={int((time.monotonic()-_turn_start)*1000)} provider=google model={self._model}")
+            _turn_start = time.monotonic()
             if on_log:
                 on_log("info", f"Gemini CU turn {turn + 1}/{turn_limit}")
 
@@ -1126,6 +1118,8 @@ class GeminiCUClient:
                 )
             )
 
+        if _turn_start is not None and on_log:
+            on_log("info", f"turn_duration_ms={int((time.monotonic()-_turn_start)*1000)} provider=google model={self._model}")
         return final_text
 
 
@@ -1251,8 +1245,12 @@ class ClaudeCUClient:
         ]
 
         final_text = ""
+        _turn_start: float | None = None
 
         for turn in range(turn_limit):
+            if _turn_start is not None and on_log:
+                on_log("info", f"turn_duration_ms={int((time.monotonic()-_turn_start)*1000)} provider=anthropic model={self._model}")
+            _turn_start = time.monotonic()
             if on_log:
                 on_log("info", f"Claude CU turn {turn + 1}/{turn_limit}")
 
@@ -1351,6 +1349,8 @@ class ClaudeCUClient:
 
             messages.append({"role": "user", "content": tool_result_parts})
 
+        if _turn_start is not None and on_log:
+            on_log("info", f"turn_duration_ms={int((time.monotonic()-_turn_start)*1000)} provider=anthropic model={self._model}")
         return final_text
 
     async def _execute_claude_action(
@@ -1537,8 +1537,12 @@ class OpenAICUClient:
         ]
         # ZDR-safe: never use previous_response_id; always send full context
         final_text = ""
+        _turn_start: float | None = None
 
         for turn in range(turn_limit):
+            if _turn_start is not None and on_log:
+                on_log("info", f"turn_duration_ms={int((time.monotonic()-_turn_start)*1000)} provider=openai model={self._model}")
+            _turn_start = time.monotonic()
             if on_log:
                 on_log("info", f"OpenAI CU turn {turn + 1}/{turn_limit}")
 
@@ -1655,6 +1659,8 @@ class OpenAICUClient:
         else:
             final_text = f"OpenAI CU reached the turn limit ({turn_limit}) without a final response."
 
+        if _turn_start is not None and on_log:
+            on_log("info", f"turn_duration_ms={int((time.monotonic()-_turn_start)*1000)} provider=openai model={self._model}")
         return final_text
 
     async def _execute_openai_action(
