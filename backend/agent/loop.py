@@ -23,6 +23,7 @@ from backend.models import (
     StructuredError,
 )
 from backend.agent.screenshot import check_service_health
+from backend.logging_ctx import session_id_var
 
 logger = logging.getLogger(__name__)
 
@@ -172,14 +173,30 @@ class AgentLoop:
             return {"session_snapshot": snapshot}
 
         graph = build_agent_graph(_preflight_node, _execute_node, _finalize_node)
-        await graph.ainvoke(
-            {
-                "session_id": self.session.session_id,
-                "task": self.session.task,
-                "max_steps": self.session.max_steps,
-            },
-            config={"configurable": {"thread_id": self.session.session_id}},
-        )
+        # Bind the session_id into the logging ContextVar so every log
+        # line emitted from this loop (and any task it spawns via the
+        # engine / screenshot / docker modules) is tagged with this id.
+        _sid_token = session_id_var.set(self.session.session_id)
+        try:
+            await graph.ainvoke(
+                {
+                    "session_id": self.session.session_id,
+                    "task": self.session.task,
+                    "max_steps": self.session.max_steps,
+                },
+                config={"configurable": {"thread_id": self.session.session_id}},
+            )
+        finally:
+            # Always drop safety-registry state for this session — the
+            # inner _on_safety callback clears on the happy path, but a
+            # run that's cancelled or crashes while a prompt is pending
+            # would otherwise leak an asyncio.Event + decision entry.
+            try:
+                from backend.agent import safety as safety_registry
+                safety_registry.clear(self.session.session_id)
+            except Exception:
+                pass
+            session_id_var.reset(_sid_token)
         return self.session
 
     # ── Computer Use engine delegation ────────────────────────────────────

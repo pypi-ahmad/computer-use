@@ -86,6 +86,32 @@ _BLOCKED_CMD_PATTERNS = (
 # Allowed directories for file upload operations
 _UPLOAD_ALLOWED_PREFIXES = ("/tmp", "/app", "/home")
 
+
+def _is_safe_upload_path(target: str) -> bool:
+    """Return True if *target* resolves inside an allowed upload prefix.
+
+    Prefix-only checks are unsafe: ``/tmp/foo`` could be a symlink to
+    ``/etc/passwd``. We canonicalise with ``os.path.realpath`` and
+    re-verify the resolved path still starts with an allowlisted
+    prefix. Also rejects empty paths, absolute-looking traversal
+    (``..``), and anything that escapes after symlink resolution.
+    """
+    if not target or not isinstance(target, str):
+        return False
+    try:
+        real = os.path.realpath(target)
+    except Exception:
+        return False
+    # Also resolve the parent to catch symlinked directories
+    parent_real = os.path.realpath(os.path.dirname(target) or "/")
+    for prefix in _UPLOAD_ALLOWED_PREFIXES:
+        root = os.path.realpath(prefix)
+        if (real == root or real.startswith(root + os.sep)) and (
+            parent_real == root or parent_real.startswith(root + os.sep)
+        ):
+            return True
+    return False
+
 # Strict allowlist of commands permitted in run_command
 _ALLOWED_COMMANDS = frozenset({
     "ls", "cat", "head", "tail", "grep", "find", "wc", "echo",
