@@ -19,6 +19,15 @@
     },
     {
       "provider": "anthropic",
+      "model_id": "claude-opus-4-7",
+      "display_name": "Claude Opus 4.7",
+      "supports_computer_use": true,
+      "cu_tool_version": "computer_20251124",
+      "cu_betas": ["computer-use-2025-11-24"],
+      "notes": "Claude Opus 4.7 — most capable model for complex reasoning and agentic coding. Supports up to 2576px long edge with 1:1 coordinates."
+    },
+    {
+      "provider": "anthropic",
       "model_id": "claude-sonnet-4-6",
       "display_name": "Claude Sonnet 4.6",
       "supports_computer_use": true,

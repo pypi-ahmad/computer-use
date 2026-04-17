@@ -61,7 +61,7 @@ A single-page React workbench provides real-time desktop streaming (WebSocket sc
 |---|---|
 | **Native CU Engine** | Gemini, Claude, and OpenAI native Computer Use tool protocols — structured, pixel-level desktop automation with no prompt hacks |
 | **Desktop Runtime** | `xdotool` + `scrot` to control and observe any X11 application inside the sandbox |
-| **Multi-Provider AI** | Google Gemini, Anthropic Claude, and OpenAI with a centralized model allowlist enforced at the API layer. OpenAI supports configurable reasoning effort (`none`/`low`/`medium`/`high`/`xhigh`) |
+| **Multi-Provider AI** | Google Gemini, Anthropic Claude, and OpenAI with a centralized model allowlist enforced at the API layer. OpenAI supports configurable reasoning effort (`none`/`low`/`medium`/`high`/`xhigh`) and ZDR (Zero Data Retention) orgs via stateless conversation chaining |
 | **Docker Sandbox** | Ubuntu 24.04 container with resource limits (4 GB RAM, 2 CPUs), `no-new-privileges`, and localhost-only port bindings |
 | **Real-Time Streaming** | Live screenshot stream via WebSocket + interactive noVNC desktop access proxied through the backend |
 | **Cross-Platform Host** | Backend + frontend run on Windows, macOS, or Linux; Docker provides the sandboxed Linux desktop |
@@ -70,7 +70,7 @@ A single-page React workbench provides real-time desktop streaming (WebSocket sc
 | **Input Validation** | Rate limiting (10 starts/min), concurrent session cap (3), model allowlist enforcement, UUID session IDs, task length bounds (10 000 chars) |
 | **Context Pruning** | Automatic pruning of old screenshots from conversation context to prevent unbounded token growth |
 | **Session History** | Bounded localStorage history (50 sessions) with task, model, step count, and status |
-| **Export** | One-click JSON and HTML session reports with safely escaped content |
+| **Export** | One-click JSON and HTML session reports with safely escaped content; copy logs to clipboard |
 | **Cost Estimation** | Approximate per-session cost display based on centralized model pricing data |
 | **Theming** | Dark and light themes with persistent toggle via `data-theme` attribute |
 | **Onboarding** | First-run welcome overlay with 3-step guide, dismissible and remembered via localStorage |
@@ -118,7 +118,7 @@ The model receives a **screenshot** (base64 PNG) and the **user's task**, then r
 | **Tool Protocol** | `types.Tool(computer_use=...)` | `computer_20251124` tool + beta endpoint | Responses API built-in `computer` tool |
 | **Coordinates** | Normalized 0–999 grid, denormalized to pixels by engine | Real pixel values matching reported display size | Real pixel values matching the screenshot |
 | **Screenshot Handling** | Sent as inline `Part` | Pre-resized per Anthropic limits (max 1568px long edge, 1.15M total pixels) | Returned as `computer_call_output` with `detail: "original"` |
-| **Context Pruning** | Old screenshots replaced with text placeholders after 3 turns | Same pruning logic | Uses `previous_response_id` to continue the native loop |
+| **Context Pruning** | Old screenshots replaced with text placeholders after 3 turns | Same pruning logic | Uses `previous_response_id` to continue the native loop; ZDR orgs use stateless chaining with full context replay |
 | **System Prompt** | Detailed action instructions + coordinate semantics | Minimal — Anthropic auto-injects CU schema | OpenAI-specific computer-tool guidance |
 
 ### Supported Actions (15)
@@ -191,9 +191,10 @@ Defined in `backend/allowed_models.json` — the single source of truth for both
 |---|---|---|---|---|---|
 | Google | `gemini-3-flash-preview` | Gemini 3 Flash Preview | Desktop | ✅ Native | Fast, lightweight CU model |
 | Google | `gemini-3.1-pro-preview` | Gemini 3.1 Pro Preview | Desktop | ❌ `supports_computer_use: false` | Present in allowlist but **excluded from UI** — reserved for future CU support |
+| Anthropic | `claude-opus-4-7` | Claude Opus 4.7 | Desktop | ✅ Native | Beta endpoint + `computer_20251124` tool; supports up to 2576px long edge |
 | Anthropic | `claude-sonnet-4-6` | Claude Sonnet 4.6 | Desktop | ✅ Native | Beta endpoint + `computer_20251124` tool |
 | Anthropic | `claude-opus-4-6` | Claude Opus 4.6 | Desktop | ✅ Native | Beta endpoint + `computer_20251124` tool |
-| OpenAI | `gpt-5.4` | GPT-5.4 | Desktop | ✅ Native | Responses API built-in `computer` tool |
+| OpenAI | `gpt-5.4` | GPT-5.4 | Desktop | ✅ Native | Responses API built-in `computer` tool; ZDR-compatible |
 
 > Browser mode was removed from the backend and frontend runtime. All supported providers now run through the desktop harness only.
 
@@ -396,6 +397,7 @@ Keys are resolved in priority order — the first non-empty value wins:
 | `GOOGLE_API_KEY` | — | Google Gemini API key |
 | `ANTHROPIC_API_KEY` | — | Anthropic Claude API key |
 | `OPENAI_API_KEY` | — | OpenAI API key |
+| `OPENAI_BASE_URL` | — | Custom OpenAI API base URL (e.g., `https://us.api.openai.com/v1` for regional endpoints or ZDR orgs) |
 | `OPENAI_REASONING_EFFORT` | `low` | OpenAI reasoning effort: `none`, `low`, `medium`, `high`, `xhigh` |
 | `GEMINI_MODEL` | `gemini-3-flash-preview` | Default model name |
 | `CONTAINER_NAME` | `cua-environment` | Docker container name |
@@ -688,7 +690,7 @@ computer-use/
 │   ├── models.py                  # ActionType enum, Pydantic request/response models
 │   ├── engine.py                  # ComputerUseEngine, GeminiCUClient, ClaudeCUClient,
 │   │                              #   OpenAICUClient, DesktopExecutor
-│   ├── allowed_models.json        # Canonical model allowlist (5 models, 3 providers)
+│   ├── allowed_models.json        # Canonical model allowlist (6 models, 3 providers)
 │   ├── engine_capabilities.json   # Engine capability schema (v3.0)
 │   ├── engine_capabilities.py     # Schema loader for engine_capabilities.json
 │   ├── certifier.py               # Runtime engine certification checks

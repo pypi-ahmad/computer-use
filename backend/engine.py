@@ -31,6 +31,7 @@ import base64
 import io
 import logging
 import math
+import os
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Protocol
@@ -142,6 +143,16 @@ DEFAULT_TURN_LIMIT = 25
 _CLAUDE_MAX_LONG_EDGE = 1568
 _CLAUDE_MAX_PIXELS = 1_150_000
 
+# Claude Opus 4.7 supports higher resolution — up to 2576px on the
+# long edge with 1:1 coordinates (no scale-factor conversion required).
+_CLAUDE_OPUS_47_MAX_LONG_EDGE = 2576
+
+# Models that use the higher resolution limit (no downscaling needed
+# at typical screen resolutions).
+_CLAUDE_HIGH_RES_MODELS = (
+    "claude-opus-4-7", "claude-opus-4.7",
+)
+
 # Context pruning: replace screenshots older than this many turns with
 # a placeholder to prevent unbounded context growth.
 _CONTEXT_PRUNE_KEEP_RECENT = 3
@@ -226,19 +237,27 @@ def denormalize_y(y: int, screen_height: int = DEFAULT_SCREEN_HEIGHT) -> int:
     return int(y / GEMINI_NORMALIZED_MAX * screen_height)
 
 
-def get_claude_scale_factor(width: int, height: int) -> float:
+def get_claude_scale_factor(width: int, height: int, model: str = "") -> float:
     """Compute Anthropic screenshot scale factor per official docs.
 
     Returns a factor <=1.0 that the screenshot should be pre-resized by.
     Claude's API internally downsamples images exceeding the thresholds;
     by pre-resizing and reporting the scaled dimensions, we ensure
     coordinates returned by Claude map 1:1 to the reported display size.
+
+    Claude Opus 4.7 supports up to 2576px on the long edge with native
+    1:1 coordinates, so it uses a higher threshold.
     """
+    max_long_edge = (
+        _CLAUDE_OPUS_47_MAX_LONG_EDGE
+        if model in _CLAUDE_HIGH_RES_MODELS
+        else _CLAUDE_MAX_LONG_EDGE
+    )
     long_edge = max(width, height)
     total_pixels = width * height
     return min(
         1.0,
-        _CLAUDE_MAX_LONG_EDGE / long_edge,
+        max_long_edge / long_edge,
         math.sqrt(_CLAUDE_MAX_PIXELS / total_pixels),
     )
 
@@ -1055,6 +1074,7 @@ class ClaudeCUClient:
 
     # Models that require the newer computer_20251124 tool version.
     _NEW_TOOL_MODELS = (
+        "claude-opus-4-7", "claude-opus-4.7",
         "claude-sonnet-4-6", "claude-sonnet-4.6",
         "claude-opus-4-6", "claude-opus-4.6",
         "claude-opus-4-5", "claude-opus-4.5",
@@ -1121,7 +1141,7 @@ class ClaudeCUClient:
         and all Claude stop_reason variants. Returns final text.
         """
         # Compute screenshot scaling to prevent coordinate drift.
-        scale = get_claude_scale_factor(executor.screen_width, executor.screen_height)
+        scale = get_claude_scale_factor(executor.screen_width, executor.screen_height, self._model)
         scaled_w = int(executor.screen_width * scale)
         scaled_h = int(executor.screen_height * scale)
         if scale < 1.0 and on_log:
@@ -1393,7 +1413,8 @@ class OpenAICUClient:
                 "openai is required. Install: pip install openai"
             ) from exc
 
-        self._client = OpenAI(api_key=api_key)
+        openai_base_url = os.getenv("OPENAI_BASE_URL", None)
+        self._client = OpenAI(api_key=api_key, **({"base_url": openai_base_url} if openai_base_url else {}))
         self._model = model
         self._system_prompt = system_prompt or ""
         if reasoning_effort not in self.VALID_REASONING_EFFORTS:
@@ -1434,7 +1455,7 @@ class OpenAICUClient:
                 ],
             }
         ]
-        previous_response_id: str | None = None
+        # ZDR-safe: never use previous_response_id; always send full context
         final_text = ""
 
         for turn in range(turn_limit):
@@ -1449,8 +1470,6 @@ class OpenAICUClient:
                 "reasoning": {"effort": self._reasoning_effort},
                 "truncation": "auto",
             }
-            if previous_response_id:
-                request["previous_response_id"] = previous_response_id
             if self._system_prompt:
                 request["instructions"] = self._system_prompt
 
@@ -1458,8 +1477,6 @@ class OpenAICUClient:
             response_error = getattr(response, "error", None)
             if response_error:
                 raise RuntimeError(getattr(response_error, "message", str(response_error)))
-
-            previous_response_id = getattr(response, "id", previous_response_id)
             output_items = list(getattr(response, "output", []) or [])
             turn_text = getattr(response, "output_text", "") or _extract_openai_output_text(output_items)
             computer_calls = [
@@ -1542,7 +1559,25 @@ class OpenAICUClient:
                 final_text = turn_text or "OpenAI returned no actionable computer calls."
                 break
 
-            next_input = tool_outputs
+            # Build next input: include response output items + tool call results
+            # ZDR orgs cannot use previous_response_id, so we replay full context.
+            # Response output items contain output-only fields (e.g. "status")
+            # that are NOT accepted as input parameters; strip them.
+            # Note: preserve "phase" on message items – GPT-5.4 needs it to
+            # distinguish intermediate commentary from the final answer.
+            response_output = list(getattr(response, "output", []) or [])
+            next_input = []
+            for item in response_output:
+                item_dict = _to_plain_dict(item)
+                item_dict.pop("status", None)
+                # Nested content parts (e.g. message.content) may also carry
+                # output-only fields like "annotations".
+                if isinstance(item_dict.get("content"), list):
+                    for part in item_dict["content"]:
+                        if isinstance(part, dict):
+                            part.pop("annotations", None)
+                next_input.append(item_dict)
+            next_input.extend(tool_outputs)
         else:
             final_text = f"OpenAI CU reached the turn limit ({turn_limit}) without a final response."
 
