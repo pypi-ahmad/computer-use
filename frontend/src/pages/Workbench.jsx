@@ -359,6 +359,21 @@ export default function Workbench() {
     URL.revokeObjectURL(url)
   }
 
+  /** Copies current logs as plain text to the clipboard. */
+  const handleCopyLogs = async () => {
+    if (logs.length === 0) return
+    const lines = logs.map(log => {
+      const ts = formatTime(log.timestamp)
+      return `[${ts}] [${(log.level || '').toUpperCase()}] ${log.message}`
+    })
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'))
+      addToast('Logs copied to clipboard', 'success')
+    } catch {
+      addToast('Failed to copy logs', 'error')
+    }
+  }
+
   /** Returns the SVG icon for a given action name. */
   const getActionIcon = (action) => { const Icon = ACTION_ICON_MAP[action] || Zap; return <Icon size={ICON_SIZE} /> }
 
@@ -747,6 +762,7 @@ ${logs.map(l => `<tr><td>${formatTime(l.timestamp)}</td><td>${esc(l.level)}</td>
                 <button className="wb-download-btn" onClick={handleExportJSON} disabled={steps.length === 0 && logs.length === 0} title="Export session as JSON" aria-label="Export as JSON"><FileJson size={14} /></button>
                 <button className="wb-download-btn" onClick={handleExportHTML} disabled={steps.length === 0 && logs.length === 0} title="Export session as HTML report" aria-label="Export as HTML"><FileText size={14} /></button>
                 <button className="wb-download-btn" onClick={handleDownloadLogs} disabled={logs.length === 0} title="Download logs as .txt" aria-label="Download logs"><Download size={14} /></button>
+                <button className="wb-download-btn" onClick={handleCopyLogs} disabled={logs.length === 0} title="Copy logs to clipboard" aria-label="Copy logs"><Copy size={14} /></button>
                 <button className="wb-clear-btn" onClick={clearLogs} aria-label="Clear logs"><Trash2 size={14} /></button>
               </div>
             </div>

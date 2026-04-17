@@ -235,7 +235,7 @@ The agent pauses until you respond. After approval or denial, execution resumes.
 |---|---|---|---|
 | **Google Gemini** | `function_call` | Normalized 0–999 grid → denormalized to screen pixels | `GOOGLE_API_KEY` |
 | **Anthropic Claude** | `tool_use` with `computer_20251124` | Real pixel values with pre-resize scaling | `ANTHROPIC_API_KEY` |
-| **OpenAI** | Responses API `computer` tool | Real pixel values matching the screenshot | `OPENAI_API_KEY` |
+| **OpenAI** | Responses API `computer` tool | Real pixel values matching the screenshot | `OPENAI_API_KEY` + optional `OPENAI_BASE_URL` |
 
 Each provider's native Computer Use API is used directly — no prompt-only workarounds or regex parsing.
 
@@ -296,6 +296,7 @@ Three export formats are available from the log panel header:
 | **JSON** | Task, model, provider, all steps (action, error, timestamp), all logs, export timestamp | `cua_session_<ISO-timestamp>.json` |
 | **HTML** | Self-contained styled report with timeline and log table; all content is HTML-escaped | `cua_session_<ISO-timestamp>.html` |
 | **Logs (.txt)** | Timestamped log lines: `[HH:MM:SS] [LEVEL] message` | `CUA_logs_<YYYYMMDD>_<HHMMSS>.txt` |
+| **Copy** | Copy all log entries to the clipboard via the Copy button | — |
 
 Export buttons are disabled when there is no data to export.
 
@@ -403,9 +404,10 @@ Only models with `supports_computer_use: true` in `backend/allowed_models.json` 
 | Provider | Model ID | Display Name | Notes |
 |---|---|---|---|
 | Google | `gemini-3-flash-preview` | Gemini 3 Flash Preview | Fast, lightweight |
+| Anthropic | `claude-opus-4-7` | Claude Opus 4.7 | Beta endpoint + `computer_20251124` tool; supports up to 2576px long edge |
 | Anthropic | `claude-sonnet-4-6` | Claude Sonnet 4.6 | Requires beta endpoint + `computer_20251124` tool |
 | Anthropic | `claude-opus-4-6` | Claude Opus 4.6 | Requires beta endpoint + `computer_20251124` tool |
-| OpenAI | `gpt-5.4` | GPT-5.4 | Responses API built-in computer tool |
+| OpenAI | `gpt-5.4` | GPT-5.4 | Responses API built-in computer tool; ZDR-compatible |
 
 > `gemini-3.1-pro-preview` is present in `allowed_models.json` with `supports_computer_use: false` and is excluded from the UI. It is reserved for future use if Google confirms CU support.
 
@@ -443,6 +445,7 @@ Set as environment variables or in a `.env` file in the project root. The `.env`
 | `GOOGLE_API_KEY` | — | Google Gemini API key |
 | `ANTHROPIC_API_KEY` | — | Anthropic Claude API key |
 | `OPENAI_API_KEY` | — | OpenAI API key |
+| `OPENAI_BASE_URL` | — | Custom OpenAI API base URL (e.g., `https://us.api.openai.com/v1` for regional endpoints or ZDR orgs) |
 | `OPENAI_REASONING_EFFORT` | `low` | Reasoning depth: `none` / `low` / `medium` / `high` / `xhigh` |
 | `GEMINI_MODEL` | `gemini-3-flash-preview` | Default Gemini model |
 | `CONTAINER_NAME` | `cua-environment` | Docker container name |
