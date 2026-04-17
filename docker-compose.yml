@@ -23,6 +23,21 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    # D4 — drop all Linux capabilities. The agent runs as non-root UID 1000
+    # and only needs userspace syscalls (X11, DBus session bus, HTTP,
+    # subprocess spawn). No net-admin / raw-socket / mount / ptrace needed.
+    # If a feature ever regresses, re-add the specific capability via
+    # cap_add — never re-enable the whole set.
+    cap_drop:
+      - ALL
+    # D4 — ephemeral writable areas. Everything else stays on the image
+    # layer. We intentionally do NOT set read_only: true at the
+    # container level because Chrome profile seeding, DBus session bus,
+    # x11vnc log, and websockify all expect writable paths across the
+    # image; tightening those would need a dedicated H1 follow-up.
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+      - /var/run:size=16m,mode=755
     deploy:
       resources:
         limits:
@@ -31,6 +46,8 @@ services:
     healthcheck:
       # Verify the in-container agent service is responding.
       # (Backend /api/health is a separate process outside compose.)
+      # D3 — start_period already covers the ~15-25s between container
+      # start and X11/DBus/XFCE being ready; kept at 30s for margin.
       test: ["CMD-SHELL", "curl -fs http://127.0.0.1:9222/health || exit 1"]
       interval: 30s
       timeout: 5s

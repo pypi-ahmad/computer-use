@@ -9,59 +9,70 @@ ENV AGENT_SERVICE_PORT=9222
 ENV LIBGL_ALWAYS_SOFTWARE=1
 ENV PYTHONPATH=/app
 
-# GUI/runtime dependencies + build prerequisites + utilities + desktop apps
-# (single layer to minimise image size)
+# ──────────────────────────────────────────────────────────────────────────────
+# D2 — Split installs into stable-to-volatile layers so churn in
+# one tier (e.g. a desktop app change) does not invalidate the ~2 GB
+# base-packages layer below it. Order: core → python → desktop/apps → chrome.
+# ──────────────────────────────────────────────────────────────────────────────
+
+# (a) Core build / network tools — changes rarely
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    xfce4 \
-    xfce4-terminal \
-    xfce4-goodies \
-    dbus-x11 \
-    x11vnc \
-    xvfb \
-    x11-utils \
-    websockify \
-    novnc \
-    ffmpeg \
-    scrot \
-    wmctrl \
-    xclip \
-    xdotool \
-    fonts-liberation \
-    fonts-noto-core \
-    fonts-dejavu-core \
+    ca-certificates \
+    curl \
+    dnsutils \
+    file \
+    git \
+    gnupg \
+    iputils-ping \
+    jq \
+    lsof \
+    net-tools \
+    p7zip-full \
+    socat \
+    strace \
+    unzip \
+    wget \
+    xdg-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# (b) Python runtime — changes only when we bump the minor version
+RUN apt-get update && apt-get install -y --no-install-recommends \
     gir1.2-gtk-3.0 \
+    python3 \
     python3-gi \
     python3-gi-cairo \
-    python3 \
     python3-pip \
     python3-venv \
-    wget \
-    curl \
-    gnupg \
-    ca-certificates \
-    socat \
-    # misc utilities
-    flameshot \
-    xournalpp \
-    htop \
-    lsof \
-    strace \
-    # desktop apps & tools
-    vlc \
-    libreoffice \
-    libreoffice-gtk3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# (c) Desktop + X11 + apps — the volatile tier; invalidated most often
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    dbus-x11 \
     evince \
+    ffmpeg \
+    flameshot \
+    fonts-dejavu-core \
+    fonts-liberation \
+    fonts-noto-core \
     gedit \
     gnome-terminal \
-    file \
-    unzip \
-    p7zip-full \
-    jq \
-    git \
-    net-tools \
-    iputils-ping \
-    dnsutils \
-    xdg-utils \
+    htop \
+    libreoffice \
+    libreoffice-gtk3 \
+    novnc \
+    scrot \
+    vlc \
+    websockify \
+    wmctrl \
+    x11-utils \
+    x11vnc \
+    xclip \
+    xdotool \
+    xfce4 \
+    xfce4-goodies \
+    xfce4-terminal \
+    xournalpp \
+    xvfb \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js LTS 20 for desktop tooling and optional in-container tasks
