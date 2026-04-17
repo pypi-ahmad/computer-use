@@ -61,7 +61,7 @@ export default function useWebSocket() {
             setLogs((prev) => [...prev.slice(-200), msg.log])
             break
           case 'step':
-            setSteps((prev) => [...prev, msg.step])
+            setSteps((prev) => [...prev.slice(-500), msg.step])
             break
           case 'agent_finished':
             setAgentFinished(msg)

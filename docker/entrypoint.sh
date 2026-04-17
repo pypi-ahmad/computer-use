@@ -70,13 +70,15 @@ sleep 1
 # 4. x11vnc
 # ─────────────────────────────────────────────
 echo "[VNC] Starting x11vnc..."
+VNC_DIR="${HOME:-/tmp}/.vnc"
+VNC_LOG="${HOME:-/tmp}/x11vnc.log"
+mkdir -p "$VNC_DIR"
 if [ -n "${VNC_PASSWORD:-}" ]; then
-    mkdir -p /root/.vnc
-    x11vnc -storepasswd "$VNC_PASSWORD" /root/.vnc/passwd
-    x11vnc -display :99 -forever -rfbauth /root/.vnc/passwd -shared -rfbport 5900 -bg -o /var/log/x11vnc.log
+    x11vnc -storepasswd "$VNC_PASSWORD" "$VNC_DIR/passwd"
+    x11vnc -display :99 -forever -rfbauth "$VNC_DIR/passwd" -shared -rfbport 5900 -bg -o "$VNC_LOG"
 else
     echo "[VNC] WARNING: No VNC_PASSWORD set — VNC access is unauthenticated"
-    x11vnc -display :99 -forever -nopw -shared -rfbport 5900 -bg -o /var/log/x11vnc.log
+    x11vnc -display :99 -forever -nopw -shared -rfbport 5900 -bg -o "$VNC_LOG"
 fi
 
 # ─────────────────────────────────────────────

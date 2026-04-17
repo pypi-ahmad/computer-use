@@ -16,7 +16,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.config import config, get_all_key_statuses, resolve_api_key
-from backend.engine import _load_allowed_models_json
+from backend._models_loader import load_allowed_models_json as _load_allowed_models_json
+from backend.logging_ctx import SessionIdFilter, install as _install_sid_filter
+from backend.ws_schema import validate_outbound as _validate_outbound_event
 from pydantic import BaseModel, Field
 from backend.models import (
     AgentAction,
@@ -45,8 +47,11 @@ import httpx
 
 logging.basicConfig(
     level=logging.DEBUG if config.debug else logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    format="%(asctime)s [%(levelname)s] %(name)s sid=%(session_id)s: %(message)s",
 )
+# Inject session_id into every LogRecord so concurrent sessions are
+# distinguishable in the logs. Records outside a session render as '-'.
+_install_sid_filter(logging.getLogger())
 logger = logging.getLogger(__name__)
 
 
@@ -71,6 +76,11 @@ async def _lifespan(_app: FastAPI):
         logger.exception("Failed to initialise session checkpointer")
 
     try:
+        _sweep_sessions_db(_SESSIONS_DB_PATH, _SESSIONS_MAX_THREADS)
+    except Exception:
+        logger.exception("Session checkpointer sweep failed (non-fatal)")
+
+    try:
         validate_tool_parity()
     except Exception as exc:
         logger.warning("Tool parity check failed: %s", exc)
@@ -79,12 +89,24 @@ async def _lifespan(_app: FastAPI):
         yield
     finally:
         # ── shutdown ──────────────────────────────────────────────────
+        # Cancel in-flight run tasks, then await them (and any pending
+        # broadcasts) so finalize-node persistence and WS flushes get a
+        # chance to complete before we tear down the checkpointer/clients.
+        pending: list[asyncio.Task] = []
         for sid in list(_active_tasks.keys()):
             task = _active_tasks.get(sid)
             if task and not task.done():
                 task.cancel()
+                pending.append(task)
+        pending.extend(t for t in list(_broadcast_tasks) if not t.done())
+        if pending:
+            try:
+                await asyncio.gather(*pending, return_exceptions=True)
+            except Exception:
+                logger.exception("Error awaiting in-flight tasks on shutdown")
         _active_tasks.clear()
         _active_loops.clear()
+        _broadcast_tasks.clear()
 
         global _novnc_client
         if _novnc_client is not None and not _novnc_client.is_closed:
@@ -125,6 +147,29 @@ app.add_middleware(
 )
 
 
+# ── API version aliasing ──────────────────────────────────────────────────────
+#
+# The original, unversioned routes (``/api/...``) remain the canonical
+# surface, but we also accept ``/api/v1/...`` so new clients can pin a
+# version without a coordinated backend rename. A future v2 simply adds
+# real v2 handlers; v1 keeps pointing at the unversioned implementation.
+
+_API_V1_PREFIX = "/api/v1/"
+
+
+@app.middleware("http")
+async def _api_version_alias(request: Request, call_next):
+    """Rewrite ``/api/v1/<rest>`` to ``/api/<rest>`` so v1 clients hit
+    the existing handlers with zero duplication."""
+    path = request.url.path
+    if path.startswith(_API_V1_PREFIX):
+        new_path = "/api/" + path[len(_API_V1_PREFIX):]
+        # Starlette's Request.url is immutable; the scope is what routing reads.
+        request.scope["path"] = new_path
+        request.scope["raw_path"] = new_path.encode("latin-1")
+    return await call_next(request)
+
+
 # ── Security headers ──────────────────────────────────────────────────────────
 
 _SECURITY_HEADERS = {
@@ -143,8 +188,17 @@ _SECURITY_HEADERS = {
 
 @app.middleware("http")
 async def _security_headers(request: Request, call_next):
-    """Attach basic security headers to every HTTP response."""
+    """Attach basic security headers to every HTTP response.
+
+    Skipped for the ``/vnc/*`` reverse proxy because noVNC is a full HTML
+    app that needs to load its own JS/CSS/fonts and be embedded in an
+    iframe by the frontend. Applying a strict ``default-src 'none'`` +
+    ``frame-ancestors 'none'`` CSP to those responses breaks the live
+    desktop view (browsers surface it as "refused to connect").
+    """
     response = await call_next(request)
+    if request.url.path.startswith("/vnc/"):
+        return response
     for k, v in _SECURITY_HEADERS.items():
         response.headers.setdefault(k, v)
     return response
@@ -153,11 +207,108 @@ async def _security_headers(request: Request, call_next):
 _MAX_CONCURRENT_SESSIONS = 3
 _MAX_STEPS_HARD_CAP = 200
 
+# Optional shared secret for /ws authentication. When set, clients must
+# pass ``?token=<value>`` on connect. Unset (default) preserves the
+# localhost-only behaviour existing deployments rely on.
+_WS_AUTH_TOKEN = os.getenv("CUA_WS_TOKEN", "").strip()
+
+# Upper bound on distinct session threads persisted in the sqlite
+# checkpointer. On startup we prune oldest-first past this cap so the
+# file doesn't grow unbounded. Override with CUA_SESSIONS_MAX_THREADS.
+try:
+    _SESSIONS_MAX_THREADS = max(50, int(os.getenv("CUA_SESSIONS_MAX_THREADS", "1000")))
+except ValueError:
+    _SESSIONS_MAX_THREADS = 1000
+
+
+def _resolve_sessions_db_path() -> str:
+    """Resolve and validate the sqlite checkpointer path.
+
+    Restricts the writer to the user's home directory or /tmp (plus an
+    optional explicit allowlist via ``CUA_SESSIONS_DB_ALLOW_DIR``) and
+    enforces a ``.sqlite`` suffix, so an unprivileged env override can't
+    redirect the writer into an arbitrary filesystem location.
+    """
+    default = str(Path.home() / ".computer-use" / "sessions.sqlite")
+    raw = os.getenv("CUA_SESSIONS_DB", default)
+    resolved = Path(raw).expanduser().resolve()
+    if resolved.suffix != ".sqlite":
+        logger.warning(
+            "CUA_SESSIONS_DB=%s rejected (must end in .sqlite); using default", raw,
+        )
+        resolved = Path(default).expanduser().resolve()
+    allowed_roots = [Path.home().resolve(), Path("/tmp").resolve()]
+    extra = os.getenv("CUA_SESSIONS_DB_ALLOW_DIR", "").strip()
+    if extra:
+        try:
+            allowed_roots.append(Path(extra).expanduser().resolve())
+        except Exception:
+            pass
+    if not any(str(resolved).startswith(str(root)) for root in allowed_roots):
+        logger.warning(
+            "CUA_SESSIONS_DB=%s outside allowed roots; using default", raw,
+        )
+        resolved = Path(default).expanduser().resolve()
+    return str(resolved)
+
+
 # Sessions database (LangGraph sqlite checkpointer). Override with CUA_SESSIONS_DB.
-_SESSIONS_DB_PATH = os.getenv(
-    "CUA_SESSIONS_DB",
-    str(Path.home() / ".computer-use" / "sessions.sqlite"),
-)
+_SESSIONS_DB_PATH = _resolve_sessions_db_path()
+
+
+def _sweep_sessions_db(db_path: str, max_threads: int) -> None:
+    """Prune the oldest rows past ``max_threads`` distinct thread_ids.
+
+    LangGraph's AsyncSqliteSaver doesn't ship a built-in TTL, so we do
+    a best-effort cap on distinct ``thread_id`` count in the
+    ``checkpoints`` table (oldest rowid = oldest insertion). Runs once
+    at startup to keep the file bounded across long-running deployments.
+    """
+    import sqlite3
+
+    if not Path(db_path).exists():
+        return
+    try:
+        con = sqlite3.connect(db_path, timeout=5.0)
+    except sqlite3.DatabaseError:
+        logger.warning("Session sweep: cannot open %s", db_path)
+        return
+    try:
+        cur = con.cursor()
+        row = cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='checkpoints'"
+        ).fetchone()
+        if row is None:
+            return
+        (count,) = cur.execute(
+            "SELECT COUNT(DISTINCT thread_id) FROM checkpoints"
+        ).fetchone()
+        if count <= max_threads:
+            return
+        drop = count - max_threads
+        # Oldest thread_ids by min(rowid)
+        victims = [
+            r[0] for r in cur.execute(
+                "SELECT thread_id FROM ("
+                "  SELECT thread_id, MIN(rowid) AS r FROM checkpoints GROUP BY thread_id"
+                ") ORDER BY r ASC LIMIT ?",
+                (drop,),
+            ).fetchall()
+        ]
+        if not victims:
+            return
+        placeholders = ",".join("?" for _ in victims)
+        for table in ("checkpoints", "writes", "checkpoint_writes", "checkpoint_blobs"):
+            if cur.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+            ).fetchone():
+                cur.execute(
+                    f"DELETE FROM {table} WHERE thread_id IN ({placeholders})", victims,
+                )
+        con.commit()
+        logger.info("Session sweep pruned %d oldest thread(s)", len(victims))
+    finally:
+        con.close()
 
 # ── Allowed models (single source of truth: backend/allowed_models.json) ──────
 
@@ -174,6 +325,9 @@ for _m in _CU_ALLOWED_MODELS:
 
 class _RateLimiter:
     """Simple sliding-window rate limiter keyed by caller identity (e.g. IP)."""
+    _HARD_KEY_CEILING = 1024
+    _EVICT_TO = 512
+
     def __init__(self, max_calls: int, window_seconds: float):
         """Configure the limiter with *max_calls* per *window_seconds* per key."""
         self._max = max_calls
@@ -189,12 +343,23 @@ class _RateLimiter:
             return False
         bucket.append(now)
         self._calls[key] = bucket
-        # Opportunistic eviction of idle keys to bound memory
-        if len(self._calls) > 1024:
+        # Bounded-memory eviction. First try the cheap filter (idle-key
+        # drop), then apply a hard ceiling so a spoofed-IP flood can't
+        # sustain >1024 entries indefinitely — we keep the 512 most
+        # recently active keys and discard the rest.
+        if len(self._calls) > self._HARD_KEY_CEILING:
             self._calls = {
                 k: v for k, v in self._calls.items()
                 if v and now - v[-1] < self._window
             }
+            if len(self._calls) > self._HARD_KEY_CEILING:
+                # Keep the _EVICT_TO most-recently-active keys.
+                kept = sorted(
+                    self._calls.items(),
+                    key=lambda kv: kv[1][-1] if kv[1] else 0,
+                    reverse=True,
+                )[: self._EVICT_TO]
+                self._calls = dict(kept)
         return True
 
 
@@ -222,7 +387,9 @@ def _is_valid_uuid(value: str) -> bool:
 
 _active_loops: dict[str, AgentLoop] = {}
 _active_tasks: dict[str, asyncio.Task] = {}
-_ws_clients: list[WebSocket] = []
+# Set (not list) so add/remove are O(1) and iteration via snapshot
+# avoids mutation-during-iteration when two broadcasts interleave.
+_ws_clients: set[WebSocket] = set()
 
 
 def _cleanup_session(sid: str) -> None:
@@ -265,18 +432,23 @@ _broadcast_tasks: set[asyncio.Task] = set()
 
 async def _broadcast(event: str, data: dict) -> None:
     """Send a JSON message to all connected WebSocket clients."""
+    # Validate against backend/ws_schema.py so a rename / missing field
+    # in an event payload is surfaced as a WARNING instead of shipping
+    # silent garbage to every connected frontend. Still broadcasts on
+    # failure — the schema is advisory, not a blocker.
+    err = _validate_outbound_event(event, data)
+    if err:
+        logger.warning("WS event %s failed schema validation: %s", event, err)
     msg = json.dumps({"event": event, **data})
     stale: list[WebSocket] = []
-    for ws in _ws_clients:
+    # Snapshot so concurrent broadcasts don't observe mutation.
+    for ws in list(_ws_clients):
         try:
             await ws.send_text(msg)
         except Exception:
             stale.append(ws)
     for ws in stale:
-        try:
-            _ws_clients.remove(ws)
-        except ValueError:
-            pass
+        _ws_clients.discard(ws)
 
 
 def _schedule_broadcast(event: str, data: dict) -> None:
@@ -727,10 +899,38 @@ async def vnc_ws_proxy(ws: WebSocket):
         logger.debug("VNC WebSocket proxy closed: %s", exc)
 
 
+# Allowlisted noVNC static asset prefixes. Anything outside this list
+# gets rejected at the edge regardless of what websockify would serve.
+_NOVNC_ALLOWED_PREFIXES = (
+    "vnc.html", "vnc_lite.html",
+    "core/", "app/", "vendor/",
+    "images/",
+)
+
+
+def _is_safe_vnc_path(path: str) -> bool:
+    """Reject traversal, absolute paths, encoded slashes; enforce whitelist."""
+    if not path:
+        return False
+    if path.startswith("/") or "\\" in path:
+        return False
+    lowered = path.lower()
+    if "%2f" in lowered or "%5c" in lowered:
+        return False
+    # After url-decoding FastAPI already strips ``%2F``, so the
+    # remaining check catches literal ``..`` segments.
+    for seg in path.split("/"):
+        if seg in ("..", "."):
+            return False
+    return any(path == p or path.startswith(p) for p in _NOVNC_ALLOWED_PREFIXES)
+
+
 @app.get("/vnc/{path:path}")
 async def vnc_http_proxy(path: str):
     """Proxy noVNC static files from the container's websockify web server."""
     from starlette.responses import Response
+    if not _is_safe_vnc_path(path):
+        return Response(content="forbidden", status_code=403)
     client = _get_novnc_client()
     try:
         resp = await client.get(f"{_NOVNC_HTTP}/{path}")
@@ -749,8 +949,19 @@ async def vnc_http_proxy(path: str):
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     """Accept a WebSocket connection for real-time event streaming."""
+    # Optional shared-secret gate. When CUA_WS_TOKEN is set, reject any
+    # connection that doesn't present a matching ``?token=`` param.
+    if _WS_AUTH_TOKEN:
+        supplied = ws.query_params.get("token", "")
+        if not supplied or supplied != _WS_AUTH_TOKEN:
+            await ws.close(code=4401)  # custom: unauthorized
+            logger.warning(
+                "Rejected /ws connection from %s: bad or missing token",
+                ws.client.host if ws.client else "unknown",
+            )
+            return
     await ws.accept()
-    _ws_clients.append(ws)
+    _ws_clients.add(ws)
     logger.info("WebSocket client connected (%d total)", len(_ws_clients))
 
     streaming_task: asyncio.Task | None = None
@@ -772,7 +983,7 @@ async def websocket_endpoint(ws: WebSocket):
         logger.warning("WebSocket error: %s", e)
     finally:
         if ws in _ws_clients:
-            _ws_clients.remove(ws)
+            _ws_clients.discard(ws)
         if streaming_task:
             streaming_task.cancel()
 
@@ -787,13 +998,21 @@ async def _stream_screenshots(ws: WebSocket):
     """
     from backend.docker_manager import is_container_running
 
+    auth_reported = False
+    error_reported = False
+
     while True:
         try:
             await asyncio.sleep(config.ws_screenshot_interval)
             # Only attempt capture when the container is actually running
             if not await is_container_running():
+                # Reset sticky flags so we'll re-surface issues after a restart
+                auth_reported = False
+                error_reported = False
                 continue
             b64 = await capture_screenshot(mode="desktop")
+            auth_reported = False
+            error_reported = False
             await ws.send_text(json.dumps({
                 "event": "screenshot_stream",
                 "screenshot": b64,
@@ -802,5 +1021,26 @@ async def _stream_screenshots(ws: WebSocket):
             break
         except WebSocketDisconnect:
             break
-        except Exception:
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code if exc.response is not None else 0
+            if status in (401, 403) and not auth_reported:
+                auth_reported = True
+                logger.warning(
+                    "Screenshot stream auth failed (%s) — likely AGENT_SERVICE_TOKEN "
+                    "mismatch after container restart", status,
+                )
+                try:
+                    await ws.send_text(json.dumps({
+                        "event": "auth_failed",
+                        "status": status,
+                        "message": "Agent service rejected request (token mismatch). "
+                                   "Restart the backend to pick up the current container token.",
+                    }))
+                except Exception:
+                    pass
+            await asyncio.sleep(2)
+        except Exception as exc:
+            if not error_reported:
+                error_reported = True
+                logger.warning("Screenshot stream error: %s", exc)
             await asyncio.sleep(2)
