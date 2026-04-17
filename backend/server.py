@@ -411,10 +411,26 @@ _ws_clients: set[WebSocket] = set()
 
 
 def _cleanup_session(sid: str) -> None:
-    """Remove bookkeeping for a session (tasks, loops, safety state)."""
-    _active_tasks.pop(sid, None)
-    _active_loops.pop(sid, None)
-    safety_registry.clear(sid)
+    """Remove bookkeeping for a session (tasks, loops, safety state).
+
+    Uses a single try/finally chain so a raised exception in any one
+    step can't leave the other maps desynchronised (R5). Every entry
+    is touched exactly once regardless of failures earlier in the
+    chain; errors are logged but never propagated — cleanup is a
+    best-effort operation on the way out of a session.
+    """
+    try:
+        _active_tasks.pop(sid, None)
+    except Exception:
+        logger.exception("cleanup: _active_tasks.pop failed for %s", sid)
+    try:
+        _active_loops.pop(sid, None)
+    except Exception:
+        logger.exception("cleanup: _active_loops.pop failed for %s", sid)
+    try:
+        safety_registry.clear(sid)
+    except Exception:
+        logger.exception("cleanup: safety_registry.clear failed for %s", sid)
 
 
 async def _get_session_snapshot(session_id: str) -> AgentSession | None:
@@ -1027,7 +1043,6 @@ async def _stream_screenshots(ws: WebSocket):
     # captures that hash-equal the previous frame are skipped so an
     # idle desktop doesn't burn bandwidth broadcasting identical PNGs.
     last_frame_hash: str | None = None
-
     while True:
         try:
             await asyncio.sleep(config.ws_screenshot_interval)
@@ -1042,7 +1057,7 @@ async def _stream_screenshots(ws: WebSocket):
             auth_reported = False
             error_reported = False
             # Cheap in-process dedup — no image decode, just a hash of
-            import hashlib
+            # the base64 payload.
             frame_hash = hashlib.blake2b(b64.encode("ascii"), digest_size=16).hexdigest()
             if frame_hash == last_frame_hash:
                 continue
