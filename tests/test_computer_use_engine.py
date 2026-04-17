@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -16,6 +17,7 @@ from backend.engine import (
     _lookup_claude_cu_config,
     _CONTEXT_PRUNE_KEEP_RECENT,
     _build_openai_computer_call_output,
+    _sanitize_openai_response_item_for_replay,
 )
 
 
@@ -141,12 +143,58 @@ class TestOpenAIHelpers:
         assert payload["output"]["detail"] == "original"
         assert payload["acknowledged_safety_checks"][0]["id"] == "safety_1"
 
+    def test_sanitize_openai_replay_computer_call_strips_output_only_safety_fields(self):
+        sanitized = _sanitize_openai_response_item_for_replay(
+            SimpleNamespace(
+                type="computer_call",
+                id="comp_1",
+                call_id="call_123",
+                status="completed",
+                pending_safety_checks=[
+                    SimpleNamespace(id="safe_1", code="confirm", message="Confirm action"),
+                ],
+                actions=[
+                    SimpleNamespace(type="click", x=44, y=55),
+                ],
+            )
+        )
+
+        assert sanitized == {
+            "type": "computer_call",
+            "call_id": "call_123",
+            "actions": [{"type": "click", "x": 44, "y": 55}],
+        }
+
+    def test_sanitize_openai_replay_message_preserves_phase_and_strips_annotations(self):
+        sanitized = _sanitize_openai_response_item_for_replay(
+            SimpleNamespace(
+                type="message",
+                role="assistant",
+                phase="commentary",
+                status="in_progress",
+                content=[
+                    SimpleNamespace(
+                        type="output_text",
+                        text="Working on it",
+                        annotations=[{"type": "file_citation"}],
+                        logprobs=[{"token": "Working"}],
+                    )
+                ],
+            )
+        )
+
+        assert sanitized == {
+            "type": "message",
+            "role": "assistant",
+            "phase": "commentary",
+            "content": [{"type": "output_text", "text": "Working on it"}],
+        }
+
 
 class TestOpenAIRuntimePath:
     """Verify the OpenAI runtime loop sends the expected follow-up payloads."""
 
-    @pytest.mark.asyncio
-    async def test_run_loop_chains_previous_response_and_sends_computer_call_output(self):
+    def test_run_loop_replays_sanitized_context_and_sends_computer_call_output(self):
         screenshot_bytes = b"a" * 128
 
         class FakeExecutor:
@@ -191,10 +239,12 @@ class TestOpenAIRuntimePath:
             client = OpenAICUClient(api_key="test-key", model="gpt-5.4")
 
         executor = FakeExecutor()
-        final_text = await client.run_loop(
-            "Open the page and stop",
-            executor,
-            on_safety=lambda _: True,
+        final_text = asyncio.run(
+            client.run_loop(
+                "Open the page and stop",
+                executor,
+                on_safety=lambda _: True,
+            )
         )
 
         assert final_text == "Task complete"
@@ -207,15 +257,28 @@ class TestOpenAIRuntimePath:
         first_request = responses_create.call_args_list[0].kwargs
         assert first_request["model"] == "gpt-5.4"
         assert first_request["tools"] == [{"type": "computer"}]
+        assert first_request["include"] == ["reasoning.encrypted_content"]
         assert first_request["input"][0]["role"] == "user"
         assert first_request["input"][0]["content"][0] == {"type": "input_text", "text": "Open the page and stop"}
         assert first_request["input"][0]["content"][1]["type"] == "input_image"
         assert first_request["input"][0]["content"][1]["image_url"].startswith("data:image/png;base64,")
+        assert first_request["store"] is False
 
         second_request = responses_create.call_args_list[1].kwargs
-        assert second_request["previous_response_id"] == "resp_1"
-        assert len(second_request["input"]) == 1
-        tool_output = second_request["input"][0]
+        assert "previous_response_id" not in second_request
+        assert second_request["include"] == ["reasoning.encrypted_content"]
+        assert second_request["store"] is False
+        assert len(second_request["input"]) == 2
+        replayed_call = second_request["input"][0]
+        assert replayed_call == {
+            "type": "computer_call",
+            "call_id": "call_123",
+            "actions": [
+                {"type": "click", "x": 44, "y": 55},
+                {"type": "keypress", "keys": ["CTRL", "L"]},
+            ],
+        }
+        tool_output = second_request["input"][1]
         assert tool_output["type"] == "computer_call_output"
         assert tool_output["call_id"] == "call_123"
         assert tool_output["output"]["type"] == "computer_screenshot"
