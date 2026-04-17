@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import useWebSocket from '../hooks/useWebSocket'
-import { startAgent, stopAgent, getContainerStatus, startContainer, stopContainer, getKeyStatuses, getModels, validateKey } from '../api'
+import { startAgent, stopAgent, getAgentStatus, getContainerStatus, startContainer, stopContainer, getKeyStatuses, getModels, validateKey } from '../api'
 import ScreenView from '../components/ScreenView'
 import SafetyModal from '../components/SafetyModal'
 import CompletionBanner from '../components/CompletionBanner'
@@ -127,6 +127,7 @@ export default function Workbench() {
   const timelineRef = useRef(null)
   const logRef = useRef(null)
   const sessionStartTime = useRef(null)
+  const handledCompletionSession = useRef(null)
 
   // Dynamic model list
   const [fetchedModels, setFetchedModels] = useState([])
@@ -200,32 +201,82 @@ export default function Workbench() {
     fetchModelList()
   }, [provider])
 
-  // Auto-stop frontend when agent finishes
+  const finalizeAgentRun = useCallback((finishEvent) => {
+    const finishedSessionId = finishEvent?.session_id || sessionId
+    if (!finishedSessionId || !sessionId || finishedSessionId !== sessionId) return
+    if (handledCompletionSession.current === finishedSessionId) return
+
+    handledCompletionSession.current = finishedSessionId
+
+    const status = finishEvent.status || 'completed'
+    const completedSteps = finishEvent.steps ?? finishEvent.current_step ?? 0
+    const elapsed = sessionStartTime.current ? Math.round((Date.now() - sessionStartTime.current) / 1000) : null
+
+    setAgentRunning(false)
+    setSessionId(null)
+    sessionStartTime.current = null
+    setCompletionData({
+      ...finishEvent,
+      session_id: finishedSessionId,
+      steps: completedSteps,
+      elapsedSeconds: elapsed,
+    })
+
+    addToast(
+      status === 'completed' ? `Task complete — ${completedSteps} steps` : `Task ${status}`,
+      status === 'completed' ? 'success' : 'error'
+    )
+    addSessionToHistory({
+      task: task.slice(0, 100),
+      model,
+      modelDisplayName: (fetchedModels.find(m => m.model_id === model))?.display_name || model,
+      provider,
+      steps: completedSteps,
+      status,
+      timestamp: new Date().toISOString(),
+    })
+    setSessionHistoryState(getSessionHistory())
+  }, [addToast, fetchedModels, model, provider, sessionId, task])
+
+  // Auto-stop frontend when agent finishes via websocket.
   useEffect(() => {
-    if (agentFinished && agentRunning) {
-      setAgentRunning(false)
-      setSessionId(null)
-      const elapsed = sessionStartTime.current ? Math.round((Date.now() - sessionStartTime.current) / 1000) : null
-      sessionStartTime.current = null
-      setCompletionData({ ...agentFinished, elapsedSeconds: elapsed })
-      const status = agentFinished.status || 'completed'
-      addToast(
-        status === 'completed' ? `Task complete — ${agentFinished.steps ?? steps.length} steps` : `Task ${status}`,
-        status === 'completed' ? 'success' : 'error'
-      )
-      addSessionToHistory({
-        task: task.slice(0, 100),
-        model,
-        modelDisplayName: (fetchedModels.find(m => m.model_id === model))?.display_name || model,
-        provider,
-        steps: agentFinished.steps ?? steps.length,
-        status,
-        timestamp: new Date().toISOString(),
-      })
-      setSessionHistoryState(getSessionHistory())
+    if (!agentFinished) return
+
+    if (!agentRunning || !sessionId || agentFinished.session_id !== sessionId) {
       clearFinished()
+      return
     }
-  }, [agentFinished, agentRunning, clearFinished])
+
+    finalizeAgentRun(agentFinished)
+    clearFinished()
+  }, [agentFinished, agentRunning, sessionId, finalizeAgentRun, clearFinished])
+
+  // Poll active session status so the UI still finishes if the websocket event is missed.
+  useEffect(() => {
+    if (!agentRunning || !sessionId) return
+
+    let cancelled = false
+
+    const pollStatus = async () => {
+      try {
+        const data = await getAgentStatus(sessionId)
+        if (cancelled || data?.error) return
+        if (data.status === 'completed' || data.status === 'error') {
+          finalizeAgentRun(data)
+        }
+      } catch {
+        // Ignore transient polling failures; websocket remains the primary path.
+      }
+    }
+
+    pollStatus()
+    const id = window.setInterval(pollStatus, 2000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [agentRunning, sessionId, finalizeAgentRun])
 
   // Auto-scroll timeline
   useEffect(() => {
@@ -286,8 +337,10 @@ export default function Workbench() {
     setError('')
     clearSteps()
     clearLogs()
+    clearFinished()
     setCompletionData(null)
     setStarting(true)
+    handledCompletionSession.current = null
 
     try {
       if (!containerRunning) {
@@ -338,6 +391,7 @@ export default function Workbench() {
     }
     setAgentRunning(false)
     setSessionId(null)
+    sessionStartTime.current = null
   }
 
   /** Downloads current logs as a timestamped .txt file via a temporary Blob URL. */
@@ -371,6 +425,30 @@ export default function Workbench() {
       addToast('Logs copied to clipboard', 'success')
     } catch {
       addToast('Failed to copy logs', 'error')
+    }
+  }
+
+  /** Copies the current timeline (step list) as plain text to the clipboard. */
+  const handleCopyTimeline = async () => {
+    if (steps.length === 0) return
+    const lines = steps.map(step => {
+      const ts = formatTime(step.timestamp)
+      const action = ACTION_LABEL_MAP[step.action?.action] || step.action?.action || 'Unknown'
+      const parts = [`#${step.step_number}`, `[${ts}]`, action]
+      if (step.action?.target) parts.push(`→ ${step.action.target}`)
+      if (step.action?.text && step.action.action !== 'done') parts.push(`"${step.action.text}"`)
+      if (step.action?.coordinates) parts.push(`@[${step.action.coordinates.join(', ')}]`)
+      const head = parts.join(' ')
+      const detail = []
+      if (step.action?.reasoning) detail.push(`  ${step.action.reasoning}`)
+      if (step.error) detail.push(`  Error: ${step.error}`)
+      return detail.length ? `${head}\n${detail.join('\n')}` : head
+    })
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'))
+      addToast('Timeline copied to clipboard', 'success')
+    } catch {
+      addToast('Failed to copy timeline', 'error')
     }
   }
 
@@ -694,6 +772,9 @@ ${logs.map(l => `<tr><td>${formatTime(l.timestamp)}</td><td>${esc(l.level)}</td>
           <div className="wb-timeline-section">
             <div className="wb-panel-header">
               <h3>{showHistory ? 'Session History' : `Timeline (${steps.length})`}</h3>
+              {!showHistory && (
+                <button className="wb-download-btn" onClick={handleCopyTimeline} disabled={steps.length === 0} title="Copy timeline to clipboard" aria-label="Copy timeline"><Copy size={14} /></button>
+              )}
               <button onClick={() => setShowHistory(!showHistory)} className="wb-clear-btn" aria-label={showHistory ? 'Show timeline' : 'Show session history'}>
                 {showHistory ? 'Timeline' : <History size={14} />}
               </button>

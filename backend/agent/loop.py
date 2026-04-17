@@ -132,18 +132,55 @@ class AgentLoop:
         return err
 
     async def run(self) -> AgentSession:
-        """Execute the full agent loop. Returns the final session state."""
+        """Execute the full agent loop. Returns the final session state.
+
+        Orchestration (preflight → execute → finalize) is expressed as a
+        LangGraph ``StateGraph`` with an in-memory checkpointer. The CU
+        engine itself, provider clients, and desktop executor are
+        untouched — they run inside the ``execute`` node exactly as
+        before.
+        """
         self.session.status = SessionStatus.RUNNING
         self._emit_log("info", f"Agent starting — task: {self.session.task}")
         self._emit_log("info", f"Model: {self.session.model} | Max steps: {self.session.max_steps} | Mode: {self._mode} | Engine: {self._engine} | Provider: {self._provider} | Target: {self._execution_target}")
 
-        # Pre-flight: check agent service health
-        healthy = await check_service_health()
-        if not healthy:
-            self._emit_log("warning", "Agent service not responding, will retry during execution")
+        from backend.agent.graph import build_agent_graph
 
-        # Delegate to the native Computer Use protocol engine
-        return await self._run_computer_use_engine()
+        async def _preflight_node(state: dict) -> dict:
+            healthy = await check_service_health()
+            if not healthy:
+                self._emit_log(
+                    "warning",
+                    "Agent service not responding, will retry during execution",
+                )
+            return {"healthy": healthy, "status": "running"}
+
+        async def _execute_node(state: dict) -> dict:
+            # Delegates to the native CU protocol engine. ``_run_computer_use_engine``
+            # sets ``self.session.status`` to COMPLETED or ERROR on its own.
+            await self._run_computer_use_engine()
+            return {"status": self.session.status.value}
+
+        async def _finalize_node(state: dict) -> dict:
+            # Persist a screenshot-stripped snapshot of the session into
+            # graph state so the sqlite checkpointer becomes the source
+            # of truth for post-run status/history lookups.
+            snapshot = self.session.model_dump(
+                mode="json",
+                exclude={"steps": {"__all__": {"screenshot_b64"}}},
+            )
+            return {"session_snapshot": snapshot}
+
+        graph = build_agent_graph(_preflight_node, _execute_node, _finalize_node)
+        await graph.ainvoke(
+            {
+                "session_id": self.session.session_id,
+                "task": self.session.task,
+                "max_steps": self.session.max_steps,
+            },
+            config={"configurable": {"thread_id": self.session.session_id}},
+        )
+        return self.session
 
     # ── Computer Use engine delegation ────────────────────────────────────
 
@@ -246,16 +283,12 @@ class AgentLoop:
                 data={"type": "safety_confirmation", "explanation": explanation,
                       "session_id": self.session.session_id},
             )
-            # Use the asyncio.Event from server.py's safety infrastructure.
-            # The /api/agent/safety-confirm endpoint signals the event.
-            from backend.server import _safety_events, _safety_decisions
+            # The /api/agent/safety-confirm endpoint signals the shared
+            # event; both sides read/write the same registry.
+            from backend.agent import safety as safety_registry
             sid = self.session.session_id
-            evt = _safety_events.get(sid)
-            if evt is None:
-                evt = asyncio.Event()
-                _safety_events[sid] = evt
-            else:
-                evt.clear()
+            evt = safety_registry.get_or_create_event(sid)
+            evt.clear()
 
             # We are running inside an async context, so schedule a waiter
             # task and block on a threading event for the synchronous
@@ -267,11 +300,11 @@ class AgentLoop:
             async def _wait_for_decision():
                 try:
                     await asyncio.wait_for(evt.wait(), timeout=60.0)
-                    result_holder[0] = _safety_decisions.pop(sid, False)
+                    result_holder[0] = safety_registry.decisions.pop(sid, False)
                 except asyncio.TimeoutError:
                     result_holder[0] = False
                 finally:
-                    _safety_events.pop(sid, None)
+                    safety_registry.events.pop(sid, None)
                     done_flag.set()
 
             try:
@@ -280,8 +313,7 @@ class AgentLoop:
                 done_flag.wait(timeout=65.0)
             except Exception:
                 self._emit_log("warning", "Safety confirmation timed out, denying action")
-                _safety_events.pop(sid, None)
-                _safety_decisions.pop(sid, None)
+                safety_registry.clear(sid)
                 return False
 
             decision = result_holder[0]
