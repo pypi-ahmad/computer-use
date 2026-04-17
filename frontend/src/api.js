@@ -105,6 +105,11 @@ export async function stopAgent(sessionId) {
   return request(`/agent/stop/${sessionId}`, { method: 'POST' })
 }
 
+/** Fetches the current or recently-finished status for an agent session. */
+export async function getAgentStatus(sessionId) {
+  return request(`/agent/status/${sessionId}`)
+}
+
 /** Fetches API key availability/source for each provider. */
 export async function getKeyStatuses() {
   return request('/keys/status')

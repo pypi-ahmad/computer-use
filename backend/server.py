@@ -8,6 +8,7 @@ import logging
 import os
 import time
 import uuid
+from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,10 +19,18 @@ from backend.engine import _load_allowed_models_json
 from pydantic import BaseModel, Field
 from backend.models import (
     AgentAction,
+    AgentSession,
+    SessionStatus,
     StartTaskRequest,
     TaskStatusResponse,
 )
 from backend.agent.loop import AgentLoop
+from backend.agent.graph import (
+    init_runtime,
+    load_session_snapshot,
+    shutdown_runtime,
+)
+from backend.agent import safety as safety_registry
 from backend.agent.screenshot import capture_screenshot, check_service_health
 from backend.docker_manager import (
     build_image,
@@ -64,6 +73,12 @@ app.add_middleware(
 # Security constants
 _MAX_CONCURRENT_SESSIONS = 3
 _MAX_STEPS_HARD_CAP = 200
+
+# Sessions database (LangGraph sqlite checkpointer). Override with CUA_SESSIONS_DB.
+_SESSIONS_DB_PATH = os.getenv(
+    "CUA_SESSIONS_DB",
+    str(Path.home() / ".computer-use" / "sessions.sqlite"),
+)
 
 # ── Allowed models (single source of truth: backend/allowed_models.json) ──────
 
@@ -114,6 +129,15 @@ async def on_startup():
     logger.info("CUA backend starting — model=%s, agent_service=%s, mode=%s",
                 config.gemini_model, config.agent_service_url, config.agent_mode)
 
+    # Initialise the LangGraph sqlite checkpointer — this is the
+    # persistent store for recently finished sessions.
+    try:
+        Path(_SESSIONS_DB_PATH).parent.mkdir(parents=True, exist_ok=True)
+        await init_runtime(_SESSIONS_DB_PATH)
+        logger.info("Session checkpointer ready at %s", _SESSIONS_DB_PATH)
+    except Exception:
+        logger.exception("Failed to initialise session checkpointer")
+
     # Validate tool parity on startup
     try:
         validate_tool_parity()
@@ -132,6 +156,11 @@ async def on_shutdown():
     _active_tasks.clear()
     _active_loops.clear()
 
+    try:
+        await shutdown_runtime()
+    except Exception:
+        logger.exception("Error shutting down session checkpointer")
+
     logger.info("CUA backend shut down")
 
 # ── In-memory state ──────────────────────────────────────────────────────────
@@ -140,18 +169,38 @@ _active_loops: dict[str, AgentLoop] = {}
 _active_tasks: dict[str, asyncio.Task] = {}
 _ws_clients: list[WebSocket] = []
 
-# Maps session_id → asyncio.Event that _run_computer_use_engine can await.
-# The companion dict stores the user's decision (True = confirm, False = deny).
-_safety_events: dict[str, asyncio.Event] = {}
-_safety_decisions: dict[str, bool] = {}
-
 
 def _cleanup_session(sid: str) -> None:
     """Remove bookkeeping for a session (tasks, loops, safety state)."""
     _active_tasks.pop(sid, None)
     _active_loops.pop(sid, None)
-    _safety_events.pop(sid, None)
-    _safety_decisions.pop(sid, None)
+    safety_registry.clear(sid)
+
+
+async def _get_session_snapshot(session_id: str) -> AgentSession | None:
+    """Return active or persisted session state for status/history calls.
+
+    Active runs are served from ``_active_loops``. Once a run finishes
+    and its entry is cleaned up, the LangGraph sqlite checkpointer
+    becomes the source of truth (populated by the ``finalize`` node
+    inside :class:`AgentLoop`).
+    """
+    loop = _active_loops.get(session_id)
+    if loop:
+        return loop.session
+
+    try:
+        snapshot = await load_session_snapshot(session_id)
+    except Exception:
+        logger.exception("Failed to load session snapshot — session_id=%s", session_id)
+        return None
+    if snapshot is None:
+        return None
+    try:
+        return AgentSession.model_validate(snapshot)
+    except Exception:
+        logger.exception("Invalid session snapshot — session_id=%s", session_id)
+        return None
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -368,7 +417,17 @@ async def api_start_agent(req: StartTaskRequest):
 
     async def _run_and_notify():
         """Run the agent loop then broadcast a finish event to all WS clients."""
-        session = await loop.run()
+        try:
+            session = await loop.run()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Agent session crashed — session_id=%s", loop.session_id)
+            loop.session.status = SessionStatus.ERROR
+            session = loop.session
+
+        # Finished-session retention is handled by the LangGraph sqlite
+        # checkpointer (written by the ``finalize`` node inside the loop).
         await _broadcast("agent_finished", {
             "session_id": loop.session_id,
             "status": session.status.value,
@@ -424,11 +483,10 @@ async def api_agent_status(session_id: str):
     """Return the current status of an agent session."""
     if not _is_valid_uuid(session_id):
         return {"error": "Invalid session_id"}
-    loop = _active_loops.get(session_id)
-    if not loop:
+    session = await _get_session_snapshot(session_id)
+    if not session:
         return {"error": "Session not found"}
 
-    session = loop.session
     last_action: AgentAction | None = None
     if session.steps:
         last_action = session.steps[-1].action
@@ -443,8 +501,6 @@ async def api_agent_status(session_id: str):
 
 
 # ── Safety Confirmation for CU Engine ─────────────────────────────────────────
-
-# Safety event/decision dicts are defined above with other in-memory state.
 
 
 class SafetyConfirmRequest(BaseModel):
@@ -526,7 +582,8 @@ async def api_agent_safety_confirm(req: SafetyConfirmRequest):
     ``safety_confirmation`` event via WebSocket.  The frontend displays
     a dialog and calls this endpoint with the user's decision.
 
-    The AgentLoop can check ``_safety_events[session_id]`` to unblock.
+    The AgentLoop awaits an event in :mod:`backend.agent.safety` which
+    this endpoint signals.
     """
     sid = req.session_id
     if not _is_valid_uuid(sid):
@@ -535,12 +592,8 @@ async def api_agent_safety_confirm(req: SafetyConfirmRequest):
         return {"error": "Session not found"}
 
     # Store the decision and signal the waiting loop
-    _safety_decisions[sid] = req.confirm
-    evt = _safety_events.get(sid)
-    if evt is None:
-        evt = asyncio.Event()
-        _safety_events[sid] = evt
-    evt.set()
+    safety_registry.decisions[sid] = req.confirm
+    safety_registry.get_or_create_event(sid).set()
 
     logger.info("AUDIT safety_confirm — session_id=%s confirm=%s", sid, req.confirm)
     return {"session_id": sid, "confirmed": req.confirm}
@@ -551,11 +604,11 @@ async def api_agent_history(session_id: str):
     """Return the full step history for a session (without screenshots)."""
     if not _is_valid_uuid(session_id):
         return {"error": "Invalid session_id"}
-    loop = _active_loops.get(session_id)
-    if not loop:
+    session = await _get_session_snapshot(session_id)
+    if not session:
         return {"error": "Session not found"}
 
-    steps = [s.model_dump(exclude={"screenshot_b64"}) for s in loop.session.steps]
+    steps = [s.model_dump(exclude={"screenshot_b64"}) for s in session.steps]
     return {"session_id": session_id, "steps": steps}
 
 
