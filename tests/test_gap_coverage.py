@@ -606,3 +606,76 @@ class TestRunAndNotifyOrdering:
         assert broadcast_idx < cleanup_idx, (
             "cleanup must run AFTER the awaited broadcast"
         )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# P2 — agent_service exposes one _SUBPROCESS_TIMEOUT and uses it uniformly
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class TestAgentServiceSubprocessTimeout:
+    def test_module_exports_single_timeout_constant(self):
+        import importlib.util
+        from pathlib import Path
+
+        path = Path(__file__).parent.parent / "docker" / "agent_service.py"
+        src = path.read_text(encoding="utf-8")
+        assert "_SUBPROCESS_TIMEOUT = 10" in src, (
+            "agent_service.py must define a single _SUBPROCESS_TIMEOUT constant"
+        )
+
+    def test_no_ad_hoc_short_subprocess_timeouts(self):
+        """All xdotool/scrot/wmctrl/xclip calls must reference the constant.
+
+        The only acceptable hard-coded literal is the 30 s shell-exec ceiling
+        in run_command, which has its own documented user-facing timeout.
+        """
+        import re
+        from pathlib import Path
+
+        path = Path(__file__).parent.parent / "docker" / "agent_service.py"
+        src = path.read_text(encoding="utf-8")
+        hits = [
+            m.group(0) for m in re.finditer(r"timeout=\d+", src)
+            if m.group(0) != "timeout=30"
+        ]
+        assert hits == [], (
+            f"Non-uniform subprocess timeouts remain: {hits}. "
+            "All short-op timeouts must use _SUBPROCESS_TIMEOUT."
+        )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# P3 — RateLimiter eviction is tightened
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class TestRateLimiterEviction:
+    def test_evict_to_is_tightened(self):
+        from backend.server import _RateLimiter
+
+        assert _RateLimiter._EVICT_TO <= 256, (
+            "P3: _EVICT_TO must be tightened to ≤ 256"
+        )
+        assert _RateLimiter._EVICT_THRESHOLD < _RateLimiter._HARD_KEY_CEILING, (
+            "P3: eviction must trigger before ceiling is reached"
+        )
+        assert _RateLimiter._EVICT_THRESHOLD >= int(
+            0.85 * _RateLimiter._HARD_KEY_CEILING
+        ), "P3: eviction threshold should be ≥ 0.85 × ceiling (around 0.9×)"
+
+    def test_flood_is_bounded_below_ceiling(self):
+        from backend.server import _RateLimiter
+
+        limiter = _RateLimiter(max_calls=1_000_000, window_seconds=60.0)
+        # Flood with 5× ceiling unique IPs — each is a separate key.
+        for i in range(_RateLimiter._HARD_KEY_CEILING * 5):
+            limiter.allow(f"ip-{i}")
+        # Must never exceed the eviction threshold (strictly below the hard
+        # ceiling) — tighter than the previous behaviour which only evicted
+        # on reaching the ceiling itself.
+        assert len(limiter._calls) <= _RateLimiter._EVICT_THRESHOLD, (
+            f"Post-eviction map size {len(limiter._calls)} exceeded threshold "
+            f"{_RateLimiter._EVICT_THRESHOLD}"
+        )
+        assert len(limiter._calls) < _RateLimiter._HARD_KEY_CEILING

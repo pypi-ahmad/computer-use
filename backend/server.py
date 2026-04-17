@@ -343,8 +343,15 @@ for _m in _CU_ALLOWED_MODELS:
 
 class _RateLimiter:
     """Simple sliding-window rate limiter keyed by caller identity (e.g. IP)."""
+    # Hard ceilings on the in-memory bucket map (P3).
+    # Eviction triggers at ``_EVICT_THRESHOLD`` (90 % of the ceiling) so a
+    # spoofed-IP flood can't transiently bloat the dict up to 2× ``_EVICT_TO``
+    # between sweeps. After eviction we keep only ``_EVICT_TO`` most recently
+    # active keys, which is aggressive enough that sustained abuse cannot
+    # inflate memory beyond ~1 KB per live key × ceiling.
     _HARD_KEY_CEILING = 1024
-    _EVICT_TO = 512
+    _EVICT_THRESHOLD = 921  # ≈ 0.9 × _HARD_KEY_CEILING
+    _EVICT_TO = 256
 
     def __init__(self, max_calls: int, window_seconds: float):
         """Configure the limiter with *max_calls* per *window_seconds* per key."""
@@ -363,14 +370,14 @@ class _RateLimiter:
         self._calls[key] = bucket
         # Bounded-memory eviction. First try the cheap filter (idle-key
         # drop), then apply a hard ceiling so a spoofed-IP flood can't
-        # sustain >1024 entries indefinitely — we keep the 512 most
-        # recently active keys and discard the rest.
-        if len(self._calls) > self._HARD_KEY_CEILING:
+        # sustain high-volume entries indefinitely — we keep the
+        # ``_EVICT_TO`` most recently active keys and discard the rest.
+        if len(self._calls) > self._EVICT_THRESHOLD:
             self._calls = {
                 k: v for k, v in self._calls.items()
                 if v and now - v[-1] < self._window
             }
-            if len(self._calls) > self._HARD_KEY_CEILING:
+            if len(self._calls) > self._EVICT_TO:
                 # Keep the _EVICT_TO most-recently-active keys.
                 kept = sorted(
                     self._calls.items(),
