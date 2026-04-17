@@ -4,7 +4,9 @@ const API_BASE = '/api'
 /**
  * Internal fetch wrapper that handles JSON/text response parsing and error normalization.
  * @param {string} path - API path appended to API_BASE.
- * @param {RequestInit} [options={}] - Fetch options (method, body, etc.).
+ * @param {RequestInit} [options={}] - Fetch options (method, body, etc.). Pass
+ *   `options.signal` from an AbortController to cancel the request on unmount
+ *   or when the user navigates away.
  * @returns {Promise<any>} Parsed JSON object or plain text.
  * @throws {Error} On non-2xx responses, with the response body as the message.
  */
@@ -30,18 +32,18 @@ async function request(path, options = {}) {
 }
 
 /** Fetches the current Docker container status from the backend. */
-export async function getContainerStatus() {
-  return request('/container/status')
+export async function getContainerStatus(signal) {
+  return request('/container/status', { signal })
 }
 
 /** Sends a POST request to start the Docker container. */
-export async function startContainer() {
-  return request('/container/start', { method: 'POST' })
+export async function startContainer(signal) {
+  return request('/container/start', { method: 'POST', signal })
 }
 
 /** Sends a POST request to stop the Docker container. */
-export async function stopContainer() {
-  return request('/container/stop', { method: 'POST' })
+export async function stopContainer(signal) {
+  return request('/container/stop', { method: 'POST', signal })
 }
 
 /**
@@ -56,9 +58,7 @@ export async function stopContainer() {
  * @param {string} params.provider - AI provider ('google' | 'anthropic' | 'openai').
  * @param {string} [params.engine='computer_use'] - Execution engine.
  * @param {string} [params.executionTarget='docker'] - Execution target.
- * @returns {Promise<{session_id?: string, error?: string}>}
- */
-export async function startAgent({ task, apiKey, model, maxSteps, mode, provider, engine = 'computer_use', executionTarget = 'docker', reasoningEffort = null }) {
+ * @returns {Promise<{session_id?: string, error?: string}>}, signal) {
   try {
     const body = {
       task,
@@ -73,6 +73,9 @@ export async function startAgent({ task, apiKey, model, maxSteps, mode, provider
     if (reasoningEffort) body.reasoning_effort = reasoningEffort
     const res = await fetch(`${API_BASE}/agent/start`, {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
@@ -99,36 +102,38 @@ export async function startAgent({ task, apiKey, model, maxSteps, mode, provider
 
 /**
  * Stops a running agent session.
- * @param {string} sessionId - The session ID returned by `startAgent`.
+ * @param {AbortSignal} [signal]
  */
-export async function stopAgent(sessionId) {
-  return request(`/agent/stop/${sessionId}`, { method: 'POST' })
+export async function stopAgent(sessionId, signal) {
+  return request(`/agent/stop/${sessionId}`, { method: 'POST', signal })
 }
 
 /** Fetches the current or recently-finished status for an agent session. */
-export async function getAgentStatus(sessionId) {
-  return request(`/agent/status/${sessionId}`)
+export async function getAgentStatus(sessionId, signal) {
+  return request(`/agent/status/${sessionId}`, { signal })
 }
 
 /** Fetches API key availability/source for each provider. */
-export async function getKeyStatuses() {
-  return request('/keys/status')
+export async function getKeyStatuses(signal) {
+  return request('/keys/status', { signal })
 }
 
 /** Fetches the list of available AI models from the backend. */
-export async function getModels() {
-  return request('/models')
+export async function getModels(signal) {
+  return request('/models', { signal })
 }
 
 /**
  * Responds to a safety confirmation prompt for a running session.
  * @param {string} sessionId - Session ID.
  * @param {boolean} confirm - True to approve, false to deny.
+ * @param {AbortSignal} [signal]
  */
-export async function confirmSafety(sessionId, confirm) {
+export async function confirmSafety(sessionId, confirm, signal) {
   return request('/agent/safety-confirm', {
     method: 'POST',
     body: JSON.stringify({ session_id: sessionId, confirm }),
+    signal,
   })
 }
 
@@ -136,11 +141,14 @@ export async function confirmSafety(sessionId, confirm) {
  * Lightweight API key pre-validation.
  * @param {string} provider - Provider name.
  * @param {string} apiKey - Key to validate.
+ * @param {AbortSignal} [signal]
  * @returns {Promise<{valid: boolean, message: string}>}
  */
-export async function validateKey(provider, apiKey) {
+export async function validateKey(provider, apiKey, signal) {
   return request('/keys/validate', {
     method: 'POST',
+    body: JSON.stringify({ provider, api_key: apiKey }),
+    signal
     body: JSON.stringify({ provider, api_key: apiKey }),
   })
 }

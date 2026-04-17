@@ -40,8 +40,10 @@ class TestDockerManagerSecurity:
     def test_start_container_args_have_security_flags(self):
         """Verify the source code includes --security-opt and resource limits."""
         import inspect
-        from backend.docker_manager import start_container
-        source = inspect.getsource(start_container)
+        from backend import docker_manager
+        # Flags live in the inner locked helper; inspect the whole module
+        # so the assertion stays robust if the split changes again.
+        source = inspect.getsource(docker_manager)
         assert "--security-opt=no-new-privileges:true" in source
         assert "--memory=4g" in source
         assert "--cpus=2" in source
