@@ -11,3 +11,5 @@ opencv-python-headless>=4.10.0
 numpy>=2.0.0
 python-multipart>=0.0.12
 python-dotenv>=1.0.0
+langgraph>=0.2.60
+langgraph-checkpoint-sqlite>=2.0.0
