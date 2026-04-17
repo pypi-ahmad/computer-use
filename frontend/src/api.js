@@ -58,7 +58,13 @@ export async function stopContainer(signal) {
  * @param {string} params.provider - AI provider ('google' | 'anthropic' | 'openai').
  * @param {string} [params.engine='computer_use'] - Execution engine.
  * @param {string} [params.executionTarget='docker'] - Execution target.
- * @returns {Promise<{session_id?: string, error?: string}>}, signal) {
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<{session_id?: string, error?: string}>}
+ */
+export async function startAgent(
+  { task, apiKey, model, maxSteps, mode, provider, engine = 'computer_use', executionTarget = 'docker', reasoningEffort },
+  signal,
+) {
   try {
     const body = {
       task,
@@ -75,9 +81,7 @@ export async function stopContainer(signal) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      signal
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      signal,
     })
 
     const ct = res.headers.get('content-type') || ''
@@ -148,7 +152,6 @@ export async function validateKey(provider, apiKey, signal) {
   return request('/keys/validate', {
     method: 'POST',
     body: JSON.stringify({ provider, api_key: apiKey }),
-    signal
-    body: JSON.stringify({ provider, api_key: apiKey }),
+    signal,
   })
 }
