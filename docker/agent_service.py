@@ -66,6 +66,14 @@ WINDOW_NORMALIZE_H = int(os.environ.get("CUA_WINDOW_H", "760"))
 
 _MAX_BODY_SIZE = 1_000_000  # 1 MB request body limit
 
+# Uniform subprocess timeout (seconds) for all synchronous xdotool / scrot /
+# wmctrl / xrandr / xprop calls (P2). A single constant keeps bounds
+# predictable — any short-running X11 helper that hangs longer than this is
+# treated as a failure. The shell-exec path in run_command uses its own
+# explicit 30 s timeout because user-supplied commands can legitimately
+# block longer than an X11 helper.
+_SUBPROCESS_TIMEOUT = 10
+
 # Dangerous shell patterns blocked in run_command (defense-in-depth)
 _BLOCKED_CMD_PATTERNS = (
     "rm -rf /",
@@ -150,7 +158,7 @@ def _screenshot_desktop() -> str:
     """Capture the full Xvfb display via scrot (works with any app)."""
     subprocess.run(
         ["scrot", "-z", "-o", "/tmp/screenshot.png"],
-        check=True, timeout=5,
+        check=True, timeout=_SUBPROCESS_TIMEOUT,
     )
     with open("/tmp/screenshot.png", "rb") as f:
         return base64.b64encode(f.read()).decode("ascii")
@@ -174,7 +182,7 @@ def _xdo(args: list[str]) -> str:
 
     result = subprocess.run(
         ["xdotool"] + args,
-        capture_output=True, text=True, timeout=10,
+        capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
     )
     if result.returncode != 0:
         raise RuntimeError(f"xdotool {' '.join(args)} failed: {result.stderr.strip()}")
@@ -198,7 +206,7 @@ def _xdo_search_window_ids(identifier: str) -> list[str]:
         ["xdotool", "search", "--name", identifier],
         capture_output=True,
         text=True,
-        timeout=5,
+        timeout=_SUBPROCESS_TIMEOUT,
     )
     if result.returncode != 0:
         return []
@@ -231,7 +239,7 @@ def _xdo_normalize_window(wid: str) -> str:
             check=False,
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=_SUBPROCESS_TIMEOUT,
         )
         _xdo(["windowmove", wid, str(WINDOW_NORMALIZE_X), str(WINDOW_NORMALIZE_Y)])
         _xdo(["windowsize", wid, str(WINDOW_NORMALIZE_W), str(WINDOW_NORMALIZE_H)])
@@ -456,7 +464,7 @@ def _xdo_window_maximize(identifier: str) -> dict:
     """Maximise the window matching *identifier* via wmctrl."""
     wids = _xdo(["search", "--name", identifier]).split("\n")
     if wids and wids[0]:
-        subprocess.run(["wmctrl", "-ir", wids[0], "-b", "add,maximized_vert,maximized_horz"], check=False, timeout=5)
+        subprocess.run(["wmctrl", "-ir", wids[0], "-b", "add,maximized_vert,maximized_horz"], check=False, timeout=_SUBPROCESS_TIMEOUT)
         return {"success": True, "message": f"Maximized window: {identifier}"}
     return {"success": False, "message": f"Window not found: {identifier}"}
 
@@ -609,7 +617,7 @@ def _dismiss_known_modals() -> list[str]:
     try:
         result = subprocess.run(
             ["wmctrl", "-l"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
         )
         if result.returncode != 0:
             return dismissed
@@ -624,7 +632,7 @@ def _dismiss_known_modals() -> list[str]:
                 if modal_title.lower() in title.lower():
                     subprocess.run(
                         ["wmctrl", "-c", title],
-                        capture_output=True, text=True, timeout=3,
+                        capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
                     )
                     dismissed.append(title)
                     logger.info("Auto-dismissed modal window: %s", title)
@@ -733,7 +741,7 @@ def _is_terminal_focused() -> bool:
     try:
         name = subprocess.run(
             ["xdotool", "getwindowfocus", "getwindowname"],
-            capture_output=True, text=True, timeout=3,
+            capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
         ).stdout.strip().lower()
         _TERMINAL_HINTS = (
             "terminal", "xterm", "konsole", "alacritty", "kitty",
@@ -748,7 +756,7 @@ def _xdo_paste(text: str) -> dict:
     """Copy text to clipboard then paste via Ctrl+V (or Ctrl+Shift+V in terminals)."""
     subprocess.run(
         ["xclip", "-selection", "clipboard"],
-        input=text.encode(), check=True, timeout=5,
+        input=text.encode(), check=True, timeout=_SUBPROCESS_TIMEOUT,
     )
     if _is_terminal_focused():
         _xdo(["key", "--clearmodifiers", "ctrl+shift+v"])
@@ -859,7 +867,7 @@ def _wmctrl_close_window(identifier: str) -> dict:
     """Gracefully close a window via EWMH using wmctrl -c."""
     result = subprocess.run(
         ["wmctrl", "-c", identifier],
-        capture_output=True, text=True, timeout=5,
+        capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
     )
     if result.returncode == 0:
         return {"success": True, "message": f"Closed window: {identifier}"}
@@ -870,7 +878,7 @@ def _xdo_screenshot_full() -> str:
     """Capture the full screen via scrot."""
     subprocess.run(
         ["scrot", "-z", "-o", "/tmp/full.png"],
-        check=True, timeout=5,
+        check=True, timeout=_SUBPROCESS_TIMEOUT,
     )
     with open("/tmp/full.png", "rb") as f:
         return base64.b64encode(f.read()).decode("ascii")
@@ -880,7 +888,7 @@ def _xdo_screenshot_region(x: int, y: int, w: int, h: int) -> str:
     """Capture a region of the screen via scrot."""
     subprocess.run(
         ["scrot", "-z", "-o", "-a", f"{x},{y},{w},{h}", "/tmp/region.png"],
-        check=True, timeout=5,
+        check=True, timeout=_SUBPROCESS_TIMEOUT,
     )
     with open("/tmp/region.png", "rb") as f:
         return base64.b64encode(f.read()).decode("ascii")
@@ -915,7 +923,7 @@ def _wmctrl_focus_window(identifier: str) -> dict:
     """Focus a window by partial title match using wmctrl (no xdotool)."""
     result = subprocess.run(
         ["wmctrl", "-a", identifier],
-        capture_output=True, text=True, timeout=5,
+        capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
     )
     if result.returncode == 0:
         return {"success": True, "message": f"Focused window: {identifier}"}
@@ -926,7 +934,7 @@ def _wmctrl_search_window(identifier: str) -> dict:
     """Search for windows by title via wmctrl -l."""
     result = subprocess.run(
         ["wmctrl", "-l"],
-        capture_output=True, text=True, timeout=5,
+        capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
     )
     if result.returncode != 0:
         return {"success": False, "message": f"wmctrl list failed: {result.stderr.strip()}"}
@@ -941,7 +949,7 @@ def _wmctrl_minimize_window(identifier: str) -> dict:
     # wmctrl doesn't have a direct minimize; use -b add,hidden
     result = subprocess.run(
         ["wmctrl", "-r", identifier, "-b", "add,hidden"],
-        capture_output=True, text=True, timeout=5,
+        capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
     )
     if result.returncode == 0:
         return {"success": True, "message": f"Minimized window: {identifier}"}
@@ -952,7 +960,7 @@ def _wmctrl_maximize_window(identifier: str) -> dict:
     """Maximize a window by title using wmctrl."""
     result = subprocess.run(
         ["wmctrl", "-r", identifier, "-b", "add,maximized_vert,maximized_horz"],
-        capture_output=True, text=True, timeout=5,
+        capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
     )
     if result.returncode == 0:
         return {"success": True, "message": f"Maximized window: {identifier}"}
@@ -964,7 +972,7 @@ def _wmctrl_move_window(identifier: str, x: int, y: int) -> dict:
     # wmctrl -r <name> -e <gravity>,<x>,<y>,<w>,<h>  (-1 = unchanged)
     result = subprocess.run(
         ["wmctrl", "-r", identifier, "-e", f"0,{x},{y},-1,-1"],
-        capture_output=True, text=True, timeout=5,
+        capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
     )
     if result.returncode == 0:
         return {"success": True, "message": f"Moved window {identifier} to ({x},{y})"}
@@ -975,7 +983,7 @@ def _wmctrl_resize_window(identifier: str, w: int, h: int) -> dict:
     """Resize a window using wmctrl."""
     result = subprocess.run(
         ["wmctrl", "-r", identifier, "-e", f"0,-1,-1,{w},{h}"],
-        capture_output=True, text=True, timeout=5,
+        capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
     )
     if result.returncode == 0:
         return {"success": True, "message": f"Resized window {identifier} to {w}x{h}"}
