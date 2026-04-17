@@ -461,6 +461,13 @@ Set as environment variables or in a `.env` file in the project root. The `.env`
 | `CORS_ORIGINS` | *(see below)* | Comma-separated allowed CORS origins |
 | `VNC_PASSWORD` | *(unset)* | Optional VNC authentication password (uncomment in `docker-compose.yml`) |
 | `VITE_API_PORT` | `8000` | Frontend Vite dev server proxy target port |
+| `CUA_WS_TOKEN` | — | Optional shared secret for `/ws`. If set, clients must connect with `?token=<value>`; mismatches are closed with code **4401**. |
+| `CUA_SESSIONS_DB` | `~/.cua/sessions.sqlite` | Path to the LangGraph sqlite checkpointer. Must end in `.sqlite` and live under `$HOME` or a system temp dir. |
+| `CUA_SESSIONS_DB_ALLOW_DIR` | — | Additional absolute directory allowed to hold the sessions db. |
+| `CUA_SESSIONS_MAX_THREADS` | `1000` | Maximum persisted LangGraph threads; oldest rows are swept at startup. |
+| `CUA_UI_SETTLE_DELAY` | `0.25` | Seconds to pause after UI-mutating actions before screenshotting. |
+| `CUA_SCREENSHOT_SETTLE_DELAY` | `0.15` | Seconds to wait before a screenshot capture. |
+| `CUA_POST_ACTION_SCREENSHOT_DELAY` | `0.4` | Seconds to wait after an action before re-screenshotting. |
 
 **CORS defaults** (when `CORS_ORIGINS` is not set):
 `http://localhost:5173`, `http://127.0.0.1:5173`, `http://localhost:3000`, `http://127.0.0.1:3000`
@@ -490,6 +497,8 @@ All endpoints are served by the FastAPI backend. Interactive docs are available 
 | `GET` | `/api/agent/status/{session_id}` | Session status and last action |
 | `GET` | `/api/agent/history/{session_id}` | Full step history (excludes screenshots) |
 | `POST` | `/api/agent/safety-confirm` | Respond to a safety confirmation prompt |
+
+> **Versioning:** Every path above is also reachable under `/api/v1/...` (e.g., `GET /api/v1/health`). The v1 alias is a stable ASGI-level path rewrite and will remain frozen once breaking changes land under a future `/api/v2/...` prefix.
 
 ### `POST /api/agent/start` — Request Body
 
@@ -545,11 +554,16 @@ Connect to `ws://127.0.0.1:8000/ws` (or proxied via Vite at `ws://127.0.0.1:3000
 | `step` | `{ step: StepRecord }` | Step completion (action, timestamp, error; excludes `screenshot_b64` and `raw_model_response`) |
 | `log` | `{ log: LogEntry }` | Backend log message (may include `data.type: "safety_confirmation"` for safety prompts) |
 | `agent_finished` | `{ session_id, status, steps }` | Agent loop terminated |
+| `auth_failed` | `{ provider, status }` | Agent service rejected screenshot streaming credentials (401/403). Broadcast once per container lifecycle. |
 | `pong` | `{}` | Heartbeat response |
+
+All outbound events are validated against Pydantic models in [`backend/ws_schema.py`](../backend/ws_schema.py). Schema drift is logged as a warning on the backend but still broadcast to clients. TypeScript consumers can use the discriminated-union types in [`frontend/src/types/ws.d.ts`](../frontend/src/types/ws.d.ts) with the `isWSEvent()` guard.
 
 ### Client → Server
 
 Send `{ "type": "ping" }` every 15 seconds to maintain the connection.
+
+If the backend was started with `CUA_WS_TOKEN=<secret>`, clients must connect with `ws://127.0.0.1:8000/ws?token=<secret>` — mismatches or missing tokens are closed immediately with code **4401**.
 
 ---
 
@@ -612,9 +626,14 @@ VITE_API_PORT=8001 npm run dev
 
 ### Session state lost after restart
 
-- All active session state is **in-memory only** — restarting the backend clears running sessions
-- Session history (task, model, status) persists in the browser's `localStorage` (up to 50 entries)
-- The Docker container persists independently of the backend
+- **Active loops** are in-memory only — restarting the backend aborts any running sessions.
+- **Completed-session state** is checkpointed by LangGraph to the sqlite file at `CUA_SESSIONS_DB` (default `~/.cua/sessions.sqlite`); only the `CUA_SESSIONS_MAX_THREADS` most recent threads are retained.
+- Session history (task, model, status) persists in the browser's `localStorage` (up to 50 entries).
+- The Docker container persists independently of the backend.
+
+### `/ws` closes immediately with code 4401
+
+- `CUA_WS_TOKEN` is set on the backend. Connect with `ws://127.0.0.1:8000/ws?token=<your-secret>`; otherwise unset the variable.
 
 ### Cost estimate shows nothing
 

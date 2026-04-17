@@ -9,7 +9,7 @@
 [![React 19](https://img.shields.io/badge/React-19-61DAFB.svg?logo=react&logoColor=black)](https://react.dev)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Docker](https://img.shields.io/badge/Docker-Ubuntu_24.04-2496ED.svg?logo=docker&logoColor=white)](https://docker.com)
-[![Tests](https://img.shields.io/badge/Tests-118_passing-brightgreen.svg)](#-testing)
+[![Tests](https://img.shields.io/badge/Tests-156_passing-brightgreen.svg)](#-testing)
 [![Gemini](https://img.shields.io/badge/Gemini-CU_Native-4285F4.svg?logo=google&logoColor=white)](#-supported-models)
 [![Claude](https://img.shields.io/badge/Claude-CU_Native-CC785C.svg?logo=anthropic&logoColor=white)](#-supported-models)
 [![OpenAI](https://img.shields.io/badge/OpenAI-CU_Native-10A37F.svg?logo=openai&logoColor=white)](#-supported-models)
@@ -75,7 +75,12 @@ A single-page React workbench provides real-time desktop streaming (WebSocket sc
 | **Theming** | Dark and light themes with persistent toggle via `data-theme` attribute |
 | **Onboarding** | First-run welcome overlay with 3-step guide, dismissible and remembered via localStorage |
 | **Accessibility** | Minimum 12 px font sizes, SVG icons via `lucide-react`, `aria-label` on all icon-only buttons, keyboard-navigable timeline, focus-visible outlines |
-| **Hermetic Test Suite** | 118 unit tests using mocks/patches — no running container or network required |
+| **Hermetic Test Suite** | 156 unit tests using mocks/patches — no running container or network required |
+| **Structured Observability** | Session-scoped log correlation via `session_id` ContextVar (propagates across `asyncio.to_thread`) + per-turn duration metrics (`turn_duration_ms`) for every provider |
+| **Outbound WS Schema** | Pydantic-validated WebSocket events (`backend/ws_schema.py`) with matching TypeScript discriminated union (`frontend/src/types/ws.d.ts`); schema drift logged as warnings |
+| **Versioned REST API** | Every `/api/*` route is also reachable at `/api/v1/*` via an ASGI path-rewrite middleware — zero decorator duplication |
+| **Optional WebSocket Auth** | Shared-secret gate on `/ws` via `CUA_WS_TOKEN` env var (close code 4401 on mismatch) |
+| **Non-Root Container** | Docker image runs as UID 1000 (`agent` user) with least-privilege file permissions |
 
 ---
 
@@ -225,8 +230,10 @@ Defined in `backend/allowed_models.json` — the single source of truth for both
 | `GET` | `/api/agent/status/{session_id}` | Session status + last action |
 | `GET` | `/api/agent/history/{session_id}` | Full step history (without screenshots) |
 | `POST` | `/api/agent/safety-confirm` | Respond to CU safety confirmation prompt |
-| `GET` | `/vnc/{path}` | noVNC static file proxy |
+| `GET` | `/vnc/{path}` | noVNC static file proxy (whitelisted paths only) |
 | `WS` | `/vnc/websockify` | noVNC WebSocket proxy to container |
+
+> **Versioning:** Every path above is also reachable under `/api/v1/...` (e.g., `GET /api/v1/health`). The v1 prefix is a stable alias implemented as an ASGI middleware; new breaking changes will land under a future `/api/v2/...` prefix while `/api/v1/...` remains frozen.
 
 ### `POST /api/agent/start` — Request Body
 
@@ -253,9 +260,12 @@ Defined in `backend/allowed_models.json` — the single source of truth for both
 | `log` | `{ log: LogEntry }` | Agent log message |
 | `step` | `{ step: StepRecord }` | Step completion (action, timestamp, error) |
 | `agent_finished` | `{ session_id, status, steps }` | Agent loop terminated |
+| `auth_failed` | `{ provider, status }` | Agent service rejected screenshot streaming credentials (401/403) |
 | `pong` | `{}` | Heartbeat response |
 
-**Client → Server:** `{ "type": "ping" }` every 15 seconds for keepalive.
+All outbound events are validated against Pydantic models in [`backend/ws_schema.py`](backend/ws_schema.py). The matching TypeScript discriminated-union types live in [`frontend/src/types/ws.d.ts`](frontend/src/types/ws.d.ts).
+
+**Client → Server:** `{ "type": "ping" }` every 15 seconds for keepalive. If `CUA_WS_TOKEN` is set on the backend, connect with `ws://…/ws?token=<value>` (mismatches are closed with code 4401).
 
 ---
 
@@ -412,6 +422,13 @@ Keys are resolved in priority order — the first non-empty value wins:
 | `PORT` | `8000` | Backend server port |
 | `DEBUG` | `false` | Enable debug logging + Uvicorn reload |
 | `CORS_ORIGINS` | *(see below)* | Comma-separated allowed CORS origins |
+| `CUA_WS_TOKEN` | — | Optional shared secret for `/ws`. If set, clients must send `?token=<value>` or the connection is closed with 4401 |
+| `CUA_SESSIONS_DB` | `~/.cua/sessions.sqlite` | Path for the LangGraph sqlite checkpointer. Must end in `.sqlite` and live under `$HOME` or a system temp dir (override with `CUA_SESSIONS_DB_ALLOW_DIR`) |
+| `CUA_SESSIONS_DB_ALLOW_DIR` | — | Additional absolute directory allowed to contain the sessions db |
+| `CUA_SESSIONS_MAX_THREADS` | `1000` | Hard cap on persisted LangGraph threads; oldest rows are swept at startup |
+| `CUA_UI_SETTLE_DELAY` | `0.25` | Seconds to pause after UI-mutating actions |
+| `CUA_SCREENSHOT_SETTLE_DELAY` | `0.15` | Seconds to wait before capturing a screenshot |
+| `CUA_POST_ACTION_SCREENSHOT_DELAY` | `0.4` | Seconds to wait after an action before re-screenshotting |
 
 **Frontend** (set in system environment before running `npm run dev`):
 
@@ -524,7 +541,7 @@ For in-depth operational documentation — including feature-by-feature breakdow
 | | |
 |---|---|
 | **Framework** | pytest |
-| **Tests** | 118 tests across 10 files |
+| **Tests** | 156 tests across 11 files |
 | **Hermetic** | All tests use mocks/patches — no running container or network required |
 
 ### Running Tests
@@ -548,8 +565,9 @@ pytest tests/ -q               # Quick summary
 | `test_models.py` | ActionType enum, Pydantic model validation, StructuredError |
 | `test_model_policy.py` | `allowed_models.json` integrity, model endpoint, provider rejection |
 | `test_prompts.py` | Prompt separation (Gemini vs Claude vs OpenAI), viewport injection, drift detection |
-| `test_server_validation.py` | API input validation: engines, providers, models, desktop-only mode enforcement, rate limiting, safety |
+| `test_server_validation.py` | API input validation: engines, providers, models, desktop-only mode enforcement, rate limiting, safety, v1 alias, WS schema drift |
 | `test_docker_security.py` | Container security settings validation |
+| `test_gap_coverage.py` | Coverage for noVNC proxy error paths, docker_manager branches, Claude refusal stop_reason, agent handler auth (including hmac), `/api/v1/*` alias, and outbound WS schema validation |
 
 ---
 
@@ -688,8 +706,14 @@ computer-use/
 │   ├── server.py                  # FastAPI routes, WebSocket, noVNC proxy, key validation
 │   ├── config.py                  # Config dataclass, env loading, API key resolution
 │   ├── models.py                  # ActionType enum, Pydantic request/response models
-│   ├── engine.py                  # ComputerUseEngine, GeminiCUClient, ClaudeCUClient,
-│   │                              #   OpenAICUClient, DesktopExecutor
+│   ├── engine/                    # CU engine package (split per-provider)
+│   │   ├── __init__.py            # ComputerUseEngine, DesktopExecutor, run loops
+│   │   ├── gemini.py              # GeminiCUClient re-export
+│   │   ├── claude.py              # ClaudeCUClient + helpers re-export
+│   │   └── openai.py              # OpenAICUClient + helpers re-export
+│   ├── _models_loader.py          # Shared loader for allowed_models.json
+│   ├── logging_ctx.py             # session_id ContextVar + log filter
+│   ├── ws_schema.py               # Pydantic models for outbound WS events
 │   ├── allowed_models.json        # Canonical model allowlist (6 models, 3 providers)
 │   ├── engine_capabilities.json   # Engine capability schema (v3.0)
 │   ├── engine_capabilities.py     # Schema loader for engine_capabilities.json
@@ -726,6 +750,8 @@ computer-use/
 │       │   ├── Workbench.jsx      # Canonical single-page: sidebar + screen + timeline + logs
 │       │   ├── Workbench.css      # 3-pane layout, responsive breakpoints, theme toggle
 │       │   └── NotFound.jsx       # 404 page with link to /
+│       ├── types/
+│       │   └── ws.d.ts            # Discriminated-union WSEvent TypeScript types
 │       └── utils/
 │           ├── formatTime.js      # Timestamp → locale time string
 │           ├── pricing.js         # Centralized approximate model pricing + estimateCost()
@@ -758,8 +784,8 @@ computer-use/
 
 ### Current Limitations
 
-- **No persistent storage** — session state lives in memory; lost on backend restart. localStorage-based session history captures task/model/status but not full replay data.
-- **No authentication** — designed for local development, not production deployment
+- **Minimal persistence** — LangGraph checkpointer persists per-session state to sqlite (`CUA_SESSIONS_DB`) with a row-cap sweep at startup; in-flight WebSocket state and active loops still live in memory.
+- **No authentication by default** — designed for local development. A shared-secret gate on `/ws` is available via `CUA_WS_TOKEN`; REST endpoints remain unauthenticated.
 - **Single container** — one Docker container serves all sessions; no per-session isolation
 - **Preview models** — Gemini, Claude, and OpenAI CU capabilities are in preview/beta and subject to change
 - **No CI/CD pipeline** — tests run locally; no automated GitHub Actions workflow yet
