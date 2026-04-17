@@ -80,17 +80,27 @@ def _lookup_claude_cu_config(model_id: str) -> tuple[str | None, str | None]:
 
 def _to_plain_dict(value: Any) -> dict[str, Any]:
     """Convert SDK objects or typed dict-like values into a plain dict."""
-    if isinstance(value, dict):
-        return dict(value)
-    if hasattr(value, "model_dump"):
-        return value.model_dump()
-    if hasattr(value, "dict"):
-        return value.dict()
-    if hasattr(value, "__dict__"):
-        return {
-            key: item for key, item in vars(value).items()
-            if not key.startswith("_")
-        }
+    def _to_plain_value(item: Any) -> Any:
+        if isinstance(item, dict):
+            return {key: _to_plain_value(value) for key, value in item.items()}
+        if isinstance(item, list):
+            return [_to_plain_value(value) for value in item]
+        if isinstance(item, tuple):
+            return [_to_plain_value(value) for value in item]
+        if hasattr(item, "model_dump"):
+            return _to_plain_value(item.model_dump())
+        if hasattr(item, "dict"):
+            return _to_plain_value(item.dict())
+        if hasattr(item, "__dict__"):
+            return {
+                key: _to_plain_value(value) for key, value in vars(item).items()
+                if not key.startswith("_")
+            }
+        return item
+
+    plain = _to_plain_value(value)
+    if isinstance(plain, dict):
+        return plain
     return {}
 
 
@@ -128,6 +138,49 @@ def _build_openai_computer_call_output(
     if acknowledged_safety_checks:
         payload["acknowledged_safety_checks"] = acknowledged_safety_checks
     return payload
+
+
+def _sanitize_openai_response_item_for_replay(item: Any) -> dict[str, Any]:
+    """Strip output-only fields before replaying Responses items statelessly."""
+    item_dict = _to_plain_dict(item)
+    item_type = str(item_dict.get("type", ""))
+
+    if item_type == "message":
+        sanitized: dict[str, Any] = {
+            "type": "message",
+            "role": item_dict.get("role", "assistant"),
+            "content": [],
+        }
+        for part in item_dict.get("content", []) or []:
+            if not isinstance(part, dict):
+                continue
+            part_dict = dict(part)
+            part_dict.pop("annotations", None)
+            part_dict.pop("logprobs", None)
+            sanitized["content"].append(part_dict)
+        if item_dict.get("phase") is not None:
+            sanitized["phase"] = item_dict["phase"]
+        return sanitized
+
+    if item_type == "computer_call":
+        sanitized = {
+            "type": "computer_call",
+            "call_id": item_dict.get("call_id"),
+        }
+        if item_dict.get("action") is not None:
+            sanitized["action"] = item_dict["action"]
+        if item_dict.get("actions") is not None:
+            sanitized["actions"] = item_dict["actions"]
+        return sanitized
+
+    item_dict.pop("status", None)
+    item_dict.pop("pending_safety_checks", None)
+    if isinstance(item_dict.get("content"), list):
+        for part in item_dict["content"]:
+            if isinstance(part, dict):
+                part.pop("annotations", None)
+                part.pop("logprobs", None)
+    return item_dict
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -1467,7 +1520,9 @@ class OpenAICUClient:
                 "input": next_input,
                 "tools": [{"type": "computer"}],
                 "parallel_tool_calls": False,
+                "include": ["reasoning.encrypted_content"],
                 "reasoning": {"effort": self._reasoning_effort},
+                "store": False,
                 "truncation": "auto",
             }
             if self._system_prompt:
@@ -1561,22 +1616,14 @@ class OpenAICUClient:
 
             # Build next input: include response output items + tool call results
             # ZDR orgs cannot use previous_response_id, so we replay full context.
-            # Response output items contain output-only fields (e.g. "status")
-            # that are NOT accepted as input parameters; strip them.
+            # Response output items contain output-only fields (e.g. "status"
+            # and "pending_safety_checks") that are NOT accepted as input.
             # Note: preserve "phase" on message items – GPT-5.4 needs it to
             # distinguish intermediate commentary from the final answer.
             response_output = list(getattr(response, "output", []) or [])
             next_input = []
             for item in response_output:
-                item_dict = _to_plain_dict(item)
-                item_dict.pop("status", None)
-                # Nested content parts (e.g. message.content) may also carry
-                # output-only fields like "annotations".
-                if isinstance(item_dict.get("content"), list):
-                    for part in item_dict["content"]:
-                        if isinstance(part, dict):
-                            part.pop("annotations", None)
-                next_input.append(item_dict)
+                next_input.append(_sanitize_openai_response_item_for_replay(item))
             next_input.extend(tool_outputs)
         else:
             final_text = f"OpenAI CU reached the turn limit ({turn_limit}) without a final response."
