@@ -63,24 +63,83 @@ class Config:
 
     @classmethod
     def from_env(cls) -> Config:
-        """Create a Config instance from environment variables."""
+        """Create a Config instance from environment variables.
+
+        Numeric values read from the environment are clamped to safe
+        ranges so a typo or hostile override can't produce e.g. a
+        multi-gigapixel virtual display, an out-of-range TCP port, or
+        an agent that runs for 2^31 steps.
+        """
         return cls(
             gemini_model=os.getenv("GEMINI_MODEL", cls.gemini_model),
             container_name=os.getenv("CONTAINER_NAME", cls.container_name),
             agent_service_host=os.getenv("AGENT_SERVICE_HOST", cls.agent_service_host),
-            agent_service_port=int(os.getenv("AGENT_SERVICE_PORT", str(cls.agent_service_port))),
+            agent_service_port=_clamp_int(
+                "AGENT_SERVICE_PORT", cls.agent_service_port, lo=1, hi=65535,
+            ),
             agent_mode=os.getenv("AGENT_MODE", cls.agent_mode),
-            screen_width=int(os.getenv("SCREEN_WIDTH", str(cls.screen_width))),
-            screen_height=int(os.getenv("SCREEN_HEIGHT", str(cls.screen_height))),
-            max_steps=int(os.getenv("MAX_STEPS", str(cls.max_steps))),
-            step_timeout=float(os.getenv("STEP_TIMEOUT", str(cls.step_timeout))),
+            screen_width=_clamp_int(
+                "SCREEN_WIDTH", cls.screen_width, lo=640, hi=4096,
+            ),
+            screen_height=_clamp_int(
+                "SCREEN_HEIGHT", cls.screen_height, lo=480, hi=4096,
+            ),
+            max_steps=_clamp_int(
+                "MAX_STEPS", cls.max_steps, lo=1, hi=200,
+            ),
+            step_timeout=_clamp_float(
+                "STEP_TIMEOUT", cls.step_timeout, lo=1.0, hi=600.0,
+            ),
             host=os.getenv("HOST", cls.host),
-            port=int(os.getenv("PORT", str(cls.port))),
+            port=_clamp_int("PORT", cls.port, lo=1, hi=65535),
             debug=os.getenv("DEBUG", "").lower() in ("1", "true", "yes"),
-            ui_settle_delay=float(os.getenv("CUA_UI_SETTLE_DELAY", str(cls.ui_settle_delay))),
-            screenshot_settle_delay=float(os.getenv("CUA_SCREENSHOT_SETTLE_DELAY", str(cls.screenshot_settle_delay))),
-            post_action_screenshot_delay=float(os.getenv("CUA_POST_ACTION_SCREENSHOT_DELAY", str(cls.post_action_screenshot_delay))),
+            ui_settle_delay=_clamp_float(
+                "CUA_UI_SETTLE_DELAY", cls.ui_settle_delay, lo=0.0, hi=30.0,
+            ),
+            screenshot_settle_delay=_clamp_float(
+                "CUA_SCREENSHOT_SETTLE_DELAY", cls.screenshot_settle_delay, lo=0.0, hi=30.0,
+            ),
+            post_action_screenshot_delay=_clamp_float(
+                "CUA_POST_ACTION_SCREENSHOT_DELAY", cls.post_action_screenshot_delay, lo=0.0, hi=60.0,
+            ),
         )
+
+
+def _clamp_int(var: str, default: int, *, lo: int, hi: int) -> int:
+    """Read ``var`` as int, falling back to ``default``, then clamp to [lo, hi].
+
+    Non-integer or out-of-range values are logged and coerced into range
+    so a hostile/typo env value can't produce pathological behaviour
+    (e.g. ``SCREEN_WIDTH=2147483647`` or ``PORT=-1``).
+    """
+    raw = os.getenv(var)
+    if raw is None or raw == "":
+        return max(lo, min(default, hi))
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("%s=%r is not an integer; using default %d", var, raw, default)
+        return max(lo, min(default, hi))
+    clamped = max(lo, min(value, hi))
+    if clamped != value:
+        logger.warning("%s=%d out of [%d, %d]; clamped to %d", var, value, lo, hi, clamped)
+    return clamped
+
+
+def _clamp_float(var: str, default: float, *, lo: float, hi: float) -> float:
+    """Read ``var`` as float with the same clamping semantics as :func:`_clamp_int`."""
+    raw = os.getenv(var)
+    if raw is None or raw == "":
+        return max(lo, min(default, hi))
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning("%s=%r is not a float; using default %s", var, raw, default)
+        return max(lo, min(default, hi))
+    clamped = max(lo, min(value, hi))
+    if clamped != value:
+        logger.warning("%s=%s out of [%s, %s]; clamped to %s", var, value, lo, hi, clamped)
+    return clamped
 
 
 # Singleton
