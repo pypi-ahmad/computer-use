@@ -9,7 +9,7 @@
 [![React 19](https://img.shields.io/badge/React-19-61DAFB.svg?logo=react&logoColor=black)](https://react.dev)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Docker](https://img.shields.io/badge/Docker-Ubuntu_24.04-2496ED.svg?logo=docker&logoColor=white)](https://docker.com)
-[![Tests](https://img.shields.io/badge/Tests-156_passing-brightgreen.svg)](#-testing)
+[![Tests](https://img.shields.io/badge/Tests-188_passing-brightgreen.svg)](#-testing)
 [![Gemini](https://img.shields.io/badge/Gemini-CU_Native-4285F4.svg?logo=google&logoColor=white)](#-supported-models)
 [![Claude](https://img.shields.io/badge/Claude-CU_Native-CC785C.svg?logo=anthropic&logoColor=white)](#-supported-models)
 [![OpenAI](https://img.shields.io/badge/OpenAI-CU_Native-10A37F.svg?logo=openai&logoColor=white)](#-supported-models)
@@ -75,7 +75,7 @@ A single-page React workbench provides real-time desktop streaming (WebSocket sc
 | **Theming** | Dark and light themes with persistent toggle via `data-theme` attribute |
 | **Onboarding** | First-run welcome overlay with 3-step guide, dismissible and remembered via localStorage |
 | **Accessibility** | Minimum 12 px font sizes, SVG icons via `lucide-react`, `aria-label` on all icon-only buttons, keyboard-navigable timeline, focus-visible outlines |
-| **Hermetic Test Suite** | 156 unit tests using mocks/patches — no running container or network required |
+| **Hermetic Test Suite** | 188 unit tests using mocks/patches — no running container or network required |
 | **Structured Observability** | Session-scoped log correlation via `session_id` ContextVar (propagates across `asyncio.to_thread`) + per-turn duration metrics (`turn_duration_ms`) for every provider |
 | **Outbound WS Schema** | Pydantic-validated WebSocket events (`backend/ws_schema.py`) with matching TypeScript discriminated union (`frontend/src/types/ws.d.ts`); schema drift logged as warnings |
 | **Versioned REST API** | Every `/api/*` route is also reachable at `/api/v1/*` via an ASGI path-rewrite middleware — zero decorator duplication |
@@ -541,7 +541,7 @@ For in-depth operational documentation — including feature-by-feature breakdow
 | | |
 |---|---|
 | **Framework** | pytest |
-| **Tests** | 156 tests across 11 files |
+| **Tests** | 188 tests across 12 files (includes `test_gap_coverage.py` with audit regression tests) |
 | **Hermetic** | All tests use mocks/patches — no running container or network required |
 
 ### Running Tests
@@ -612,7 +612,25 @@ An HTTP server running inside the container handling desktop automation and scre
 
 ---
 
-## 🔧 Troubleshooting
+## �️ Recent Hardening (Audit Remediation)
+
+This codebase has been through a systematic multi-phase audit covering security (S), reliability (R), performance (P), code quality (Q), testing (T), DevOps (D), and UX (U). All findings are fixed and covered by regression tests in `tests/test_gap_coverage.py`.
+
+| Group | Findings | What was fixed |
+|---|---|---|
+| **S — Security** | S1, S2, S3 | Middleware order audit, `CORS_ORIGINS` validation, numeric env vars (`MAX_STEPS`, `STEP_TIMEOUT`, `CUA_SESSIONS_MAX_THREADS`, etc.) clamped at parse time to reject negative/zero/absurd values |
+| **R — Reliability** | R1–R5 | Docker-start race lock; VNC-proxy message timeouts; screenshot-loop error envelope; broadcast awaited before cleanup; `_cleanup_session` fully isolated per-session so one failing step can't poison siblings |
+| **P — Performance** | P1–P3 | Screenshot dedup/hash fast-path; uniform `_SUBPROCESS_TIMEOUT` across every `docker` subprocess call; tighter rate-limiter eviction window (`_EVICT_TO`) |
+| **Q — Quality** | Q1, Q2 | `min_length=1` on `AgentStartRequest.task`; the 1,992-line `backend/engine.py` split into focused per-provider modules under `backend/engine/` (gemini, claude, openai, shared base) |
+| **T — Testing** | T1–T3 | New regression tests for concurrent-session cap, screenshot HTTP timeout, and safety-confirmation 60 s timeout auto-deny |
+| **D — DevOps** | D1–D4 | `docker/entrypoint.sh` now verifies XFCE / x11vnc / websockify via `kill -0` + `pgrep` after background launch; `docker/Dockerfile` apt install split into core → python → desktop tiers for stable layer caching; `docker-compose.yml` healthcheck `start_period: 30s`; `cap_drop: [ALL]` + ephemeral `tmpfs` for `/tmp` and `/var/run` |
+| **U — UX / Frontend** | U1–U3 | Every `api.js` export forwards an `AbortSignal`; `useWebSocket` reconnect backoff adds 0.5–1.0× jitter to break synchronized reconnect storms; Workbench container-status poll wires an `AbortController` so unmount cancels in-flight fetches (no `setState` on dead components) |
+
+Regression coverage for every finding above lives in [`tests/test_gap_coverage.py`](tests/test_gap_coverage.py) and runs with the default `pytest tests/` invocation.
+
+---
+
+## �🔧 Troubleshooting
 
 ### Agent service unreachable / timeouts
 

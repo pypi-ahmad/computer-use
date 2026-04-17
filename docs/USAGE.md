@@ -45,6 +45,7 @@ Comprehensive reference for setting up, running, and operating the CUA (Computer
 - [Keyboard Shortcuts](#keyboard-shortcuts)
 - [Troubleshooting](#troubleshooting)
 - [Limitations](#limitations)
+- [Recent Hardening Changes](#recent-hardening-changes)
 
 ---
 
@@ -649,3 +650,55 @@ VITE_API_PORT=8001 npm run dev
 - **Desktop mode only.** The `mode` parameter only accepts `"desktop"`. Browser-only mode is not supported.
 - **Cost estimates are approximate.** Token counts are rough averages, and pricing entries may not cover all models in the allowlist.
 - **No persistent storage.** Files created inside the Docker container are lost when the container is removed. Mount a volume if you need to preserve work.
+
+---
+
+## Recent Hardening Changes
+
+The codebase has been through a systematic audit covering security, reliability, performance, code quality, testing, DevOps, and UX. All findings have corresponding regression tests in `tests/test_gap_coverage.py`.
+
+### Security (S)
+
+- **S1 — Middleware order.** CORS / path-rewrite / rate-limit middleware order audited and pinned so auth-relevant headers are evaluated before rate limiting.
+- **S2 — CORS origin validation.** `CORS_ORIGINS` entries are validated (scheme + host) at startup. Malformed entries are rejected instead of silently allowed.
+- **S3 — Numeric env var clamping.** `MAX_STEPS`, `STEP_TIMEOUT`, `CUA_SESSIONS_MAX_THREADS`, and related numeric variables are clamped at parse time — negative, zero, or absurdly large values are rejected instead of being accepted.
+
+### Reliability (R)
+
+- **R1 — Screenshot streaming loop.** Wrapped in a structured error envelope so a single HTTP failure no longer cancels the stream.
+- **R2 — VNC proxy timeouts.** The noVNC WebSocket proxy now applies per-message timeouts to both directions to prevent half-open hangs.
+- **R3 — Docker start race lock.** Container start/stop paths are protected by an `asyncio.Lock` so concurrent `POST /api/container/start` requests cannot race.
+- **R4 — Broadcast before cleanup.** `agent_finished` WebSocket events are awaited before `_cleanup_session` runs, so frontends always observe a final state.
+- **R5 — Per-session cleanup isolation.** Each step of `_cleanup_session` is wrapped in try/except so a failing step cannot leak siblings across different sessions.
+
+### Performance (P)
+
+- **P1 — Screenshot dedup.** Duplicate consecutive frames are short-circuited via a fast hash check to reduce WebSocket bandwidth and frontend repaint cost.
+- **P2 — Uniform subprocess timeout.** Every `docker` subprocess call uses a single `_SUBPROCESS_TIMEOUT` constant. No more silent hangs.
+- **P3 — Rate-limit eviction.** `_EVICT_TO` window tightened so stale per-IP counters are swept promptly.
+
+### Code Quality (Q)
+
+- **Q1 — Task validation.** `AgentStartRequest.task` enforces `min_length=1` at the Pydantic layer (plus the existing 10,000-char max).
+- **Q2 — Engine package split.** The 1,992-line `backend/engine.py` is now `backend/engine/` with focused per-provider modules (`gemini.py`, `claude.py`, `openai.py`) plus a shared base.
+
+### Testing (T)
+
+- **T1 — Concurrent session cap.** Regression test that a 4th concurrent start is rejected with 429.
+- **T2 — Screenshot timeout.** Regression test that a hung agent-service screenshot call returns a structured timeout error instead of hanging the loop.
+- **T3 — Safety confirmation timeout.** Regression test that no response within 60 s auto-denies the action and logs a `timed out` warning.
+
+### DevOps (D)
+
+- **D1 — Entrypoint service verification.** `docker/entrypoint.sh` verifies XFCE, `x11vnc` (daemonized with `-bg`), and `websockify` after launch via `kill -0` and `pgrep` — a silent crash now fails the container start loudly instead of being missed.
+- **D2 — Dockerfile layer split.** The single monolithic `apt-get install` is split into three tiers (core tools → Python runtime → desktop + apps) so desktop-app churn no longer invalidates the core+python layers.
+- **D3 — Healthcheck start_period.** `docker-compose.yml` healthcheck uses `start_period: 30s`, which comfortably covers the X11 + DBus + XFCE boot window.
+- **D4 — Compose hardening.** Added `cap_drop: [ALL]` (the agent runs as non-root UID 1000 and needs only userspace syscalls) and `tmpfs` mounts for `/tmp` (512 MB) and `/var/run` (16 MB). `read_only: true` is intentionally **not** set — Chrome profile seeding, DBus session bus, `x11vnc` log, and websockify all expect writable paths. That tightening is tracked as a future H1 follow-up.
+
+### UX / Frontend (U)
+
+- **U1 — AbortController support.** Every `api.js` export (`request`, `startAgent`, `validateKey`, etc.) accepts a trailing `signal` parameter and forwards it to `fetch`. Stopping an agent or unmounting a component now cancels in-flight requests instead of setting state on a dead component.
+- **U2 — WebSocket reconnect jitter.** `useWebSocket.js` multiplies the exponential backoff delay by `(0.5 + Math.random() * 0.5)` so multiple tabs/clients don't synchronize their reconnect attempts after a backend restart.
+- **U3 — Container-status poll cancellation.** The Workbench 5-second container-status interval runs inside an `AbortController` scope. Unmount cancels the in-flight fetch and `AbortError` is swallowed so no `setState` ever runs on an unmounted component.
+
+All of the above is covered by `tests/test_gap_coverage.py` and runs as part of `pytest tests/` (188 tests, all hermetic).
