@@ -11,7 +11,7 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -124,6 +124,31 @@ app.add_middleware(
     allow_headers=["Content-Type"],
 )
 
+
+# ── Security headers ──────────────────────────────────────────────────────────
+
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    # Conservative CSP; frontend bundles are served by the Vite dev server,
+    # not this backend. Tighten further if you ever serve HTML from here.
+    "Content-Security-Policy": (
+        "default-src 'none'; "
+        "connect-src 'self' ws: wss:; "
+        "frame-ancestors 'none'"
+    ),
+}
+
+
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    """Attach basic security headers to every HTTP response."""
+    response = await call_next(request)
+    for k, v in _SECURITY_HEADERS.items():
+        response.headers.setdefault(k, v)
+    return response
+
 # Security constants
 _MAX_CONCURRENT_SESSIONS = 3
 _MAX_STEPS_HARD_CAP = 200
@@ -145,27 +170,43 @@ for _m in _CU_ALLOWED_MODELS:
     _VALID_MODELS_BY_PROVIDER.setdefault(_m["provider"], set()).add(_m["model_id"])
 
 
-# ── Rate limiter (in-memory sliding window) ───────────────────────────────────
+# ── Rate limiter (in-memory sliding window, per-key) ──────────────────────────
 
 class _RateLimiter:
-    """Simple sliding-window rate limiter (no external deps)."""
+    """Simple sliding-window rate limiter keyed by caller identity (e.g. IP)."""
     def __init__(self, max_calls: int, window_seconds: float):
-        """Configure the limiter with *max_calls* per *window_seconds*."""
+        """Configure the limiter with *max_calls* per *window_seconds* per key."""
         self._max = max_calls
         self._window = window_seconds
-        self._calls: list[float] = []
+        self._calls: dict[str, list[float]] = {}
 
-    def allow(self) -> bool:
-        """Return True and record a call if under the rate limit."""
+    def allow(self, key: str = "_global") -> bool:
+        """Return True and record a call if *key* is under the rate limit."""
         now = time.monotonic()
-        self._calls = [t for t in self._calls if now - t < self._window]
-        if len(self._calls) >= self._max:
+        bucket = [t for t in self._calls.get(key, []) if now - t < self._window]
+        if len(bucket) >= self._max:
+            self._calls[key] = bucket
             return False
-        self._calls.append(now)
+        bucket.append(now)
+        self._calls[key] = bucket
+        # Opportunistic eviction of idle keys to bound memory
+        if len(self._calls) > 1024:
+            self._calls = {
+                k: v for k, v in self._calls.items()
+                if v and now - v[-1] < self._window
+            }
         return True
 
 
 _agent_start_limiter = _RateLimiter(max_calls=10, window_seconds=60.0)
+_validate_key_limiter = _RateLimiter(max_calls=20, window_seconds=60.0)
+
+
+def _client_ip(request: Request) -> str:
+    """Best-effort client IP extraction (falls back to 'unknown')."""
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
 
 
 def _is_valid_uuid(value: str) -> bool:
@@ -176,86 +217,6 @@ def _is_valid_uuid(value: str) -> bool:
     except (ValueError, AttributeError):
         return False
 
-
-@app.on_event("startup")
-async def on_startup():
-    """Run tool parity check and log configuration on startup."""
-    logger.info("CUA backend starting — model=%s, agent_service=%s, mode=%s",
-                config.gemini_model, config.agent_service_url, config.agent_mode)
-
-    # Initialise the LangGraph sqlite checkpointer — this is the
-    # persistent store for recently finished sessions.
-    try:
-        Path(_SESSIONS_DB_PATH).parent.mkdir(parents=True, exist_ok=True)
-        await init_runtime(_SESSIONS_DB_PATH)
-        logger.info("Session checkpointer ready at %s", _SESSIONS_DB_PATH)
-    except Exception:
-        logger.exception("Failed to initialise session checkpointer")
-
-    # Validate tool parity on startup
-    try:
-        validate_tool_parity()
-    except Exception as e:
-        logger.warning("Tool parity check failed: %s", e)
-
-
-@app.on_event("shutdown")
-async def on_shutdown():
-    """Cancel running agents."""
-    # Cancel all running agent tasks
-    for sid in list(_active_tasks.keys()):
-        task = _active_tasks.get(sid)
-        if task and not task.done():
-            task.cancel()
-    _active_tasks.clear()
-    _active_loops.clear()
-
-    try:
-        await shutdown_runtime()
-    except Exception:
-        logger.exception("Error shutting down session checkpointer")
-
-    logger.info("CUA backend shut down")
-
-@app.on_event("startup")
-async def on_startup():
-    """Run tool parity check and log configuration on startup."""
-    logger.info("CUA backend starting — model=%s, agent_service=%s, mode=%s",
-                config.gemini_model, config.agent_service_url, config.agent_mode)
-
-    # Initialise the LangGraph sqlite checkpointer — this is the
-    # persistent store for recently finished sessions.
-    try:
-        Path(_SESSIONS_DB_PATH).parent.mkdir(parents=True, exist_ok=True)
-        await init_runtime(_SESSIONS_DB_PATH)
-        logger.info("Session checkpointer ready at %s", _SESSIONS_DB_PATH)
-    except Exception:
-        logger.exception("Failed to initialise session checkpointer")
-
-    # Validate tool parity on startup
-    try:
-        validate_tool_parity()
-    except Exception as e:
-        logger.warning("Tool parity check failed: %s", e)
-
-
-@app.on_event("shutdown")
-async def on_shutdown():
-    """Cancel running agents."""
-    # Cancel all running agent tasks
-    for sid in list(_active_tasks.keys()):
-        task = _active_tasks.get(sid)
-        if task and not task.done():
-            task.cancel()
-    _active_tasks.clear()
-    _active_loops.clear()
-
-    try:
-        await shutdown_runtime()
-    except Exception:
-        logger.exception("Error shutting down session checkpointer")
-
-    logger.info("CUA backend shut down")
 
 # ── In-memory state ──────────────────────────────────────────────────────────
 
@@ -299,6 +260,9 @@ async def _get_session_snapshot(session_id: str) -> AgentSession | None:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+_broadcast_tasks: set[asyncio.Task] = set()
+
+
 async def _broadcast(event: str, data: dict) -> None:
     """Send a JSON message to all connected WebSocket clients."""
     msg = json.dumps({"event": event, **data})
@@ -309,7 +273,17 @@ async def _broadcast(event: str, data: dict) -> None:
         except Exception:
             stale.append(ws)
     for ws in stale:
-        _ws_clients.remove(ws)
+        try:
+            _ws_clients.remove(ws)
+        except ValueError:
+            pass
+
+
+def _schedule_broadcast(event: str, data: dict) -> None:
+    """Fire-and-forget broadcast whose task is tracked to prevent GC."""
+    task = asyncio.create_task(_broadcast(event, data))
+    _broadcast_tasks.add(task)
+    task.add_done_callback(_broadcast_tasks.discard)
 
 
 # ── REST Endpoints ────────────────────────────────────────────────────────────
@@ -359,9 +333,11 @@ async def set_agent_mode(body: dict):
     if mode != "desktop":
         return _error_response(400, "Browser mode is no longer supported. Use mode='desktop'.")
     url = f"{config.agent_service_url}/mode"
+    token = os.environ.get("AGENT_SERVICE_TOKEN", "").strip()
+    headers = {"X-Agent-Token": token} if token else None
     async with httpx.AsyncClient(timeout=5.0) as client:
         try:
-            resp = await client.post(url, json={"mode": mode})
+            resp = await client.post(url, json={"mode": mode}, headers=headers)
             return resp.json()
         except Exception:
             logger.exception("Failed to set agent mode")
@@ -422,11 +398,11 @@ async def api_screenshot():
 
 
 @app.post("/api/agent/start")
-async def api_start_agent(req: StartTaskRequest):
+async def api_start_agent(req: StartTaskRequest, request: Request):
     """Start a new agent session with input validation."""
 
-    # ── Rate limit ────────────────────────────────────────────────────
-    if not _agent_start_limiter.allow():
+    # ── Rate limit (per-IP) ─────────────────────────────────
+    if not _agent_start_limiter.allow(_client_ip(request)):
         return _error_response(429, "Rate limit exceeded — max 10 starts per minute")
 
     # ── Validate inputs ───────────────────────────────────────────────
@@ -486,16 +462,15 @@ async def api_start_agent(req: StartTaskRequest):
         provider=req.provider,
         execution_target=req.execution_target,
         reasoning_effort=reasoning_effort if req.provider == "openai" else None,
-        on_log=lambda entry: asyncio.ensure_future(
-            _broadcast("log", {"log": entry.model_dump()})
+        on_log=lambda entry: _schedule_broadcast(
+            "log", {"log": entry.model_dump()}
         ),
-        on_step=lambda step: asyncio.ensure_future(
-            _broadcast("step", {
-                "step": step.model_dump(exclude={"screenshot_b64", "raw_model_response"}),
-            })
+        on_step=lambda step: _schedule_broadcast(
+            "step",
+            {"step": step.model_dump(exclude={"screenshot_b64", "raw_model_response"})},
         ),
-        on_screenshot=lambda b64: asyncio.ensure_future(
-            _broadcast("screenshot", {"screenshot": b64})
+        on_screenshot=lambda b64: _schedule_broadcast(
+            "screenshot", {"screenshot": b64}
         ),
     )
 
@@ -602,11 +577,14 @@ class ValidateKeyRequest(BaseModel):
 
 
 @app.post("/api/keys/validate")
-async def api_validate_key(req: ValidateKeyRequest):
+async def api_validate_key(req: ValidateKeyRequest, request: Request):
     """Lightweight API key validation — makes a minimal call to the provider.
 
     Returns ``{valid: true/false, message: ...}``.  Never logs the raw key.
     """
+    if not _validate_key_limiter.allow(_client_ip(request)):
+        return _error_response(429, "Rate limit exceeded — max 20 validations per minute")
+
     if req.provider not in _VALID_PROVIDERS:
         return _error_response(400, f"Invalid provider: {req.provider}")
 

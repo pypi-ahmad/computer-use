@@ -45,6 +45,7 @@ SCREEN_HEIGHT = int(os.environ.get("SCREEN_HEIGHT", "900"))
 SERVICE_PORT = int(os.environ.get("AGENT_SERVICE_PORT", "9222"))
 DEFAULT_MODE = os.environ.get("AGENT_MODE", "desktop")
 ACTION_DELAY = float(os.environ.get("ACTION_DELAY", "0.05"))
+AGENT_SERVICE_TOKEN = os.environ.get("AGENT_SERVICE_TOKEN", "").strip()
 
 
 def _env_bool(name: str, default: bool = True) -> bool:
@@ -1026,10 +1027,26 @@ class AgentHandler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length)
         return json.loads(raw)
 
+    def _authorized(self) -> bool:
+        """Return True when shared-secret auth passes (or is disabled).
+
+        /health remains unauthenticated for container readiness probes.
+        """
+        if not AGENT_SERVICE_TOKEN:
+            return True  # auth disabled (dev / legacy)
+        if self.path == "/health" or self.path.startswith("/health?"):
+            return True
+        supplied = self.headers.get("X-Agent-Token", "")
+        import hmac
+        return hmac.compare_digest(supplied, AGENT_SERVICE_TOKEN)
+
     # ── GET ───────────────────────────────────────────────────────────────
 
     def do_GET(self):
         """Handle GET requests (/health, /screenshot)."""
+        if not self._authorized():
+            self._respond(401, {"error": "unauthorized"})
+            return
         if self.path == "/health":
             self._respond(200, {
                 "status": "ok",
@@ -1059,6 +1076,9 @@ class AgentHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         """Handle POST requests (/action, /mode)."""
+        if not self._authorized():
+            self._respond(401, {"error": "unauthorized"})
+            return
         body = self._read_body()
 
         if self.path == "/action":

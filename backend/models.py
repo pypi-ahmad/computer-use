@@ -92,12 +92,12 @@ class StepRecord(BaseModel):
 class AgentSession(BaseModel):
     """Full state of an agent run."""
     session_id: str
-    task: str
+    task: str = Field(max_length=10_000)
     status: SessionStatus = SessionStatus.IDLE
-    model: str = "gemini-3-flash-preview"
-    engine: str = "computer_use"
+    model: str = Field(default="gemini-3-flash-preview", max_length=64)
+    engine: str = Field(default="computer_use", max_length=20)
     steps: list[StepRecord] = Field(default_factory=list)
-    max_steps: int = 50
+    max_steps: int = Field(default=50, ge=1, le=200)
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 

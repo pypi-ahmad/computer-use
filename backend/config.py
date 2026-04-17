@@ -51,6 +51,11 @@ class Config:
     # WebSocket
     ws_screenshot_interval: float = 1.5
 
+    # Engine action timings (seconds)
+    ui_settle_delay: float = 0.3
+    screenshot_settle_delay: float = 0.12
+    post_action_screenshot_delay: float = 5.0
+
     @property
     def agent_service_url(self) -> str:
         """Full HTTP URL for the in-container agent service."""
@@ -72,6 +77,9 @@ class Config:
             host=os.getenv("HOST", cls.host),
             port=int(os.getenv("PORT", str(cls.port))),
             debug=os.getenv("DEBUG", "").lower() in ("1", "true", "yes"),
+            ui_settle_delay=float(os.getenv("CUA_UI_SETTLE_DELAY", str(cls.ui_settle_delay))),
+            screenshot_settle_delay=float(os.getenv("CUA_SCREENSHOT_SETTLE_DELAY", str(cls.screenshot_settle_delay))),
+            post_action_screenshot_delay=float(os.getenv("CUA_POST_ACTION_SCREENSHOT_DELAY", str(cls.post_action_screenshot_delay))),
         )
 
 
