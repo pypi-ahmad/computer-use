@@ -9,6 +9,7 @@ const MODEL_PRICING = {
   'gemini-3-flash-preview': { input: 0.15, output: 0.60 },
   'gemini-3.1-pro-preview': { input: 1.25, output: 5.00 },
   // Anthropic Claude
+  'claude-opus-4-7': { input: 5.00, output: 25.00 },
   'claude-sonnet-4-6': { input: 3.00, output: 15.00 },
   'claude-opus-4-6': { input: 15.00, output: 75.00 },
   // OpenAI

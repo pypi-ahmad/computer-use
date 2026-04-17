@@ -564,6 +564,15 @@ async def api_agent_history(session_id: str):
 
 _NOVNC_HTTP = "http://127.0.0.1:6080"
 _NOVNC_WS   = "ws://127.0.0.1:6080"
+_novnc_client: httpx.AsyncClient | None = None
+
+
+def _get_novnc_client() -> httpx.AsyncClient:
+    """Return a reusable httpx client for noVNC proxying."""
+    global _novnc_client
+    if _novnc_client is None or _novnc_client.is_closed:
+        _novnc_client = httpx.AsyncClient(timeout=10.0)
+    return _novnc_client
 
 
 @app.websocket("/vnc/websockify")
@@ -605,17 +614,17 @@ async def vnc_ws_proxy(ws: WebSocket):
 async def vnc_http_proxy(path: str):
     """Proxy noVNC static files from the container's websockify web server."""
     from starlette.responses import Response
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        try:
-            resp = await client.get(f"{_NOVNC_HTTP}/{path}")
-            content_type = resp.headers.get("content-type", "application/octet-stream")
-            return Response(
-                content=resp.content,
-                status_code=resp.status_code,
-                media_type=content_type,
-            )
-        except (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError, httpx.ReadError):
-            return Response(content="noVNC not available yet", status_code=502)
+    client = _get_novnc_client()
+    try:
+        resp = await client.get(f"{_NOVNC_HTTP}/{path}")
+        content_type = resp.headers.get("content-type", "application/octet-stream")
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            media_type=content_type,
+        )
+    except (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError, httpx.ReadError):
+        return Response(content="noVNC not available yet", status_code=502)
 
 
 # ── WebSocket ─────────────────────────────────────────────────────────────────
