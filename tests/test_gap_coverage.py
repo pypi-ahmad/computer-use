@@ -202,8 +202,10 @@ class TestClaudeRefusalBranch:
             client._client.beta.messages.create = MagicMock(return_value=fake_response)
 
             # Bypass resize to keep the test free of PIL decoding.
+            # After Q2 the class lives in ``backend.engine.claude`` and
+            # holds its own binding of ``resize_screenshot_for_claude``.
             with patch(
-                "backend.engine.resize_screenshot_for_claude",
+                "backend.engine.claude.resize_screenshot_for_claude",
                 return_value=(b"\x00", 800, 600),
             ):
                 logs: list[tuple[str, str]] = []
@@ -679,3 +681,71 @@ class TestRateLimiterEviction:
             f"{_RateLimiter._EVICT_THRESHOLD}"
         )
         assert len(limiter._calls) < _RateLimiter._HARD_KEY_CEILING
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Q1 — AgentSession.task and StartTaskRequest.task reject empty strings
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class TestTaskMinLength:
+    def test_agent_session_rejects_empty_task(self):
+        from pydantic import ValidationError
+        from backend.models import AgentSession
+
+        with pytest.raises(ValidationError):
+            AgentSession(session_id="sid", task="")
+
+    def test_start_task_request_rejects_empty_task(self):
+        from pydantic import ValidationError
+        from backend.models import StartTaskRequest
+
+        with pytest.raises(ValidationError):
+            StartTaskRequest(task="", mode="desktop", provider="gemini")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Q2 — engine package bodies are split across per-provider modules
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class TestEnginePackageSplit:
+    def test_client_classes_live_in_per_provider_modules(self):
+        from backend.engine import (
+            GeminiCUClient, ClaudeCUClient, OpenAICUClient,
+        )
+
+        assert GeminiCUClient.__module__ == "backend.engine.gemini", (
+            f"GeminiCUClient must live in backend.engine.gemini, "
+            f"not {GeminiCUClient.__module__}"
+        )
+        assert ClaudeCUClient.__module__ == "backend.engine.claude"
+        assert OpenAICUClient.__module__ == "backend.engine.openai"
+
+    def test_init_module_is_reduced_in_size(self):
+        """__init__.py should be well below the pre-split 1992 lines (Q2)."""
+        from pathlib import Path
+
+        path = Path(__file__).parent.parent / "backend" / "engine" / "__init__.py"
+        lines = path.read_text(encoding="utf-8").splitlines()
+        assert len(lines) < 1500, (
+            f"backend/engine/__init__.py still has {len(lines)} lines — "
+            "class bodies should be moved to per-provider files"
+        )
+
+    def test_backward_compatible_top_level_imports(self):
+        """Public names still importable from the package root."""
+        from backend.engine import (  # noqa: F401
+            Provider,
+            Environment,
+            SafetyDecision,
+            CUActionResult,
+            CUTurnRecord,
+            DesktopExecutor,
+            ComputerUseEngine,
+            GeminiCUClient,
+            ClaudeCUClient,
+            OpenAICUClient,
+            _prune_claude_context,
+            _prune_gemini_context,
+        )
