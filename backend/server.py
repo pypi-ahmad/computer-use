@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -126,12 +128,28 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(title="CUA — Computer Using Agent", version="1.0.0", lifespan=_lifespan)
 
-# CORS: restrict to local dev origins by default; override with CORS_ORIGINS env var
-_ALLOWED_ORIGINS = [
-    o.strip()
-    for o in os.getenv("CORS_ORIGINS", "").split(",")
-    if o.strip()
-] or [
+# CORS: restrict to local dev origins by default; override with CORS_ORIGINS env var.
+#
+# Each configured origin is validated against a conservative pattern
+# (scheme + host[:port], no path/query/fragment) before being accepted.
+# This prevents a typo or malicious env var from widening credential
+# scope to an arbitrary origin. Invalid entries are dropped with a
+# warning instead of silently accepted.
+_ORIGIN_RE = re.compile(r"^https?://[a-zA-Z0-9.\-_]+(?::\d{1,5})?$")
+
+
+def _parse_cors_origins(raw: str) -> list[str]:
+    candidates = [o.strip() for o in raw.split(",") if o.strip()]
+    accepted: list[str] = []
+    for o in candidates:
+        if _ORIGIN_RE.match(o):
+            accepted.append(o)
+        else:
+            logger.warning("Ignoring invalid CORS origin: %r", o)
+    return accepted
+
+
+_ALLOWED_ORIGINS = _parse_cors_origins(os.getenv("CORS_ORIGINS", "")) or [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
@@ -879,19 +897,24 @@ async def vnc_ws_proxy(ws: WebSocket):
             async def client_to_upstream():
                 try:
                     while True:
-                        data = await ws.receive_bytes()
-                        await upstream.send(data)
-                except Exception:
+                        # Per-message timeout so a stalled peer can't wedge
+                        # this pump indefinitely. 60s is generous for
+                        # interactive VNC traffic; real sessions see
+                        # input within milliseconds.
+                        data = await asyncio.wait_for(ws.receive_bytes(), timeout=60)
+                        await asyncio.wait_for(upstream.send(data), timeout=30)
+                except (asyncio.TimeoutError, Exception):
                     pass
 
             async def upstream_to_client():
                 try:
-                    async for msg in upstream:
+                    while True:
+                        msg = await asyncio.wait_for(upstream.recv(), timeout=60)
                         if isinstance(msg, bytes):
-                            await ws.send_bytes(msg)
+                            await asyncio.wait_for(ws.send_bytes(msg), timeout=30)
                         else:
-                            await ws.send_text(msg)
-                except Exception:
+                            await asyncio.wait_for(ws.send_text(msg), timeout=30)
+                except (asyncio.TimeoutError, Exception):
                     pass
 
             await asyncio.gather(client_to_upstream(), upstream_to_client())
@@ -1000,6 +1023,10 @@ async def _stream_screenshots(ws: WebSocket):
 
     auth_reported = False
     error_reported = False
+    # Hash of the last frame we actually sent to this client. Frame
+    # captures that hash-equal the previous frame are skipped so an
+    # idle desktop doesn't burn bandwidth broadcasting identical PNGs.
+    last_frame_hash: str | None = None
 
     while True:
         try:
@@ -1009,10 +1036,17 @@ async def _stream_screenshots(ws: WebSocket):
                 # Reset sticky flags so we'll re-surface issues after a restart
                 auth_reported = False
                 error_reported = False
+                last_frame_hash = None
                 continue
             b64 = await capture_screenshot(mode="desktop")
             auth_reported = False
             error_reported = False
+            # Cheap in-process dedup — no image decode, just a hash of
+            import hashlib
+            frame_hash = hashlib.blake2b(b64.encode("ascii"), digest_size=16).hexdigest()
+            if frame_hash == last_frame_hash:
+                continue
+            last_frame_hash = frame_hash
             await ws.send_text(json.dumps({
                 "event": "screenshot_stream",
                 "screenshot": b64,

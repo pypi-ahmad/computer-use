@@ -1,4 +1,4 @@
-"""Docker container lifecycle management."""
+﻿"""Docker container lifecycle management."""
 
 from __future__ import annotations
 
@@ -16,6 +16,12 @@ logger = logging.getLogger(__name__)
 
 # Only allow safe characters in container/image names
 _SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.:/-]*$")
+
+# Serialize container lifecycle operations so concurrent start/stop/build
+# calls (e.g. two UI tabs, or UI + WS client) can't race each other into
+# ``docker rm -f`` against a partially-started container. All public
+# lifecycle entry points must acquire this lock.
+_LIFECYCLE_LOCK = asyncio.Lock()
 
 
 def _ensure_agent_token() -> str:
@@ -50,15 +56,16 @@ async def _run(args: list[str]) -> tuple[int, str, str]:
 async def build_image() -> bool:
     """Build the CUA Docker image from docker/Dockerfile."""
     _validate_name(config.container_image, "container_image")
-    logger.info("Building Docker image: %s", config.container_image)
-    rc, out, err = await _run(
-        ["docker", "build", "-t", config.container_image, "-f", "docker/Dockerfile", "."]
-    )
-    if rc != 0:
-        logger.error("Docker build failed: %s", err)
-        return False
-    logger.info("Docker image built successfully")
-    return True
+    async with _LIFECYCLE_LOCK:
+        logger.info("Building Docker image: %s", config.container_image)
+        rc, out, err = await _run(
+            ["docker", "build", "-t", config.container_image, "-f", "docker/Dockerfile", "."]
+        )
+        if rc != 0:
+            logger.error("Docker build failed: %s", err)
+            return False
+        logger.info("Docker image built successfully")
+        return True
 
 
 async def is_container_running(name: str | None = None) -> bool:
@@ -72,11 +79,22 @@ async def is_container_running(name: str | None = None) -> bool:
 
 
 async def start_container(name: str | None = None) -> bool:
-    """Start the CUA Docker container with Xvfb + agent service."""
+    """Start the CUA Docker container with Xvfb + agent service.
+
+    Holds :data:`_LIFECYCLE_LOCK` for the entire checkâ†’inspectâ†’run
+    sequence so concurrent callers don't ``docker rm -f`` each other's
+    in-flight starts.
+    """
     container = name or config.container_name
     _validate_name(container, "container_name")
     _validate_name(config.container_image, "container_image")
 
+    async with _LIFECYCLE_LOCK:
+        return await _start_container_locked(container)
+
+
+async def _start_container_locked(container: str) -> bool:
+    """Inner start routine. Caller must hold :data:`_LIFECYCLE_LOCK`."""
     # Check if container is running
     if await is_container_running(container):
         logger.info("Container %s is already running", container)
@@ -92,7 +110,6 @@ async def start_container(name: str | None = None) -> bool:
             # Try to remove and recreate if start fails
             await _run(["docker", "rm", "-f", container])
         else:
-            # Container started successfully, skip creation
             logger.info("Existing container started")
             return await _wait_for_service(container)
 
@@ -138,7 +155,6 @@ async def _wait_for_service(container: str) -> bool:
     logger.info("Waiting for container environment...")
     for attempt in range(10):
         await asyncio.sleep(2)
-        # Check if agent service is responding
         try:
             async with httpx.AsyncClient(timeout=3.0) as client:
                 resp = await client.get(f"{config.agent_service_url}/health")
@@ -162,12 +178,13 @@ async def stop_container(name: str | None = None) -> bool:
     """Force-remove the CUA Docker container."""
     container = name or config.container_name
     _validate_name(container, "container_name")
-    logger.info("Stopping container: %s", container)
-    rc, _, err = await _run(["docker", "rm", "-f", container])
-    if rc != 0:
-        logger.error("Failed to stop container: %s", err)
-        return False
-    return True
+    async with _LIFECYCLE_LOCK:
+        logger.info("Stopping container: %s", container)
+        rc, _, err = await _run(["docker", "rm", "-f", container])
+        if rc != 0:
+            logger.error("Failed to stop container: %s", err)
+            return False
+        return True
 
 
 async def get_container_status(name: str | None = None) -> dict:
@@ -175,7 +192,6 @@ async def get_container_status(name: str | None = None) -> dict:
     container = name or config.container_name
     running = await is_container_running(container)
 
-    # Check agent service health if running
     service_healthy = False
     if running:
         try:

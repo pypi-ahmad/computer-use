@@ -419,3 +419,76 @@ class TestWsSchemaValidation:
     def test_pong_needs_no_payload(self):
         from backend.ws_schema import validate_outbound
         assert validate_outbound("pong", {}) is None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# R3 — docker lifecycle lock serializes concurrent start/stop
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class TestDockerLifecycleLock:
+    def test_lock_is_module_level_asyncio_lock(self):
+        from backend import docker_manager
+        import asyncio as _asyncio
+
+        assert isinstance(docker_manager._LIFECYCLE_LOCK, _asyncio.Lock)
+
+    def test_start_container_acquires_lock(self):
+        """Two concurrent start_container calls should serialize through the lock.
+
+        We observe that while the first call is inside the locked section,
+        the second call is blocked on acquire. Only one ``docker ps`` runs
+        at a time.
+        """
+        from backend import docker_manager
+
+        ps_in_flight = 0
+        max_in_flight = 0
+
+        async def fake_run(args):
+            nonlocal ps_in_flight, max_in_flight
+            ps_in_flight += 1
+            max_in_flight = max(max_in_flight, ps_in_flight)
+            # Yield so the scheduler can pick up the second waiter if the
+            # lock weren't protecting us.
+            await asyncio.sleep(0)
+            ps_in_flight -= 1
+            # Pretend container exists + is running on both calls.
+            return 0, f"{docker_manager.config.container_name}\n", ""
+
+        async def driver():
+            with patch.object(docker_manager, "_run", side_effect=fake_run):
+                await asyncio.gather(
+                    docker_manager.start_container(),
+                    docker_manager.start_container(),
+                )
+
+        asyncio.run(driver())
+        assert max_in_flight == 1, "lock should serialize concurrent start_container"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# S2 — CORS origin validation
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class TestCorsOriginFilter:
+    def test_parse_cors_origins_accepts_valid_and_drops_invalid(self):
+        from backend.server import _parse_cors_origins
+
+        got = _parse_cors_origins(
+            "http://localhost:3000, https://example.com:443, "
+            "javascript:alert(1), not-a-url, http://evil.com/path"
+        )
+        assert "http://localhost:3000" in got
+        assert "https://example.com:443" in got
+        assert "javascript:alert(1)" not in got
+        assert "not-a-url" not in got
+        # URLs with path/query are rejected by our strict regex
+        assert "http://evil.com/path" not in got
+
+    def test_parse_cors_origins_handles_empty(self):
+        from backend.server import _parse_cors_origins
+
+        assert _parse_cors_origins("") == []
+        assert _parse_cors_origins(",  ,") == []
