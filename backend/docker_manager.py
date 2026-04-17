@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
+import secrets
 
 import httpx
 
@@ -14,6 +16,18 @@ logger = logging.getLogger(__name__)
 
 # Only allow safe characters in container/image names
 _SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.:/-]*$")
+
+
+def _ensure_agent_token() -> str:
+    """Return (and lazily generate) the shared secret used between host and
+    the in-container agent service. The token is stored in the process
+    environment so all engine clients and the spawned container pick it up.
+    """
+    token = os.environ.get("AGENT_SERVICE_TOKEN", "").strip()
+    if not token:
+        token = secrets.token_urlsafe(32)
+        os.environ["AGENT_SERVICE_TOKEN"] = token
+    return token
 
 
 def _validate_name(name: str, label: str = "name") -> None:
@@ -92,6 +106,7 @@ async def start_container(name: str | None = None) -> bool:
         "-e", f"SCREEN_WIDTH={config.screen_width}",
         "-e", f"SCREEN_HEIGHT={config.screen_height}",
         "-e", f"AGENT_SERVICE_PORT={config.agent_service_port}",
+        "-e", f"AGENT_SERVICE_TOKEN={_ensure_agent_token()}",
         "-p", "127.0.0.1:5900:5900",
         "-p", "127.0.0.1:6080:6080",
         "-p", f"127.0.0.1:{config.agent_service_port}:{config.agent_service_port}",
@@ -109,7 +124,13 @@ async def start_container(name: str | None = None) -> bool:
         logger.error("Failed to start container: %s", err)
         return False
 
-    return await _wait_for_service(container)
+    ready = await _wait_for_service(container)
+    if not ready:
+        # Tear down the half-started container so the next attempt starts clean
+        logger.warning("Container %s never became ready; removing", container)
+        await _run(["docker", "rm", "-f", container])
+        return False
+    return True
 
 
 async def _wait_for_service(container: str) -> bool:
