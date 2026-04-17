@@ -151,19 +151,28 @@ export default function Workbench() {
 
   // Poll container
   /** Polls container running status from the backend. */
-  const refreshContainer = useCallback(async () => {
+  const refreshContainer = useCallback(async (signal) => {
     try {
-      const data = await getContainerStatus()
+      const data = await getContainerStatus(signal)
       setContainerRunning(data.running || false)
-    } catch {
+    } catch (e) {
+      // U1 — AbortError on unmount is expected; don't flip state.
+      if (e?.name === 'AbortError') return
       setContainerRunning(false)
     }
   }, [])
 
   useEffect(() => {
-    refreshContainer()
-    const id = setInterval(refreshContainer, 5000)
-    return () => clearInterval(id)
+    // U1/U3 — cancel in-flight polls on unmount so setState never fires on
+    // a dead component. refreshContainer is memoized with stable deps so
+    // this effect re-runs only when the callback identity actually changes.
+    const controller = new AbortController()
+    refreshContainer(controller.signal)
+    const id = setInterval(() => refreshContainer(controller.signal), 5000)
+    return () => {
+      clearInterval(id)
+      controller.abort()
+    }
   }, [refreshContainer])
 
   // Fetch API key statuses, engines, and models on mount

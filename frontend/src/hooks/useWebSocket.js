@@ -80,9 +80,12 @@ export default function useWebSocket() {
     ws.onclose = () => {
       setConnected(false)
       clearInterval(ws._pingInterval)
-      // Exponential backoff capped at 30s (2s, 4s, 8s, 16s, 30s, 30s, …)
+      // U2 — exponential backoff with jitter capped at 30s. The jitter
+      // factor (0.5–1.0) prevents synchronized reconnect storms across
+      // multiple tabs/clients when the backend restarts.
       const attempt = reconnectAttempts.current++
-      const delay = Math.min(2000 * Math.pow(2, attempt), 30000)
+      const base = Math.min(2000 * Math.pow(2, attempt), 30000)
+      const delay = base * (0.5 + Math.random() * 0.5)
       reconnectTimer.current = setTimeout(connect, delay)
     }
 
