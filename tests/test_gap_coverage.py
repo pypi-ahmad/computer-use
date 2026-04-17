@@ -749,3 +749,200 @@ class TestEnginePackageSplit:
             _prune_claude_context,
             _prune_gemini_context,
         )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# T1 — Concurrent-session contention on POST /api/agent/start
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class TestConcurrentSessionLimit:
+    def test_four_concurrent_starts_hit_the_limit(self):
+        """With 3 slots already full, 4 concurrent starts must all be 429."""
+        import threading
+        from fastapi.testclient import TestClient
+        from backend.server import app, _MAX_CONCURRENT_SESSIONS, _agent_start_limiter
+
+        assert _MAX_CONCURRENT_SESSIONS == 3, (
+            "Test assumes the documented concurrent-session ceiling of 3"
+        )
+
+        client = TestClient(app)
+
+        # Pre-populate _active_tasks with 3 non-done sentinel tasks so every
+        # incoming request sees the limit as already full.
+        pending = [MagicMock() for _ in range(3)]
+        for p in pending:
+            p.done.return_value = False
+        sentinel_map = {f"pre-{i}": p for i, p in enumerate(pending)}
+
+        body = {
+            "task": "concurrent contention probe",
+            "engine": "computer_use",
+            "provider": "google",
+            "model": "gemini-3-flash-preview",
+            "mode": "desktop",
+            "execution_target": "docker",
+            "max_steps": 5,
+            "api_key": "sk-abcdef01",
+        }
+
+        results: list[int] = []
+        lock = threading.Lock()
+
+        def go():
+            resp = client.post("/api/agent/start", json=body)
+            with lock:
+                results.append(resp.status_code)
+
+        # Clear rate-limiter state so this test isolates the concurrent
+        # session cap rather than tripping the per-IP rate limit on retry.
+        saved = _agent_start_limiter._calls
+        _agent_start_limiter._calls = {}
+        try:
+            with patch.dict("backend.server._active_tasks", sentinel_map, clear=True):
+                threads = [threading.Thread(target=go) for _ in range(4)]
+                for t in threads:
+                    t.start()
+                for t in threads:
+                    t.join(timeout=10)
+        finally:
+            _agent_start_limiter._calls = saved
+
+        assert len(results) == 4
+        # With 3 slots pre-filled, every concurrent start must be rejected
+        # with 429 — either by the per-IP rate limiter or by the concurrent
+        # session cap. Both are 429, which is the contract T1 wants.
+        assert all(code == 429 for code in results), (
+            f"Expected all 4 concurrent starts to return 429, got {results}"
+        )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# T2 — Screenshot streamer survives httpx.TimeoutException
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class TestScreenshotStreamerTimeout:
+    def test_timeout_does_not_close_websocket(self):
+        """A raised httpx.TimeoutException must trigger backoff, not exit."""
+        import httpx
+        from backend import server
+
+        calls = {"n": 0}
+
+        async def flaky_capture(mode="desktop"):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise httpx.TimeoutException("simulated read timeout")
+            return "dGVzdA=="  # b64("test")
+
+        class FakeWS:
+            def __init__(self):
+                self.closed = False
+                self.messages: list[str] = []
+
+            async def send_text(self, msg):
+                if self.closed:
+                    raise RuntimeError("WS was closed — loop should not send after close")
+                self.messages.append(msg)
+
+            async def close(self):
+                self.closed = True
+
+        ws = FakeWS()
+
+        async def driver():
+            from backend import docker_manager
+            with patch.object(server, "capture_screenshot", side_effect=flaky_capture), \
+                 patch.object(docker_manager, "is_container_running", new=AsyncMock(return_value=True)), \
+                 patch.object(server.config, "ws_screenshot_interval", 0.01):
+                task = asyncio.create_task(server._stream_screenshots(ws))
+                # Sleep long enough to hit the timeout and the 2s backoff and
+                # then a successful second capture.
+                await asyncio.sleep(2.5)
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+        asyncio.run(driver())
+
+        assert calls["n"] >= 2, "loop should recover and retry after the timeout"
+        assert not ws.closed, "WS must remain open across the timeout"
+        assert any("screenshot_stream" in m for m in ws.messages), (
+            "A screenshot frame should be delivered after recovery"
+        )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# T3 — AgentLoop safety callback times out after 60 s and denies
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class TestSafetyTimeoutAutoDeny:
+    def test_on_safety_denies_when_user_never_confirms(self):
+        """The 60 s wait_for path must return False (deny) on TimeoutError.
+
+        Captures the ``on_safety`` callback that AgentLoop passes into the
+        engine, then invokes it with ``asyncio.wait_for`` patched to raise
+        ``TimeoutError`` immediately — asserting the callback returns False
+        and emits a 'timed out' warning.
+        """
+        from backend.agent.loop import AgentLoop
+
+        loop = AgentLoop(
+            task="t",
+            api_key="sk-dummytoken",
+            model="gemini-3-flash-preview",
+            provider="google",
+            mode="desktop",
+            engine="computer_use",
+        )
+
+        captured: dict = {}
+
+        class FakeEngine:
+            def __init__(self, *a, **kw):
+                pass
+
+            async def execute_task(self, *, goal, turn_limit, on_safety, on_turn, on_log):
+                captured["on_safety"] = on_safety
+                return "done"
+
+        # Replace the nested import target inside _run_computer_use_engine
+        # with our fake so it hands back the on_safety closure.
+        with patch("backend.engine.ComputerUseEngine", FakeEngine), \
+             patch("backend.agent.prompts.get_system_prompt", return_value="sys"):
+            # Drive the engine path just long enough to capture on_safety.
+            asyncio.run(loop._run_computer_use_engine())
+
+        assert "on_safety" in captured, "on_safety callback was not handed to the engine"
+        on_safety = captured["on_safety"]
+
+        logs: list[tuple[str, str]] = []
+        original_emit = loop._emit_log
+
+        def record_emit(level, message, *a, **kw):
+            logs.append((level, message))
+            return original_emit(level, message, *a, **kw)
+
+        # Patch asyncio.wait_for inside backend.agent.loop so the closure
+        # sees our replacement and the 60 s wait collapses instantly.
+        async def instant_timeout(coro, *a, **kw):
+            # Close the inner coroutine so pytest doesn't warn about a
+            # 'coroutine Event.wait was never awaited'.
+            if asyncio.iscoroutine(coro):
+                coro.close()
+            raise asyncio.TimeoutError()
+
+        with patch.object(loop, "_emit_log", side_effect=record_emit), \
+             patch("backend.agent.loop.asyncio.wait_for", side_effect=instant_timeout):
+            decision = asyncio.run(on_safety("drop production tables"))
+
+        assert decision is False, "timeout must auto-deny the action (T3)"
+        assert any(
+            level == "warning" and "timed out" in msg.lower()
+            for level, msg in logs
+        ), f"expected a 'timed out' warning log, got {logs}"
