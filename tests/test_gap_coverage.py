@@ -492,3 +492,117 @@ class TestCorsOriginFilter:
 
         assert _parse_cors_origins("") == []
         assert _parse_cors_origins(",  ,") == []
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# R1 — _stream_screenshots must survive arbitrary exceptions
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class TestStreamScreenshotsResilience:
+    def test_unexpected_exception_does_not_kill_task(self):
+        """A non-HTTP error inside the loop must trigger backoff, not exit."""
+        from backend import server
+
+        calls = {"n": 0}
+
+        async def flaky_capture(mode="desktop"):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("boom — simulated transient failure")
+            # Second call: return a payload, then third call cancels us.
+            return "aGVsbG8="  # b64("hello")
+
+        sent_events: list[str] = []
+
+        class FakeWS:
+            async def send_text(self, msg):
+                sent_events.append(msg)
+
+        async def driver():
+            from backend import docker_manager
+            with patch.object(server, "capture_screenshot", side_effect=flaky_capture), \
+                 patch.object(docker_manager, "is_container_running", new=AsyncMock(return_value=True)), \
+                 patch.object(server.config, "ws_screenshot_interval", 0.01):
+                task = asyncio.create_task(server._stream_screenshots(FakeWS()))
+                # Give the loop enough time to hit the exception and recover.
+                await asyncio.sleep(2.3)
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+        asyncio.run(driver())
+        assert calls["n"] >= 2, "loop should retry after broad Exception"
+        assert any("screenshot_stream" in e for e in sent_events), (
+            "post-recovery frame should still be broadcast"
+        )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# R5 — _cleanup_session must remove ALL state even when a step raises
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class TestCleanupSessionResilience:
+    def test_cleanup_removes_all_state_when_safety_clear_raises(self):
+        from backend import server
+
+        sid = "cleanup-test-sid"
+        server._active_tasks[sid] = MagicMock()
+        server._active_loops[sid] = MagicMock()
+        try:
+            with patch.object(server.safety_registry, "clear", side_effect=RuntimeError("nope")):
+                # Should NOT propagate the error
+                server._cleanup_session(sid)
+            assert sid not in server._active_tasks
+            assert sid not in server._active_loops
+        finally:
+            server._active_tasks.pop(sid, None)
+            server._active_loops.pop(sid, None)
+
+    def test_cleanup_removes_loops_when_tasks_pop_raises(self):
+        from backend import server
+
+        sid = "cleanup-pop-error"
+        # Monkeypatch _active_tasks to a mapping that raises on pop.
+        class ExplodingDict(dict):
+            def pop(self, *a, **kw):
+                raise RuntimeError("pop exploded")
+
+        original = server._active_tasks
+        server._active_tasks = ExplodingDict()
+        server._active_loops[sid] = MagicMock()
+        try:
+            # Must not propagate; _active_loops must still be cleaned.
+            server._cleanup_session(sid)
+            assert sid not in server._active_loops
+        finally:
+            server._active_tasks = original
+            server._active_loops.pop(sid, None)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# R4 — _run_and_notify awaits broadcast BEFORE cleanup
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class TestRunAndNotifyOrdering:
+    def test_broadcast_awaited_before_cleanup(self):
+        """The source of ``/api/agent/start`` must await _broadcast then call cleanup.
+
+        Proven by reading the source — regex-stable check that cleanup
+        comes AFTER ``await _broadcast`` in ``_run_and_notify``.
+        """
+        import inspect
+        from backend import server
+
+        src = inspect.getsource(server.api_start_agent)
+        broadcast_idx = src.find("await _broadcast(\"agent_finished\"")
+        cleanup_idx = src.find("_cleanup_session(loop.session_id)")
+        assert broadcast_idx != -1, "expected _broadcast('agent_finished', ...) await"
+        assert cleanup_idx != -1, "expected _cleanup_session(loop.session_id) call"
+        assert broadcast_idx < cleanup_idx, (
+            "cleanup must run AFTER the awaited broadcast"
+        )
