@@ -92,7 +92,7 @@ class StepRecord(BaseModel):
 class AgentSession(BaseModel):
     """Full state of an agent run."""
     session_id: str
-    task: str = Field(max_length=10_000)
+    task: str = Field(min_length=1, max_length=10_000)
     status: SessionStatus = SessionStatus.IDLE
     model: str = Field(default="gemini-3-flash-preview", max_length=64)
     engine: str = Field(default="computer_use", max_length=20)
@@ -106,7 +106,7 @@ class AgentSession(BaseModel):
 class StartTaskRequest(BaseModel):
     """Validated request body for POST /api/agent/start."""
 
-    task: str = Field(max_length=10_000)
+    task: str = Field(min_length=1, max_length=10_000)
     api_key: Optional[str] = Field(default=None, max_length=256)
     model: str = Field(default="gemini-3-flash-preview", max_length=64)
     max_steps: int = Field(default=50, ge=1, le=200)
