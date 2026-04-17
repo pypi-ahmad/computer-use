@@ -269,13 +269,14 @@ class AgentLoop:
         def _on_log(level: str, message: str) -> None:
             self._emit_log(level, message)
 
-        def _on_safety(explanation: str) -> bool:
+        async def _on_safety(explanation: str) -> bool:
             """Safety confirmation callback for CU require_confirmation.
 
-            Broadcasts the safety prompt via WebSocket and waits for user
-            response.  Falls back to DENY (False) if no response within
-            60 seconds — this satisfies the TOS requirement to never
-            silently proceed on require_confirmation.
+            Broadcasts the safety prompt via WebSocket and awaits the
+            user's response through :mod:`backend.agent.safety`. Denies
+            the action (returns False) on timeout — this satisfies the
+            TOS requirement to never silently proceed on
+            ``require_confirmation``.
             """
             self._emit_log(
                 "warning",
@@ -283,40 +284,18 @@ class AgentLoop:
                 data={"type": "safety_confirmation", "explanation": explanation,
                       "session_id": self.session.session_id},
             )
-            # The /api/agent/safety-confirm endpoint signals the shared
-            # event; both sides read/write the same registry.
             from backend.agent import safety as safety_registry
             sid = self.session.session_id
             evt = safety_registry.get_or_create_event(sid)
             evt.clear()
-
-            # We are running inside an async context, so schedule a waiter
-            # task and block on a threading event for the synchronous
-            # callback to return.
-            import threading
-            done_flag = threading.Event()
-            result_holder: list[bool] = [False]
-
-            async def _wait_for_decision():
-                try:
-                    await asyncio.wait_for(evt.wait(), timeout=60.0)
-                    result_holder[0] = safety_registry.decisions.pop(sid, False)
-                except asyncio.TimeoutError:
-                    result_holder[0] = False
-                finally:
-                    safety_registry.events.pop(sid, None)
-                    done_flag.set()
-
             try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(_wait_for_decision())
-                done_flag.wait(timeout=65.0)
-            except Exception:
+                await asyncio.wait_for(evt.wait(), timeout=60.0)
+                decision = bool(safety_registry.decisions.pop(sid, False))
+            except asyncio.TimeoutError:
                 self._emit_log("warning", "Safety confirmation timed out, denying action")
+                decision = False
+            finally:
                 safety_registry.clear(sid)
-                return False
-
-            decision = result_holder[0]
             self._emit_log("info", f"Safety confirmation result: {decision}")
             return decision
 

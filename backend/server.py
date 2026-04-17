@@ -8,6 +8,7 @@ import logging
 import os
 import time
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -48,7 +49,60 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="CUA — Computer Using Agent", version="1.0.0")
+
+def _error_response(status_code: int, message: str) -> JSONResponse:
+    """Return a uniformly-shaped JSON error response with the given HTTP status."""
+    return JSONResponse(status_code=status_code, content={"error": message})
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """Application lifespan — startup + shutdown managed in one block."""
+    # ── startup ────────────────────────────────────────────────────────
+    logger.info(
+        "CUA backend starting — model=%s, agent_service=%s, mode=%s",
+        config.gemini_model, config.agent_service_url, config.agent_mode,
+    )
+    try:
+        Path(_SESSIONS_DB_PATH).parent.mkdir(parents=True, exist_ok=True)
+        await init_runtime(_SESSIONS_DB_PATH)
+        logger.info("Session checkpointer ready at %s", _SESSIONS_DB_PATH)
+    except Exception:
+        logger.exception("Failed to initialise session checkpointer")
+
+    try:
+        validate_tool_parity()
+    except Exception as exc:
+        logger.warning("Tool parity check failed: %s", exc)
+
+    try:
+        yield
+    finally:
+        # ── shutdown ──────────────────────────────────────────────────
+        for sid in list(_active_tasks.keys()):
+            task = _active_tasks.get(sid)
+            if task and not task.done():
+                task.cancel()
+        _active_tasks.clear()
+        _active_loops.clear()
+
+        global _novnc_client
+        if _novnc_client is not None and not _novnc_client.is_closed:
+            try:
+                await _novnc_client.aclose()
+            except Exception:
+                logger.exception("Error closing noVNC proxy client")
+        _novnc_client = None
+
+        try:
+            await shutdown_runtime()
+        except Exception:
+            logger.exception("Error shutting down session checkpointer")
+
+        logger.info("CUA backend shut down")
+
+
+app = FastAPI(title="CUA — Computer Using Agent", version="1.0.0", lifespan=_lifespan)
 
 # CORS: restrict to local dev origins by default; override with CORS_ORIGINS env var
 _ALLOWED_ORIGINS = [
@@ -122,6 +176,46 @@ def _is_valid_uuid(value: str) -> bool:
     except (ValueError, AttributeError):
         return False
 
+
+@app.on_event("startup")
+async def on_startup():
+    """Run tool parity check and log configuration on startup."""
+    logger.info("CUA backend starting — model=%s, agent_service=%s, mode=%s",
+                config.gemini_model, config.agent_service_url, config.agent_mode)
+
+    # Initialise the LangGraph sqlite checkpointer — this is the
+    # persistent store for recently finished sessions.
+    try:
+        Path(_SESSIONS_DB_PATH).parent.mkdir(parents=True, exist_ok=True)
+        await init_runtime(_SESSIONS_DB_PATH)
+        logger.info("Session checkpointer ready at %s", _SESSIONS_DB_PATH)
+    except Exception:
+        logger.exception("Failed to initialise session checkpointer")
+
+    # Validate tool parity on startup
+    try:
+        validate_tool_parity()
+    except Exception as e:
+        logger.warning("Tool parity check failed: %s", e)
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    """Cancel running agents."""
+    # Cancel all running agent tasks
+    for sid in list(_active_tasks.keys()):
+        task = _active_tasks.get(sid)
+        if task and not task.done():
+            task.cancel()
+    _active_tasks.clear()
+    _active_loops.clear()
+
+    try:
+        await shutdown_runtime()
+    except Exception:
+        logger.exception("Error shutting down session checkpointer")
+
+    logger.info("CUA backend shut down")
 
 @app.on_event("startup")
 async def on_startup():
@@ -263,16 +357,15 @@ async def set_agent_mode(body: dict):
     """Keep the agent service in the supported desktop mode."""
     mode = body.get("mode", "desktop")
     if mode != "desktop":
-        return JSONResponse(status_code=400, content={
-            "error": "Browser mode is no longer supported. Use mode='desktop'."
-        })
+        return _error_response(400, "Browser mode is no longer supported. Use mode='desktop'.")
     url = f"{config.agent_service_url}/mode"
     async with httpx.AsyncClient(timeout=5.0) as client:
         try:
             resp = await client.post(url, json={"mode": mode})
             return resp.json()
-        except Exception as e:
-            return {"error": str(e)}
+        except Exception:
+            logger.exception("Failed to set agent mode")
+            return _error_response(502, "Could not reach the agent service")
 
 
 @app.post("/api/container/start")
@@ -323,8 +416,9 @@ async def api_screenshot():
     try:
         b64 = await capture_screenshot()
         return {"screenshot": b64}
-    except Exception as e:
-        return {"error": str(e)}
+    except Exception:
+        logger.exception("Screenshot capture failed")
+        return _error_response(500, "Could not capture screenshot")
 
 
 @app.post("/api/agent/start")
@@ -333,38 +427,30 @@ async def api_start_agent(req: StartTaskRequest):
 
     # ── Rate limit ────────────────────────────────────────────────────
     if not _agent_start_limiter.allow():
-        return JSONResponse(status_code=429, content={"error": "Rate limit exceeded — max 10 starts per minute"})
+        return _error_response(429, "Rate limit exceeded — max 10 starts per minute")
 
     # ── Validate inputs ───────────────────────────────────────────────
     if req.engine != "computer_use":
-        return JSONResponse(status_code=400, content={
-            "error": f"Invalid engine: {req.engine}. Only 'computer_use' is supported."
-        })
+        return _error_response(400, f"Invalid engine: {req.engine}. Only 'computer_use' is supported.")
     if req.mode != "desktop":
-        return JSONResponse(status_code=400, content={
-            "error": "Browser mode is no longer supported. Use mode='desktop'."
-        })
+        return _error_response(400, "Browser mode is no longer supported. Use mode='desktop'.")
     if req.execution_target != "docker":
-        return JSONResponse(status_code=400, content={
-            "error": f"Invalid execution_target: {req.execution_target}. Only 'docker' is supported."
-        })
+        return _error_response(400, f"Invalid execution_target: {req.execution_target}. Only 'docker' is supported.")
     if req.provider not in _VALID_PROVIDERS:
-        return JSONResponse(status_code=400, content={"error": f"Invalid provider: {req.provider}"})
+        return _error_response(400, f"Invalid provider: {req.provider}")
     if req.model not in _VALID_MODELS_BY_PROVIDER.get(req.provider, set()):
         allowed = ", ".join(
             m["model_id"] for m in _CU_ALLOWED_MODELS
             if m["provider"] == req.provider
         )
-        return JSONResponse(status_code=400, content={
-            "error": f"Model '{req.model}' is not allowed. Supported models: {allowed}"
-        })
+        return _error_response(400, f"Model '{req.model}' is not allowed. Supported models: {allowed}")
     if not req.task or not req.task.strip():
-        return JSONResponse(status_code=400, content={"error": "Task description is required"})
+        return _error_response(400, "Task description is required")
 
     # Resolve API key: UI input → .env → system env
     resolved_key, key_source = resolve_api_key(req.provider, req.api_key)
     if not resolved_key or len(resolved_key) < 8:
-        return JSONResponse(status_code=400, content={"error": "API key is required. Provide it in the UI, .env file, or system environment variable."})
+        return _error_response(400, "API key is required. Provide it in the UI, .env file, or system environment variable.")
 
     # Cap max_steps to prevent runaway agents
     req.max_steps = min(req.max_steps, _MAX_STEPS_HARD_CAP)
@@ -378,7 +464,7 @@ async def api_start_agent(req: StartTaskRequest):
     # Limit concurrent sessions
     active_count = sum(1 for t in _active_tasks.values() if not t.done())
     if active_count >= _MAX_CONCURRENT_SESSIONS:
-        return JSONResponse(status_code=429, content={"error": f"Maximum {_MAX_CONCURRENT_SESSIONS} concurrent sessions allowed"})
+        return _error_response(429, f"Maximum {_MAX_CONCURRENT_SESSIONS} concurrent sessions allowed")
 
     # Audit log (mask API key)
     masked_key = resolved_key[:4] + "..." + resolved_key[-4:] if len(resolved_key) > 8 else "****"
@@ -388,7 +474,7 @@ async def api_start_agent(req: StartTaskRequest):
 
     container_ok = await start_container()
     if not container_ok:
-        return {"error": "Could not start the virtual environment. Please check that the system is set up correctly."}
+        return _error_response(503, "Could not start the virtual environment. Please check that the system is set up correctly.")
 
     loop = AgentLoop(
         task=req.task,
@@ -453,15 +539,15 @@ async def api_start_agent(req: StartTaskRequest):
 async def api_stop_agent(session_id: str):
     """Stop a running agent session by ID."""
     if not _is_valid_uuid(session_id):
-        return {"error": "Invalid session_id"}
+        return _error_response(400, "Invalid session_id")
     return await _stop_agent(session_id)
 
 
-async def _stop_agent(session_id: str) -> dict:
+async def _stop_agent(session_id: str):
     """Internal helper to cancel an agent loop and its asyncio task."""
     loop = _active_loops.get(session_id)
     if not loop:
-        return {"error": "Session not found"}
+        return _error_response(404, "Session not found")
 
     loop.request_stop()
 
@@ -482,10 +568,10 @@ async def _stop_agent(session_id: str) -> dict:
 async def api_agent_status(session_id: str):
     """Return the current status of an agent session."""
     if not _is_valid_uuid(session_id):
-        return {"error": "Invalid session_id"}
+        return _error_response(400, "Invalid session_id")
     session = await _get_session_snapshot(session_id)
     if not session:
-        return {"error": "Session not found"}
+        return _error_response(404, "Session not found")
 
     last_action: AgentAction | None = None
     if session.steps:
@@ -522,7 +608,7 @@ async def api_validate_key(req: ValidateKeyRequest):
     Returns ``{valid: true/false, message: ...}``.  Never logs the raw key.
     """
     if req.provider not in _VALID_PROVIDERS:
-        return JSONResponse(status_code=400, content={"error": f"Invalid provider: {req.provider}"})
+        return _error_response(400, f"Invalid provider: {req.provider}")
 
     if not req.api_key or len(req.api_key) < 8:
         return {"valid": False, "message": "Key is too short"}
@@ -587,9 +673,9 @@ async def api_agent_safety_confirm(req: SafetyConfirmRequest):
     """
     sid = req.session_id
     if not _is_valid_uuid(sid):
-        return {"error": "Invalid session_id"}
+        return _error_response(400, "Invalid session_id")
     if sid not in _active_loops:
-        return {"error": "Session not found"}
+        return _error_response(404, "Session not found")
 
     # Store the decision and signal the waiting loop
     safety_registry.decisions[sid] = req.confirm
@@ -603,10 +689,10 @@ async def api_agent_safety_confirm(req: SafetyConfirmRequest):
 async def api_agent_history(session_id: str):
     """Return the full step history for a session (without screenshots)."""
     if not _is_valid_uuid(session_id):
-        return {"error": "Invalid session_id"}
+        return _error_response(400, "Invalid session_id")
     session = await _get_session_snapshot(session_id)
     if not session:
-        return {"error": "Session not found"}
+        return _error_response(404, "Session not found")
 
     steps = [s.model_dump(exclude={"screenshot_b64"}) for s in session.steps]
     return {"session_id": session_id, "steps": steps}

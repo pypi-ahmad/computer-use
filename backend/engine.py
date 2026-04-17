@@ -190,6 +190,19 @@ DEFAULT_SCREEN_WIDTH = 1440
 DEFAULT_SCREEN_HEIGHT = 900
 DEFAULT_TURN_LIMIT = 25
 
+
+async def _invoke_safety(
+    callback: "Callable[[str], Any] | None",
+    explanation: str,
+) -> bool:
+    """Invoke a safety callback that may be sync or async. Returns False if None."""
+    if callback is None:
+        return False
+    result = callback(explanation)
+    if asyncio.iscoroutine(result):
+        result = await result
+    return bool(result)
+
 # Anthropic coordinate scaling: images with longest edge >1568px or
 # total pixels >1,150,000 are internally downsampled.  We pre-resize
 # and scale coordinates to eliminate coordinate drift.
@@ -1014,7 +1027,7 @@ class GeminiCUClient:
                 if "safety_decision" in args:
                     sd = args.pop("safety_decision")
                     if isinstance(sd, dict) and sd.get("decision") == "require_confirmation":
-                        confirmed = on_safety(sd.get("explanation", "")) if on_safety else False
+                        confirmed = await _invoke_safety(on_safety, sd.get("explanation", ""))
                         if not confirmed:
                             if on_log:
                                 on_log("warning", f"Safety denied for {fc.name}")
@@ -1563,7 +1576,7 @@ class OpenAICUClient:
                         check.get("message") or check.get("code") or "Safety acknowledgement required"
                         for check in pending_checks
                     )
-                    confirmed = on_safety(explanation) if on_safety else False
+                    confirmed = await _invoke_safety(on_safety, explanation)
                     if not confirmed:
                         final_text = "Agent terminated: safety confirmation denied."
                         terminated = True
