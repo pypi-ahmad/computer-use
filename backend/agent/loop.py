@@ -321,5 +321,5 @@ class AgentLoop:
             try:
                 cb(*args)
             except Exception:
-                logger.debug("Callback %r raised an exception", cb, exc_info=True)
+                logger.warning("Callback %r raised an exception", cb, exc_info=True)
 

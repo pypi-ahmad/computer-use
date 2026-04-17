@@ -38,6 +38,8 @@ from typing import Any, Callable, Protocol
 
 import httpx
 
+from backend.config import config as _app_config
+
 logger = logging.getLogger(__name__)
 
 
@@ -423,10 +425,20 @@ class DesktopExecutor:
             self._client = httpx.AsyncClient(timeout=15.0)
         return self._client
 
+    @staticmethod
+    def _auth_headers() -> dict[str, str]:
+        """Return the shared-secret header for authenticated agent_service calls."""
+        token = os.environ.get("AGENT_SERVICE_TOKEN", "").strip()
+        return {"X-Agent-Token": token} if token else {}
+
     async def _post_action(self, payload: dict[str, Any]) -> dict[str, Any]:
         """POST an action to the agent_service and return the JSON result."""
         client = await self._get_client()
-        resp = await client.post(f"{self._service_url}/action", json=payload)
+        resp = await client.post(
+            f"{self._service_url}/action",
+            json=payload,
+            headers=self._auth_headers(),
+        )
         resp.raise_for_status()
         return resp.json()
 
@@ -455,7 +467,7 @@ class DesktopExecutor:
                     error=extra.get("message", "Action failed"),
                     extra=extra,
                 )
-            await asyncio.sleep(0.3)  # UI settle delay
+            await asyncio.sleep(_app_config.ui_settle_delay)  # UI settle delay
             return CUActionResult(name=name, success=True, extra=extra)
         except Exception as exc:
             logger.error("DesktopExecutor %s failed: %s", name, exc, exc_info=True)
@@ -634,8 +646,8 @@ class DesktopExecutor:
         return {}
 
     async def _act_wait_5_seconds(self, a: dict) -> dict:
-        """Sleep for 5 seconds (model-requested pause)."""
-        await asyncio.sleep(5)
+        """Sleep for post_action_screenshot_delay seconds (model-requested pause)."""
+        await asyncio.sleep(_app_config.post_action_screenshot_delay)
         return {}
 
     async def _act_go_back(self, a: dict) -> dict:
@@ -679,7 +691,9 @@ class DesktopExecutor:
         try:
             client = await self._get_client()
             resp = await client.get(
-                f"{self._service_url}/screenshot", params={"mode": "desktop"},
+                f"{self._service_url}/screenshot",
+                params={"mode": "desktop"},
+                headers=self._auth_headers(),
             )
             resp.raise_for_status()
             data = resp.json()
@@ -1601,7 +1615,7 @@ class OpenAICUClient:
                     results.append(result)
                     # Inter-action delay matching official CUA sample (120ms)
                     if action is not actions[-1]:
-                        await asyncio.sleep(0.12)
+                        await asyncio.sleep(_app_config.screenshot_settle_delay)
 
                 screenshot_bytes = await executor.capture_screenshot()
                 screenshot_b64 = base64.standard_b64encode(screenshot_bytes).decode()
