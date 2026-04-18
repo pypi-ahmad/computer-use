@@ -63,24 +63,31 @@ class TestPromptViewportSubstitution:
 class TestSessionsDbPathResolution:
     """C4: ``/home/alice`` allowlist must not accept ``/home/alice2/...``."""
 
-    def test_lookalike_prefix_rejected(self, tmp_path, monkeypatch):
+    def test_lookalike_prefix_rejected(self, monkeypatch):
         from backend import server
+        import shutil
+        import uuid
 
-        # Point home at /home/alice-like and ask for /home/alice-like2/db.sqlite
-        fake_home = tmp_path / "alice"
-        fake_home.mkdir()
-        neighbor = tmp_path / "alice2"
-        neighbor.mkdir()
+        # Use a workspace-local base (not /tmp) so Linux's built-in
+        # /tmp allowlist does not mask the lookalike-prefix check.
+        base = Path.cwd() / f".tmp-c4-{uuid.uuid4().hex}"
+        fake_home = base / "alice"
+        neighbor = base / "alice2"
+        fake_home.mkdir(parents=True)
+        neighbor.mkdir(parents=True)
         bad_path = neighbor / "sessions.sqlite"
 
-        monkeypatch.setattr(Path, "home", lambda: fake_home)
-        monkeypatch.setenv("CUA_SESSIONS_DB", str(bad_path))
-        monkeypatch.delenv("CUA_SESSIONS_DB_ALLOW_DIR", raising=False)
+        try:
+            monkeypatch.setattr(Path, "home", lambda: fake_home)
+            monkeypatch.setenv("CUA_SESSIONS_DB", str(bad_path))
+            monkeypatch.delenv("CUA_SESSIONS_DB_ALLOW_DIR", raising=False)
 
-        resolved = server._resolve_sessions_db_path()
-        # Must fall back to the default, NOT the neighbor dir.
-        assert str(neighbor) not in resolved
-        assert str(fake_home.resolve()) in resolved
+            resolved = server._resolve_sessions_db_path()
+            # Must fall back to the default, NOT the neighbor dir.
+            assert str(neighbor) not in resolved
+            assert str(fake_home.resolve()) in resolved
+        finally:
+            shutil.rmtree(base, ignore_errors=True)
 
     def test_non_sqlite_suffix_rejected(self, tmp_path, monkeypatch):
         from backend import server
