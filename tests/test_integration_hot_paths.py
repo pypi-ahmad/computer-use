@@ -142,16 +142,15 @@ class TestWebSocketHotPath:
                 pong = ws.receive_json()
                 assert pong == {"event": "pong"}
 
-                # Trigger a server-side broadcast and confirm fan-out.
-                async def _fire():
-                    await server._broadcast("custom_test_event",
-                                            {"value": 42})
-
-                # Run the broadcast on the server's event loop using
-                # the same loop the WS lives on. TestClient runs the
-                # app in a worker thread; asyncio.run is the supported
-                # way to invoke a coroutine from the test thread.
-                asyncio.run(_fire())
+                # Trigger a server-side broadcast on the same anyio
+                # portal TestClient uses for this websocket session.
+                # This avoids cross-loop behavior that can fail on
+                # some Python/anyio combinations (notably CI py3.11).
+                ws.portal.call(
+                    server._broadcast,
+                    "custom_test_event",
+                    {"value": 42},
+                )
 
                 msg = ws.receive_json()
                 assert msg["event"] == "custom_test_event"
