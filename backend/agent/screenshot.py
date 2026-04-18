@@ -52,6 +52,16 @@ async def capture_screenshot(mode: str = "desktop") -> str:
 
     try:
         resp = await client.get(url, headers=_auth_headers())
+        # Surface auth failures immediately with a well-formed
+        # HTTPStatusError (C10). ``raise_for_status`` requires
+        # ``Response._request`` to be set; fabricate an error here if
+        # the response was constructed without one (common in tests).
+        if resp.status_code in (401, 403):
+            raise httpx.HTTPStatusError(
+                f"agent_service returned {resp.status_code}",
+                request=getattr(resp, "_request", None) or httpx.Request("GET", url),
+                response=resp,
+            )
         resp.raise_for_status()
         data = resp.json()
 
@@ -63,8 +73,21 @@ async def capture_screenshot(mode: str = "desktop") -> str:
         logger.debug("Screenshot captured via %s (%d chars)", method, len(b64))
         return b64
 
-    except (httpx.ConnectError, httpx.TimeoutException) as e:
-        logger.warning("Agent service unreachable, falling back to docker exec: %s", e)
+    except (
+        httpx.ConnectError,
+        httpx.TimeoutException,
+        httpx.HTTPStatusError,
+        RuntimeError,
+    ) as e:
+        # C10: fall back to ``docker exec`` not only for network-level
+        # failures but also when the service returned 5xx or an
+        # ``{"error": ...}`` payload. Auth failures (401/403) are
+        # re-raised so the caller can surface a clear message to the UI
+        # rather than silently masking a token mismatch.
+        if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
+            if e.response.status_code in (401, 403):
+                raise
+        logger.warning("Agent service screenshot failed, falling back to docker exec: %s", e)
         return await _fallback_docker_screenshot()
 
 

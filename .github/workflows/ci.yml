@@ -7,12 +7,41 @@ on:
     branches: [main]
 
 jobs:
-  backend:
-    name: Backend (Python ${{ matrix.python-version }})
+  lint-backend:
+    name: Lint + type-check (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install lint/type tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff mypy
+      - name: Ruff check
+        # Advisory until the existing 200+ legacy lint findings are
+        # cleaned up in a dedicated pass (tracked separately). The
+        # ratchet plan: turn this strict once `ruff check .` is
+        # clean, then add new rule categories one at a time.
+        run: ruff check . || true
+      - name: Ruff format (check only)
+        # Advisory for the same reason — formatting cleanup will be
+        # done in a single dedicated commit so review diffs stay
+        # readable. Strict on new files via pre-commit (local).
+        run: ruff format --check . || true
+      - name: mypy (advisory)
+        # Advisory until the codebase is fully annotated — non-blocking.
+        run: mypy backend || true
+
+  test-backend:
+    name: Backend tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.11']
+        python-version: ['3.11', '3.13']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -23,9 +52,41 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-asyncio
+          pip install pytest pytest-asyncio pytest-cov
       - name: Run tests
         run: python -m pytest -p no:warnings --tb=short
+
+  security:
+    name: Security audit
+    runs-on: ubuntu-latest
+    # Don't fail the overall CI on advisories — surface them as a separate
+    # job result so a CVE on a pinned dep shows up without blocking PRs
+    # that didn't touch dependencies.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install audit tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit
+      - name: pip-audit (backend deps)
+        run: pip-audit -r requirements.txt --ignore-vuln PYSEC-0 --progress-spinner off
+      - name: Trivy — filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '0'
+      - name: Hadolint — Dockerfile lint
+        uses: hadolint/hadolint-action@v3
+        with:
+          dockerfile: docker/Dockerfile
+          failure-threshold: warning
 
   frontend:
     name: Frontend (Node ${{ matrix.node-version }})
@@ -47,3 +108,5 @@ jobs:
         run: npm ci || npm install
       - name: Build
         run: npm run build
+      - name: npm audit (advisory)
+        run: npm audit --audit-level=high || true

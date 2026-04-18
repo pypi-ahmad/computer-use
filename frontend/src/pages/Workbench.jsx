@@ -10,6 +10,7 @@ import formatTime from '../utils/formatTime'
 import { estimateCost } from '../utils/pricing'
 import { getSessionHistory, addSessionToHistory, clearSessionHistory } from '../utils/sessionHistory'
 import { getTheme, setTheme as applyTheme, initTheme } from '../utils/theme'
+import { escapeHtml as esc } from '../utils/escapeHtml'
 import {
   MousePointer2, Keyboard, Type as TypeIcon, ScrollText, Globe, ArrowLeft,
   ArrowRight, Timer, Clipboard, Copy, RefreshCw, Plus, X as XIcon,
@@ -175,7 +176,25 @@ export default function Workbench() {
     }
   }, [refreshContainer])
 
-  // Fetch API key statuses, engines, and models on mount
+  // C16: model list doesn't depend on provider — fetch once on mount.
+  useEffect(() => {
+    let cancelled = false
+    const fetchModelList = async () => {
+      setModelsLoading(true)
+      try {
+        const data = await getModels()
+        if (!cancelled && data.models?.length) {
+          setFetchedModels(data.models)
+          setModelsLoaded(true)
+        }
+      } catch { /* backend not ready */ }
+      if (!cancelled) setModelsLoading(false)
+    }
+    fetchModelList()
+    return () => { cancelled = true }
+  }, [])
+
+  // Fetch API key statuses on provider change (keys ARE provider-scoped).
   useEffect(() => {
     const fetchKeys = async () => {
       try {
@@ -190,24 +209,18 @@ export default function Workbench() {
             setKeySource(current.source) // 'env' or 'dotenv'
           }
         }
+        // Pick a default model for the newly selected provider from
+        // the already-fetched list so we don't refetch /api/models.
+        setFetchedModels(prev => {
+          if (prev?.length) {
+            const firstForProvider = prev.find(m => m.provider === provider)
+            if (firstForProvider) setModel(firstForProvider.model_id)
+          }
+          return prev
+        })
       } catch { /* backend not ready yet */ }
     }
-
-    const fetchModelList = async () => {
-      setModelsLoading(true)
-      try {
-        const data = await getModels()
-        if (data.models?.length) {
-          setFetchedModels(data.models)
-          setModelsLoaded(true)
-          const firstForProvider = data.models.find(m => m.provider === provider)
-          if (firstForProvider) setModel(firstForProvider.model_id)
-        }
-      } catch { /* backend not ready */ }
-      setModelsLoading(false)
-    }
     fetchKeys()
-    fetchModelList()
   }, [provider])
 
   const finalizeAgentRun = useCallback((finishEvent) => {
@@ -260,7 +273,9 @@ export default function Workbench() {
     clearFinished()
   }, [agentFinished, agentRunning, sessionId, finalizeAgentRun, clearFinished])
 
-  // Poll active session status so the UI still finishes if the websocket event is missed.
+  // C14: the WebSocket ``agent_finished`` event is the primary path.
+  // Keep a low-rate safety net (10s) that only fires if WS has missed a
+  // finish event — we no longer race the WS with a 2s poll.
   useEffect(() => {
     if (!agentRunning || !sessionId) return
 
@@ -278,8 +293,7 @@ export default function Workbench() {
       }
     }
 
-    pollStatus()
-    const id = window.setInterval(pollStatus, 2000)
+    const id = window.setInterval(pollStatus, 10000)
 
     return () => {
       cancelled = true
@@ -481,7 +495,8 @@ export default function Workbench() {
     }
   }
 
-  const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  // Q-7: HTML escaper extracted to ../utils/escapeHtml so it's unit-testable
+  // and reusable. Import retained as ``esc`` for call-site readability.
 
   const handleExportJSON = () => {
     const modelMeta = fetchedModels.find(m => m.model_id === model)

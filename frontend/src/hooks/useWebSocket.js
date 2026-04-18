@@ -2,8 +2,19 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 
 /** WebSocket protocol derived from current page (wss: for HTTPS, ws: for HTTP). */
 const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+/**
+ * Optional shared secret matching the backend's ``CUA_WS_TOKEN`` env var.
+ * When the backend has the token configured it closes any /ws upgrade
+ * that doesn't carry ``?token=<value>`` with code 4401. Set
+ * ``VITE_WS_TOKEN`` in the frontend env (or .env.local) to a matching
+ * value before ``npm run dev`` / ``npm run build``.
+ */
+const WS_TOKEN = (import.meta.env?.VITE_WS_TOKEN || '').trim()
 /** Full WebSocket URL pointing to the backend /ws endpoint. */
-const WS_URL = `${WS_PROTOCOL}//${window.location.host}/ws`
+const WS_URL = (() => {
+  const base = `${WS_PROTOCOL}//${window.location.host}/ws`
+  return WS_TOKEN ? `${base}?token=${encodeURIComponent(WS_TOKEN)}` : base
+})()
 
 /**
  * React hook that maintains a persistent WebSocket connection to the backend.
@@ -80,6 +91,7 @@ export default function useWebSocket() {
     ws.onclose = () => {
       setConnected(false)
       clearInterval(ws._pingInterval)
+      ws._pingInterval = null
       // U2 — exponential backoff with jitter capped at 30s. The jitter
       // factor (0.5–1.0) prevents synchronized reconnect storms across
       // multiple tabs/clients when the backend restarts.
@@ -90,6 +102,12 @@ export default function useWebSocket() {
     }
 
     ws.onerror = () => {
+      // Q5: clear the ping interval on error too — some browsers fire
+      // onerror without a subsequent onclose, leaking the timer.
+      if (ws._pingInterval) {
+        clearInterval(ws._pingInterval)
+        ws._pingInterval = null
+      }
       ws.close()
     }
   }, [])

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -233,8 +233,8 @@ class TestOpenAIRuntimePath:
             output=[],
         )
 
-        with patch("openai.OpenAI") as mock_openai:
-            responses_create = Mock(side_effect=[first_response, second_response])
+        with patch("openai.AsyncOpenAI") as mock_openai:
+            responses_create = AsyncMock(side_effect=[first_response, second_response])
             mock_openai.return_value.responses.create = responses_create
             client = OpenAICUClient(api_key="test-key", model="gpt-5.4")
 

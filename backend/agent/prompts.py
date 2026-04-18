@@ -25,7 +25,7 @@ You have native computer_use capabilities. The system will convert your tool cal
 into real UI interactions (mouse clicks, keyboard input, scrolling, navigation).
 
 ENVIRONMENT:
-- Screen resolution: 1440x900 desktop workspace.
+- Screen resolution: {viewport_width}x{viewport_height} desktop workspace.
 - Applications run inside an X11 desktop environment in Docker.
 - Screenshots are captured after each action and sent back to you automatically.
 
@@ -76,7 +76,7 @@ You have native computer_use capabilities. Use your built-in computer tool for a
 UI interactions — do NOT describe actions in text; emit tool calls.
 
 ENVIRONMENT:
-- Screen resolution: 1440x900 desktop workspace.
+- Screen resolution: {viewport_width}x{viewport_height} desktop workspace.
 - Applications run inside an X11 desktop environment in Docker.
 - Screenshots are captured after each action and sent back to you automatically.
 
@@ -110,7 +110,7 @@ You have the built-in OpenAI computer tool. Use it for all UI interaction.
 Do NOT narrate clicks or typing when an action is needed; return computer actions.
 
 ENVIRONMENT:
-- Screen resolution: 1440x900 desktop workspace.
+- Screen resolution: {viewport_width}x{viewport_height} desktop workspace.
 - Applications run inside an X11 desktop environment in Docker.
 - The harness returns a fresh full-resolution screenshot after each batch of actions.
 
@@ -165,7 +165,12 @@ def get_system_prompt(
         Accepted for backward compatibility (e.g. ``discovered_tools``
         from old callers) but ignored.
     """
-    from backend.config import config
+    # Resolve the live config via attribute access so tests that
+    # monkeypatch ``backend.config.config`` pick up the replacement.
+    # A ``from backend.config import config`` would bind the value
+    # into this module at import time and ignore any later swap.
+    from backend import config as _cfg_mod
+    _cfg = _cfg_mod.config
 
     if engine != "computer_use":
         logger.warning(
@@ -175,8 +180,10 @@ def get_system_prompt(
         )
 
     # Desktop dimensions used by the agent service runtime.
-    vw = str(config.screen_width - 100)
-    vh = str(config.screen_height - 80)
+    # Report the full display size — subtracting chrome/taskbar constants
+    # silently misled spatial reasoning on non-default resolutions.
+    vw = str(_cfg.screen_width)
+    vh = str(_cfg.screen_height)
 
     if provider == "anthropic":
         template = SYSTEM_PROMPT_CLAUDE_CU

@@ -375,6 +375,65 @@ class TestAgentHandlerAuth:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Q-x — _is_safe_upload_path uses path-component containment, not string prefix
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class TestUploadPathContainment:
+    """The previous implementation used ``str.startswith(root + os.sep)``
+    which is correct *if* you remember the trailing separator — easy to
+    regress. The new implementation uses ``Path.is_relative_to`` so the
+    primitive itself prevents the lookalike-prefix family of bugs."""
+
+    def test_lookalike_prefix_rejected(self, agent_service, tmp_path, monkeypatch):
+        """``/tmpX/...`` must NOT be accepted just because ``/tmp`` is allowed."""
+        # Real on-disk lookalike pair so realpath-following can't rescue it.
+        good = tmp_path / "good"
+        good.mkdir()
+        bad = tmp_path / "good2"
+        bad.mkdir()
+        monkeypatch.setattr(
+            agent_service, "_UPLOAD_ALLOWED_PREFIXES", (str(good),),
+        )
+        assert agent_service._is_safe_upload_path(str(good / "ok.txt"))
+        # ``good2/...`` string-prefix-matches ``good`` but is not a child:
+        assert not agent_service._is_safe_upload_path(str(bad / "evil.txt"))
+
+    def test_root_itself_rejected_unchanged(self, agent_service, tmp_path, monkeypatch):
+        """Behaviour preserved from the prefix-string version: the root
+        directory itself is not a valid upload *destination* — uploads
+        must go into a file whose parent dir is the root or below."""
+        root = tmp_path / "uploads"
+        root.mkdir()
+        monkeypatch.setattr(
+            agent_service, "_UPLOAD_ALLOWED_PREFIXES", (str(root),),
+        )
+        assert not agent_service._is_safe_upload_path(str(root))
+
+    def test_descendant_accepted(self, agent_service, tmp_path, monkeypatch):
+        root = tmp_path / "uploads"
+        (root / "sub").mkdir(parents=True)
+        monkeypatch.setattr(
+            agent_service, "_UPLOAD_ALLOWED_PREFIXES", (str(root),),
+        )
+        assert agent_service._is_safe_upload_path(str(root / "sub" / "file.bin"))
+
+    def test_outside_allowed_rejected(self, agent_service, tmp_path, monkeypatch):
+        root = tmp_path / "uploads"
+        root.mkdir()
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.setattr(
+            agent_service, "_UPLOAD_ALLOWED_PREFIXES", (str(root),),
+        )
+        assert not agent_service._is_safe_upload_path(str(elsewhere / "x"))
+
+    def test_empty_or_invalid_input_rejected(self, agent_service):
+        assert not agent_service._is_safe_upload_path("")
+        assert not agent_service._is_safe_upload_path(None)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # D1 — /api/v1 alias
 # ──────────────────────────────────────────────────────────────────────────────
 

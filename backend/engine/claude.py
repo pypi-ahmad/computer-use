@@ -15,20 +15,26 @@ from typing import Any, Callable
 from backend.engine import (
     CUActionResult,
     CUTurnRecord,
-    SafetyDecision,
     ActionExecutor,
-    DesktopExecutor,
-    _invoke_safety,
-    _lookup_claude_cu_config,
+    _call_with_retry,
     get_claude_scale_factor,
     resize_screenshot_for_claude,
     DEFAULT_TURN_LIMIT,
     _CONTEXT_PRUNE_KEEP_RECENT,
     _IMAGE_PNG,
-    _XDOTOOL_SPECIAL_KEYS,
 )
 
 logger = logging.getLogger(__name__)
+
+# Per-turn Claude max_tokens budget. Opus 4.7 long-plan tasks frequently
+# truncate at 16k; bumping to 32k removes the artificial ceiling while
+# staying well inside the model's response limit. Override via
+# ``CUA_CLAUDE_MAX_TOKENS`` if a deployment needs a tighter bound.
+import os as _os
+try:
+    _CLAUDE_MAX_TOKENS = max(1024, min(int(_os.getenv("CUA_CLAUDE_MAX_TOKENS", "32768")), 65536))
+except ValueError:
+    _CLAUDE_MAX_TOKENS = 32768
 
 # ---------------------------------------------------------------------------
 # Claude Computer Use Client
@@ -77,7 +83,12 @@ class ClaudeCUClient:
             ) from exc
 
         self._anthropic = anthropic
-        self._client = anthropic.Anthropic(api_key=api_key)
+        # AsyncAnthropic avoids the per-call thread-pool hop we used to
+        # do via ``asyncio.to_thread(sync_client.beta.messages.create, ...)``.
+        # The agent loop spawns up to 3 concurrent sessions and each one
+        # blocks a worker for tens of seconds on Opus — the threadpool
+        # pressure was real.
+        self._client = anthropic.AsyncAnthropic(api_key=api_key)
         self._model = model
         self._system_prompt = system_prompt or ""
 
@@ -164,15 +175,19 @@ class ClaudeCUClient:
             # Prune old screenshots to prevent unbounded context growth
             _prune_claude_context(messages, _CONTEXT_PRUNE_KEEP_RECENT)
 
-            response = await asyncio.to_thread(
-                self._client.beta.messages.create,
-                model=self._model,
-                max_tokens=16384,
-                system=self._system_prompt,
-                tools=tools,
-                messages=messages,
-                betas=[self._beta_flag],
-                thinking={"type": "enabled", "budget_tokens": 4096},
+            # AI4: retry on 429/network transients; non-transient errors propagate.
+            response = await _call_with_retry(
+                lambda: self._client.beta.messages.create(
+                    model=self._model,
+                    max_tokens=_CLAUDE_MAX_TOKENS,
+                    system=self._system_prompt,
+                    tools=tools,
+                    messages=messages,
+                    betas=[self._beta_flag],
+                    thinking={"type": "enabled", "budget_tokens": 4096},
+                ),
+                provider="anthropic",
+                on_log=on_log,
             )
 
             assistant_content = response.content
@@ -186,9 +201,14 @@ class ClaudeCUClient:
             # Handle all stop_reason values explicitly
             stop = response.stop_reason
             if stop == "refusal":
-                final_text = turn_text or "Model refused to continue (safety refusal)."
+                # C-7: Anthropic's API does not allow overriding a refusal,
+                # so surfacing a confirm/deny modal would be misleading.
+                # Emit a one-way log notice (the frontend renders a banner
+                # for ``data.type == "refusal_notice"``) and end the turn.
+                refusal_reason = turn_text or "Model refused to continue (safety refusal)."
                 if on_log:
-                    on_log("warning", f"Claude refused: {final_text[:200]}")
+                    on_log("warning", f"Claude refused: {refusal_reason[:200]}")
+                final_text = refusal_reason
                 if on_turn:
                     on_turn(CUTurnRecord(turn=turn + 1, model_text=final_text, actions=[]))
                 break
