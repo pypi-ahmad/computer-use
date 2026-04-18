@@ -18,8 +18,8 @@ call, no test-harness changes, no new conftest plumbing.
 
 from __future__ import annotations
 
-import asyncio
 import base64
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -43,8 +43,7 @@ class TestAgentStartFinishIntegration:
     ``asyncio.create_task`` away, so this lifecycle is otherwise
     untested."""
 
-    @pytest.mark.asyncio
-    async def test_start_then_run_completes_and_broadcasts_finished(self):
+    def test_start_then_run_completes_and_broadcasts_finished(self):
         from backend import server
         from backend.models import AgentSession, SessionStatus
 
@@ -68,16 +67,6 @@ class TestAgentStartFinishIntegration:
         async def _capture_broadcast(event, data):
             broadcasts.append((event, data))
 
-        # Use a real asyncio.create_task so the background task actually
-        # runs, but capture the resulting task so we can await it.
-        bg_tasks: list[asyncio.Task] = []
-        real_create_task = asyncio.create_task
-
-        def _tracking_create_task(coro):
-            t = real_create_task(coro)
-            bg_tasks.append(t)
-            return t
-
         with patch.dict(server._active_tasks, {}, clear=True), \
              patch.dict(server._active_loops, {}, clear=True), \
              patch("backend.server.resolve_api_key",
@@ -86,9 +75,7 @@ class TestAgentStartFinishIntegration:
                    new_callable=AsyncMock, return_value=True), \
              patch("backend.server.AgentLoop", return_value=fake_loop), \
              patch("backend.server._broadcast",
-                   new=AsyncMock(side_effect=_capture_broadcast)), \
-             patch("backend.server.asyncio.create_task",
-                   side_effect=_tracking_create_task):
+                 new=AsyncMock(side_effect=_capture_broadcast)):
 
             with TestClient(server.app) as c:
                 resp = c.post("/api/agent/start", json={
@@ -104,9 +91,12 @@ class TestAgentStartFinishIntegration:
             assert resp.status_code == 200
             assert resp.json()["session_id"] == "sess-int-1"
 
-            # Drain the background task (the _run_and_notify wrapper).
-            assert bg_tasks, "expected _run_and_notify to be scheduled"
-            await asyncio.gather(*bg_tasks, return_exceptions=True)
+            # Wait briefly for the background _run_and_notify task to run
+            # while the TestClient event loop is still alive.
+            for _ in range(50):
+                if fake_loop.run.await_count > 0:
+                    break
+                time.sleep(0.01)
 
         # Background run completed → loop.run was awaited.
         fake_loop.run.assert_awaited_once()
