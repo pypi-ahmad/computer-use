@@ -8,9 +8,16 @@ runtime path.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import uuid
 from typing import Callable, Optional
+
+# AI6: reuse the shared secret-scrubber from backend.engine so the
+# patterns and redaction format stay consistent between what flows
+# through the provider clients and what loop.py persists into the
+# LangGraph checkpoint + broadcasts over the WebSocket.
+from backend.engine import scrub_secrets as _scrub_secrets
 
 from backend.config import config
 from backend.models import (
@@ -97,16 +104,29 @@ class AgentLoop:
     def request_stop(self) -> None:
         """Request the loop to stop after the current step."""
         self._stop_requested = True
+        # Cancel the in-flight provider run_loop so it doesn't keep
+        # consuming LLM calls until its next turn boundary. The engine
+        # run_task coroutine is cancellation-safe; it awaits the
+        # executor's action and the next generate_content call, both
+        # of which honour asyncio.CancelledError.
+        run_task = getattr(self, "_run_task", None)
+        if run_task is not None and not run_task.done():
+            run_task.cancel()
         self._emit_log("info", "Stop requested by user")
 
     def _emit_log(self, level: str, message: str, data: dict | None = None) -> None:
         """Create a LogEntry and forward it to the log callback."""
-        entry = LogEntry(level=level, message=message, data=data)
+        # AI6: run the message text through the same scrubber used for
+        # persisted model output so a leaked secret (either echoed from
+        # a screenshot or from the user's task) doesn't land verbatim
+        # in log files, WS frames, or the sqlite checkpoint.
+        clean_message = _scrub_secrets(message) or message
+        entry = LogEntry(level=level, message=clean_message, data=data)
         logger.log(
             getattr(logging, level.upper(), logging.INFO),
             "[%s] %s",
             self.session.session_id[:8],
-            message,
+            clean_message,
         )
         if self._on_log:
             try:
@@ -247,6 +267,27 @@ class AgentLoop:
             reasoning_effort=self._reasoning_effort,
         )
 
+        # AI2: loop-detection state. We hash (action_name + coords/text)
+        # for each turn; three consecutive identical fingerprints is
+        # treated as a stuck-agent and flips ``self._stop_requested``
+        # so the engine terminates cleanly on its next turn boundary.
+        last_fingerprints: list[str] = []
+
+        def _fingerprint(action: "AgentAction | None") -> str:
+            if action is None:
+                return ""
+            parts = [action.action.value if hasattr(action.action, "value") else str(action.action)]
+            if action.coordinates:
+                parts.append(":".join(str(c) for c in action.coordinates))
+            if action.text:
+                # AI-4: hash the *full* text rather than slicing to 64 chars,
+                # so a stuck loop typing a long string that diverges only after
+                # char 64 is still detected as a duplicate fingerprint.
+                parts.append(
+                    hashlib.blake2b(action.text.encode("utf-8", "replace"), digest_size=8).hexdigest()
+                )
+            return "|".join(parts)
+
         def _on_turn(record: CUTurnRecord) -> None:
             """Map CU turn records to session step records + broadcast."""
             # Build an AgentAction from the first CU action in this turn
@@ -257,7 +298,9 @@ class AgentLoop:
                 if action_type:
                     agent_action = AgentAction(
                         action=action_type,
-                        reasoning=record.model_text[:500] if record.model_text else None,
+                        reasoning=_scrub_secrets(
+                            record.model_text[:500] if record.model_text else None
+                        ),
                     )
                     # Attach coordinates/text from extra data if available
                     px = first.extra.get("pixel_x")
@@ -275,13 +318,36 @@ class AgentLoop:
             step = StepRecord(
                 step_number=record.turn,
                 screenshot_b64=record.screenshot_b64,
-                raw_model_response=record.model_text,
+                raw_model_response=_scrub_secrets(record.model_text),
                 action=agent_action,
             )
             self.session.steps.append(step)
             self._fire_callback(self._on_step, step)
             if record.screenshot_b64 and self._on_screenshot:
                 self._fire_callback(self._on_screenshot, record.screenshot_b64)
+
+            # ── AI2: stuck-agent detection ──────────────────────────
+            fp = _fingerprint(agent_action)
+            if fp:
+                last_fingerprints.append(fp)
+                del last_fingerprints[:-3]
+                if len(last_fingerprints) == 3 and len(set(last_fingerprints)) == 1:
+                    self._emit_log(
+                        "warning",
+                        "Stuck-agent detected (3 consecutive identical actions); "
+                        "requesting stop.",
+                    )
+                    self._stop_requested = True
+                    # Flipping the flag alone does not interrupt the
+                    # engine — it would keep running until its turn
+                    # limit. Cancel the in-flight task the same way
+                    # ``request_stop`` does so the next provider call
+                    # raises CancelledError and the loop terminates
+                    # cleanly. Guard against the (test-only) case
+                    # where ``_run_task`` has not been assigned yet.
+                    run_task = getattr(self, "_run_task", None)
+                    if run_task is not None and not run_task.done():
+                        run_task.cancel()
 
         def _on_log(level: str, message: str) -> None:
             self._emit_log(level, message)
@@ -317,18 +383,39 @@ class AgentLoop:
             return decision
 
         try:
-            final_text = await engine.execute_task(
-                goal=self.session.task,
-                turn_limit=self.session.max_steps,
-                on_safety=_on_safety,
-                on_turn=_on_turn,
-                on_log=_on_log,
+            # Run the engine in a tracked task so ``request_stop`` can
+            # cancel it immediately (used by ``/api/agent/stop`` and by
+            # AI2 stuck-agent detection). A cooperative cancel is much
+            # cheaper than letting the engine finish its current turn.
+            self._run_task = asyncio.create_task(
+                engine.execute_task(
+                    goal=self.session.task,
+                    turn_limit=self.session.max_steps,
+                    on_safety=_on_safety,
+                    on_turn=_on_turn,
+                    on_log=_on_log,
+                )
             )
+            try:
+                final_text = await self._run_task
+            except asyncio.CancelledError:
+                final_text = (
+                    "Agent stopped by user."
+                    if self._stop_requested
+                    else "Agent cancelled."
+                )
+                self._emit_log("info", final_text)
             self._emit_log("info", f"CU engine completed: {final_text[:300]}")
-            self.session.status = SessionStatus.COMPLETED
+            self.session.status = (
+                SessionStatus.STOPPED
+                if self._stop_requested
+                else SessionStatus.COMPLETED
+            )
         except Exception as exc:
             self._emit_log("error", f"CU engine failed: {exc}")
             self.session.status = SessionStatus.ERROR
+        finally:
+            self._run_task = None
 
         return self.session
 

@@ -9,7 +9,8 @@
 [![React 19](https://img.shields.io/badge/React-19-61DAFB.svg?logo=react&logoColor=black)](https://react.dev)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Docker](https://img.shields.io/badge/Docker-Ubuntu_24.04-2496ED.svg?logo=docker&logoColor=white)](https://docker.com)
-[![Tests](https://img.shields.io/badge/Tests-188_passing-brightgreen.svg)](#-testing)
+[![Tests](https://img.shields.io/badge/Tests-243_passing-brightgreen.svg)](#-testing)
+[![CI](https://img.shields.io/badge/CI-GitHub_Actions-2088FF.svg?logo=githubactions&logoColor=white)](.github/workflows/ci.yml)
 [![Gemini](https://img.shields.io/badge/Gemini-CU_Native-4285F4.svg?logo=google&logoColor=white)](#-supported-models)
 [![Claude](https://img.shields.io/badge/Claude-CU_Native-CC785C.svg?logo=anthropic&logoColor=white)](#-supported-models)
 [![OpenAI](https://img.shields.io/badge/OpenAI-CU_Native-10A37F.svg?logo=openai&logoColor=white)](#-supported-models)
@@ -75,12 +76,20 @@ A single-page React workbench provides real-time desktop streaming (WebSocket sc
 | **Theming** | Dark and light themes with persistent toggle via `data-theme` attribute |
 | **Onboarding** | First-run welcome overlay with 3-step guide, dismissible and remembered via localStorage |
 | **Accessibility** | Minimum 12 px font sizes, SVG icons via `lucide-react`, `aria-label` on all icon-only buttons, keyboard-navigable timeline, focus-visible outlines |
-| **Hermetic Test Suite** | 188 unit tests using mocks/patches — no running container or network required |
-| **Structured Observability** | Session-scoped log correlation via `session_id` ContextVar (propagates across `asyncio.to_thread`) + per-turn duration metrics (`turn_duration_ms`) for every provider |
+| **Hermetic Test Suite** | 243 tests (unit + integration) using mocks/patches — no running container or network required |
+| **Structured Observability** | Session-scoped log correlation via `session_id` ContextVar (propagates across async tasks) + per-turn duration metrics (`turn_duration_ms`) for every provider |
 | **Outbound WS Schema** | Pydantic-validated WebSocket events (`backend/ws_schema.py`) with matching TypeScript discriminated union (`frontend/src/types/ws.d.ts`); schema drift logged as warnings |
 | **Versioned REST API** | Every `/api/*` route is also reachable at `/api/v1/*` via an ASGI path-rewrite middleware — zero decorator duplication |
-| **Optional WebSocket Auth** | Shared-secret gate on `/ws` via `CUA_WS_TOKEN` env var (close code 4401 on mismatch) |
-| **Non-Root Container** | Docker image runs as UID 1000 (`agent` user) with least-privilege file permissions |
+| **Origin + Token WebSocket Auth** | `/ws` and `/vnc/websockify` enforce an `Origin` allowlist against `CORS_ORIGINS`; optional shared-secret gate via `CUA_WS_TOKEN` (close code 4401 on mismatch, 4403 on bad origin) |
+| **Host-Header Allowlist** | DNS-rebinding defense: HTTP requests whose `Host` header is outside `CUA_ALLOWED_HOSTS` (populated from `CORS_ORIGINS`) are rejected at the middleware layer |
+| **Secret Scrubbing** | Log messages, `raw_model_response` strings, and persisted session snapshots are passed through `scrub_secrets()` which redacts OpenAI / Anthropic / Google / GitHub / Slack / AWS key shapes before they reach disk or the WS stream |
+| **Stuck-Agent Detection** | Three consecutive identical action fingerprints (action + coords + text) auto-terminate the session so a looping model doesn't burn `max_steps` of LLM spend |
+| **Retry with Backoff + Jitter** | Every provider LLM call is wrapped in `_call_with_retry` — transient `RateLimitError` / `APIConnectionError` / `httpx.TimeoutException` retry with exponential backoff and jitter |
+| **Fully Async Provider SDKs** | `AsyncAnthropic`, `AsyncOpenAI`, and `genai.Client(...).aio` — no more per-call `asyncio.to_thread` thread-pool pressure |
+| **Immediate Stop Cancellation** | `POST /api/agent/stop` cancels the in-flight provider call via `asyncio.Task.cancel()` instead of waiting for the next turn boundary |
+| **xdotool Key Allowlist** | Model-emitted key combinations are validated against an explicit allowlist (letters, digits, named keys, modifiers). Disruptive tokens like `super+l` / `xkill` are rejected before reaching xdotool |
+| **Non-Root Container** | Docker image runs as UID 1000 (`agent` user) with least-privilege file permissions, `cap_drop: ALL`, `no-new-privileges`, and `prlimit`-bounded `run_command` |
+| **VNC Fail-Closed** | Container startup fails unless `VNC_PASSWORD` is set or `CUA_ALLOW_NOPW=1` is explicitly passed — no more accidentally unauthenticated VNC |
 
 ---
 
@@ -367,8 +376,7 @@ cd frontend && npm install && cd ..
 | `python-dotenv` | `.env` file loading |
 | `pydantic` | Request/response validation |
 | `websockets` | noVNC WebSocket proxy |
-| `opencv-python-headless` | Image processing for screenshot handling |
-| `numpy` | Array operations used alongside OpenCV |
+| `langgraph` + `langgraph-checkpoint-sqlite` | Per-session state persistence |
 
 **Frontend** (`package.json`):
 
@@ -418,31 +426,41 @@ Keys are resolved in priority order — the first non-empty value wins:
 | `SCREEN_HEIGHT` | `900` | Virtual display height (pixels) |
 | `MAX_STEPS` | `50` | Default max steps per session |
 | `STEP_TIMEOUT` | `30.0` | Per-step timeout (seconds) |
-| `HOST` | `0.0.0.0` | Backend server bind address |
+| `HOST` | `127.0.0.1` | Backend server bind address. **Defaults to loopback** so the unauthenticated REST + WS surface doesn't leak to the LAN. Non-loopback binds are guarded — see `CUA_ALLOW_PUBLIC_BIND`. |
+| `CUA_ALLOW_PUBLIC_BIND` | `0` | Explicit opt-in for non-loopback `HOST` values. `backend/main.py` refuses to start (exit code 2) on a non-loopback `HOST` unless **both** `CUA_ALLOW_PUBLIC_BIND=1` **and** `CUA_WS_TOKEN` are set. A warning is still logged even when allowed. |
 | `PORT` | `8000` | Backend server port |
-| `DEBUG` | `false` | Enable debug logging + Uvicorn reload |
-| `CORS_ORIGINS` | *(see below)* | Comma-separated allowed CORS origins |
-| `CUA_WS_TOKEN` | — | Optional shared secret for `/ws`. If set, clients must send `?token=<value>` or the connection is closed with 4401 |
-| `CUA_SESSIONS_DB` | `~/.cua/sessions.sqlite` | Path for the LangGraph sqlite checkpointer. Must end in `.sqlite` and live under `$HOME` or a system temp dir (override with `CUA_SESSIONS_DB_ALLOW_DIR`) |
+| `DEBUG` | `false` | Enable debug logging. No longer implies hot-reload. |
+| `CUA_RELOAD` | `false` | Enable uvicorn `--reload`. Previously conflated with `DEBUG`; kept separate so a prod-ish deploy can't accidentally hot-reload on disk writes. |
+| `CORS_ORIGINS` | *(see below)* | Comma-separated allowed CORS origins. Also feeds the WebSocket `Origin` allowlist and the HTTP `Host`-header allowlist. |
+| `CUA_ALLOWED_HOSTS` | *(derived from `CORS_ORIGINS` + loopback)* | Comma-separated additional hosts accepted in the `Host` header. Anti-DNS-rebinding layer. |
+| `CUA_WS_TOKEN` | — | Optional shared secret for `/ws`. If set, clients must send `?token=<value>` or the connection is closed with 4401. Bad `Origin` closes with 4403. |
+| `CUA_SESSIONS_DB` | `~/.cua/sessions.sqlite` | Path for the LangGraph sqlite checkpointer. Must end in `.sqlite` and live under `$HOME` or a system temp dir (override with `CUA_SESSIONS_DB_ALLOW_DIR`). Path containment is enforced with `Path.is_relative_to`, not prefix-string matching. |
 | `CUA_SESSIONS_DB_ALLOW_DIR` | — | Additional absolute directory allowed to contain the sessions db |
 | `CUA_SESSIONS_MAX_THREADS` | `1000` | Hard cap on persisted LangGraph threads; oldest rows are swept at startup |
 | `CUA_UI_SETTLE_DELAY` | `0.25` | Seconds to pause after UI-mutating actions |
 | `CUA_SCREENSHOT_SETTLE_DELAY` | `0.15` | Seconds to wait before capturing a screenshot |
 | `CUA_POST_ACTION_SCREENSHOT_DELAY` | `0.4` | Seconds to wait after an action before re-screenshotting |
+| `CUA_CLAUDE_MAX_TOKENS` | `32768` | Per-turn Claude `max_tokens` budget. Clamped to `[1024, 65536]`. Raised from the old 16 k default because Opus 4.7 long-plan turns truncated mid-reasoning. |
+| `CUA_GEMINI_THINKING_LEVEL` | `high` | Gemini 3 `thinking_level`: `minimal` / `low` / `medium` / `high`. Drop to `medium`/`low` to trade task accuracy for lower latency and token spend. |
+
+**Container-side** (set in `docker-compose.yml` or on the host before `docker run`):
+
+| Variable | Default | Description |
+|---|---|---|
+| `VNC_PASSWORD` | *(unset)* | Required — container entrypoint **fails closed** unless this is set or `CUA_ALLOW_NOPW=1` is passed. |
+| `CUA_ALLOW_NOPW` | `0` | Opt-in escape hatch to run x11vnc with `-nopw`. Intended for local-dev loops where VNC is only reachable on `127.0.0.1`. |
+| `CUA_ALLOW_NETWORK_CMDS` | `0` | Opt-in to include `curl`/`wget` in the `run_command` allowlist. Default is closed: the VLM can't issue outbound HTTP from inside the sandbox, which removes a common prompt-injection exfiltration path. |
+| `XDO_SYNC_SLEEP_MS` | `75` | Compensation sleep (ms) after a `mousemove`/`click` since `xdotool --sync` hangs on Xvfb without a compositor. Increase on slow CI hosts. |
+| `XDO_WINDOW_SLEEP_MS` | `400` | Same, for `windowactivate`. |
+| `AGENT_SERVICE_TOKEN` | *(auto-generated)* | Shared secret between the host backend and the in-container agent service. Generated per process and passed to `docker run --env-file` (a 0600 temp file that is unlinked immediately after container start). **Not** visible in `docker inspect`. |
+| `DISPLAY` | `:99` | X11 display identifier |
+| `SCREEN_DEPTH` | `24` | X11 color depth |
 
 **Frontend** (set in system environment before running `npm run dev`):
 
 | Variable | Default | Description |
 |---|---|---|
 | `VITE_API_PORT` | `8000` | Backend port for the Vite dev proxy (must match `PORT`) |
-
-**Container-side** (set in `docker-compose.yml`):
-
-| Variable | Default | Description |
-|---|---|---|
-| `VNC_PASSWORD` | *(unset)* | Set to require VNC authentication |
-| `DISPLAY` | `:99` | X11 display identifier |
-| `SCREEN_DEPTH` | `24` | X11 color depth |
 
 **CORS defaults** (when `CORS_ORIGINS` is not set):
 `http://localhost:5173`, `http://127.0.0.1:5173`, `http://localhost:3000`, `http://127.0.0.1:3000`
@@ -540,9 +558,9 @@ For in-depth operational documentation — including feature-by-feature breakdow
 
 | | |
 |---|---|
-| **Framework** | pytest |
-| **Tests** | 188 tests across 12 files (includes `test_gap_coverage.py` with audit regression tests) |
-| **Hermetic** | All tests use mocks/patches — no running container or network required |
+| **Framework** | pytest (+ `pytest-asyncio` in `asyncio_mode=auto`) |
+| **Tests** | 243 tests across 14 files (unit coverage + `test_gap_coverage.py` and `test_audit_fixes.py` regression tests + `test_integration_hot_paths.py` integration tests) |
+| **Hermetic** | All tests use mocks/patches — no running container or network required. Shared env is pinned via `tests/conftest.py` (`CUA_TEST_MODE=1`). |
 
 ### Running Tests
 
@@ -568,6 +586,8 @@ pytest tests/ -q               # Quick summary
 | `test_server_validation.py` | API input validation: engines, providers, models, desktop-only mode enforcement, rate limiting, safety, v1 alias, WS schema drift |
 | `test_docker_security.py` | Container security settings validation |
 | `test_gap_coverage.py` | Coverage for noVNC proxy error paths, docker_manager branches, Claude refusal stop_reason, agent handler auth (including hmac), `/api/v1/*` alias, and outbound WS schema validation |
+| `test_audit_fixes.py` | Audit regression tests: viewport placeholder substitution, sessions-db path containment, OpenAI scroll magnitude clamp, xdotool key allowlist (incl. `hold_key`), screenshot HTTP-5xx fallback, secret scrubbing, `_call_with_retry` transient/non-transient, origin/host gating, WebSocket `Origin` gating, public-bind guardrail, upload-path containment, `AGENT_SERVICE_TOKEN` env-file perms, stuck-agent detection (including engine-task cancellation), Gemini native-async path. |
+| `test_integration_hot_paths.py` | Integration coverage for the highest-risk glue paths: `POST /api/agent/start` → background run → `agent_finished` broadcast → cleanup; `/ws` ping/pong + broadcast fan-out; `/api/screenshot` round-trip; OpenAI `_execute_openai_action` dispatch for left/right click. |
 
 ---
 
@@ -607,14 +627,16 @@ An HTTP server running inside the container handling desktop automation and scre
 | `3000` | Frontend (Vite dev server) | Host |
 | `5900` | VNC (x11vnc) | `127.0.0.1` |
 | `6080` | noVNC (websockify) | `127.0.0.1` |
-| `8000` | Backend API (FastAPI) | `0.0.0.0` |
+| `8000` | Backend API (FastAPI) | `127.0.0.1` (default; override with `HOST=0.0.0.0`) |
 | `9222` | Agent Service | `127.0.0.1` |
 
 ---
 
 ## �️ Recent Hardening (Audit Remediation)
 
-This codebase has been through a systematic multi-phase audit covering security (S), reliability (R), performance (P), code quality (Q), testing (T), DevOps (D), and UX (U). All findings are fixed and covered by regression tests in `tests/test_gap_coverage.py`.
+This codebase has been through **two** systematic audit passes covering security (S), reliability (R), performance (P), code quality (Q), testing (T), DevOps (D), UX (U), and AI/ML hygiene (AI). All findings are fixed and covered by regression tests in `tests/test_gap_coverage.py` and `tests/test_audit_fixes.py`.
+
+### Phase 1 — Initial audit
 
 | Group | Findings | What was fixed |
 |---|---|---|
@@ -626,7 +648,39 @@ This codebase has been through a systematic multi-phase audit covering security 
 | **D — DevOps** | D1–D4 | `docker/entrypoint.sh` now verifies XFCE / x11vnc / websockify via `kill -0` + `pgrep` after background launch; `docker/Dockerfile` apt install split into core → python → desktop tiers for stable layer caching; `docker-compose.yml` healthcheck `start_period: 30s`; `cap_drop: [ALL]` + ephemeral `tmpfs` for `/tmp` and `/var/run` |
 | **U — UX / Frontend** | U1–U3 | Every `api.js` export forwards an `AbortSignal`; `useWebSocket` reconnect backoff adds 0.5–1.0× jitter to break synchronized reconnect storms; Workbench container-status poll wires an `AbortController` so unmount cancels in-flight fetches (no `setState` on dead components) |
 
-Regression coverage for every finding above lives in [`tests/test_gap_coverage.py`](tests/test_gap_coverage.py) and runs with the default `pytest tests/` invocation.
+### Phase 2 — Second audit (this pass)
+
+| ID | Finding | Fix |
+|---|---|---|
+| **C1 / AI1** | Prompt `{viewport_width}/{viewport_height}` placeholders didn't exist in template strings — every model was told "1440×900" regardless of `SCREEN_WIDTH`. | Placeholders added to all three provider prompts and substituted with the real configured dimensions. |
+| **C2** | WebSocket `/ws` had no `Origin` check. Any webpage the user visited while the backend was running could open a WS and stream live desktop screenshots. | `_ws_origin_ok` enforces the `CORS_ORIGINS` allowlist. Bad origin → close code 4403. Also applied to `/vnc/websockify`. |
+| **C3** | `HOST` defaulted to `0.0.0.0`, exposing the unauthenticated REST + WS surface to the LAN. | Default switched to `127.0.0.1`. Public bind is now opt-in via explicit env override. |
+| **S9** | No `Host` header check — DNS-rebinding could map `attacker.com → 127.0.0.1` and bypass CORS. | `_host_allowlist` middleware derives allowed hosts from `CORS_ORIGINS` + loopback + optional `CUA_ALLOWED_HOSTS`. |
+| **C4** | `startswith` path check accepted `/home/alice2/...` when `/home/alice` was allowlisted. | `_resolve_sessions_db_path` and `_is_safe_upload_path` now use `Path.is_relative_to` / component-aware containment. |
+| **C5** | OpenAI scroll adapter clamped `magnitude = min(max(m, 200), 999)` — silently promoted 20-pixel micro-scrolls to 200 pixels and broke calendar/dropdown interactions. | Clamp is now `min(max(m, 1), 999)`. |
+| **C6** | All three providers wrapped sync SDKs in `asyncio.to_thread`, burning a thread-pool slot per LLM call. | Switched to `AsyncAnthropic`, `AsyncOpenAI`, and `google-genai`'s `aio` client. |
+| **C7** | `xdotool --sync` hangs on Xvfb without a compositor; compensation sleep was a hard-coded 50 ms / 300 ms. | Configurable via `XDO_SYNC_SLEEP_MS` / `XDO_WINDOW_SLEEP_MS` (defaults 75 ms / 400 ms). |
+| **C8** | `_act_key_combination` passed model-supplied key strings to xdotool verbatim. A prompt-injected screenshot could emit `super+l` (lock screen) or `ctrl+alt+BackSpace` (zap X). | Explicit allowlist (letters, digits, named special keys, modifiers); unknown tokens reject cleanly with a logged warning. |
+| **C9** | Broadcast tasks were globally tracked; `_cleanup_session` didn't cancel per-session fan-out still queued behind WS writes. | Per-session `_session_broadcast_tasks` registry; cleanup cancels the bucket. |
+| **C10** | Screenshot fallback only triggered on `ConnectError`/`TimeoutException` — a 5xx from the agent service raised instead of falling back. | Now falls back on HTTP 5xx and `{"error": ...}` payloads; 401/403 still propagate so token mismatches are visible. |
+| **C12** | Claude CU refusal (`stop_reason="refusal"`) didn't notify the UI safety callback. | Refusal now calls `_invoke_safety(on_safety, refusal_reason)` so the frontend surfaces a clear explanation. |
+| **C13** | `AGENT_SERVICE_TOKEN` was passed via `-e`, embedding the secret in `docker inspect` output. | Written to a 0600 temp env-file, passed via `--env-file`, unlinked immediately after `docker run` returns. |
+| **C14–C17** | Frontend polled `/api/agent/status` every 2 s in addition to the WebSocket; `useWebSocket` leaked the ping interval on `onerror`; HTML exporter escaped 3/5 entities. | Status poll dropped to a 10 s safety net (WS is primary); ping cleared on `onerror`; HTML escaper now covers `& < > " '`. |
+| **S1** | `/api/screenshot` was unauthenticated — LAN exposure on `0.0.0.0`. | Gated by `_rest_origin_ok` + optional `CUA_WS_TOKEN`. |
+| **S2** | `run_command` allowlist included `curl` / `wget` — exfiltration channel. | Removed by default; opt back in with `CUA_ALLOW_NETWORK_CMDS=1`. |
+| **S4** | Container started with `x11vnc -nopw` when `VNC_PASSWORD` was unset. | Entrypoint fails closed unless `VNC_PASSWORD` is set or `CUA_ALLOW_NOPW=1` is explicit. |
+| **S5** | `run_command` had no CPU/memory caps. | Wrapped in `prlimit --cpu=20 --as=1GiB --nofile=256` when `prlimit` is available. |
+| **S10** | CSP was minimal; no cross-origin isolation. | Added `Cross-Origin-Opener-Policy`, `Cross-Origin-Embedder-Policy`, `Cross-Origin-Resource-Policy`, `Permissions-Policy`. |
+| **AI2** | No loop detection — a stuck model burned `max_steps` worth of LLM calls on the same failing action. | `_fingerprint` on (action + coords + text); 3 consecutive identical fingerprints trip `_stop_requested`. |
+| **AI4** | Transient `RateLimitError` / network timeout ended the session. | `_call_with_retry` wraps every provider call with exponential backoff + jitter (3 attempts, `base_delay=0.8s`). |
+| **AI5** | Gemini `thinking_level` was hardcoded `high`. | Configurable via `CUA_GEMINI_THINKING_LEVEL` (minimal / low / medium / high). |
+| **AI6** | API-key-shaped tokens echoed by models flowed verbatim into logs, WS frames, and the sqlite checkpoint. | `scrub_secrets()` redacts OpenAI / Anthropic / Google / GitHub / Slack / AWS patterns before persistence. |
+| **AI7** | Claude `max_tokens=16384` hardcoded; Opus 4.7 truncated mid-plan. | Raised to 32 768 with env override `CUA_CLAUDE_MAX_TOKENS`. |
+| **Q (stop cancel)** | `/api/agent/stop` only set a flag; the provider call kept running until its next turn boundary. | `request_stop()` cancels the in-flight `_run_task` via `asyncio.Task.cancel()`. |
+| **Deps** | `opencv-python-headless` + `numpy` (~100 MB) were declared but never imported. | Removed from `requirements.txt`; `pydantic` bumped to `2.13`. |
+| **CI** | Single pytest job on Python 3.11 only. | Extended with ruff lint + format, mypy (advisory), pip-audit, Trivy filesystem scan, hadolint, and a Python 3.11 + 3.13 matrix. |
+
+Regression coverage for Phase 1 lives in [`tests/test_gap_coverage.py`](tests/test_gap_coverage.py); Phase 2 coverage is in [`tests/test_audit_fixes.py`](tests/test_audit_fixes.py). Both run with the default `pytest tests/` invocation.
 
 ---
 
@@ -672,6 +726,29 @@ Gemini uses normalized 0–999 coordinates, which the engine denormalizes using 
 
 Expected — the image installs XFCE, Chrome, LibreOffice, and many utilities. First build is still large; subsequent builds use layer cache.
 
+### `/ws` closes immediately with code 4401 or 4403
+
+- **4401** — `CUA_WS_TOKEN` is set on the backend but the client didn't send `?token=<value>` (or sent a mismatch).
+- **4403** — the `Origin` header doesn't match any entry in `CORS_ORIGINS`. Restart the dev server via the provided Vite proxy (which forwards same-origin), or add the origin to `CORS_ORIGINS`.
+
+### Backend returns 400 "Invalid host header"
+
+The `Host` header was outside the allowlist (DNS-rebinding defense). This trips when hitting the backend via a non-loopback / non-`CORS_ORIGINS` host. Add the hostname to `CUA_ALLOWED_HOSTS` (comma-separated) or adjust `CORS_ORIGINS`.
+
+### Container fails to start with "VNC_PASSWORD is not set"
+
+VNC is now fail-closed by default. Either:
+- Set `VNC_PASSWORD=<something>` in your shell or in `docker-compose.yml`, OR
+- Explicitly pass `CUA_ALLOW_NOPW=1` to the container environment to opt into unauthenticated VNC for local-loopback use.
+
+### Model keeps clicking the same button forever
+
+The second-audit stuck-agent detector auto-terminates after 3 consecutive identical action fingerprints (action + coords + text). If this kicks in too eagerly on legitimate retries, the detector lives in `backend/agent/loop.py` and only counts turns that produced an action — pure "look, then act" turns don't count.
+
+### OpenAI/Claude/Gemini calls time out during a burst
+
+Every provider call goes through `_call_with_retry` with 3 attempts, exponential backoff, and jitter. If the third attempt still fails, the session ends in `error` status. Check `/api/agent/status/<session_id>` and the log panel for the underlying exception.
+
 ---
 
 ## 🔐 Safety & Security
@@ -687,31 +764,50 @@ Expected — the image installs XFCE, Chrome, LibreOffice, and many utilities. F
 | Session ID validation | UUID format enforced |
 | Task length limit | 10,000 characters |
 | API key masking | Keys truncated in all audit logs |
+| Key-shape scrubbing | `raw_model_response` and log messages pass through `scrub_secrets()` before persistence |
+| Key-combo allowlist | Only letters, digits, named special keys, and modifiers reach xdotool |
+| `run_command` allowlist | Explicit list of safe binaries; no `curl`/`wget` unless `CUA_ALLOW_NETWORK_CMDS=1` |
+| `run_command` resource caps | `prlimit --cpu=20 --as=1GiB --nofile=256` when available |
+
+### Network-Edge Protections
+
+| Protection | Details |
+|---|---|
+| `HOST` default | Loopback only (`127.0.0.1`). LAN exposure is opt-in. |
+| Host-header allowlist | `_host_allowlist` middleware rejects requests whose `Host` isn't derived from `CORS_ORIGINS` or `CUA_ALLOWED_HOSTS` (DNS-rebinding defense). |
+| WebSocket `Origin` check | `_ws_origin_ok` enforces the CORS allowlist on both `/ws` and `/vnc/websockify`. Cross-origin upgrades are closed with 4403. |
+| Optional WS token | `CUA_WS_TOKEN` enables a shared-secret gate — mismatches close with 4401. |
+| Cross-origin isolation | `Cross-Origin-Opener-Policy`, `Cross-Origin-Embedder-Policy`, `Cross-Origin-Resource-Policy` set on every HTTP response (except the noVNC iframe proxy). |
+| Permissions policy | Camera, microphone, geolocation, USB, payment, etc. explicitly disabled. |
+| CSP | `default-src 'none'; connect-src 'self' ws: wss:; frame-ancestors 'none'` — API-only surface, no HTML served from this origin. |
 
 ### Container Security
 
 | Setting | Value |
 |---|---|
 | `security_opt` | `no-new-privileges:true` |
+| `cap_drop` | `ALL` (agent runs as non-root UID 1000 and only needs userspace syscalls) |
 | `shm_size` | `2gb` |
 | Memory limit | `4g` |
 | CPU limit | `2` cores |
-| Port binding | `127.0.0.1` only (not externally exposed) |
-| Healthcheck | `curl -f http://localhost:9222/health` every 30s |
-| Init process | `init: true` (proper signal handling) |
-| Restart policy | `unless-stopped` |
+| Port binding | `127.0.0.1` only |
+| Healthcheck | `curl -f http://127.0.0.1:9222/health` every 30s, `start_period: 30s` |
+| VNC | **Fail-closed** — requires `VNC_PASSWORD` or explicit `CUA_ALLOW_NOPW=1` |
+| Agent-service token | Passed via 0600 `--env-file` (unlinked after `docker run`), **not** `-e` — no leak into `docker inspect` |
+| `run_command` | Allowlisted binaries + `prlimit` caps; no outbound HTTP unless opted in |
 
 ### CU Safety Confirmation
 
-Actions flagged with `require_confirmation` by the Gemini CU protocol are **not auto-approved**. They surface to the user via WebSocket, and the agent loop blocks until the user explicitly confirms or denies (60-second timeout defaults to **deny**).
+Actions flagged with `require_confirmation` by the Gemini CU protocol, OpenAI Responses API `pending_safety_checks`, or Claude `stop_reason=refusal` surface to the user via WebSocket. The agent loop blocks until the user explicitly confirms or denies (60-second timeout defaults to **deny**).
 
 ### Security Boundaries
 
-- **No authentication** on the backend API — designed for local development only
-- **No TLS** between backend and agent service (localhost-only)
-- **VNC unauthenticated** by default — set `VNC_PASSWORD` for password-protected access
-- **WebSocket connections** have no auth; rely on CORS (`localhost:3000/5173` only)
-- **Model output is untrusted** — all actions execute inside the sandboxed container, not on the host
+- **No authentication** on the REST API by default — designed for local development. Optional `CUA_WS_TOKEN` gates WebSocket connections; REST remains unauthenticated.
+- **No TLS** between backend and agent service (localhost-only).
+- **VNC fail-closed by default** — `VNC_PASSWORD` required unless `CUA_ALLOW_NOPW=1` is explicit.
+- **WebSocket connections** enforce `Origin` allowlist + optional token; no authentication beyond that.
+- **Model output is untrusted** — all actions execute inside the sandboxed container, not on the host; `run_command` uses an allowlist + `prlimit`; key combinations are allowlisted before reaching `xdotool`.
+- **Secret scrubbing** — before any model-produced text reaches logs, WS frames, or the sqlite checkpoint, known key shapes (OpenAI / Anthropic / Google / GitHub / Slack / AWS) are replaced with `[REDACTED:<label>]`.
 
 ---
 
@@ -778,6 +874,7 @@ computer-use/
 ├── docs/
 │   └── USAGE.md                   # Detailed usage guide
 ├── tests/
+│   ├── conftest.py                # Sets CUA_TEST_MODE=1 before backend.* imports
 │   ├── test_computer_use_engine.py
 │   ├── test_claude_actions.py
 │   ├── test_coordinate_scaling.py
@@ -787,7 +884,14 @@ computer-use/
 │   ├── test_model_policy.py
 │   ├── test_prompts.py
 │   ├── test_server_validation.py
-│   └── test_docker_security.py
+│   ├── test_docker_security.py
+│   ├── test_agent_graph_safety.py
+│   ├── test_gap_coverage.py       # Phase-1 audit regression coverage
+│   ├── test_audit_fixes.py        # Phase-2 audit regression coverage
+│   └── test_integration_hot_paths.py  # End-to-end glue tests (hermetic)
+├── .github/
+│   └── workflows/
+│       └── ci.yml                 # 4 jobs: lint, test (3.11+3.13), security, frontend build
 ├── docker-compose.yml             # Container orchestration (resource limits, ports)
 ├── requirements.txt               # Python dependencies
 ├── pyproject.toml                 # Project metadata
@@ -806,7 +910,7 @@ computer-use/
 - **No authentication by default** — designed for local development. A shared-secret gate on `/ws` is available via `CUA_WS_TOKEN`; REST endpoints remain unauthenticated.
 - **Single container** — one Docker container serves all sessions; no per-session isolation
 - **Preview models** — Gemini, Claude, and OpenAI CU capabilities are in preview/beta and subject to change
-- **No CI/CD pipeline** — tests run locally; no automated GitHub Actions workflow yet
+- **CI quality gates are partially advisory** — `ruff`, `ruff format --check`, `mypy`, `pip-audit`, and Trivy all run in CI but are either `|| true` (ruff/mypy) or `continue-on-error: true` (security job) until the existing lint/typing/CVE backlog is resolved in a dedicated pass. `pytest`, `npm run build`, and `hadolint` are strict and block merges.
 - **Container size** — ~3–4 GB image due to full desktop environment
 - **Coordinate precision** — Gemini's 0–999 normalization can cause slight pixel misalignment on non-standard resolutions
 - **Cost estimates** — based on approximate per-token pricing; actual costs depend on token usage patterns
@@ -816,7 +920,7 @@ computer-use/
 - Persistent session storage (SQLite or Redis) with full replay
 - Per-session container isolation
 - Authentication and role-based access
-- CI/CD with automated test runs
+- Flip ruff / mypy / pip-audit / Trivy from advisory to strict in `.github/workflows/ci.yml` once the legacy lint, typing, and CVE backlog is cleared
 - Production deployment configuration (TLS, reverse proxy)
 - Additional model providers as CU support expands
 - Configurable action timeouts and retry policies

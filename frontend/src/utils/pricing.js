@@ -16,8 +16,18 @@ const MODEL_PRICING = {
   'gpt-5.4': { input: 3.00, output: 12.00 },
 }
 
-// Rough average tokens per CU step (screenshot + prompt + response)
-const AVG_INPUT_TOKENS_PER_STEP = 3500
+// Rough average tokens per CU step.
+// Input breakdown (per step, post-prompt-caching):
+//   - system prompt / tool schemas (cached)   ~   500 tokens
+//   - running conversation context            ~ 1 500 tokens
+//   - screenshot (image → model tokens)       ~ 3 000 tokens
+// Output breakdown:
+//   - reasoning + tool call + text            ~   800 tokens
+//
+// C18: the previous 3 500 input figure silently ignored screenshot
+// token cost, which dominates Computer-Use billing. 5 000 is a
+// more honest mid-estimate across Gemini / Claude / GPT.
+const AVG_INPUT_TOKENS_PER_STEP = 5000
 const AVG_OUTPUT_TOKENS_PER_STEP = 800
 
 /**

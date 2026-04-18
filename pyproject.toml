@@ -1,2 +1,69 @@
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Pin the test discovery root so CI's bare ``pytest`` invocation
+# behaves identically regardless of cwd.
+testpaths = ["tests"]
+
+
+# ── Lint / format (Q13, Q14) ─────────────────────────────────────────────────
+# Ruff handles lint + format in a single pass; no separate flake8/black/isort
+# needed. Run locally with ``ruff check .`` and ``ruff format .``.
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "build",
+    "dist",
+    "node_modules",
+    "frontend",
+    "docker",  # runs inside the container with its own Python
+]
+
+[tool.ruff.lint]
+# E / W  = pycodestyle
+# F      = pyflakes
+# I      = import sorting
+# B      = flake8-bugbear (likely-bug patterns)
+# UP     = pyupgrade (modern syntax)
+# ASYNC  = flake8-async (blocking-in-async detection — catches a real
+#          class of bug in this codebase)
+# S      = bandit (security checks)
+# RUF    = ruff-specific
+select = ["E", "W", "F", "I", "B", "UP", "ASYNC", "S", "RUF"]
+# Codes we explicitly tolerate in this repo:
+#   E501   — long lines are preferable to wrapping model prompts / URLs
+#   S101   — ``assert`` used in tests and as invariants, not auth checks
+#   S311   — ``random`` used for jitter/backoff, not cryptography
+#   S603   — subprocess.run is already guarded by our own allowlist
+#   B008   — FastAPI ``Depends()`` is a standard default-arg pattern
+ignore = ["E501", "S101", "S311", "S603", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "B"]
+"docker/**" = ["S"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["backend"]
+
+
+# ── Static typing (Q13) ──────────────────────────────────────────────────────
+# Run with ``mypy backend`` (config keeps frontend/docker/tests out of scope
+# until they are annotated).
+
+[tool.mypy]
+python_version = "3.11"
+files = ["backend"]
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+no_implicit_optional = true
+show_error_codes = true
+# Third-party SDKs (anthropic, openai, google-genai) ship partial stubs;
+# tighten these once the codebase is fully typed.
+disallow_untyped_defs = false

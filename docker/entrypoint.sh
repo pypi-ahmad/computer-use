@@ -88,9 +88,12 @@ mkdir -p "$VNC_DIR"
 if [ -n "${VNC_PASSWORD:-}" ]; then
     x11vnc -storepasswd "$VNC_PASSWORD" "$VNC_DIR/passwd"
     x11vnc -display :99 -forever -rfbauth "$VNC_DIR/passwd" -shared -rfbport 5900 -bg -o "$VNC_LOG"
-else
-    echo "[VNC] WARNING: No VNC_PASSWORD set — VNC access is unauthenticated"
+elif [ "${CUA_ALLOW_NOPW:-}" = "1" ]; then
+    echo "[VNC] WARNING: CUA_ALLOW_NOPW=1 — VNC access is unauthenticated"
     x11vnc -display :99 -forever -nopw -shared -rfbport 5900 -bg -o "$VNC_LOG"
+else
+    echo "ERROR: VNC_PASSWORD is not set. Set VNC_PASSWORD or CUA_ALLOW_NOPW=1 to run without one."
+    exit 1
 fi
 
 # D1 — x11vnc uses -bg (daemonise) so we need to confirm a process

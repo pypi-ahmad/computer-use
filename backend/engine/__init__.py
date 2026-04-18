@@ -32,7 +32,6 @@ import io
 import logging
 import math
 import os
-import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Protocol
@@ -193,6 +192,124 @@ async def _invoke_safety(
         result = await result
     return bool(result)
 
+
+# ---------------------------------------------------------------------------
+# Shared retry helper for provider LLM calls (AI4)
+# ---------------------------------------------------------------------------
+
+# Transient-error classes surfaced by the vendor SDKs. We catch them by
+# class name via the import guard so this module keeps working even if
+# a specific SDK version doesn't ship one of these.
+def _collect_transient_error_types() -> tuple[type[BaseException], ...]:
+    """Return a tuple of exception classes worth retrying."""
+    classes: list[type[BaseException]] = []
+    try:  # pragma: no cover — best-effort
+        # NB: do NOT include ``APIStatusError`` — it is the base class for
+        # 4xx errors (auth, bad request, not found, unprocessable) which
+        # are not transient. Retrying them just delays the real failure
+        # by ~5–10 seconds of backoff. ``InternalServerError`` covers 5xx.
+        from anthropic import (
+            APIConnectionError as _A_CE,
+            APITimeoutError as _A_TE,
+            InternalServerError as _A_500,
+            RateLimitError as _A_RLE,
+        )
+        classes += [_A_RLE, _A_CE, _A_TE, _A_500]
+    except Exception as exc:
+        # C-14: an SDK upgrade renaming any of these would silently turn
+        # the retry into a no-op for that vendor. Surface it loudly.
+        logger.warning("Anthropic transient-error classes unavailable: %s", exc)
+    try:  # pragma: no cover
+        from openai import RateLimitError as _O_RLE, APIConnectionError as _O_CE, APITimeoutError as _O_TE
+        classes += [_O_RLE, _O_CE, _O_TE]
+    except Exception as exc:
+        logger.warning("OpenAI transient-error classes unavailable: %s", exc)
+    try:  # pragma: no cover
+        import httpx as _httpx
+        classes += [_httpx.TimeoutException, _httpx.ConnectError]
+    except Exception as exc:
+        logger.warning("httpx transient-error classes unavailable: %s", exc)
+    if not classes:  # pragma: no cover
+        logger.error(
+            "No transient-error classes resolved; LLM retries disabled "
+            "(falling back to broad Exception catch)."
+        )
+        classes = [Exception]
+    return tuple(classes)
+
+
+_TRANSIENT_ERRORS: tuple[type[BaseException], ...] = _collect_transient_error_types()
+
+
+async def _call_with_retry(
+    coro_factory: "Callable[[], Any]",
+    *,
+    provider: str = "llm",
+    on_log: "Callable[[str, str], None] | None" = None,
+    attempts: int = 3,
+    base_delay: float = 0.8,
+) -> Any:
+    """Call the coroutine returned by *coro_factory* with retry on transient errors.
+
+    Exponential backoff with jitter. Non-transient exceptions propagate
+    immediately. The factory is invoked fresh on each attempt so the
+    underlying HTTP request is re-issued, not replayed.
+    """
+    import random
+
+    last_exc: BaseException | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            coro = coro_factory()
+            if asyncio.iscoroutine(coro):
+                return await coro
+            return coro
+        except _TRANSIENT_ERRORS as exc:
+            last_exc = exc
+            if attempt == attempts:
+                break
+            delay = base_delay * (2 ** (attempt - 1)) * (0.5 + random.random() / 2)
+            if on_log:
+                on_log(
+                    "warning",
+                    f"{provider} transient error ({type(exc).__name__}): {exc}; "
+                    f"retrying in {delay:.2f}s (attempt {attempt}/{attempts})",
+                )
+            await asyncio.sleep(delay)
+    assert last_exc is not None
+    raise last_exc
+
+
+# ---------------------------------------------------------------------------
+# Secret scrubbing for free-text model output (AI6)
+# ---------------------------------------------------------------------------
+
+import re as _re
+
+# Known API-key prefixes / shapes. Anything matching these gets redacted
+# before being persisted into the LangGraph checkpoint or broadcast to
+# the frontend.
+_SECRET_PATTERNS: tuple[tuple[str, "_re.Pattern[str]"], ...] = (
+    ("openai",     _re.compile(r"sk-[A-Za-z0-9_\-]{16,}")),
+    ("anthropic",  _re.compile(r"sk-ant-[A-Za-z0-9_\-]{16,}")),
+    ("google",     _re.compile(r"AIza[0-9A-Za-z_\-]{20,}")),
+    ("github",     _re.compile(r"gh[pousr]_[A-Za-z0-9]{16,}")),
+    # AI-5: cover all known AWS access-key prefixes (long-term IAM, STS,
+    # role/instance/user/etc.) — the prior pattern only matched ``AKIA``.
+    ("aws-access", _re.compile(r"(?:AKIA|ASIA|AROA|AIDA|AIPA|ANPA|ANVA|ABIA|ACCA)[0-9A-Z]{16}")),
+    ("slack",      _re.compile(r"xox[aboprs]-[A-Za-z0-9\-]{10,}")),
+)
+
+
+def scrub_secrets(text: str | None) -> str | None:
+    """Redact API-key-shaped tokens from free-form text."""
+    if not text:
+        return text
+    out = text
+    for label, pat in _SECRET_PATTERNS:
+        out = pat.sub(f"[REDACTED:{label}]", out)
+    return out
+
 # Anthropic coordinate scaling: images with longest edge >1568px or
 # total pixels >1,150,000 are internally downsampled.  We pre-resize
 # and scale coordinates to eliminate coordinate drift.
@@ -226,6 +343,41 @@ _XDOTOOL_SPECIAL_KEYS: frozenset[str] = frozenset({
     "super", "ctrl", "alt", "shift",
     *(f"f{i}" for i in range(1, 25)),
 })
+
+
+# C8: explicit allowlist of xdotool keysym tokens the model is permitted
+# to emit. Anything outside this set (e.g. ``xkill``, ``BackSpace`` in
+# combination with ``ctrl+alt``) is rejected before being passed to
+# xdotool so a prompt-injected screenshot can't trigger disruptive
+# keystrokes on the container.
+_ALLOWED_KEY_PUNCTUATION: frozenset[str] = frozenset({
+    "minus", "plus", "equal", "comma", "period", "slash", "backslash",
+    "semicolon", "apostrophe", "grave", "bracketleft", "bracketright",
+    "underscore", "asterisk", "at", "hash", "dollar", "percent",
+    "ampersand", "question", "exclam", "colon", "parenleft",
+    "parenright", "braceleft", "braceright", "quotedbl",
+})
+
+
+def _is_allowed_key_token(token: str) -> bool:
+    """Return True if *token* is an allowlisted xdotool keysym."""
+    t = token.strip()
+    if not t:
+        return False
+    lower = t.lower()
+    # Single letter or digit.
+    if len(t) == 1 and (t.isalnum() or t in "-=[];',./`\\"):
+        return True
+    # Named special keys (function keys, arrows, modifiers, etc.).
+    if lower in _XDOTOOL_SPECIAL_KEYS:
+        return True
+    if lower in _ALLOWED_KEY_PUNCTUATION:
+        return True
+    # Common named keys accepted by xdotool that weren't in the compact
+    # special-keys set above.
+    if lower in {"menu", "prtsc", "prtscr", "printscreen", "capslock", "numlock"}:
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -372,6 +524,27 @@ class ActionExecutor(Protocol):
 # DesktopExecutor — remote execution via agent_service HTTP API
 # ---------------------------------------------------------------------------
 
+# P11: process-wide shared httpx clients keyed by agent_service URL.
+# All DesktopExecutor instances targeting the same container share a
+# single connection pool so keep-alive actually kicks in (most sessions
+# issue 10-100 short POSTs per turn). The lock serializes lazy creation
+# so two coroutines starting concurrently don't race past the ``None``
+# check and both build a client.
+_SHARED_HTTPX_CLIENTS: dict[str, "httpx.AsyncClient"] = {}
+_SHARED_HTTPX_LOCK = asyncio.Lock()
+
+
+async def close_shared_executor_clients() -> None:
+    """Close every shared httpx client. Wire into FastAPI shutdown."""
+    async with _SHARED_HTTPX_LOCK:
+        for url, client in list(_SHARED_HTTPX_CLIENTS.items()):
+            try:
+                if not client.is_closed:
+                    await client.aclose()
+            except Exception:  # noqa: BLE001
+                logger.debug("Failed closing shared httpx client for %s", url)
+            _SHARED_HTTPX_CLIENTS.pop(url, None)
+
 
 class DesktopExecutor:
     """Translates CU actions into ``POST /action`` calls to the agent_service.
@@ -399,7 +572,12 @@ class DesktopExecutor:
         self._normalize = normalize_coords
         self._service_url = agent_service_url
         self._container = container_name
-        self._client: httpx.AsyncClient | None = None
+        # P11: httpx client is shared across DesktopExecutor instances
+        # in the same process via the ``_SHARED_HTTPX_CLIENTS`` dict
+        # keyed by service URL. Previously every executor opened its
+        # own TCP connection pool, which defeats keep-alive and also
+        # leaked file descriptors when a session ended abnormally
+        # without calling ``aclose``.
 
     def _px(self, x: int, y: int) -> tuple[int, int]:
         """Convert raw coordinates to pixel values, denormalizing if needed."""
@@ -408,10 +586,13 @@ class DesktopExecutor:
         return x, y
 
     async def _get_client(self) -> httpx.AsyncClient:
-        """Return the shared httpx client, creating one if needed."""
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(timeout=15.0)
-        return self._client
+        """Return the per-service-URL shared httpx client (P11)."""
+        async with _SHARED_HTTPX_LOCK:
+            client = _SHARED_HTTPX_CLIENTS.get(self._service_url)
+            if client is None or client.is_closed:
+                client = httpx.AsyncClient(timeout=15.0)
+                _SHARED_HTTPX_CLIENTS[self._service_url] = client
+            return client
 
     @staticmethod
     def _auth_headers() -> dict[str, str]:
@@ -433,10 +614,17 @@ class DesktopExecutor:
     # ── ActionExecutor interface ──────────────────────────────────────
 
     async def aclose(self) -> None:
-        """Close the underlying httpx client to prevent resource leaks."""
-        if self._client is not None and not self._client.is_closed:
-            await self._client.aclose()
-            self._client = None
+        """Intentional no-op (P11).
+
+        The underlying ``httpx.AsyncClient`` is shared process-wide via
+        ``_SHARED_HTTPX_CLIENTS`` keyed by service URL, so closing it
+        per-instance would defeat connection pooling and break
+        sibling executors that target the same agent_service.
+        Sockets are released by the module-level
+        :func:`close_shared_executor_clients`, wired into the FastAPI
+        shutdown hook.
+        """
+        return None
 
     async def execute(self, name: str, args: dict[str, Any]) -> CUActionResult:
         """Map a CU action to the agent_service ``/action`` endpoint."""
@@ -458,7 +646,16 @@ class DesktopExecutor:
             await asyncio.sleep(_app_config.ui_settle_delay)  # UI settle delay
             return CUActionResult(name=name, success=True, extra=extra)
         except Exception as exc:
-            logger.error("DesktopExecutor %s failed: %s", name, exc, exc_info=True)
+            # S7: exc_info=True leaks the full traceback into the log
+            # stream (and thus any log aggregator that ingests it).
+            # Stack frames can expose local variables, file paths, and
+            # provider SDK internals. Log the exception class + message
+            # instead; re-enable with CUA_DEBUG_TB=1 when triaging.
+            if _app_config.debug or os.getenv("CUA_DEBUG_TB") == "1":
+                logger.error("DesktopExecutor %s failed: %s", name, exc, exc_info=True)
+            else:
+                logger.error("DesktopExecutor %s failed: %s: %s",
+                             name, type(exc).__name__, exc)
             return CUActionResult(name=name, success=False, error=str(exc))
 
     # ── Desktop-level actions (via agent_service) ─────────────────────
@@ -558,6 +755,16 @@ class DesktopExecutor:
                 normalized.append(stripped)
             else:
                 normalized.append(stripped)
+        # C8: reject combinations that include a token outside the
+        # allowlist so a prompt-injected screenshot can't emit e.g.
+        # ``super+l`` (lock screen) or ``ctrl+alt+BackSpace`` (zap X).
+        for part in normalized:
+            if not _is_allowed_key_token(part):
+                logger.warning("Rejected disallowed key token: %r (full combo=%r)", part, keys)
+                return {
+                    "success": False,
+                    "message": f"Disallowed key token: {part!r}",
+                }
         xdo_keys = "+".join(normalized)
         await self._post_action({
             "action": "key", "text": xdo_keys, "mode": "desktop",
@@ -587,8 +794,23 @@ class DesktopExecutor:
         return result
 
     async def _act_hold_key(self, a: dict) -> dict:
-        """Hold a key for a short duration via xdotool keydown/keyup."""
-        key = str(a.get("key", ""))
+        """Hold a key for a short duration via xdotool keydown/keyup.
+
+        C8: ``hold_key`` accepts a single key token from the model and
+        emits a paired keydown/keyup. Without an allowlist a prompt
+        injection could hold disruptive keysyms (e.g. ``XF86PowerOff``,
+        ``XF86Launch1``) or compound chords. Restrict to the same
+        ``_is_allowed_key_token`` set used by ``_act_key_combination``
+        and reject anything that contains a ``+`` (hold_key is
+        single-key only — chords go through ``key_combination``).
+        """
+        key = str(a.get("key", "")).strip()
+        if "+" in key or not _is_allowed_key_token(key):
+            logger.warning("Rejected disallowed hold_key token: %r", key)
+            return {
+                "success": False,
+                "message": f"Disallowed key token: {key!r}",
+            }
         duration = min(max(float(a.get("duration", 1)), 0.0), 10.0)
         await self._post_action({
             "action": "keydown", "text": key, "mode": "desktop",
@@ -891,4 +1113,7 @@ __all__ = [
     "_build_openai_computer_call_output",
     "_sanitize_openai_response_item_for_replay",
     "_lookup_claude_cu_config",
+    "_call_with_retry",
+    "scrub_secrets",
+    "close_shared_executor_clients",
 ]

@@ -17,7 +17,8 @@ import signal
 import subprocess
 import sys
 import time
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from pathlib import Path
 from threading import Lock
 
 logging.basicConfig(
@@ -98,36 +99,62 @@ _UPLOAD_ALLOWED_PREFIXES = ("/tmp", "/app", "/home")
 def _is_safe_upload_path(target: str) -> bool:
     """Return True if *target* resolves inside an allowed upload prefix.
 
-    Prefix-only checks are unsafe: ``/tmp/foo`` could be a symlink to
-    ``/etc/passwd``. We canonicalise with ``os.path.realpath`` and
-    re-verify the resolved path still starts with an allowlisted
-    prefix. Also rejects empty paths, absolute-looking traversal
-    (``..``), and anything that escapes after symlink resolution.
+    Prefix-only ``startswith`` checks are unsafe for two reasons:
+    ``/tmp/foo`` could be a symlink to ``/etc/passwd``, and
+    ``/tmp2/secret`` string-matches ``/tmp`` as a prefix. We canonicalise
+    with ``Path.resolve`` (which follows symlinks) and then use
+    ``Path.is_relative_to`` — the path-component-aware primitive — so
+    ``/tmp`` only matches ``/tmp`` or ``/tmp/<rest>``, never ``/tmp2/...``.
     """
     if not target or not isinstance(target, str):
         return False
     try:
-        real = os.path.realpath(target)
-    except Exception:
+        # ``strict=False`` so we can validate not-yet-existing upload
+        # destinations; ``resolve`` still follows symlinks on every
+        # existing component, which is the property we care about.
+        real = Path(target).resolve(strict=False)
+    except (OSError, ValueError):
         return False
-    # Also resolve the parent to catch symlinked directories
-    parent_real = os.path.realpath(os.path.dirname(target) or "/")
+    # Also resolve the parent to catch a symlinked directory whose
+    # final component hasn't been created yet.
+    try:
+        parent_real = Path(os.path.dirname(target) or "/").resolve(strict=False)
+    except (OSError, ValueError):
+        return False
+
+    def _under(child: Path, root_str: str) -> bool:
+        """True iff ``child`` is ``root`` or a descendant — by path
+        components, not by string prefix."""
+        try:
+            root = Path(root_str).resolve(strict=False)
+        except (OSError, ValueError):
+            return False
+        if child == root:
+            return True
+        try:
+            return child.is_relative_to(root)
+        except AttributeError:  # pragma: no cover — Python < 3.9
+            try:
+                child.relative_to(root)
+                return True
+            except ValueError:
+                return False
+
     for prefix in _UPLOAD_ALLOWED_PREFIXES:
-        root = os.path.realpath(prefix)
-        if (real == root or real.startswith(root + os.sep)) and (
-            parent_real == root or parent_real.startswith(root + os.sep)
-        ):
+        if _under(real, prefix) and _under(parent_real, prefix):
             return True
     return False
 
-# Strict allowlist of commands permitted in run_command
+# Strict allowlist of commands permitted in run_command.
+# Note: curl/wget are intentionally excluded (S2) — they double as
+# exfil channels for a prompt-injected VLM. Use xdg-open for web
+# navigation instead.
 _ALLOWED_COMMANDS = frozenset({
     "ls", "cat", "head", "tail", "grep", "find", "wc", "echo",
     "pwd", "whoami", "id", "date", "env", "printenv",
     "which", "file", "stat", "df", "du", "free",
     "uname", "hostname", "uptime",
     "python3", "python", "pip", "pip3", "node", "npm", "npx",
-    "curl", "wget",
     "xdg-open", "xdotool", "xclip", "scrot", "wmctrl",
     "xfce4-terminal", "xterm",
     # Desktop apps accessible via accessibility / run_command
@@ -168,6 +195,21 @@ def _screenshot_desktop() -> str:
 #  Actions — xdotool (desktop mode, works with any X11 app)
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _read_int_env(name: str, default: int) -> int:
+    """Read a non-negative integer env var, falling back to *default*."""
+    try:
+        return max(0, int(os.getenv(name, str(default))))
+    except ValueError:
+        return default
+
+
+# Compensation sleep applied after stripping ``--sync`` from xdotool calls.
+# Read once at import — these knobs are tuning constants, not per-request
+# overrides. Restart the service to change them.
+_XDO_SYNC_SLEEP_S = _read_int_env("XDO_SYNC_SLEEP_MS", 75) / 1000.0
+_XDO_WINDOW_SLEEP_S = _read_int_env("XDO_WINDOW_SLEEP_MS", 400) / 1000.0
+
+
 def _xdo(args: list[str]) -> str:
     """Run an xdotool command, return stdout.
 
@@ -175,6 +217,11 @@ def _xdo(args: list[str]) -> str:
     indefinitely in Xvfb environments that lack a compositor (the X
     event that ``--sync`` waits for is never delivered).  A small
     ``time.sleep`` replaces it so callers stay unchanged.
+
+    The compensation sleep is configurable via ``XDO_SYNC_SLEEP_MS``
+    (mousemove/click) and ``XDO_WINDOW_SLEEP_MS`` (windowactivate)
+    so slow hosts / CI runners can bump the defaults without a code
+    change (C7). Values are read once at import.
     """
     had_sync = "--sync" in args
     if had_sync:
@@ -191,9 +238,9 @@ def _xdo(args: list[str]) -> str:
     if had_sync:
         cmd = args[0] if args else ""
         if cmd == "windowactivate":
-            time.sleep(0.3)   # window activation needs more time
+            time.sleep(_XDO_WINDOW_SLEEP_S)
         else:
-            time.sleep(0.05)  # mousemove / other commands
+            time.sleep(_XDO_SYNC_SLEEP_S)
 
     return result.stdout.strip()
 
@@ -1426,9 +1473,18 @@ class AgentHandler(BaseHTTPRequestHandler):
                 return {"success": False, "message": "Empty command"}
             if args[0] not in _ALLOWED_COMMANDS:
                 return {"success": False, "message": f"Command not allowed: {args[0]}. Permitted: {', '.join(sorted(_ALLOWED_COMMANDS))}"}
+            # S5: wrap in prlimit when available so a runaway child
+            # can't burn unbounded CPU / memory inside the container.
+            # 20 CPU-seconds and 1 GiB address-space is more than
+            # enough for any legitimate shell helper the agent runs.
+            _prlimit = shutil.which("prlimit")
+            exec_args = (
+                [_prlimit, "--cpu=20", "--as=1073741824", "--nofile=256", "--"] + args
+                if _prlimit else args
+            )
             try:
                 result = subprocess.run(
-                    args, shell=False, capture_output=True, text=True, timeout=30,
+                    exec_args, shell=False, capture_output=True, text=True, timeout=30,
                     env={**os.environ, "DISPLAY": ":99"},
                 )
                 output = (result.stdout + result.stderr).strip()[:2000]
@@ -1454,7 +1510,16 @@ def main():
     """Start the HTTP agent service for desktop automation."""
     logger.info("Starting agent service on port %d (default_mode=%s)", SERVICE_PORT, DEFAULT_MODE)
 
-    server = HTTPServer(("0.0.0.0", SERVICE_PORT), AgentHandler)
+    # S-B: prlimit is the only thing that bounds CPU/memory of run_command's
+    # children. If it's missing we still serve, but loudly so operators
+    # don't ship a degraded sandbox unknowingly.
+    if shutil.which("prlimit") is None:
+        logger.warning(
+            "prlimit not found on PATH \u2014 run_command children will execute "
+            "WITHOUT CPU/AS/nofile rlimits. Install util-linux in the image."
+        )
+
+    server = ThreadingHTTPServer(("0.0.0.0", SERVICE_PORT), AgentHandler)
     logger.info("Agent service listening on 0.0.0.0:%d", SERVICE_PORT)
 
     def _handle_signal(sig, frame):

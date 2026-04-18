@@ -78,6 +78,17 @@ def resolve_action(action: str) -> str:
     """Resolve an action string to its canonical ActionType value.
 
     Returns the canonical action name, or the original string if no alias match.
+    Inputs longer than :data:`_MAX_ACTION_LEN` are truncated so a model
+    emitting a runaway payload can't pollute logs with a 10k-char key.
     """
+    if not isinstance(action, str):
+        return "error"
+    if len(action) > _MAX_ACTION_LEN:
+        action = action[:_MAX_ACTION_LEN]
     normalized = action.strip().lower()
     return ACTION_ALIASES.get(normalized, normalized)
+
+
+# Action names are short symbolic tokens; anything longer than this is
+# either broken input or an attempt to bloat logs.
+_MAX_ACTION_LEN = 64
