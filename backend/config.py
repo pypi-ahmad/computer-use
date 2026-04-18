@@ -44,9 +44,21 @@ class Config:
     step_timeout: float = 30.0
 
     # Server
-    host: str = "0.0.0.0"
+    #
+    # Default binds to loopback only. The REST and WebSocket surfaces
+    # are unauthenticated by default (any local client can start
+    # agents, read screenshots, and consume API-key quota), so binding
+    # to every interface would expose that surface to the whole LAN.
+    # Override with ``HOST=0.0.0.0`` only when you have also set
+    # ``CUA_WS_TOKEN`` and fronted the REST endpoints with auth.
+    host: str = "127.0.0.1"
     port: int = 8000
     debug: bool = False
+    # Hot-reload is strictly a development-time feature. Previously
+    # DEBUG=1 also turned on uvicorn --reload, which was dangerous in
+    # any non-local setup (watchfiles fires on disk changes). Set
+    # ``CUA_RELOAD=1`` explicitly if you want reload.
+    reload: bool = False
 
     # WebSocket
     ws_screenshot_interval: float = 1.5
@@ -93,6 +105,7 @@ class Config:
             host=os.getenv("HOST", cls.host),
             port=_clamp_int("PORT", cls.port, lo=1, hi=65535),
             debug=os.getenv("DEBUG", "").lower() in ("1", "true", "yes"),
+            reload=os.getenv("CUA_RELOAD", "").lower() in ("1", "true", "yes"),
             ui_settle_delay=_clamp_float(
                 "CUA_UI_SETTLE_DELAY", cls.ui_settle_delay, lo=0.0, hi=30.0,
             ),

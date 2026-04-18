@@ -38,6 +38,11 @@ htmlcov/
 .env.*
 !.env.example
 
+# Editor / agent local settings (never commit per-user prefs)
+.claude/
+.vscode/
+.idea/
+
 # -------------------------
 # Node / Frontend
 # -------------------------

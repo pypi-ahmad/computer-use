@@ -17,16 +17,14 @@ from backend.config import config as _app_config
 from backend.engine import (
     CUActionResult,
     CUTurnRecord,
-    SafetyDecision,
     ActionExecutor,
-    DesktopExecutor,
+    _call_with_retry,
     _invoke_safety,
     _to_plain_dict,
     _extract_openai_output_text,
     _build_openai_computer_call_output,
     _sanitize_openai_response_item_for_replay,
     DEFAULT_TURN_LIMIT,
-    _IMAGE_PNG,
 )
 
 logger = logging.getLogger(__name__)
@@ -48,24 +46,37 @@ class OpenAICUClient:
         system_prompt: str | None = None,
         reasoning_effort: str = "low",
     ):
+        # Prefer the native async client when available. Falling back to
+        # the sync client behind ``asyncio.to_thread`` used to burn a
+        # thread-pool slot per LLM call, which is especially painful
+        # for high-reasoning tasks that take 30+ seconds per turn.
         try:
-            from openai import OpenAI
+            from openai import AsyncOpenAI  # type: ignore
+            self._async_cls = AsyncOpenAI
         except ImportError as exc:
             raise ImportError(
                 "openai is required. Install: pip install openai"
             ) from exc
 
+        self._sync_client = None  # populated lazily if the sync fallback is needed
         openai_base_url = os.getenv("OPENAI_BASE_URL", None)
-        self._client = OpenAI(api_key=api_key, **({"base_url": openai_base_url} if openai_base_url else {}))
+        kwargs: dict[str, Any] = {"api_key": api_key}
+        if openai_base_url:
+            kwargs["base_url"] = openai_base_url
+        self._client = AsyncOpenAI(**kwargs)
         self._model = model
         self._system_prompt = system_prompt or ""
         if reasoning_effort not in self.VALID_REASONING_EFFORTS:
             reasoning_effort = "low"
         self._reasoning_effort = reasoning_effort
 
-    async def _create_response(self, **kwargs: Any) -> Any:
-        """Call the synchronous OpenAI SDK without blocking the event loop."""
-        return await asyncio.to_thread(self._client.responses.create, **kwargs)
+    async def _create_response(self, *, on_log: "Callable[[str, str], None] | None" = None, **kwargs: Any) -> Any:
+        """Call the async OpenAI Responses API with transient-error retry."""
+        return await _call_with_retry(
+            lambda: self._client.responses.create(**kwargs),
+            provider="openai",
+            on_log=on_log,
+        )
 
     async def run_loop(
         self,
@@ -121,7 +132,7 @@ class OpenAICUClient:
             if self._system_prompt:
                 request["instructions"] = self._system_prompt
 
-            response = await self._create_response(**request)
+            response = await self._create_response(on_log=on_log, **request)
             response_error = getattr(response, "error", None)
             if response_error:
                 raise RuntimeError(getattr(response_error, "message", str(response_error)))
@@ -351,7 +362,10 @@ class OpenAICUClient:
             magnitude = abs(dx)
         args: dict[str, Any] = {
             "direction": direction,
-            "magnitude": min(max(magnitude, 200), 999),
+            # Preserve small-scroll fidelity: the previous ``max(magnitude, 200)``
+            # silently turned a 20-pixel micro-scroll into a 200-pixel jump and
+            # broke calendar/dropdown interactions. Clamp only the upper bound.
+            "magnitude": min(max(int(magnitude), 1), 999),
         }
         if px is not None and py is not None:
             args["x"] = px

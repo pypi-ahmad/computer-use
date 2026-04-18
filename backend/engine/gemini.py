@@ -6,9 +6,9 @@ like ``from backend.engine import GeminiCUClient`` keep working.
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import logging
+import os
 import time
 from typing import Any, Callable
 
@@ -17,16 +17,10 @@ from backend.engine import (
     CUTurnRecord,
     SafetyDecision,
     ActionExecutor,
-    DesktopExecutor,
     Environment,
+    _call_with_retry,
     _invoke_safety,
-    _to_plain_dict,
-    denormalize_x,
-    denormalize_y,
-    DEFAULT_SCREEN_WIDTH,
-    DEFAULT_SCREEN_HEIGHT,
     DEFAULT_TURN_LIMIT,
-    GEMINI_NORMALIZED_MAX,
     _CONTEXT_PRUNE_KEEP_RECENT,
     _IMAGE_PNG,
 )
@@ -108,6 +102,27 @@ class GeminiCUClient:
         self._environment = environment
         self._excluded = excluded_actions or []
         self._system_instruction = system_instruction
+        # AI-3: read CUA_GEMINI_THINKING_LEVEL once at init so subsequent
+        # env mutations don't change behaviour mid-session and we don't pay
+        # the os.getenv cost on every _build_config call.
+        _allowed_levels = {"minimal", "low", "medium", "high"}
+        _level = os.getenv("CUA_GEMINI_THINKING_LEVEL", "high").lower()
+        self._thinking_level = _level if _level in _allowed_levels else "high"
+
+    async def _generate(self, *, contents: list, config: Any) -> Any:
+        """Invoke Gemini generate_content via the native async SDK path.
+
+        ``google-genai >= 1.0`` always exposes ``Client.aio.models``;
+        the package is pinned in ``requirements.txt`` so this is the
+        only supported call shape. The previous ``asyncio.to_thread``
+        fallback was kept for older SDKs that no longer match the pin
+        and has been removed.
+        """
+        return await self._client.aio.models.generate_content(
+            model=self._model,
+            contents=contents,
+            config=config,
+        )
 
     def _get_env_enum(self) -> Any:
         """Map the Environment enum to the google-genai SDK environment constant."""
@@ -165,11 +180,12 @@ class GeminiCUClient:
         # legacy include_thoughts / budget_tokens.
         _ThinkingConfig = types.ThinkingConfig
         _thinking_kwargs: dict[str, Any] = {}
-        # Prefer thinking_level="high" if the SDK supports it
+        # AI-3: thinking level was resolved once in __init__.
+        # Prefer thinking_level=<level> if the SDK supports it
         import inspect as _inspect
         _tc_params = _inspect.signature(_ThinkingConfig).parameters
         if "thinking_level" in _tc_params:
-            _thinking_kwargs["thinking_level"] = "high"
+            _thinking_kwargs["thinking_level"] = self._thinking_level
         else:
             # Fallback for older SDK versions
             _thinking_kwargs["include_thoughts"] = True
@@ -243,11 +259,10 @@ class GeminiCUClient:
             _prune_gemini_context(contents, types, _CONTEXT_PRUNE_KEEP_RECENT)
 
             try:
-                response = await asyncio.to_thread(
-                    self._client.models.generate_content,
-                    model=self._model,
-                    contents=contents,
-                    config=config,
+                response = await _call_with_retry(
+                    lambda: self._generate(contents=contents, config=config),
+                    provider="google",
+                    on_log=on_log,
                 )
             except Exception as api_err:
                 error_msg = str(api_err)
@@ -293,11 +308,11 @@ class GeminiCUClient:
                     )
                 )
                 try:
-                    response = await asyncio.to_thread(
-                        self._client.models.generate_content,
-                        model=self._model,
-                        contents=contents,
-                        config=config,
+                    response = await _call_with_retry(
+                        lambda: self._generate(contents=contents, config=config),
+                        provider="google",
+                        on_log=on_log,
+                        attempts=2,
                     )
                 except Exception as retry_err:
                     if on_log:

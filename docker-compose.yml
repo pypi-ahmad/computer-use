@@ -43,6 +43,14 @@ services:
         limits:
           memory: 4g
           cpus: "2"
+    # D5 — fork-bomb / fd-flood mitigation at the container boundary.
+    # The desktop session (XFCE + Chrome + xdotool helpers) sits well
+    # under 256 processes and a few hundred fds in normal operation.
+    pids_limit: 256
+    ulimits:
+      nofile:
+        soft: 1024
+        hard: 2048
     healthcheck:
       # Verify the in-container agent service is responding.
       # (Backend /api/health is a separate process outside compose.)
