@@ -121,7 +121,12 @@ RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 # into running something malicious. `/app`, `/opt/venv`, and `/tmp/chrome-profile`
 # are chown'd so the agent can read/write them; `/var/run/dbus` is created with
 # world-writable perms so the session bus works (system bus is not required).
-RUN useradd -m -u 1000 -s /bin/bash agent \
+#
+# NOTE: Ubuntu 24.04 base images ship with a default `ubuntu` user at UID 1000.
+# Remove it (and its group) first so we can reuse that UID for `agent`.
+RUN (userdel -r ubuntu 2>/dev/null || true) \
+    && (groupdel ubuntu 2>/dev/null || true) \
+    && useradd -m -u 1000 -s /bin/bash agent \
     && mkdir -p /var/run/dbus \
     && chmod 1777 /var/run/dbus \
     && chown -R agent:agent /app /opt/venv /tmp/chrome-profile \
