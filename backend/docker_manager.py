@@ -7,6 +7,8 @@ import logging
 import os
 import re
 import secrets
+import stat
+import tempfile
 
 import httpx
 
@@ -34,6 +36,44 @@ def _ensure_agent_token() -> str:
         token = secrets.token_urlsafe(32)
         os.environ["AGENT_SERVICE_TOKEN"] = token
     return token
+
+
+def _write_token_env_file(token: str) -> str:
+    """Write an env-file with the agent-service token, owner-read-only (0600).
+
+    Returned path should be passed to ``docker run --env-file`` and
+    ``os.unlink``-ed immediately after. Keeping the token out of the
+    ``docker inspect`` metadata removes a common local-enumeration
+    disclosure path.
+
+    On Windows ``os.chmod(path, 0o600)`` only toggles the read-only bit
+    — ACLs are NOT changed and other local accounts may still be able
+    to read the file before it's unlinked. We log a warning so operators
+    on Windows hosts can decide whether the ~1-second exposure window is
+    acceptable; production deployments should run the backend on Linux.
+    """
+    fd, path = tempfile.mkstemp(prefix="cua-env-", suffix=".env")
+    try:
+        os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)  # 0600 on POSIX
+        if os.name == "nt":
+            logger.warning(
+                "AGENT_SERVICE_TOKEN env-file %s — Windows os.chmod cannot "
+                "set ACLs; other local users may be able to read the file "
+                "before it is unlinked. Run the backend on Linux for "
+                "production deployments.",
+                path,
+            )
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(f"AGENT_SERVICE_TOKEN={token}\n")
+    except Exception:
+        # Best-effort: if chmod/write failed, drop the file before
+        # leaking the descriptor or a world-readable artefact.
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        raise
+    return path
 
 
 def _validate_name(name: str, label: str = "name") -> None:
@@ -116,6 +156,14 @@ async def _start_container_locked(container: str) -> bool:
     # Remove any stopped container with the same name (if inspect failed or start failed)
     await _run(["docker", "rm", "-f", container])
 
+    # C13: the AGENT_SERVICE_TOKEN used to be passed via ``-e``, which
+    # put the secret into ``docker inspect`` output. We now write it to
+    # a 0600 env-file that's unlinked immediately after ``docker run``
+    # returns, so the only persistent store of the token is the
+    # container's own env (readable via ``docker exec`` by anyone with
+    # Docker socket access — still not public, but no longer indexed
+    # into the daemon's inspect metadata).
+    env_file_path = _write_token_env_file(_ensure_agent_token())
     args = [
         "docker", "run", "-d",
         "--name", container,
@@ -123,7 +171,7 @@ async def _start_container_locked(container: str) -> bool:
         "-e", f"SCREEN_WIDTH={config.screen_width}",
         "-e", f"SCREEN_HEIGHT={config.screen_height}",
         "-e", f"AGENT_SERVICE_PORT={config.agent_service_port}",
-        "-e", f"AGENT_SERVICE_TOKEN={_ensure_agent_token()}",
+        "--env-file", env_file_path,
         "-p", "127.0.0.1:5900:5900",
         "-p", "127.0.0.1:6080:6080",
         "-p", f"127.0.0.1:{config.agent_service_port}:{config.agent_service_port}",
@@ -135,7 +183,16 @@ async def _start_container_locked(container: str) -> bool:
         config.container_image,
     ]
     logger.info("Starting container: %s", container)
-    rc, out, err = await _run(args)
+    try:
+        rc, out, err = await _run(args)
+    finally:
+        # Best-effort cleanup: token file is 0600 so only this user can
+        # read it, and we remove it immediately to minimise the window
+        # where a disk snapshot could capture it.
+        try:
+            os.unlink(env_file_path)
+        except OSError:
+            logger.debug("Could not remove env-file %s", env_file_path, exc_info=True)
 
     if rc != 0:
         logger.error("Failed to start container: %s", err)

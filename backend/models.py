@@ -6,7 +6,7 @@ import enum
 from datetime import datetime, timezone
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ── Action types ──────────────────────────────────────────────────────────────
@@ -76,6 +76,11 @@ class SessionStatus(str, enum.Enum):
     RUNNING = "running"
     PAUSED = "paused"
     COMPLETED = "completed"
+    # Distinct from COMPLETED: the loop terminated cleanly because the
+    # user pressed Stop or the stuck-agent detector fired. Lets the UI
+    # and any downstream cost dashboards filter user/loop-terminated
+    # runs from natural completions.
+    STOPPED = "stopped"
     ERROR = "error"
 
 
@@ -105,6 +110,11 @@ class AgentSession(BaseModel):
 
 class StartTaskRequest(BaseModel):
     """Validated request body for POST /api/agent/start."""
+
+    # C-13: reject typos / unexpected fields with HTTP 422 instead of
+    # silently dropping them. Otherwise a misspelled ``reasoning_effor``
+    # would default to "low" with no signal to the client.
+    model_config = ConfigDict(extra="forbid")
 
     task: str = Field(min_length=1, max_length=10_000)
     api_key: Optional[str] = Field(default=None, max_length=256)

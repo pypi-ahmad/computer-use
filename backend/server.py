@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -13,15 +15,15 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.config import config, get_all_key_statuses, resolve_api_key
 from backend._models_loader import load_allowed_models_json as _load_allowed_models_json
-from backend.logging_ctx import SessionIdFilter, install as _install_sid_filter
+from backend.logging_ctx import install as _install_sid_filter
 from backend.ws_schema import validate_outbound as _validate_outbound_event
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from backend.models import (
     AgentAction,
     AgentSession,
@@ -123,6 +125,14 @@ async def _lifespan(_app: FastAPI):
         except Exception:
             logger.exception("Error shutting down session checkpointer")
 
+        # P11: release the shared httpx client pool used by every
+        # DesktopExecutor so FD counts don't grow across reloads.
+        try:
+            from backend.engine import close_shared_executor_clients
+            await close_shared_executor_clients()
+        except Exception:
+            logger.exception("Error closing shared executor httpx clients")
+
         logger.info("CUA backend shut down")
 
 
@@ -196,12 +206,107 @@ _SECURITY_HEADERS = {
     "Referrer-Policy": "no-referrer",
     # Conservative CSP; frontend bundles are served by the Vite dev server,
     # not this backend. Tighten further if you ever serve HTML from here.
+    # ``connect-src 'self'`` already covers same-origin ws/wss upgrades —
+    # the explicit ``ws: wss:`` tokens used to allow WebSocket connects to
+    # any host, which defeats the directive's whole purpose.
     "Content-Security-Policy": (
         "default-src 'none'; "
-        "connect-src 'self' ws: wss:; "
+        "connect-src 'self'; "
         "frame-ancestors 'none'"
     ),
+    # S10: cross-origin isolation. Prevents this origin from being
+    # grouped with attacker-controlled windows/resources and from
+    # exposing side-channel timers to cross-origin code.
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Embedder-Policy": "require-corp",
+    "Cross-Origin-Resource-Policy": "same-site",
+    # S10: lock down powerful features we don't use. An explicit deny
+    # keeps a compromised page from silently turning on camera / mic /
+    # geolocation / sensors / payment via this origin.
+    "Permissions-Policy": (
+        "accelerometer=(), ambient-light-sensor=(), autoplay=(), "
+        "battery=(), camera=(), display-capture=(), document-domain=(), "
+        "encrypted-media=(), fullscreen=(self), geolocation=(), "
+        "gyroscope=(), magnetometer=(), microphone=(), midi=(), "
+        "payment=(), picture-in-picture=(), publickey-credentials-get=(), "
+        "screen-wake-lock=(), sync-xhr=(), usb=(), xr-spatial-tracking=()"
+    ),
 }
+
+
+# S9: Host header allowlist — prevents DNS-rebinding attacks where a
+# malicious page makes the browser resolve ``attacker.com`` to
+# ``127.0.0.1`` and then hits the backend as if it were local.
+# Populated from the host portion of the CORS origins plus explicit
+# overrides via ``CUA_ALLOWED_HOSTS`` (comma-separated).
+def _compute_allowed_hosts() -> set[str]:
+    # ``testserver`` is the default Host header Starlette's TestClient
+    # emits. Including it permanently in production code is unnecessary
+    # (browsers won't resolve it), so it's now opt-in via the
+    # ``CUA_TEST_MODE=1`` flag that pytest sets in conftest. This keeps
+    # the production allowlist minimal without forcing every test to
+    # patch the Host header.
+    hosts: set[str] = {"127.0.0.1", "localhost", "::1"}
+    if os.getenv("CUA_TEST_MODE", "").strip().lower() in ("1", "true", "yes"):
+        hosts.add("testserver")
+    for o in _ALLOWED_ORIGINS:
+        try:
+            # strip scheme and optional port
+            rest = o.split("://", 1)[1]
+            host = rest.split(":", 1)[0]
+            if host:
+                hosts.add(host)
+        except Exception:
+            continue
+    extra = os.getenv("CUA_ALLOWED_HOSTS", "").strip()
+    if extra:
+        for h in extra.split(","):
+            h = h.strip()
+            if h:
+                hosts.add(h)
+    return hosts
+
+
+_ALLOWED_HOSTS = _compute_allowed_hosts()
+
+
+@app.middleware("http")
+async def _host_allowlist(request: Request, call_next):
+    """Reject requests whose ``Host`` header isn't on the allowlist."""
+    raw_host = request.headers.get("host", "").strip().lower()
+    # strip port
+    host_only = raw_host.split(":", 1)[0]
+    if host_only and host_only not in _ALLOWED_HOSTS:
+        logger.warning("Rejected request for host %r (not in allowlist)", raw_host)
+        return JSONResponse(status_code=400, content={"error": "Invalid host header"})
+    return await call_next(request)
+
+
+# S-G: Reject obviously oversized request bodies before they're buffered
+# into memory. All current /api/* endpoints accept tiny JSON payloads
+# (model id, key, task prompt). 256 KiB is generous for a prompt and
+# still bounded enough to make a body-flood DoS uninteresting.
+_MAX_REQUEST_BODY_BYTES = int(os.getenv("CUA_MAX_BODY_BYTES", str(256 * 1024)))
+
+
+@app.middleware("http")
+async def _body_size_limit(request: Request, call_next):
+    """Enforce a maximum Content-Length on /api/* mutations."""
+    if request.method in ("POST", "PUT", "PATCH") and request.url.path.startswith("/api/"):
+        cl = request.headers.get("content-length")
+        if cl is not None:
+            try:
+                if int(cl) > _MAX_REQUEST_BODY_BYTES:
+                    return JSONResponse(
+                        status_code=413,
+                        content={"error": "Request body too large"},
+                    )
+            except ValueError:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "Invalid Content-Length"},
+                )
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -229,6 +334,88 @@ _MAX_STEPS_HARD_CAP = 200
 # pass ``?token=<value>`` on connect. Unset (default) preserves the
 # localhost-only behaviour existing deployments rely on.
 _WS_AUTH_TOKEN = os.getenv("CUA_WS_TOKEN", "").strip()
+
+
+def _consteq(a: str, b: str) -> bool:
+    """Constant-time string comparison for secrets."""
+    return hmac.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
+
+
+# Hosts that may embed or connect to this backend in addition to the CORS
+# origins. ``null`` origins (e.g. the noVNC iframe in a sandboxed context,
+# or an origin-less ``file://`` page) are accepted only when the
+# connection is already gated by ``CUA_WS_TOKEN``. Missing Origin
+# headers (non-browser clients such as curl/Python) are accepted on
+# loopback only.
+#
+# ``testclient`` is Starlette's default ``request.client.host`` for the
+# ``TestClient`` fixture; including it keeps the hermetic test suite
+# from needing to patch every request and has no real-world attack
+# surface (it's not a routable hostname).
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "testclient"}
+
+
+def _rest_origin_ok(request: Request) -> bool:
+    """Origin/Host gate for sensitive REST endpoints (S1, S9).
+
+    - Accept same-site requests (no Origin header, loopback host).
+    - Accept explicit CORS allowlist.
+    - Reject everything else.
+    """
+    origin = request.headers.get("origin", "").strip()
+    if origin and origin in _ALLOWED_ORIGINS:
+        return True
+    if origin in ("", "null"):
+        client_host = request.client.host if request.client else ""
+        return client_host in _LOOPBACK_HOSTS
+    return False
+
+
+def _ws_origin_ok(ws: WebSocket) -> bool:
+    """Return True if the WebSocket origin is acceptable.
+
+    - Browsers always send an Origin header on cross-origin upgrades.
+      We enforce the CORS allowlist so a malicious page can't open
+      ``ws://127.0.0.1:8000/ws`` and siphon live screenshots.
+    - Non-browser clients (curl, Python websockets) typically omit
+      the header; we allow those only from loopback.
+    - When ``CUA_WS_TOKEN`` is set the token check is the primary
+      defence, so a missing/``null`` origin is accepted and the token
+      check will reject the connection if it's not presented.
+    """
+    origin = ws.headers.get("origin", "").strip()
+    if origin in _ALLOWED_ORIGINS:
+        return True
+    if origin in ("", "null"):
+        if _WS_AUTH_TOKEN:
+            return True
+        host = ws.client.host if ws.client else ""
+        return host in _LOOPBACK_HOSTS
+    return False
+
+
+# C-1: shared dependency for sensitive REST POST endpoints. Without
+# this every state-changing endpoint relied on FastAPI CORS alone, which
+# does not block requests that omit Origin (curl, Python clients) or
+# requests from same-origin XSS / a malicious page within an
+# allowlisted origin. Returns 403 instead of raising so the response
+# shape matches the rest of the API's ``{"error": "..."}``.
+def _require_origin(request: Request) -> Response:
+    """Reject the request when its Origin / loopback combo isn't allowed.
+
+    Returning ``None`` proceeds; returning a ``Response`` short-circuits.
+    Used as a guard at the top of each protected handler.
+    """
+    if not _rest_origin_ok(request):
+        logger.warning(
+            "Rejected REST %s %s from origin=%r ip=%r",
+            request.method, request.url.path,
+            request.headers.get("origin", ""),
+            request.client.host if request.client else "",
+        )
+        return _error_response(403, "Forbidden")
+    return None  # type: ignore[return-value]
+
 
 # Upper bound on distinct session threads persisted in the sqlite
 # checkpointer. On startup we prune oldest-first past this cap so the
@@ -262,7 +449,17 @@ def _resolve_sessions_db_path() -> str:
             allowed_roots.append(Path(extra).expanduser().resolve())
         except Exception:
             pass
-    if not any(str(resolved).startswith(str(root)) for root in allowed_roots):
+    # ``startswith`` gets fooled by look-alike roots (``/home/alice`` vs
+    # ``/home/alice2/...``). ``Path.is_relative_to`` is the right primitive.
+    def _under_any(child: Path, roots: list[Path]) -> bool:
+        for root in roots:
+            try:
+                if child == root or child.is_relative_to(root):
+                    return True
+            except (ValueError, OSError):
+                continue
+        return False
+    if not _under_any(resolved, allowed_roots):
         logger.warning(
             "CUA_SESSIONS_DB=%s outside allowed roots; using default", raw,
         )
@@ -438,6 +635,16 @@ def _cleanup_session(sid: str) -> None:
         safety_registry.clear(sid)
     except Exception:
         logger.exception("cleanup: safety_registry.clear failed for %s", sid)
+    # C9: cancel any queued broadcast tasks for this session so they
+    # don't keep the event loop busy after the agent has finished.
+    try:
+        bucket = _session_broadcast_tasks.pop(sid, None)
+        if bucket:
+            for t in list(bucket):
+                if not t.done():
+                    t.cancel()
+    except Exception:
+        logger.exception("cleanup: broadcast-task cancel failed for %s", sid)
 
 
 async def _get_session_snapshot(session_id: str) -> AgentSession | None:
@@ -469,6 +676,16 @@ async def _get_session_snapshot(session_id: str) -> AgentSession | None:
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 _broadcast_tasks: set[asyncio.Task] = set()
+# C9: per-session broadcast-task registry so ``_cleanup_session`` can
+# cancel fan-out that's still queued behind other WS sends once the
+# agent has finished. Tasks already mid-write complete normally;
+# cancellation only interrupts at the next ``await`` point.
+_session_broadcast_tasks: dict[str, set[asyncio.Task]] = {}
+# P-5: cap on per-session pending broadcasts. Configurable via env so
+# operators with very chatty UIs can raise it.
+_MAX_SESSION_BROADCAST_BACKLOG = max(
+    8, int(os.getenv("CUA_MAX_SESSION_BROADCAST_BACKLOG", "64"))
+)
 
 
 async def _broadcast(event: str, data: dict) -> None:
@@ -492,11 +709,40 @@ async def _broadcast(event: str, data: dict) -> None:
         _ws_clients.discard(ws)
 
 
-def _schedule_broadcast(event: str, data: dict) -> None:
+def _schedule_broadcast(event: str, data: dict, *, session_id: str | None = None) -> None:
     """Fire-and-forget broadcast whose task is tracked to prevent GC."""
+    # P-5: bound the per-session backlog. If a single session's
+    # broadcast queue grows past _MAX_SESSION_BROADCAST_BACKLOG it
+    # means the WebSocket consumer (browser) has stalled. Drop the
+    # *oldest* still-queued task in that bucket rather than letting
+    # the registry grow unbounded — newer events are more useful to
+    # a recovering UI than ancient ones.
+    if session_id:
+        bucket = _session_broadcast_tasks.setdefault(session_id, set())
+        if len(bucket) >= _MAX_SESSION_BROADCAST_BACKLOG:
+            # Cancel one not-yet-done task; cancellation only takes
+            # effect at the next await, so anything mid-send finishes.
+            for t in list(bucket):
+                if not t.done():
+                    t.cancel()
+                    bucket.discard(t)
+                    _broadcast_tasks.discard(t)
+                    break
     task = asyncio.create_task(_broadcast(event, data))
     _broadcast_tasks.add(task)
-    task.add_done_callback(_broadcast_tasks.discard)
+    if session_id:
+        _session_broadcast_tasks.setdefault(session_id, set()).add(task)
+
+    def _done(t: asyncio.Task) -> None:
+        _broadcast_tasks.discard(t)
+        if session_id:
+            bucket = _session_broadcast_tasks.get(session_id)
+            if bucket is not None:
+                bucket.discard(t)
+                if not bucket:
+                    _session_broadcast_tasks.pop(session_id, None)
+
+    task.add_done_callback(_done)
 
 
 # ── REST Endpoints ────────────────────────────────────────────────────────────
@@ -540,8 +786,11 @@ async def agent_service_health():
 
 
 @app.post("/api/agent-service/mode")
-async def set_agent_mode(body: dict):
+async def set_agent_mode(body: dict, request: Request):
     """Keep the agent service in the supported desktop mode."""
+    forbidden = _require_origin(request)
+    if forbidden is not None:
+        return forbidden
     mode = body.get("mode", "desktop")
     if mode != "desktop":
         return _error_response(400, "Browser mode is no longer supported. Use mode='desktop'.")
@@ -558,15 +807,21 @@ async def set_agent_mode(body: dict):
 
 
 @app.post("/api/container/start")
-async def api_start_container():
+async def api_start_container(request: Request):
     """Build-if-needed and start the CUA Docker container."""
+    forbidden = _require_origin(request)
+    if forbidden is not None:
+        return forbidden
     success = await start_container()
     return {"success": success}
 
 
 @app.post("/api/container/stop")
-async def api_stop_container():
+async def api_stop_container(request: Request):
     """Stop all running agents then remove the Docker container."""
+    forbidden = _require_origin(request)
+    if forbidden is not None:
+        return forbidden
     for sid in list(_active_tasks.keys()):
         await _stop_agent(sid)
     success = await stop_container()
@@ -574,8 +829,11 @@ async def api_stop_container():
 
 
 @app.post("/api/container/build")
-async def api_build_image():
+async def api_build_image(request: Request):
     """Trigger a Docker image build."""
+    forbidden = _require_origin(request)
+    if forbidden is not None:
+        return forbidden
     success = await build_image()
     return {"success": success}
 
@@ -600,8 +858,22 @@ async def api_keys_status():
 
 
 @app.get("/api/screenshot")
-async def api_screenshot():
-    """Get current screenshot as base64."""
+async def api_screenshot(request: Request):
+    """Get current screenshot as base64.
+
+    S1: gated by the same origin/token checks as ``/ws``. Without
+    this, any webpage the user opens can ``fetch('/api/screenshot')``
+    and steal the live desktop, because browsers send cookies /
+    same-origin credentials and the response is JSON (no CORS
+    preflight with a simple GET).
+    """
+    if not _rest_origin_ok(request):
+        return _error_response(403, "Forbidden")
+    if _WS_AUTH_TOKEN:
+        supplied = request.query_params.get("token", "") or \
+            request.headers.get("x-cua-token", "")
+        if not supplied or not _consteq(supplied, _WS_AUTH_TOKEN):
+            return _error_response(401, "Unauthorized")
     try:
         b64 = await capture_screenshot()
         return {"screenshot": b64}
@@ -613,6 +885,11 @@ async def api_screenshot():
 @app.post("/api/agent/start")
 async def api_start_agent(req: StartTaskRequest, request: Request):
     """Start a new agent session with input validation."""
+    # C-1: origin gate before any work — keeps a CSRF/XSS-driven start
+    # from consuming API-key quota or executing arbitrary tasks.
+    forbidden = _require_origin(request)
+    if forbidden is not None:
+        return forbidden
 
     # ── Rate limit (per-IP) ─────────────────────────────────
     if not _agent_start_limiter.allow(_client_ip(request)):
@@ -724,8 +1001,11 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
 
 
 @app.post("/api/agent/stop/{session_id}")
-async def api_stop_agent(session_id: str):
+async def api_stop_agent(session_id: str, request: Request):
     """Stop a running agent session by ID."""
+    forbidden = _require_origin(request)
+    if forbidden is not None:
+        return forbidden
     if not _is_valid_uuid(session_id):
         return _error_response(400, "Invalid session_id")
     return await _stop_agent(session_id)
@@ -779,12 +1059,14 @@ async def api_agent_status(session_id: str):
 
 class SafetyConfirmRequest(BaseModel):
     """Body for the safety-confirm endpoint."""
+    model_config = ConfigDict(extra="forbid")
     session_id: str
     confirm: bool = False
 
 
 class ValidateKeyRequest(BaseModel):
     """Body for the key validation endpoint."""
+    model_config = ConfigDict(extra="forbid")
     provider: str = Field(max_length=20)
     api_key: str = Field(max_length=256)
 
@@ -795,6 +1077,9 @@ async def api_validate_key(req: ValidateKeyRequest, request: Request):
 
     Returns ``{valid: true/false, message: ...}``.  Never logs the raw key.
     """
+    forbidden = _require_origin(request)
+    if forbidden is not None:
+        return forbidden
     if not _validate_key_limiter.allow(_client_ip(request)):
         return _error_response(429, "Rate limit exceeded — max 20 validations per minute")
 
@@ -851,8 +1136,11 @@ async def api_validate_key(req: ValidateKeyRequest, request: Request):
 
 
 @app.post("/api/agent/safety-confirm")
-async def api_agent_safety_confirm(req: SafetyConfirmRequest):
+async def api_agent_safety_confirm(req: SafetyConfirmRequest, request: Request):
     """Respond to a CU safety_decision / require_confirmation prompt.
+
+    C-1: origin-gated so a malicious page can't auto-confirm a destructive
+    action when the user has the workbench open in another tab.
 
     When the native Computer Use engine encounters a
     ``require_confirmation`` safety decision, it broadcasts a
@@ -862,6 +1150,9 @@ async def api_agent_safety_confirm(req: SafetyConfirmRequest):
     The AgentLoop awaits an event in :mod:`backend.agent.safety` which
     this endpoint signals.
     """
+    forbidden = _require_origin(request)
+    if forbidden is not None:
+        return forbidden
     sid = req.session_id
     if not _is_valid_uuid(sid):
         return _error_response(400, "Invalid session_id")
@@ -908,6 +1199,13 @@ def _get_novnc_client() -> httpx.AsyncClient:
 @app.websocket("/vnc/websockify")
 async def vnc_ws_proxy(ws: WebSocket):
     """Proxy the noVNC WebSocket to the container's websockify."""
+    if not _ws_origin_ok(ws):
+        await ws.close(code=4403)
+        logger.warning(
+            "Rejected /vnc/websockify from bad origin: %r",
+            ws.headers.get("origin", ""),
+        )
+        return
     await ws.accept()
     try:
         import websockets
@@ -995,11 +1293,22 @@ async def vnc_http_proxy(path: str):
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     """Accept a WebSocket connection for real-time event streaming."""
+    # Origin check (C2): browsers send the Origin header on WS upgrades
+    # but do NOT enforce CORS for WebSockets — the server must.
+    # Without this, any webpage the user visits can open a
+    # ``ws://127.0.0.1:8000/ws`` and read live desktop screenshots.
+    if not _ws_origin_ok(ws):
+        await ws.close(code=4403)
+        logger.warning(
+            "Rejected /ws from bad origin: %r",
+            ws.headers.get("origin", ""),
+        )
+        return
     # Optional shared-secret gate. When CUA_WS_TOKEN is set, reject any
     # connection that doesn't present a matching ``?token=`` param.
     if _WS_AUTH_TOKEN:
         supplied = ws.query_params.get("token", "")
-        if not supplied or supplied != _WS_AUTH_TOKEN:
+        if not supplied or not _consteq(supplied, _WS_AUTH_TOKEN):
             await ws.close(code=4401)  # custom: unauthorized
             logger.warning(
                 "Rejected /ws connection from %s: bad or missing token",
@@ -1063,9 +1372,16 @@ async def _stream_screenshots(ws: WebSocket):
             b64 = await capture_screenshot(mode="desktop")
             auth_reported = False
             error_reported = False
-            # Cheap in-process dedup — no image decode, just a hash of
-            # the base64 payload.
-            frame_hash = hashlib.blake2b(b64.encode("ascii"), digest_size=16).hexdigest()
+            # Cheap in-process dedup — hash the raw PNG bytes (avoids the
+            # ~33% overhead of hashing the base64-encoded form).
+            try:
+                frame_hash = hashlib.blake2b(
+                    base64.b64decode(b64), digest_size=16,
+                ).hexdigest()
+            except Exception:
+                frame_hash = hashlib.blake2b(
+                    b64.encode("ascii"), digest_size=16,
+                ).hexdigest()
             if frame_hash == last_frame_hash:
                 continue
             last_frame_hash = frame_hash
