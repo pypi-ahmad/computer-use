@@ -83,7 +83,7 @@ jobs:
           severity: 'HIGH,CRITICAL'
           exit-code: '0'
       - name: Hadolint — Dockerfile lint
-        uses: hadolint/hadolint-action@v3
+        uses: hadolint/hadolint-action@v1.7.0
         with:
           dockerfile: docker/Dockerfile
           failure-threshold: warning
