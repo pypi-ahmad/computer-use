@@ -38,10 +38,20 @@ if /I "%~1"=="--clean" (
   echo [WARN] Running destructive Docker cleanup ^(--clean^)...
   docker compose down --rmi all -v
   docker system prune -a --volumes -f
+) else (
+  echo [INFO] Purging previous CUA container and image before rebuild...
+  REM Stop + remove the compose-managed container and its anonymous volumes.
+  REM This is scoped to this project only -- unrelated Docker resources are untouched.
+  docker compose down -v >nul 2>&1
+  REM Remove any leftover container by name (in case it was started outside compose).
+  docker rm -f cua-environment >nul 2>&1
+  REM Remove the previously built image so the next build is from scratch.
+  docker image rm -f cua-ubuntu:latest >nul 2>&1
+  echo [INFO] Previous CUA Docker artifacts removed.
 )
 
 echo [INFO] Building Docker image (compose)...
-docker compose build
+docker compose build --no-cache
 if errorlevel 1 (
   echo [ERROR] Docker compose build failed.
   exit /b 1
