@@ -30,11 +30,18 @@ if [[ "${1:-}" == "--clean" ]]; then
   warn "Running destructive Docker cleanup (--clean): removing compose containers/images/volumes and pruning ALL Docker images/volumes..."
   docker compose down --rmi all -v || true
   docker system prune -a --volumes -f
+else
+  info "Purging previous CUA container and image before rebuild..."
+  # Scoped to this project only — unrelated Docker resources are untouched.
+  docker compose down -v >/dev/null 2>&1 || true
+  docker rm -f cua-environment >/dev/null 2>&1 || true
+  docker image rm -f cua-ubuntu:latest >/dev/null 2>&1 || true
+  info "Previous CUA Docker artifacts removed."
 fi
 
 # ── Build via Compose (source of truth) ──────────────────────────────────────
 info "Building Docker image (compose)..."
-docker compose build
+docker compose build --no-cache
 info "Docker image built."
 
 # ── Install Python deps ──────────────────────────────────────────────────────

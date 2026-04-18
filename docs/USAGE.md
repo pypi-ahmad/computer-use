@@ -91,11 +91,12 @@ bash setup.sh
 Both scripts perform the same steps:
 
 1. Verify prerequisites (Docker CLI + daemon, Python, Node.js)
-2. Build the Docker image via `docker compose build` (Ubuntu 24.04 desktop)
-3. Create a Python virtual environment (`.venv/`) and install backend dependencies from `requirements.txt`
-4. Run `npm install` inside the `frontend/` directory
+2. **Purge the previous CUA container (`cua-environment`) and image (`cua-ubuntu:latest`)** so the new build is from scratch. Scoped to this project only — unrelated Docker resources are untouched.
+3. Rebuild the Docker image via `docker compose build --no-cache` (Ubuntu 24.04 desktop)
+4. Create a Python virtual environment (`.venv/`) and install backend dependencies from `requirements.txt`
+5. Run `npm install` inside the `frontend/` directory
 
-Pass `--clean` to either script to tear down existing containers, images, and volumes before rebuilding.
+Pass `--clean` to either script for a full destructive rebuild that also runs `docker system prune -a --volumes -f` — this wipes **all** Docker images and volumes on the host, not just CUA's.
 
 ### Manual Setup
 

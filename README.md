@@ -298,7 +298,7 @@ setup.bat
 bash setup.sh
 ```
 
-Both scripts: verify prerequisites → build Docker image → create Python venv → install pip dependencies → install frontend npm packages. Pass `--clean` for a destructive rebuild (removes containers, images, and volumes first).
+Both scripts: verify prerequisites → **purge the previous CUA container (`cua-environment`) and image (`cua-ubuntu:latest`)** → rebuild the Docker image with `--no-cache` → create Python venv → install pip dependencies → install frontend npm packages. The default purge is scoped to this project only — unrelated Docker resources are untouched. Pass `--clean` for a full destructive rebuild (`docker system prune -a --volumes -f`) that also wipes other Docker images on the host.
 
 ### 3. Configure API Key (at least one required)
 
