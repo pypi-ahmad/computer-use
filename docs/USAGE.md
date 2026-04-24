@@ -250,12 +250,15 @@ Each provider's native Computer Use API is used directly — no prompt-only work
 
 All agent actions execute inside an isolated Docker container:
 
-- **Ubuntu 24.04** with XFCE4 desktop environment
+- **Ubuntu 24.04** with XFCE4 desktop environment (`startxfce4`). `light-locker`, `xfce4-screensaver`, and `xfce4-power-manager` are removed at build time so the WM never steals focus from `xdotool` during agent sessions.
 - **Resource limits:** 4 GB RAM, 2 CPUs, 2 GB shared memory (`shm_size`)
 - **Security:** `no-new-privileges`, `init: true`, localhost-only port bindings (`127.0.0.1`)
-- **Pre-installed software:** Google Chrome, LibreOffice, VLC, Node.js 20, Python 3, terminal emulators, file manager
-- **Virtual display:** Xvfb at configurable resolution (default 1440×900, 24-bit color)
+- **Browser coverage:** `google-chrome-stable` (OpenAI reference, with `--disable-extensions --disable-file-system --no-default-browser-check` + dedicated per-session profile dir + empty env whitelist), `firefox-esr` (Anthropic reference), and `chromium` / `chromium-browser` (Google Gemini reference). Gemini sessions resolve `chromium-browser` → `chromium` → `firefox-esr` with a one-shot WARNING on the Firefox fallback.
+- **Pre-installed software:** Google Chrome + Chromium + Firefox-ESR, LibreOffice, VLC, Node.js 20, Python 3, terminal emulators, file manager; Anthropic reference extras (ImageMagick, mutter, xterm, tint2, xpdf, x11-apps).
+- **Virtual display:** Xvfb at configurable resolution. The default is **1440×900** — the single best-compromise across all four CU providers (Anthropic docs: native for Opus 4.7 / downscaled for Opus 4.6 & Sonnet 4.6; OpenAI guide prose: 1440×900 / 1600×900; Google Gemini docs: exactly 1440×900). `WIDTH` / `HEIGHT` are accepted as aliases of `SCREEN_WIDTH` / `SCREEN_HEIGHT` for parity with Anthropic's quickstart container. Opus 4.7 can opt into its native 2576 px ceiling via `CUA_OPUS47_HIRES=1` + a larger docker-run viewport.
 - **Restart policy:** `unless-stopped`
+
+See [`docker/SECURITY_NOTES.md`](../docker/SECURITY_NOTES.md) for per-provider sandbox rationale and the full viewport / browser / coordinate / safety contract.
 
 Your host machine is never exposed to the agent.
 
@@ -516,8 +519,10 @@ Set as environment variables or in a `.env` file in the project root. The `.env`
 | `CUA_POST_ACTION_SCREENSHOT_DELAY` | `0.4` | Seconds to wait after an action before re-screenshotting. |
 | `CUA_CLAUDE_MAX_TOKENS` | `32768` | Per-turn Claude `max_tokens` budget. Clamped to `[1024, 65536]`. |
 | `CUA_CLAUDE_CACHING` | `0` | Set to `1` to stamp `cache_control: {type: ephemeral}` on the `computer_20251124` tool definition. Caches the tool block across turns (~10 % of first-turn cost on repeats). Opt-in. |
+| `CUA_OPUS47_HIRES` | `0` | Opus 4.7-only opt-in. Drops the 3.75 MP pixel-count cap while keeping the 2576 px long-edge ceiling. Gated on `_is_opus_47(model)`; ignored for every other model. Pair with a larger docker-run viewport (up to 2560×1600) to actually exercise the hi-res path. |
 | `CUA_GEMINI_THINKING_LEVEL` | `high` | Gemini 3 `thinking_level`: `minimal` / `low` / `medium` / `high`. |
 | `CUA_GEMINI_RELAX_SAFETY` | `0` | Set to `1` to attach `BLOCK_ONLY_HIGH` safety thresholds on every Gemini CU request. Default follows Google's published Gemini-3 default ("Off"). The `require_confirmation` handshake is unaffected. |
+| `CUA_GEMINI_USE_PLAYWRIGHT` | `0` | Opt into Google's Playwright-driven reference CU path for Gemini (hard single-tab interception, matches `github.com/google-gemini/computer-use-preview`). Requires the Playwright package — rebuild with `--build-arg INSTALL_PLAYWRIGHT=1`. Degrades to the xdotool path with a one-shot ERROR log if Playwright isn't importable. Off by default to keep the image lean (~500 MB of browser bundles). |
 | `XDO_SYNC_SLEEP_MS` | `75` | Compensation sleep (ms) after `mousemove`/`click`. Increase on slow CI hosts. |
 | `XDO_WINDOW_SLEEP_MS` | `400` | Same, for `windowactivate`. |
 | `AGENT_SERVICE_TOKEN` | *(auto-generated)* | Shared secret between host backend and in-container agent service. Passed via 0600 `--env-file` (unlinked after `docker run`), **not** `-e`. |
