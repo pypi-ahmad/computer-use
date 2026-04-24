@@ -85,6 +85,49 @@ class OpenAICUClient:
             reasoning_effort = "high"
         self._reasoning_effort = reasoning_effort
 
+    def _build_tools(
+        self,
+        screen_width: int,
+        screen_height: int,
+        *,
+        on_log: "Callable[[str, str], None] | None" = None,
+    ) -> list[dict[str, Any]]:
+        """Return the Responses API ``tools`` list for this model.
+
+        GPT-5.4 (and future CU-capable OpenAI models) use the built-in
+        short-form tool:
+            {"type": "computer"}
+        The built-in tool infers display dimensions from the screenshots
+        the harness sends, so no display_width / display_height /
+        environment keys are needed.
+
+        The legacy preview model ``computer-use-preview`` still requires
+        the long-form tool with explicit dimensions + environment, per
+        the deprecated-but-still-live preview API shape.
+        """
+        model = self._model
+        if model == "computer-use-preview":
+            return [
+                {
+                    "type": "computer_use_preview",
+                    "display_width": screen_width,
+                    "display_height": screen_height,
+                    "environment": "linux",
+                },
+            ]
+        if model.startswith("gpt-5.4"):
+            # Built-in tool — dimensions inferred from screenshot bytes.
+            return [{"type": "computer"}]
+        # Any other OpenAI model flagged as CU-capable: use the new
+        # short-form tool but warn, since we have not verified it.
+        if on_log is not None:
+            on_log(
+                "warning",
+                f"OpenAI CU: model {model!r} is not gpt-5.4 or computer-use-preview; "
+                "emitting the built-in `computer` tool shape (untested).",
+            )
+        return [{"type": "computer"}]
+
     async def _create_response(self, *, on_log: "Callable[[str, str], None] | None" = None, **kwargs: Any) -> Any:
         """Call the async OpenAI Responses API with transient-error retry."""
         return await _call_with_retry(
@@ -137,7 +180,11 @@ class OpenAICUClient:
             request: dict[str, Any] = {
                 "model": self._model,
                 "input": next_input,
-                "tools": [{"type": "computer"}],
+                "tools": self._build_tools(
+                    getattr(executor, "screen_width", 0) or 0,
+                    getattr(executor, "screen_height", 0) or 0,
+                    on_log=on_log if turn == 0 else None,
+                ),
                 "parallel_tool_calls": False,
                 "include": ["reasoning.encrypted_content"],
                 "reasoning": {"effort": self._reasoning_effort},
