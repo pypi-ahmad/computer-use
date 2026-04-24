@@ -67,6 +67,11 @@ SAFETY:
 IMPORTANT:
 - You see the FULL desktop screen.
 - Coordinates are normalized (0-999 grid) — the system handles pixel scaling.
+- Single-tab paradigm: when a link would open in a new tab, interpret it as
+  navigation in the current tab. The sandbox enforces a single-tab model per
+  Google's Gemini Computer Use reference implementation
+  (github.com/google-gemini/computer-use-preview). Do not rely on multiple
+  tabs being present or distinguishable.
 """
 
 SYSTEM_PROMPT_CLAUDE_CU = """\
