@@ -289,3 +289,54 @@ class TestOpenAIRuntimePath:
             "code": "confirm",
             "message": "Confirm action",
         }]
+
+
+class TestOpenAIReasoningEffort:
+    """Regression guards for the April 2026 OpenAI reasoning-effort enum.
+
+    The canonical values are ``{minimal, low, medium, high}``. The CU
+    floor is ``high``. Legacy aliases (``none``, ``xhigh``) are mapped
+    on input so the live API never sees a value it would 400 on.
+    """
+
+    def test_default_effort_is_high(self):
+        with patch("openai.AsyncOpenAI"):
+            client = OpenAICUClient(api_key="test-key", model="gpt-5.4")
+        assert client._reasoning_effort == "high", (
+            "CU default must be 'high' — the April 2026 OpenAI CU guide "
+            "lists high as the floor for agentic work."
+        )
+
+    def test_legacy_none_maps_to_minimal(self):
+        with patch("openai.AsyncOpenAI"):
+            client = OpenAICUClient(
+                api_key="test-key", model="gpt-5.4", reasoning_effort="none",
+            )
+        assert client._reasoning_effort == "minimal", (
+            "Legacy 'none' must be mapped to canonical 'minimal' — "
+            "the live OpenAI API rejects 'none' with HTTP 400."
+        )
+
+    def test_legacy_xhigh_maps_to_high(self):
+        with patch("openai.AsyncOpenAI"):
+            client = OpenAICUClient(
+                api_key="test-key", model="gpt-5.4", reasoning_effort="xhigh",
+            )
+        assert client._reasoning_effort == "high"
+
+    def test_minimal_is_accepted(self):
+        with patch("openai.AsyncOpenAI"):
+            client = OpenAICUClient(
+                api_key="test-key", model="gpt-5.4", reasoning_effort="minimal",
+            )
+        assert client._reasoning_effort == "minimal"
+
+    def test_unknown_coerces_to_high(self):
+        with patch("openai.AsyncOpenAI"):
+            client = OpenAICUClient(
+                api_key="test-key", model="gpt-5.4", reasoning_effort="garbage",
+            )
+        assert client._reasoning_effort == "high", (
+            "Unknown values must coerce to the CU floor, not silently "
+            "demote to 'low' like the pre-April-2026 behaviour did."
+        )

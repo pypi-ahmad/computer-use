@@ -67,12 +67,20 @@ class TestAgentStartFinishIntegration:
         async def _capture_broadcast(event, data):
             broadcasts.append((event, data))
 
+        # Prompt 03 added a container-readiness gate at the start-session
+        # endpoint: ``start_container`` returning True is necessary but not
+        # sufficient — the handler also reads ``get_container_state()`` and
+        # returns 409 if ``agent != "ready"``. This integration test pre-dates
+        # the gate, so we mock the state so the gate passes.
         with patch.dict(server._active_tasks, {}, clear=True), \
              patch.dict(server._active_loops, {}, clear=True), \
              patch("backend.server.resolve_api_key",
                    return_value=("sk-test-int", "ui")), \
              patch("backend.server.start_container",
                    new_callable=AsyncMock, return_value=True), \
+             patch("backend.server.get_container_state",
+                   return_value={"container": "running", "agent": "ready",
+                                 "last_health_error": None}), \
              patch("backend.server.AgentLoop", return_value=fake_loop), \
              patch("backend.server._broadcast",
                  new=AsyncMock(side_effect=_capture_broadcast)):
@@ -124,8 +132,11 @@ class TestWebSocketHotPath:
     def test_ping_pong_and_broadcast_delivery(self, client):
         from backend import server
 
-        # Make sure no stale streaming task interferes with the test.
-        with patch("backend.server._stream_screenshots",
+        # Make sure no stale publisher task interferes with the test.
+        # Prompt 06 replaced per-client ``_stream_screenshots`` with the
+        # shared ``_screenshot_publisher_loop``; patch the new symbol so
+        # the fixture still neutralises the capture loop.
+        with patch("backend.server._screenshot_publisher_loop",
                    new=AsyncMock(return_value=None)):
             with client.websocket_connect("/ws") as ws:
                 ws.send_text('{"type": "ping"}')

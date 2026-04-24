@@ -155,69 +155,281 @@ class AgentLoop:
     async def run(self) -> AgentSession:
         """Execute the full agent loop. Returns the final session state.
 
-        Orchestration (preflight → execute → finalize) is expressed as a
-        LangGraph ``StateGraph`` with an in-memory checkpointer. The CU
-        engine itself, provider clients, and desktop executor are
-        untouched — they run inside the ``execute`` node exactly as
-        before.
+        Orchestration is a LangGraph six-node state machine
+        (``preflight → model_turn ⇄ tool_batch → approval_interrupt →
+        recover_or_retry → finalize``) assembled in
+        :mod:`backend.agent.graph`. This AgentLoop owns only the
+        provider/engine construction, callback wiring, and stop
+        handshake — all turn-by-turn orchestration lives in the graph.
         """
         self.session.status = SessionStatus.RUNNING
         self._emit_log("info", f"Agent starting — task: {self.session.task}")
-        self._emit_log("info", f"Model: {self.session.model} | Max steps: {self.session.max_steps} | Mode: {self._mode} | Engine: {self._engine} | Provider: {self._provider} | Target: {self._execution_target}")
+        self._emit_log(
+            "info",
+            f"Model: {self.session.model} | Max steps: {self.session.max_steps} | "
+            f"Mode: {self._mode} | Engine: {self._engine} | "
+            f"Provider: {self._provider} | Target: {self._execution_target}",
+        )
 
-        from backend.agent.graph import build_agent_graph
+        from backend.agent.graph import build_agent_graph, NodeBundle
+        from backend import tracing
 
-        async def _preflight_node(state: dict) -> dict:
-            healthy = await check_service_health()
-            if not healthy:
-                self._emit_log(
-                    "warning",
-                    "Agent service not responding, will retry during execution",
-                )
-            return {"healthy": healthy, "status": "running"}
+        bundle = self._build_graph_bundle()
+        # OBS: wrap the bundle so every graph-edge event lands in the
+        # per-session trace recorder. The wrapper is additive — the
+        # original callbacks still fire, so existing logging and WS
+        # broadcasts are unchanged.
+        tracing.start_session(self.session.session_id, task=self.session.task)
+        bundle = tracing.install(bundle, self.session.session_id)
+        graph = build_agent_graph(bundle)
 
-        async def _execute_node(state: dict) -> dict:
-            # Delegates to the native CU protocol engine. ``_run_computer_use_engine``
-            # sets ``self.session.status`` to COMPLETED or ERROR on its own.
-            await self._run_computer_use_engine()
-            return {"status": self.session.status.value}
-
-        async def _finalize_node(state: dict) -> dict:
-            # Persist a screenshot-stripped snapshot of the session into
-            # graph state so the sqlite checkpointer becomes the source
-            # of truth for post-run status/history lookups.
-            snapshot = self.session.model_dump(
-                mode="json",
-                exclude={"steps": {"__all__": {"screenshot_b64"}}},
-            )
-            return {"session_snapshot": snapshot}
-
-        graph = build_agent_graph(_preflight_node, _execute_node, _finalize_node)
-        # Bind the session_id into the logging ContextVar so every log
-        # line emitted from this loop (and any task it spawns via the
-        # engine / screenshot / docker modules) is tagged with this id.
         _sid_token = session_id_var.set(self.session.session_id)
         try:
-            await graph.ainvoke(
-                {
-                    "session_id": self.session.session_id,
-                    "task": self.session.task,
-                    "max_steps": self.session.max_steps,
-                },
-                config={"configurable": {"thread_id": self.session.session_id}},
+            self._run_task = asyncio.create_task(
+                graph.ainvoke(
+                    {
+                        "session_id": self.session.session_id,
+                        "task": self.session.task,
+                        "max_steps": self.session.max_steps,
+                    },
+                    config={"configurable": {"thread_id": self.session.session_id}},
+                )
             )
+            try:
+                final_state = await self._run_task
+            except asyncio.CancelledError:
+                self._emit_log("info", "Agent run cancelled")
+                final_state = None
+            if final_state and final_state.get("status") == "error":
+                self._emit_log(
+                    "error",
+                    f"Graph run ended in error: {final_state.get('error', '(unknown)')}",
+                )
+                self.session.status = SessionStatus.ERROR
+            elif self._stop_requested:
+                self.session.status = SessionStatus.STOPPED
+            else:
+                # Only flip to COMPLETED if _run_computer_use_engine
+                # hasn't already set a terminal status (e.g. ERROR from
+                # a provider-level failure surfaced via RunFailed).
+                if self.session.status == SessionStatus.RUNNING:
+                    self.session.status = SessionStatus.COMPLETED
+        except Exception as exc:
+            self._emit_log("error", f"Graph invocation failed: {exc}")
+            self.session.status = SessionStatus.ERROR
         finally:
-            # Always drop safety-registry state for this session — the
-            # inner _on_safety callback clears on the happy path, but a
-            # run that's cancelled or crashes while a prompt is pending
-            # would otherwise leak an asyncio.Event + decision entry.
+            self._run_task = None
+            # Always drop safety-registry state for this session.
             try:
                 from backend.agent import safety as safety_registry
                 safety_registry.clear(self.session.session_id)
             except Exception:
                 pass
+            # Drop the iterator registry entry — finalize already does
+            # this on the happy path, but a cancelled/error path might
+            # not reach finalize.
+            try:
+                from backend.agent.graph import _drop_iterator
+                _drop_iterator(self.session.session_id)
+            except Exception:
+                pass
+            # OBS: flush the session trace to its sidecar JSON file.
+            # Runs last so any cleanup above is recorded.
+            try:
+                tracing.finalize_session(
+                    self.session.session_id,
+                    status=self.session.status.value,
+                )
+            except Exception:
+                logger.exception(
+                    "trace finalize failed for %s", self.session.session_id,
+                )
             session_id_var.reset(_sid_token)
         return self.session
+
+    # ── NodeBundle construction (PR 7) ────────────────────────────────────
+
+    def _build_graph_bundle(self) -> "NodeBundle":
+        """Build the ``NodeBundle`` of I/O closures for the agent graph.
+
+        The closures bridge graph nodes to this loop's callback set
+        (``on_step`` / ``on_log`` / ``on_screenshot``) and to the legacy
+        safety-registry signal still used by Gemini / OpenAI.
+        """
+        from backend.agent.graph import NodeBundle
+        from backend.agent import safety as safety_registry
+        from backend.engine import (
+            ComputerUseEngine,
+            Environment,
+            Provider,
+            ToolBatchCompleted,
+        )
+        from backend.agent.prompts import get_system_prompt
+        from backend.agent.screenshot import check_service_health
+
+        provider_map = {
+            "google": Provider.GEMINI,
+            "anthropic": Provider.CLAUDE,
+            "openai": Provider.OPENAI,
+        }
+
+        # Engine is lazily constructed on first start_iter invocation
+        # so graph preflight can surface configuration errors cleanly.
+        last_fingerprints: list[str] = []
+
+        def _fingerprint(action: AgentAction | None) -> str:
+            if action is None:
+                return ""
+            parts = [
+                action.action.value
+                if hasattr(action.action, "value") else str(action.action)
+            ]
+            if action.coordinates:
+                parts.append(":".join(str(c) for c in action.coordinates))
+            if action.text:
+                parts.append(
+                    hashlib.blake2b(
+                        action.text.encode("utf-8", "replace"), digest_size=8,
+                    ).hexdigest()
+                )
+            return "|".join(parts)
+
+        async def _check_health() -> bool:
+            try:
+                return await check_service_health()
+            except Exception:
+                return False
+
+        async def _start_iter(session_id: str, task: str, max_steps: int):
+            cu_provider = provider_map.get(self._provider)
+            if cu_provider is None:
+                raise ValueError(f"Unsupported CU provider: {self._provider}")
+            system_instruction = get_system_prompt(
+                "computer_use", self._mode, provider=self._provider,
+            )
+            engine = ComputerUseEngine(
+                provider=cu_provider,
+                api_key=self._api_key,
+                model=self.session.model,
+                environment=Environment.DESKTOP,
+                screen_width=config.screen_width,
+                screen_height=config.screen_height,
+                system_instruction=system_instruction,
+                container_name=config.container_name,
+                agent_service_url=config.agent_service_url,
+                reasoning_effort=self._reasoning_effort,
+            )
+
+            # Legacy safety callback used by Gemini / OpenAI's run_loop
+            # (via iter_turns_via_run_loop). Claude's iter_turns ignores
+            # this argument — its safety is server-side refusal only.
+            async def _on_safety(explanation: str) -> bool:
+                self._emit_log(
+                    "warning",
+                    f"Safety confirmation required: {explanation}",
+                    data={
+                        "type": "safety_confirmation",
+                        "explanation": explanation,
+                        "session_id": self.session.session_id,
+                    },
+                )
+                sid = self.session.session_id
+                evt = safety_registry.get_or_create_event(sid)
+                evt.clear()
+                try:
+                    await asyncio.wait_for(evt.wait(), timeout=60.0)
+                    decision = bool(safety_registry.decisions.pop(sid, False))
+                except asyncio.TimeoutError:
+                    self._emit_log(
+                        "warning", "Safety confirmation timed out, denying action",
+                    )
+                    decision = False
+                finally:
+                    safety_registry.clear(sid)
+                self._emit_log("info", f"Safety confirmation result: {decision}")
+                return decision
+
+            def _on_engine_log(level: str, message: str) -> None:
+                self._emit_log(level, message)
+
+            return engine.iter_turns(
+                goal=task,
+                turn_limit=max_steps,
+                on_safety=_on_safety,
+                on_log=_on_engine_log,
+            )
+
+        def _emit_step(event: ToolBatchCompleted) -> None:
+            """Map a ``ToolBatchCompleted`` event to a session ``StepRecord``."""
+            agent_action: AgentAction | None = None
+            if event.results:
+                first = event.results[0]
+                action_type = _CU_ACTION_MAP.get(first.name)
+                if action_type:
+                    agent_action = AgentAction(
+                        action=action_type,
+                        reasoning=_scrub_secrets(
+                            event.model_text[:500] if event.model_text else None
+                        ),
+                    )
+                    px = first.extra.get("pixel_x")
+                    py = first.extra.get("pixel_y")
+                    if px is not None and py is not None:
+                        agent_action.coordinates = [px, py]
+                    if first.extra.get("text"):
+                        agent_action.text = str(first.extra["text"])
+                else:
+                    self._emit_log(
+                        "warning",
+                        f"Unmapped CU action '{first.name}' — not in ActionType enum",
+                    )
+            step = StepRecord(
+                step_number=event.turn,
+                screenshot_b64=event.screenshot_b64,
+                raw_model_response=_scrub_secrets(event.model_text),
+                action=agent_action,
+            )
+            self.session.steps.append(step)
+            self._fire_callback(self._on_step, step)
+            if event.screenshot_b64 and self._on_screenshot:
+                self._fire_callback(self._on_screenshot, event.screenshot_b64)
+
+            # AI2: stuck-agent detection.
+            fp = _fingerprint(agent_action)
+            if fp:
+                last_fingerprints.append(fp)
+                del last_fingerprints[:-3]
+                if len(last_fingerprints) == 3 and len(set(last_fingerprints)) == 1:
+                    self._emit_log(
+                        "warning",
+                        "Stuck-agent detected (3 consecutive identical actions); "
+                        "requesting stop.",
+                    )
+                    self._stop_requested = True
+                    run_task = getattr(self, "_run_task", None)
+                    if run_task is not None and not run_task.done():
+                        run_task.cancel()
+
+        def _emit_log(level: str, message: str, data: dict | None = None) -> None:
+            self._emit_log(level, message, data)
+
+        def _build_snapshot() -> dict:
+            return self.session.model_dump(
+                mode="json",
+                exclude={"steps": {"__all__": {"screenshot_b64"}}},
+            )
+
+        def _stop_requested() -> bool:
+            return self._stop_requested
+
+        return NodeBundle(
+            check_health=_check_health,
+            start_iter=_start_iter,
+            emit_step=_emit_step,
+            emit_log=_emit_log,
+            build_snapshot=_build_snapshot,
+            stop_requested=_stop_requested,
+        )
 
     # ── Computer Use engine delegation ────────────────────────────────────
 

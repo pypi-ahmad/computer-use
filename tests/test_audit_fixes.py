@@ -565,6 +565,319 @@ class TestWebSocketOriginGating:
         assert not server._ws_origin_ok(ws)
 
 
+# ── S-WS-TOKEN — /vnc/websockify token parity with /ws ─────────────────────
+
+
+class TestVncWebsockifyTokenGating:
+    """When ``CUA_WS_TOKEN`` is set, /vnc/websockify must reject upgrades
+    without a matching ``?token=`` — same close code (4401) and same
+    rejection point (before ``ws.accept()`` and before any upstream
+    socket is opened) as /ws. With the token unset, both surfaces must
+    keep the default-open behaviour local dev relies on.
+
+    Mirrors the MagicMock style used by ``TestWebSocketOriginGating``.
+    """
+
+    @staticmethod
+    def _make_ws(token_param: str | None, *, origin: str | None = None):
+        """Build a MagicMock WebSocket with the given ?token=... and Origin.
+
+        ``origin=None`` → empty header dict (loopback/curl shape).
+        ``origin="allowed"`` → first entry in ``_ALLOWED_ORIGINS``.
+        """
+        from backend import server
+
+        ws = MagicMock()
+        if origin == "allowed":
+            ws.headers = {"origin": server._ALLOWED_ORIGINS[0]}
+        elif origin is None:
+            ws.headers = {}
+        else:
+            ws.headers = {"origin": origin}
+        ws.client = MagicMock()
+        ws.client.host = "127.0.0.1"
+        ws.query_params = {} if token_param is None else {"token": token_param}
+        ws.accept = AsyncMock()
+        ws.close = AsyncMock()
+        return ws
+
+    # ── Helper: pure function, no I/O ───────────────────────────────
+
+    def test_ws_token_ok_passes_when_unset(self, monkeypatch):
+        from backend import server
+
+        monkeypatch.setattr(server, "_WS_AUTH_TOKEN", "")
+        ws = self._make_ws(token_param=None)
+        assert server._ws_token_ok(ws) is True
+
+    def test_ws_token_ok_rejects_missing_token(self, monkeypatch):
+        from backend import server
+
+        monkeypatch.setattr(server, "_WS_AUTH_TOKEN", "secret")
+        ws = self._make_ws(token_param=None)
+        assert server._ws_token_ok(ws) is False
+
+    def test_ws_token_ok_rejects_wrong_token(self, monkeypatch):
+        from backend import server
+
+        monkeypatch.setattr(server, "_WS_AUTH_TOKEN", "secret")
+        ws = self._make_ws(token_param="wrong")
+        assert server._ws_token_ok(ws) is False
+
+    def test_ws_token_ok_accepts_matching_token(self, monkeypatch):
+        from backend import server
+
+        monkeypatch.setattr(server, "_WS_AUTH_TOKEN", "secret")
+        ws = self._make_ws(token_param="secret")
+        assert server._ws_token_ok(ws) is True
+
+    # ── Handler: vnc_ws_proxy must gate before accept() ─────────────
+
+    def test_vnc_rejects_missing_token_with_4401_before_accept(self, monkeypatch):
+        """Success criterion (1): CUA_WS_TOKEN set + no token →
+        close(4401) BEFORE accept and BEFORE any upstream connect."""
+        from backend import server
+
+        monkeypatch.setattr(server, "_WS_AUTH_TOKEN", "secret")
+        ws = self._make_ws(token_param=None, origin="allowed")
+
+        # Upstream connect must never be called. Patch it to blow up
+        # loudly if the gate ever lets this through to the data plane.
+        def _must_not_connect(*a, **kw):
+            raise AssertionError(
+                "vnc_ws_proxy opened an upstream socket before "
+                "rejecting an unauthenticated client"
+            )
+
+        with patch("websockets.connect", side_effect=_must_not_connect):
+            asyncio.run(server.vnc_ws_proxy(ws))
+
+        ws.close.assert_awaited_once_with(
+            code=server._WS_AUTH_CLOSE_CODE,
+            reason=server._WS_AUTH_CLOSE_REASON,
+        )
+        ws.accept.assert_not_called()
+
+    def test_vnc_rejects_wrong_token_with_4401(self, monkeypatch):
+        from backend import server
+
+        monkeypatch.setattr(server, "_WS_AUTH_TOKEN", "secret")
+        ws = self._make_ws(token_param="nope", origin="allowed")
+
+        with patch("websockets.connect", side_effect=AssertionError("no upstream")):
+            asyncio.run(server.vnc_ws_proxy(ws))
+
+        ws.close.assert_awaited_once_with(
+            code=server._WS_AUTH_CLOSE_CODE,
+            reason=server._WS_AUTH_CLOSE_REASON,
+        )
+        ws.accept.assert_not_called()
+
+    def test_vnc_accepts_matching_token(self, monkeypatch):
+        """Success criterion (2): CUA_WS_TOKEN set + matching ?token=
+        → proxy proceeds (reaches ws.accept and attempts upstream)."""
+        from backend import server
+
+        monkeypatch.setattr(server, "_WS_AUTH_TOKEN", "secret")
+        ws = self._make_ws(token_param="secret", origin="allowed")
+
+        # Short-circuit the upstream so the test doesn't need a real
+        # websockify. ``websockets.connect`` is what the handler awaits
+        # inside an ``async with`` block — raising here exits the
+        # handler cleanly after accept().
+        class _Boom(Exception):
+            pass
+
+        with patch("websockets.connect", side_effect=_Boom("no upstream in test")):
+            asyncio.run(server.vnc_ws_proxy(ws))
+
+        ws.accept.assert_awaited_once()
+        # close() with 4401 must NOT have been issued on the authorised path
+        for call in ws.close.await_args_list:
+            assert call.kwargs.get("code") != 4401, (
+                "Authorised /vnc/websockify upgrade was rejected as 4401"
+            )
+
+    def test_vnc_token_unset_preserves_default_open(self, monkeypatch):
+        """Success criterion (3): CUA_WS_TOKEN unset → no token required
+        on either surface. Default-open behaviour preserved."""
+        from backend import server
+
+        monkeypatch.setattr(server, "_WS_AUTH_TOKEN", "")
+        ws = self._make_ws(token_param=None, origin="allowed")
+
+        class _Boom(Exception):
+            pass
+
+        with patch("websockets.connect", side_effect=_Boom("no upstream in test")):
+            asyncio.run(server.vnc_ws_proxy(ws))
+
+        ws.accept.assert_awaited_once()
+        for call in ws.close.await_args_list:
+            assert call.kwargs.get("code") != 4401
+
+
+# ── D-READY — container readiness is health-checked, not assumed ───────────
+
+
+class TestContainerReadinessGating:
+    """The previous behaviour returned success from ``_wait_for_service``
+    whenever the container process was alive, even if ``/health`` never
+    answered. The new contract is:
+
+    * ``_wait_for_service`` returns False on health-check exhaustion.
+    * ``get_state()`` reports ``agent="unready"`` after the failure.
+    * ``POST /api/agent/start`` refuses to create a session with a 4xx
+      status when the cached readiness says the agent isn't ready.
+    """
+
+    def test_wait_for_service_returns_false_when_health_never_recovers(self, monkeypatch):
+        """Container process survives but /health always errors → False,
+        and get_state() reports running=True, agent=unready with the
+        last error preserved for operators to see."""
+        from backend import docker_manager as dm
+
+        # Tight budget so the test doesn't actually wait 30s. Also
+        # shrink the backoff floor so the jitter doesn't dominate.
+        monkeypatch.setattr(dm.config, "container_ready_timeout", 0.3)
+        monkeypatch.setattr(dm.config, "container_ready_poll_base", 0.02)
+        monkeypatch.setattr(dm.config, "container_ready_poll_cap", 0.05)
+
+        # Simulate an upstream that refuses every connection.
+        class _BrokenClient:
+            def __init__(self, *a, **kw): pass
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): return False
+            async def get(self, *a, **kw):
+                raise httpx.ConnectError("connection refused")
+
+        async def go():
+            with patch.object(dm.httpx, "AsyncClient", _BrokenClient), \
+                 patch.object(dm, "is_container_running", AsyncMock(return_value=True)):
+                ok = await dm._wait_for_service("cua-test")
+            return ok
+
+        ok = asyncio.run(go())
+
+        assert ok is False, (
+            "Health-check exhaustion must report failure. Returning True "
+            "when the container is merely running reintroduces the "
+            "'session started against broken sandbox' bug."
+        )
+        state = dm.get_state()
+        assert state["container"] == "running"
+        assert state["agent"] == "unready"
+        assert state["last_health_error"] is not None
+        assert "ConnectError" in state["last_health_error"]
+
+    def test_wait_for_service_returns_true_on_first_healthy_probe(self, monkeypatch):
+        """Happy path: a 200 from /health flips state to ready and
+        clears any prior last_health_error."""
+        from backend import docker_manager as dm
+
+        monkeypatch.setattr(dm.config, "container_ready_timeout", 0.5)
+        monkeypatch.setattr(dm.config, "container_ready_poll_base", 0.01)
+
+        class _OkClient:
+            def __init__(self, *a, **kw): pass
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): return False
+            async def get(self, *a, **kw):
+                return MagicMock(status_code=200)
+
+        async def go():
+            with patch.object(dm.httpx, "AsyncClient", _OkClient):
+                return await dm._wait_for_service("cua-test")
+
+        assert asyncio.run(go()) is True
+        state = dm.get_state()
+        assert state["agent"] == "ready"
+        assert state["container"] == "running"
+        assert state["last_health_error"] is None
+
+    def test_start_agent_rejects_with_409_when_agent_unready(self, monkeypatch):
+        """End-to-end: when the cached readiness says the sandbox isn't
+        ready, POST /api/agent/start must refuse with a 4xx-range
+        response instead of creating a doomed session."""
+        from fastapi.testclient import TestClient
+
+        from backend import server
+
+        client = TestClient(server.app)
+
+        # Pretend the container came up but the agent service is
+        # unreachable — exactly the scenario this finding is about.
+        fake_state = {
+            "container": "running",
+            "agent": "unready",
+            "last_health_error": "ConnectError: connection refused",
+        }
+        with patch.object(server, "start_container", AsyncMock(return_value=True)), \
+             patch.object(server, "get_container_state", return_value=fake_state), \
+             patch.object(server._agent_start_limiter, "allow", return_value=True):
+            resp = client.post(
+                "/api/agent/start",
+                json={
+                    "task": "open a browser",
+                    "api_key": "sk-test-1234-abcd",
+                    "model": "claude-sonnet-4-6",
+                    "max_steps": 5,
+                    "mode": "desktop",
+                    "engine": "computer_use",
+                    "provider": "anthropic",
+                    "execution_target": "docker",
+                },
+                headers={"origin": server._ALLOWED_ORIGINS[0]},
+            )
+
+        assert 400 <= resp.status_code < 500, (
+            f"Expected 4xx refusal when agent not ready, got {resp.status_code}: {resp.text}"
+        )
+        # 409 is the documented code for this path.
+        assert resp.status_code == 409
+        body = resp.json()
+        # Error message must mention the underlying reason so operators
+        # can act — the whole point of the fix is that this is no
+        # longer a silent warning.
+        assert "not ready" in (body.get("error") or "").lower()
+
+    def test_start_agent_rejects_with_409_when_running_container_stays_unready(self, monkeypatch):
+        """If ``start_container()`` fails because an already-running
+        container never passed the readiness probe, the start endpoint
+        must surface a 409 not-ready error instead of a generic 503."""
+        from fastapi.testclient import TestClient
+
+        from backend import server
+
+        client = TestClient(server.app)
+
+        fake_state = {
+            "container": "running",
+            "agent": "unready",
+            "last_health_error": "ConnectError: connection refused",
+        }
+        with patch.object(server, "start_container", AsyncMock(return_value=False)), \
+             patch.object(server, "get_container_state", return_value=fake_state), \
+             patch.object(server._agent_start_limiter, "allow", return_value=True):
+            resp = client.post(
+                "/api/agent/start",
+                json={
+                    "task": "open a browser",
+                    "api_key": "sk-test-1234-abcd",
+                    "model": "claude-sonnet-4-6",
+                    "max_steps": 5,
+                    "mode": "desktop",
+                    "engine": "computer_use",
+                    "provider": "anthropic",
+                    "execution_target": "docker",
+                },
+                headers={"origin": server._ALLOWED_ORIGINS[0]},
+            )
+
+        assert resp.status_code == 409
+        assert "not ready" in (resp.json().get("error") or "").lower()
+
+
 # ── S-H — public-bind guardrail ────────────────────────────────────────────
 
 

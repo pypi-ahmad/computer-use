@@ -69,7 +69,7 @@ No cloud infrastructure is required. Everything runs on your machine.
 | Requirement | Minimum Version | Notes |
 |---|---|---|
 | **Docker** | 20.10+ with BuildKit | Docker Desktop recommended on Windows/macOS |
-| **Python** | 3.13+ | Used by the FastAPI backend |
+| **Python** | 3.11+ | Used by the FastAPI backend |
 | **Node.js** | 18+ | Used by the Vite frontend dev server |
 | **OS** | Windows, macOS, or Linux | Docker provides the sandboxed Linux desktop regardless of host OS |
 

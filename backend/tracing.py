@@ -1,0 +1,643 @@
+"""In-process session trace recorder.
+
+A trace is the ordered list of semantically-meaningful events that
+happened during one agent session: model turns, tool batches, safety
+approvals (and their resolution), retries, and the terminal event.
+Traces are the input to the offline eval harness in ``evals/`` and
+the artefact operators look at when triaging a run after the fact.
+
+Design goals
+------------
+
+* **Additive.** Tracing wraps the existing :class:`NodeBundle` (see
+  :mod:`backend.agent.graph`) and the engine's :class:`TurnEvent`
+  iterator. No existing logging is restructured and no call site
+  becomes responsible for "also record a trace event" — wiring
+  happens once in :func:`install`.
+
+* **Cheap.** :func:`record` is a dict append plus a monotonic clock
+  read. The hot path never touches disk. Traces are flushed as a
+  sidecar JSON file only on terminal events via :func:`flush`.
+
+* **Redacted.** Screenshots are replaced with a SHA-256 digest +
+  length; free-text fields (model output, log messages) are run
+  through :func:`backend.engine.scrub_secrets`; API keys are never
+  accepted into a payload. This is belt-and-braces on top of the
+  engine-level scrubbing that already happens before the trace
+  recorder sees the event.
+
+* **Replayable.** :func:`load_trace` + :func:`iter_events` let an
+  offline eval iterate a finished session's events without touching
+  a real provider.
+
+CLI
+---
+
+.. code-block:: console
+
+    $ python -m backend.tracing dump <session_id>
+
+Dumps the JSON trace for *session_id* from the configured trace
+directory (``$CUA_TRACE_DIR``, default ``~/.computer-use/traces/``).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import os
+import threading
+import time
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any, AsyncIterator, Callable, Iterable, Optional
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Event model
+# ---------------------------------------------------------------------------
+
+# Node / stage names used in recorded events. Kept as plain strings
+# (not an enum) so evals can assert on them without importing from the
+# agent graph module — which keeps the eval harness provider-agnostic.
+STAGE_SESSION = "session"
+STAGE_PREFLIGHT = "preflight"
+STAGE_MODEL_TURN = "model_turn"
+STAGE_TOOL_BATCH = "tool_batch"
+STAGE_APPROVAL = "approval"
+STAGE_RETRY = "retry"
+STAGE_FINALIZE = "finalize"
+STAGE_ENGINE = "engine"
+
+
+# Event types. Mirror the :class:`TurnEvent` union plus lifecycle
+# bookkeeping events the recorder synthesises.
+EVT_SESSION_START = "session_start"
+EVT_SESSION_END = "session_end"
+EVT_MODEL_TURN_STARTED = "model_turn_started"
+EVT_TOOL_BATCH_COMPLETED = "tool_batch_completed"
+EVT_SAFETY_REQUIRED = "safety_required"
+EVT_APPROVAL_RESOLVED = "approval_resolved"
+EVT_RUN_COMPLETED = "run_completed"
+EVT_RUN_FAILED = "run_failed"
+EVT_RETRY = "retry"
+EVT_LOG = "log"
+EVT_STEP = "step"
+
+
+@dataclass
+class TraceEvent:
+    """One recorded event.
+
+    Attributes
+    ----------
+    ts:
+        Wall-clock unix timestamp (seconds since epoch, float).
+    monotonic:
+        Monotonic clock at record time. Used for interval math within
+        the process; not comparable across processes.
+    session_id:
+        The session this event belongs to.
+    stage:
+        Graph node / pipeline stage that produced the event. One of
+        the ``STAGE_*`` constants above.
+    event_type:
+        Semantic type of the event. One of the ``EVT_*`` constants.
+    duration_ms:
+        Optional elapsed-time measurement, for events that close a
+        span (e.g. a model turn).
+    payload:
+        Event-specific redacted data. Always a dict.
+    """
+
+    ts: float
+    monotonic: float
+    session_id: str
+    stage: str
+    event_type: str
+    duration_ms: Optional[float] = None
+    payload: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable dict."""
+        return asdict(self)
+
+
+# ---------------------------------------------------------------------------
+# Redaction helpers
+# ---------------------------------------------------------------------------
+
+_SCREENSHOT_KEYS = ("screenshot_b64", "screenshot", "image_b64")
+
+
+def _digest(value: str) -> str:
+    """Return ``sha256:<hex>`` for *value*. Empty input gets a stable marker."""
+    if not value:
+        return "sha256:empty"
+    return "sha256:" + hashlib.sha256(value.encode("utf-8", "replace")).hexdigest()
+
+
+def _redact(payload: Any, *, _depth: int = 0) -> Any:
+    """Return a deep-copied, redacted version of *payload*.
+
+    Rules:
+      * Any key whose name suggests a screenshot blob is replaced
+        with ``{"sha256": <hex>, "len": <int>}``.
+      * String values are passed through
+        :func:`backend.engine.scrub_secrets` to strip API-key-shaped
+        tokens before they land on disk.
+      * Recursion is depth-capped to prevent pathological payloads
+        from blowing the call stack.
+    """
+    if _depth > 8:
+        return "<max-depth>"
+    # Import lazily — keeps import-time cycles out of the way and lets
+    # tests stub ``backend.engine`` without paying for its transitive
+    # dependencies (httpx, anthropic SDK, etc.) just to exercise the
+    # recorder.
+    from backend.engine import scrub_secrets
+
+    if isinstance(payload, dict):
+        out: dict[str, Any] = {}
+        for k, v in payload.items():
+            if k in _SCREENSHOT_KEYS and isinstance(v, str):
+                out[k] = {"sha256": _digest(v), "len": len(v)}
+                continue
+            out[k] = _redact(v, _depth=_depth + 1)
+        return out
+    if isinstance(payload, (list, tuple)):
+        return [_redact(v, _depth=_depth + 1) for v in payload]
+    if isinstance(payload, str):
+        # Cap serialized free-text fields so a runaway model dump can't
+        # inflate trace files beyond a reasonable size.
+        scrubbed = scrub_secrets(payload) or payload
+        if len(scrubbed) > 4096:
+            return scrubbed[:4096] + f"…<truncated {len(scrubbed) - 4096}>"
+        return scrubbed
+    if isinstance(payload, (int, float, bool)) or payload is None:
+        return payload
+    # Fallback — best-effort repr. Dataclasses / pydantic objects are
+    # handled via ``asdict`` / ``model_dump`` at the call sites.
+    return repr(payload)[:512]
+
+
+# ---------------------------------------------------------------------------
+# Session trace container + registry
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class SessionTrace:
+    """All events recorded for one session, plus lifecycle metadata."""
+
+    session_id: str
+    task: str = ""
+    started_ts: float = field(default_factory=time.time)
+    started_monotonic: float = field(default_factory=time.monotonic)
+    events: list[TraceEvent] = field(default_factory=list)
+    finished_ts: Optional[float] = None
+    status: Optional[str] = None  # terminal status — "completed"|"error"|"stopped"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "session_id": self.session_id,
+            "task": self.task,
+            "started_ts": self.started_ts,
+            "finished_ts": self.finished_ts,
+            "status": self.status,
+            "events": [e.to_dict() for e in self.events],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "SessionTrace":
+        events = [TraceEvent(**e) for e in data.get("events", [])]
+        return cls(
+            session_id=str(data.get("session_id", "")),
+            task=str(data.get("task", "")),
+            started_ts=float(data.get("started_ts", 0.0)),
+            started_monotonic=0.0,
+            events=events,
+            finished_ts=data.get("finished_ts"),
+            status=data.get("status"),
+        )
+
+
+# Module-level registry. Access is serialised by ``_lock``.
+_lock = threading.Lock()
+_traces: dict[str, SessionTrace] = {}
+
+
+def _get_or_create(session_id: str, task: str = "") -> SessionTrace:
+    with _lock:
+        tr = _traces.get(session_id)
+        if tr is None:
+            tr = SessionTrace(session_id=session_id, task=task)
+            _traces[session_id] = tr
+        elif task and not tr.task:
+            tr.task = task
+        return tr
+
+
+def get_trace(session_id: str) -> SessionTrace | None:
+    """Return the in-memory trace for *session_id* or ``None``."""
+    with _lock:
+        return _traces.get(session_id)
+
+
+def drop_trace(session_id: str) -> None:
+    """Remove *session_id* from the in-memory registry."""
+    with _lock:
+        _traces.pop(session_id, None)
+
+
+# ---------------------------------------------------------------------------
+# Disk I/O
+# ---------------------------------------------------------------------------
+
+
+def _default_trace_dir() -> Path:
+    """Return the on-disk trace directory, creating it if missing."""
+    raw = os.getenv("CUA_TRACE_DIR", "").strip()
+    if raw:
+        base = Path(raw).expanduser()
+    else:
+        base = Path.home() / ".computer-use" / "traces"
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        # Falling back to a temp dir keeps a broken operator config
+        # from taking the whole session down. The warning lands in the
+        # normal logs with the session_id attached.
+        import tempfile
+        fallback = Path(tempfile.gettempdir()) / "cua-traces"
+        fallback.mkdir(parents=True, exist_ok=True)
+        logger.warning(
+            "trace dir %s unusable (%s); using %s", base, exc, fallback,
+        )
+        base = fallback
+    return base
+
+
+def trace_path(session_id: str) -> Path:
+    """Return the canonical on-disk trace path for *session_id*."""
+    # Reject obviously-bad ids so a caller can't traverse out of the
+    # trace directory. Session ids are UUIDs in production; be strict.
+    safe = "".join(c for c in session_id if c.isalnum() or c in "-_")
+    if not safe:
+        safe = "unknown"
+    return _default_trace_dir() / f"{safe}.json"
+
+
+def _write_json(path: Path, data: dict[str, Any]) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+    tmp.replace(path)
+
+
+def flush(session_id: str) -> Path | None:
+    """Persist and drop the in-memory trace for *session_id*.
+
+    Returns the written path, or ``None`` if no trace existed.
+    Called by :func:`finalize_session` on terminal events; operators
+    generally shouldn't call it directly.
+    """
+    with _lock:
+        tr = _traces.pop(session_id, None)
+    if tr is None:
+        return None
+    path = trace_path(session_id)
+    try:
+        _write_json(path, tr.to_dict())
+    except Exception as exc:
+        logger.warning("failed to persist trace for %s: %s", session_id, exc)
+        return None
+    return path
+
+
+def load_trace(session_id: str) -> SessionTrace | None:
+    """Load the persisted trace for *session_id* or return ``None``."""
+    path = trace_path(session_id)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text())
+    except Exception as exc:
+        logger.warning("failed to read trace %s: %s", path, exc)
+        return None
+    return SessionTrace.from_dict(data)
+
+
+def iter_events(
+    trace: SessionTrace,
+    *,
+    stage: str | None = None,
+    event_type: str | None = None,
+) -> Iterable[TraceEvent]:
+    """Iterate *trace* events, optionally filtered by stage / event type."""
+    for evt in trace.events:
+        if stage is not None and evt.stage != stage:
+            continue
+        if event_type is not None and evt.event_type != event_type:
+            continue
+        yield evt
+
+
+# ---------------------------------------------------------------------------
+# Recording API
+# ---------------------------------------------------------------------------
+
+
+def start_session(session_id: str, *, task: str = "") -> SessionTrace:
+    """Begin a trace for *session_id*. Idempotent."""
+    tr = _get_or_create(session_id, task=task)
+    record(session_id, STAGE_SESSION, EVT_SESSION_START, {"task": task})
+    return tr
+
+
+def finalize_session(
+    session_id: str,
+    *,
+    status: str,
+    write: bool = True,
+) -> Path | None:
+    """Close the trace for *session_id* and optionally flush to disk."""
+    tr = _get_or_create(session_id)
+    with _lock:
+        tr.finished_ts = time.time()
+        tr.status = status
+    record(
+        session_id, STAGE_SESSION, EVT_SESSION_END,
+        {"status": status, "event_count": len(tr.events)},
+    )
+    if not write:
+        return None
+    return flush(session_id)
+
+
+def record(
+    session_id: str,
+    stage: str,
+    event_type: str,
+    payload: dict[str, Any] | None = None,
+    *,
+    duration_ms: float | None = None,
+) -> TraceEvent:
+    """Append one event to the in-memory trace for *session_id*.
+
+    Safe to call from any thread. Constant-time (list append + dict
+    redaction). Accepts a ``None`` payload for events with no data.
+    """
+    if not session_id:
+        # No-op when called outside a bound session — keeps the
+        # instrumentation points free of ``if session_id:`` guards.
+        return TraceEvent(
+            ts=time.time(), monotonic=time.monotonic(),
+            session_id="", stage=stage, event_type=event_type,
+            duration_ms=duration_ms, payload={},
+        )
+    tr = _get_or_create(session_id)
+    evt = TraceEvent(
+        ts=time.time(),
+        monotonic=time.monotonic(),
+        session_id=session_id,
+        stage=stage,
+        event_type=event_type,
+        duration_ms=duration_ms,
+        payload=_redact(payload) if payload else {},
+    )
+    with _lock:
+        tr.events.append(evt)
+    return evt
+
+
+# ---------------------------------------------------------------------------
+# NodeBundle / iterator instrumentation
+# ---------------------------------------------------------------------------
+
+
+def install(bundle, session_id: str):
+    """Return a new :class:`NodeBundle` that records trace events.
+
+    Wraps the bundle's ``emit_step``, ``emit_log``, and ``start_iter``
+    callables so every graph-edge event is captured without touching
+    the graph or engine code. Returns the original bundle untouched if
+    :mod:`backend.agent.graph` can't be imported (unusual in tests
+    that fake the whole bundle shape).
+    """
+    try:
+        from backend.agent.graph import NodeBundle
+    except Exception:
+        return bundle
+
+    # Capture a stable ref to the engine iterator's yields. ``start_iter``
+    # returns the async iterator lazily, so the wrapper must forward
+    # *args, *await*, and re-wrap the yielded iterator before returning.
+    orig_start_iter = bundle.start_iter
+    orig_emit_step = bundle.emit_step
+    orig_emit_log = bundle.emit_log
+    orig_build_snapshot = bundle.build_snapshot
+
+    async def _traced_start_iter(sid: str, task: str, max_steps: int):
+        import asyncio as _asyncio
+        record(
+            session_id, STAGE_PREFLIGHT, "iter_start",
+            {"task": task, "max_steps": max_steps},
+        )
+        result = orig_start_iter(sid, task, max_steps)
+        it = await result if _asyncio.iscoroutine(result) else result
+        return wrap_iterator(it, session_id)
+
+    def _traced_emit_step(event) -> None:
+        # Defer the full payload redaction to _redact via record(), but
+        # pull the cheap identity bits eagerly so the recorded event
+        # stays useful if the underlying object mutates.
+        payload = {
+            "turn": getattr(event, "turn", None),
+            "model_text": getattr(event, "model_text", None),
+            "screenshot_b64": getattr(event, "screenshot_b64", None),
+            "results": [
+                {
+                    "name": getattr(r, "name", None),
+                    "success": getattr(r, "success", None),
+                }
+                for r in (getattr(event, "results", None) or [])
+            ],
+        }
+        record(session_id, STAGE_TOOL_BATCH, EVT_STEP, payload)
+        return orig_emit_step(event)
+
+    def _traced_emit_log(level: str, message: str, data=None) -> None:
+        record(
+            session_id, STAGE_ENGINE, EVT_LOG,
+            {"level": level, "message": message, "data": data},
+        )
+        return orig_emit_log(level, message, data)
+
+    def _traced_build_snapshot():
+        snap = orig_build_snapshot()
+        record(session_id, STAGE_FINALIZE, "snapshot_built",
+               {"step_count": len((snap or {}).get("steps", []))})
+        return snap
+
+    return NodeBundle(
+        check_health=bundle.check_health,
+        start_iter=_traced_start_iter,
+        emit_step=_traced_emit_step,
+        emit_log=_traced_emit_log,
+        build_snapshot=_traced_build_snapshot,
+        stop_requested=bundle.stop_requested,
+    )
+
+
+async def wrap_iterator(it: AsyncIterator, session_id: str):
+    """Wrap *it* so every yielded :class:`TurnEvent` is recorded.
+
+    Yields the original event objects unchanged — the graph must keep
+    driving them. Also supports ``asend`` so approval resume keeps
+    working.
+
+    Exposed as public API so the eval harness (which pre-registers its
+    own iterator instead of going through ``start_iter``) can opt in.
+    """
+    # Lazy import — tests that don't use the engine iter_turns may not
+    # have the SDKs available at all.
+    from backend.engine import (
+        ModelTurnStarted, ToolBatchCompleted, SafetyRequired,
+        RunCompleted, RunFailed,
+    )
+
+    async def _record(evt):
+        if isinstance(evt, ModelTurnStarted):
+            record(session_id, STAGE_MODEL_TURN, EVT_MODEL_TURN_STARTED, {
+                "turn": evt.turn,
+                "model_text": evt.model_text,
+                "pending_tool_uses": evt.pending_tool_uses,
+            })
+        elif isinstance(evt, ToolBatchCompleted):
+            record(session_id, STAGE_TOOL_BATCH, EVT_TOOL_BATCH_COMPLETED, {
+                "turn": evt.turn,
+                "results": [
+                    {"name": getattr(r, "name", None),
+                     "success": getattr(r, "success", None)}
+                    for r in (evt.results or [])
+                ],
+                "screenshot_b64": evt.screenshot_b64,
+            })
+        elif isinstance(evt, SafetyRequired):
+            record(session_id, STAGE_APPROVAL, EVT_SAFETY_REQUIRED,
+                   {"explanation": evt.explanation})
+        elif isinstance(evt, RunCompleted):
+            record(session_id, STAGE_MODEL_TURN, EVT_RUN_COMPLETED,
+                   {"final_text": evt.final_text})
+        elif isinstance(evt, RunFailed):
+            record(session_id, STAGE_MODEL_TURN, EVT_RUN_FAILED,
+                   {"error": evt.error})
+
+    # Use asend so the wrapper is transparent to the approval resume
+    # handshake (``asend(decision)``).
+    sent: Any = None
+    while True:
+        try:
+            if sent is None:
+                evt = await it.__anext__()
+            else:
+                # Forward sent decision; reset.
+                evt = await it.asend(sent) if hasattr(it, "asend") else await it.__anext__()
+                sent = None
+        except StopAsyncIteration:
+            return
+        await _record(evt)
+        try:
+            sent = yield evt
+        except GeneratorExit:
+            raise
+
+
+# ---------------------------------------------------------------------------
+# Replay harness (eval-side)
+# ---------------------------------------------------------------------------
+
+
+def replay(
+    trace: SessionTrace,
+    handler: Callable[[TraceEvent], None],
+) -> None:
+    """Feed each event of *trace* to *handler* in order.
+
+    The evals use this to drive invariant checks over a recorded
+    session without needing a live provider. *handler* may raise to
+    stop iteration — :func:`replay` does not swallow exceptions.
+    """
+    for evt in trace.events:
+        handler(evt)
+
+
+def assert_invariants(trace: SessionTrace) -> None:
+    """Raise :class:`AssertionError` if *trace* violates core invariants.
+
+    Invariants checked:
+      * Every session has exactly one ``session_start`` and one
+        ``session_end``.
+      * ``safety_required`` is always followed by an
+        ``approval_resolved`` before the next ``tool_batch_completed``.
+      * Terminal status ∈ {"completed", "error", "stopped"}.
+    """
+    starts = [e for e in trace.events if e.event_type == EVT_SESSION_START]
+    ends = [e for e in trace.events if e.event_type == EVT_SESSION_END]
+    assert len(starts) == 1, f"expected 1 session_start, got {len(starts)}"
+    assert len(ends) == 1, f"expected 1 session_end, got {len(ends)}"
+    assert trace.status in {"completed", "error", "stopped"}, (
+        f"bad terminal status: {trace.status!r}"
+    )
+    pending = False
+    for evt in trace.events:
+        if evt.event_type == EVT_SAFETY_REQUIRED:
+            pending = True
+        elif evt.event_type == EVT_APPROVAL_RESOLVED:
+            pending = False
+        elif evt.event_type == EVT_TOOL_BATCH_COMPLETED and pending:
+            raise AssertionError(
+                "tool_batch_completed emitted while a safety approval "
+                "was still pending"
+            )
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+def _cli(argv: list[str]) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="python -m backend.tracing")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p_dump = sub.add_parser("dump", help="Dump a persisted trace as JSON")
+    p_dump.add_argument("session_id")
+
+    p_list = sub.add_parser("list", help="List session ids with persisted traces")
+
+    args = parser.parse_args(argv)
+
+    if args.cmd == "dump":
+        tr = load_trace(args.session_id)
+        if tr is None:
+            print(f"no trace found for {args.session_id!r}", flush=True)
+            return 2
+        print(json.dumps(tr.to_dict(), indent=2))
+        return 0
+    if args.cmd == "list":
+        d = _default_trace_dir()
+        for p in sorted(d.glob("*.json")):
+            print(p.stem)
+        return 0
+    return 1
+
+
+if __name__ == "__main__":  # pragma: no cover — entry point only
+    import sys
+    raise SystemExit(_cli(sys.argv[1:]))
