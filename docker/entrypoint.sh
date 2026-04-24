@@ -3,8 +3,13 @@
 set -euo pipefail
 
 export DISPLAY=:99
-export SCREEN_WIDTH=${SCREEN_WIDTH:-1440}
-export SCREEN_HEIGHT=${SCREEN_HEIGHT:-900}
+# Accept ``WIDTH`` / ``HEIGHT`` as aliases of ``SCREEN_WIDTH`` /
+# ``SCREEN_HEIGHT`` for parity with Anthropic's computer-use-demo
+# quickstart.  The canonical names (SCREEN_*) win if both are set.
+export SCREEN_WIDTH=${SCREEN_WIDTH:-${WIDTH:-1440}}
+export SCREEN_HEIGHT=${SCREEN_HEIGHT:-${HEIGHT:-900}}
+export WIDTH=${WIDTH:-${SCREEN_WIDTH}}
+export HEIGHT=${HEIGHT:-${SCREEN_HEIGHT}}
 export SCREEN_DEPTH=${SCREEN_DEPTH:-24}
 export PATH="$PATH:/usr/bin:/usr/local/bin"
 export PYTHONPATH=/app
