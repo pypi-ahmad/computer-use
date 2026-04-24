@@ -320,6 +320,12 @@ _CLAUDE_MAX_PIXELS = 1_150_000
 # long edge with 1:1 coordinates (no scale-factor conversion required).
 _CLAUDE_OPUS_47_MAX_LONG_EDGE = 2576
 
+
+def _is_opus_47(model_id: str) -> bool:
+    """Return True if *model_id* is a Claude Opus 4.7 variant."""
+    return model_id.startswith("claude-opus-4-7") or model_id.startswith("claude-opus-4.7")
+
+
 # Models that use the higher resolution limit (no downscaling needed
 # at typical screen resolutions).
 _CLAUDE_HIGH_RES_MODELS = (

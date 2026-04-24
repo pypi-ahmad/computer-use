@@ -17,6 +17,7 @@ from backend.engine import (
     CUTurnRecord,
     ActionExecutor,
     _call_with_retry,
+    _is_opus_47,
     get_claude_scale_factor,
     resize_screenshot_for_claude,
     DEFAULT_TURN_LIMIT,
@@ -179,6 +180,12 @@ class ClaudeCUClient:
             # Prune old screenshots to prevent unbounded context growth
             _prune_claude_context(messages, _CONTEXT_PRUNE_KEEP_RECENT)
 
+            thinking_cfg = (
+                {"type": "adaptive"}
+                if _is_opus_47(self._model)
+                else {"type": "enabled", "budget_tokens": 4096}
+            )
+
             # AI4: retry on 429/network transients; non-transient errors propagate.
             response = await _call_with_retry(
                 lambda: self._client.beta.messages.create(
@@ -188,7 +195,7 @@ class ClaudeCUClient:
                     tools=tools,
                     messages=messages,
                     betas=[self._beta_flag],
-                    thinking={"type": "enabled", "budget_tokens": 4096},
+                    thinking=thinking_cfg,
                 ),
                 provider="anthropic",
                 on_log=on_log,
