@@ -204,10 +204,9 @@ Defined in `backend/allowed_models.json` — the single source of truth for both
 | Provider | Model ID | Display Name | Runtime Mode | CU Support | Notes |
 |---|---|---|---|---|---|
 | Google | `gemini-3-flash-preview` | Gemini 3 Flash Preview | Desktop | ✅ Native | Fast, lightweight CU model |
-| Google | `gemini-3.1-pro-preview` | Gemini 3.1 Pro Preview | Desktop | ❌ `supports_computer_use: false` | Present in allowlist but **excluded from UI** — reserved for future CU support |
+| Google | `gemini-3.1-pro-preview` | Gemini 3.1 Pro Preview | Desktop | ✅ Native | Built-in Computer Use; `thinking_level=high` recommended |
 | Anthropic | `claude-opus-4-7` | Claude Opus 4.7 | Desktop | ✅ Native | Beta endpoint + `computer_20251124` tool; supports up to 2576px long edge |
 | Anthropic | `claude-sonnet-4-6` | Claude Sonnet 4.6 | Desktop | ✅ Native | Beta endpoint + `computer_20251124` tool |
-| Anthropic | `claude-opus-4-6` | Claude Opus 4.6 | Desktop | ✅ Native | Beta endpoint + `computer_20251124` tool |
 | OpenAI | `gpt-5.4` | GPT-5.4 | Desktop | ✅ Native | Responses API built-in `computer` tool; ZDR-compatible |
 
 > Browser mode was removed from the backend and frontend runtime. All supported providers now run through the desktop harness only.
