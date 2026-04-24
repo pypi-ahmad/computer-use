@@ -205,7 +205,7 @@ class TestClaudeToolConfig:
 
     def test_tool_version_auto_detect_opus(self):
         with patch("anthropic.Anthropic"):
-            client = ClaudeCUClient(api_key="test", model="claude-opus-4-6")
+            client = ClaudeCUClient(api_key="test", model="claude-opus-4-7")
         assert client._tool_version == "computer_20251124"
         assert client._beta_flag == "computer-use-2025-11-24"
 

@@ -28,7 +28,14 @@ logger = logging.getLogger(__name__)
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 _SCHEMA_FILENAME = "engine_capabilities.json"
-_DEFAULT_SCHEMA_PATH = Path(__file__).parent / _SCHEMA_FILENAME
+
+
+def get_default_schema_path() -> Path:
+    """Return the package-relative capability schema path."""
+    return Path(__file__).resolve().parent / _SCHEMA_FILENAME
+
+
+_DEFAULT_SCHEMA_PATH = get_default_schema_path()
 
 
 # ── Dataclass-like typed containers ───────────────────────────────────────────
@@ -72,7 +79,7 @@ class EngineCapabilities:
     """
 
     def __init__(self, schema_path: str | Path | None = None) -> None:
-        path = Path(schema_path) if schema_path else _DEFAULT_SCHEMA_PATH
+        path = Path(schema_path) if schema_path else get_default_schema_path()
         if not path.exists():
             raise FileNotFoundError(f"Engine capability schema not found: {path}")
 
