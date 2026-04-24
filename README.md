@@ -5,7 +5,7 @@
 **An open-source workbench for building, testing, and observing autonomous computer-using agents powered by native Computer Use protocols from Google Gemini, Anthropic Claude, and OpenAI.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3.13+](https://img.shields.io/badge/Python-3.13+-3776AB.svg?logo=python&logoColor=white)](https://python.org)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB.svg?logo=python&logoColor=white)](https://python.org)
 [![React 19](https://img.shields.io/badge/React-19-61DAFB.svg?logo=react&logoColor=black)](https://react.dev)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Docker](https://img.shields.io/badge/Docker-Ubuntu_24.04-2496ED.svg?logo=docker&logoColor=white)](https://docker.com)
@@ -100,7 +100,7 @@ The system is a **three-process architecture** spanning the host and a Docker co
 | Layer | Technology | Entry Point | Port |
 |---|---|---|---|
 | **Frontend** | React 19 / Vite 6 / React Router 7 | `frontend/src/main.jsx` | `3000` |
-| **Backend** | Python 3.13 / FastAPI / Uvicorn | `backend/main.py` → `backend.server:app` | `8000` |
+| **Backend** | Python 3.11+ / FastAPI / Uvicorn | `backend/main.py` → `backend.server:app` | `8000` |
 | **Container** | Ubuntu 24.04 / XFCE 4 / Xvfb / desktop automation tools | `docker/entrypoint.sh` → `docker/agent_service.py` | `9222` |
 
 <details>
@@ -285,7 +285,7 @@ All outbound events are validated against Pydantic models in [`backend/ws_schema
 | Requirement | Version |
 |---|---|
 | **Docker** | With BuildKit support |
-| **Python** | 3.13+ |
+| **Python** | 3.11+ |
 | **Node.js** | 18+ (npm included) |
 
 ### 1. Clone

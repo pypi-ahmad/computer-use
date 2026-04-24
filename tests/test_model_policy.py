@@ -57,12 +57,13 @@ class TestModelPolicy:
                 assert "cu_betas" in m, f"{m['model_id']} missing cu_betas"
                 assert isinstance(m["cu_betas"], list) and len(m["cu_betas"]) > 0
 
-    def test_gemini_31_pro_not_cu_capable(self, models):
-        """gemini-3.1-pro-preview is NOT confirmed for CU in official docs."""
+    def test_gemini_31_pro_is_cu_capable(self, models):
+        """gemini-3.1-pro-preview is CU-capable (built-in, supersedes
+        discontinued gemini-3-pro-preview as of 2026-03-09)."""
         for m in models:
             if m["model_id"] == "gemini-3.1-pro-preview":
-                assert m["supports_computer_use"] is False, \
-                    "gemini-3.1-pro-preview should not be marked as CU-capable"
+                assert m["supports_computer_use"] is True, \
+                    "gemini-3.1-pro-preview should be marked as CU-capable"
 
     def test_gemini_3_flash_is_cu_capable(self, models):
         for m in models:

@@ -127,5 +127,23 @@ export default function useWebSocket() {
   const clearFinished = useCallback(() => setAgentFinished(null), [])
   const clearSafetyPrompt = useCallback(() => setSafetyPrompt(null), [])
 
-  return { connected, lastScreenshot, logs, steps, agentFinished, safetyPrompt, clearLogs, clearSteps, clearFinished, clearSafetyPrompt }
+  /**
+   * Tell the backend whether this client wants the periodic screenshot
+   * stream ("on") or is showing noVNC instead ("off"). The backend
+   * runs a single publisher per process that only captures when at
+   * least one ws client is subscribed, so opting out from every
+   * noVNC viewer drops ``capture_screenshot`` calls to zero for that
+   * session. Missing signal defaults to "on" (backward-compatible).
+   */
+  const setScreenshotMode = useCallback((mode) => {
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    try {
+      ws.send(JSON.stringify({ type: 'screenshot_mode', mode: mode === 'off' ? 'off' : 'on' }))
+    } catch {
+      /* ignore — will re-send on next mount */
+    }
+  }, [])
+
+  return { connected, lastScreenshot, logs, steps, agentFinished, safetyPrompt, clearLogs, clearSteps, clearFinished, clearSafetyPrompt, setScreenshotMode }
 }

@@ -291,6 +291,31 @@ html, body {
   pointer-events: auto;
   animation: toast-in 0.3s ease-out;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 420px;
+}
+
+.toast-message {
+  flex: 1;
+  min-width: 0;
+}
+
+.toast-action {
+  flex: none;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+
+.toast-action:hover {
+  opacity: 0.9;
 }
 
 .toast-success {
