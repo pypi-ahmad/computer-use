@@ -6,22 +6,23 @@ Before this refactor every ``/ws`` client spawned its own
 behind the in-container ``_ACTION_LOCK``. These tests lock in the new
 contract:
 
-  1. Two subscribers => one publisher task (refcounted fan-out).
+  1. Two subscribers on the same session => one publisher task
+     (refcounted fan-out).
   2. Zero subscribers (every viewer on noVNC) => zero
      ``capture_screenshot`` calls in steady state.
-  3. Subscribe/unsubscribe cycles leave no leaked publisher tasks.
+  3. Session cleanup leaves no leaked publisher tasks.
   4. Single-subscriber cadence is preserved — at least one capture
      happens within the expected window.
 
 Tests drive the publisher via public helpers (``_subscribe_screenshots``,
-``_unsubscribe_screenshots``) rather than a real websocket, which
-keeps them fast and deterministic.
+``_unsubscribe_screenshots``) and the real ``_cleanup_session`` path
+rather than a real websocket, which keeps them fast and deterministic.
 """
 
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -35,6 +36,12 @@ def _make_ws() -> MagicMock:
     ws = MagicMock()
     ws.send_text = AsyncMock()
     return ws
+
+
+def _seed_session(server, session_id: str) -> None:
+    """Register a minimal active session so cleanup exercises the real path."""
+    server._active_tasks[session_id] = MagicMock()
+    server._active_loops[session_id] = MagicMock()
 
 
 async def _drain_task(task, *, max_wait: float = 2.0) -> None:
@@ -72,7 +79,11 @@ def server_mod(monkeypatch):
     from backend import server
 
     # Reset publisher state.
+    server._active_tasks.clear()
+    server._active_loops.clear()
     server._screenshot_subscribers.clear()
+    server._screenshot_subscribers_by_session.clear()
+    server._ws_screenshot_sessions.clear()
     server._ws_clients.clear()
     server._last_screenshot_frame = None
     server._screenshot_capture_count = 0
@@ -103,16 +114,18 @@ class TestPublisherRefcount:
     """Success criterion (1) and (3)."""
 
     def test_two_subscribers_share_one_publisher(self, server_mod):
-        """Two ws clients subscribed on the same process must produce
+        """Two ws clients subscribed on the same session must produce
         exactly ONE publisher task, not two. This is the whole point
         of the refactor — N clients, one capture loop."""
         server, _ = server_mod
 
         async def go():
+            session_id = "sess-shared"
+            _seed_session(server, session_id)
             ws1, ws2 = _make_ws(), _make_ws()
-            server._subscribe_screenshots(ws1)
+            server._subscribe_screenshots(ws1, session_id)
             first_task = server._screenshot_publisher_task
-            server._subscribe_screenshots(ws2)
+            server._subscribe_screenshots(ws2, session_id)
             second_task = server._screenshot_publisher_task
 
             # Let the loop tick a few times.
@@ -124,6 +137,7 @@ class TestPublisherRefcount:
                 "refcounting is broken."
             )
             assert len(server._screenshot_subscribers) == 2
+            assert len(server._screenshot_subscribers_by_session[session_id]) == 2
 
             # Cleanup: last unsubscribe must cancel the task.
             server._unsubscribe_screenshots(ws1)
@@ -137,21 +151,22 @@ class TestPublisherRefcount:
 
         asyncio.run(go())
 
-    def test_subscribe_unsubscribe_cycles_leak_no_tasks(self, server_mod):
-        """Success criterion (3): opening and closing N sessions (
-        modelled here as N subscribe/unsubscribe cycles) must leave
-        exactly zero publisher tasks alive."""
+    def test_session_cleanup_cycles_leak_no_tasks(self, server_mod):
+        """Success criterion (3): opening and closing N sessions via
+        ``_cleanup_session`` must leave exactly zero publisher tasks alive."""
         server, _ = server_mod
 
         async def go():
             all_spawned = []
-            for _ in range(5):
+            for idx in range(5):
+                session_id = f"sess-cycle-{idx}"
+                _seed_session(server, session_id)
                 ws = _make_ws()
-                server._subscribe_screenshots(ws)
+                server._subscribe_screenshots(ws, session_id)
                 task = server._screenshot_publisher_task
                 all_spawned.append(task)
                 await asyncio.sleep(_FAST_INTERVAL)
-                server._unsubscribe_screenshots(ws)
+                server._cleanup_session(session_id)
                 await _drain_task(task)
 
             # Every spawned task must be finished; the current
@@ -160,6 +175,8 @@ class TestPublisherRefcount:
                 assert t is not None and t.done()
             assert server._screenshot_publisher_task is None
             assert len(server._screenshot_subscribers) == 0
+            assert len(server._screenshot_subscribers_by_session) == 0
+            assert len(server._ws_screenshot_sessions) == 0
 
         asyncio.run(go())
 
@@ -178,8 +195,9 @@ class TestNoVncZeroCaptures:
             # Simulate a client that connected and immediately opted
             # out: subscribe, then unsubscribe. With
             # suspend_when_idle=True the publisher task is cancelled.
+            _seed_session(server, "sess-novnc")
             ws = _make_ws()
-            server._subscribe_screenshots(ws)
+            server._subscribe_screenshots(ws, "sess-novnc")
             task = server._screenshot_publisher_task
             server._unsubscribe_screenshots(ws)
             await _drain_task(task)
@@ -213,8 +231,9 @@ class TestSingleSubscriberCadence:
         server, fake_capture = server_mod
 
         async def go():
+            _seed_session(server, "sess-single")
             ws = _make_ws()
-            server._subscribe_screenshots(ws)
+            server._subscribe_screenshots(ws, "sess-single")
             # Wait up to ~6 cadence intervals — generous enough to
             # absorb scheduling jitter on CI.
             await asyncio.sleep(_FAST_INTERVAL * 6)

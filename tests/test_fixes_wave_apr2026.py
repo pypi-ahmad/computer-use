@@ -1,15 +1,15 @@
-"""Tests for the April 2026 six-fix wave.
+"""Tests for the April 2026 adapter-alignment wave.
 
 Covers:
   * Fix 3: Claude adapter guards against an empty initial screenshot
     and emits an ``on_log("error", ...)`` diagnostic matching the
     OpenAI and Gemini adapters' shape.
-  * Fix 4: Claude thinking mode branches on the model — Opus 4.7 →
-    ``{"type": "adaptive"}``; Sonnet 4.6 / Opus 4.6 →
-    ``{"type": "enabled", "budget_tokens": 4096}``.
-  * Fix 5: ``get_claude_scale_factor`` skips the total-pixel cap for
-    Opus 4.7 only (enforces the 2576-px long-edge constraint), while
-    Sonnet 4.6 keeps the existing high-res cap behavior.
+  * Fix 4: Claude thinking mode branches on the tool version —
+    ``computer_20251124`` models use ``{"type": "adaptive"}``, while
+    legacy ``computer_20250124`` models keep the fixed-budget shape.
+  * Fix 5: ``get_claude_scale_factor`` keeps current-tool Claude models
+    on the 2576px / ~3.75 MP path and legacy models on the 1568px /
+    1.15 MP path.
 """
 
 from __future__ import annotations
@@ -162,8 +162,8 @@ class TestClaudeInitialScreenshotGuard:
 
 
 class TestClaudeThinkingMode:
-    """Adaptive thinking is Opus 4.7-only. Other CU models keep the
-    fixed-budget ``enabled`` shape."""
+    """Current-tool Claude models use adaptive thinking; legacy models keep
+    the fixed-budget ``enabled`` shape."""
 
     @staticmethod
     async def _capture_thinking(model: str) -> dict:
@@ -208,18 +208,13 @@ class TestClaudeThinkingMode:
         assert "top_k" not in captured
 
     @pytest.mark.asyncio
-    async def test_sonnet_46_uses_enabled_budget(self):
-        captured = await self._capture_thinking("claude-sonnet-4-6")
-        assert captured.get("thinking") == {"type": "enabled", "budget_tokens": 4096}
-
-    @pytest.mark.asyncio
-    async def test_opus_46_uses_enabled_budget(self):
-        captured = await self._capture_thinking("claude-opus-4-6")
+    async def test_legacy_model_uses_enabled_budget(self):
+        captured = await self._capture_thinking("claude-3-5-sonnet-20241022")
         assert captured.get("thinking") == {"type": "enabled", "budget_tokens": 4096}
 
 
 # ---------------------------------------------------------------------------
-# Fix 5 — Opus 4.7 skips the total-pixel cap
+# Fix 5 — current-tool Claude models keep the high-res path
 # ---------------------------------------------------------------------------
 
 
@@ -246,7 +241,7 @@ class TestClaudeScaleFactorOpus47:
         # Build a real tiny PNG so Pillow can round-trip it.
         from io import BytesIO
 
-        PIL = pytest.importorskip("PIL")
+        pytest.importorskip("PIL")
         from PIL import Image
 
         buf = BytesIO()

@@ -24,7 +24,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.models import AgentAction, AgentSession, ActionType, SessionStatus
+from backend.models import AgentSession, SessionStatus
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -215,7 +215,7 @@ class TestClaudeRefusalBranch:
             stop_reason="refusal",
         )
 
-        with patch("anthropic.Anthropic") as anth:
+        with patch("anthropic.Anthropic"):
             client = ClaudeCUClient(api_key="test", model="claude-sonnet-4-6")
             client._client = MagicMock()
             client._client.beta.messages.create = MagicMock(return_value=fake_response)
@@ -695,7 +695,6 @@ class TestRunAndNotifyOrdering:
 
 class TestAgentServiceSubprocessTimeout:
     def test_module_exports_single_timeout_constant(self):
-        import importlib.util
         from pathlib import Path
 
         path = Path(__file__).parent.parent / "docker" / "agent_service.py"
