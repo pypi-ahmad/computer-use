@@ -32,6 +32,26 @@ export default function useWebSocket() {
   const [safetyPrompt, setSafetyPrompt] = useState(null)
   const reconnectTimer = useRef(null)
   const reconnectAttempts = useRef(0)
+  const screenshotModeRef = useRef('off')
+  const screenshotSessionIdRef = useRef(null)
+
+  const sendScreenshotMode = useCallback((socket, mode, sessionId) => {
+    if (!socket || socket.readyState !== WebSocket.OPEN) return
+    const normalizedSessionId =
+      typeof sessionId === 'string' && sessionId.trim().length > 0
+        ? sessionId.trim()
+        : null
+    const wantsScreenshots = mode === 'on' && normalizedSessionId
+    try {
+      socket.send(JSON.stringify({
+        type: 'screenshot_mode',
+        mode: wantsScreenshots ? 'on' : 'off',
+        session_id: wantsScreenshots ? normalizedSessionId : null,
+      }))
+    } catch {
+      /* ignore — will retry on the next state change or reconnect */
+    }
+  }, [])
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
@@ -49,6 +69,7 @@ export default function useWebSocket() {
         }
       }, 15000)
       ws._pingInterval = ping
+      sendScreenshotMode(ws, screenshotModeRef.current, screenshotSessionIdRef.current)
     }
 
     ws.onmessage = (event) => {
@@ -110,7 +131,7 @@ export default function useWebSocket() {
       }
       ws.close()
     }
-  }, [])
+  }, [sendScreenshotMode])
 
   useEffect(() => {
     connect()
@@ -129,21 +150,20 @@ export default function useWebSocket() {
 
   /**
    * Tell the backend whether this client wants the periodic screenshot
-   * stream ("on") or is showing noVNC instead ("off"). The backend
-   * runs a single publisher per process that only captures when at
-   * least one ws client is subscribed, so opting out from every
-   * noVNC viewer drops ``capture_screenshot`` calls to zero for that
-   * session. Missing signal defaults to "on" (backward-compatible).
+   * stream ("on") or is showing noVNC instead ("off"). Screenshot
+   * demand is attached to the active agent session; ``mode="on"``
+   * without a session id degrades to ``off`` so the backend can stop
+   * the publisher when the session finishes.
    */
-  const setScreenshotMode = useCallback((mode) => {
+  const setScreenshotMode = useCallback((mode, sessionId = null) => {
+    screenshotModeRef.current = mode === 'on' ? 'on' : 'off'
+    screenshotSessionIdRef.current =
+      screenshotModeRef.current === 'on' && typeof sessionId === 'string' && sessionId.trim().length > 0
+        ? sessionId.trim()
+        : null
     const ws = wsRef.current
-    if (!ws || ws.readyState !== WebSocket.OPEN) return
-    try {
-      ws.send(JSON.stringify({ type: 'screenshot_mode', mode: mode === 'off' ? 'off' : 'on' }))
-    } catch {
-      /* ignore — will re-send on next mount */
-    }
-  }, [])
+    sendScreenshotMode(ws, screenshotModeRef.current, screenshotSessionIdRef.current)
+  }, [sendScreenshotMode])
 
   return { connected, lastScreenshot, logs, steps, agentFinished, safetyPrompt, clearLogs, clearSteps, clearFinished, clearSafetyPrompt, setScreenshotMode }
 }

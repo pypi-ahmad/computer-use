@@ -14,10 +14,10 @@ const WS_TOKEN = (import.meta.env?.VITE_WS_TOKEN || '').trim()
  * container is running; falls back to a static base64 screenshot otherwise.
  *
  * P-PUB — tells the backend via ``setScreenshotMode`` whether this
- * viewer currently needs the periodic screenshot stream. The backend
- * runs a single capture publisher per process; opting out while on
- * noVNC means the publisher stops capturing entirely when every viewer
- * is on noVNC, which is the common case.
+ * viewer currently needs the periodic screenshot stream. The callback
+ * is session-bound by the controller, so opting out while on noVNC
+ * lets the backend stop capturing entirely when every viewer is on
+ * noVNC or the active session has finished.
  *
  * @param {{screenshot: string|null, containerRunning: boolean, setScreenshotMode?: (mode: 'on'|'off') => void}} props
  */
