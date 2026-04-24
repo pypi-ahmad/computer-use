@@ -690,13 +690,18 @@ def _xdo_left_mouse_up() -> dict:
 # Pre-created profile directory (seeded at build-time in Dockerfile)
 _CHROME_PROFILE_DIR = "/tmp/chrome-profile"
 
-# Chrome flags that suppress ALL first-run UI, keyring dialogs, and sync prompts
+# Chrome flags that suppress ALL first-run UI, keyring dialogs, and sync
+# prompts. ``--disable-extensions`` and ``--disable-file-system`` are
+# explicitly required by the OpenAI Computer Use guide's browser-security
+# posture (Option 1 / Chromium path) — a compromised renderer with file-
+# system access would be a direct jailbreak out of the sandbox.
 _CHROME_FLAGS: list[str] = [
     "--no-sandbox",
     "--no-first-run",
     "--disable-first-run-ui",
     "--disable-sync",
     "--disable-extensions",
+    "--disable-file-system",
     "--disable-default-apps",
     "--disable-popup-blocking",
     "--disable-translate",
@@ -707,6 +712,24 @@ _CHROME_FLAGS: list[str] = [
     f"--user-data-dir={_CHROME_PROFILE_DIR}",
     f"--window-size={SCREEN_WIDTH},{SCREEN_HEIGHT}",
 ]
+
+
+# Minimal environment for the browser subprocess. The OpenAI CU guide
+# recommends dropping the host environment entirely to prevent a
+# compromised renderer from reading operator secrets (API keys,
+# AGENT_SERVICE_TOKEN, etc.) out of the process env. We still need
+# DISPLAY / HOME / PATH / LANG / XDG_RUNTIME_DIR for the X11 client
+# and Chrome's profile paths to resolve, so those are whitelisted.
+def _browser_minimal_env() -> dict[str, str]:
+    """Return a minimal env for the browser subprocess — whitelist
+    only what X11 + Chrome profile loading need. No host leakage."""
+    return {
+        "DISPLAY": os.environ.get("DISPLAY", ":99"),
+        "HOME": os.environ.get("HOME", "/home/agent"),
+        "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+        "XDG_RUNTIME_DIR": os.environ.get("XDG_RUNTIME_DIR", "/tmp/xdg-runtime-dir"),
+    }
 
 # Known modal window titles that should be auto-dismissed after browser launch
 _KNOWN_MODAL_TITLES = (
@@ -812,7 +835,7 @@ def _open_url_in_browser(url: str) -> dict:
             cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            env={**os.environ, "DISPLAY": ":99"},
+            env=_browser_minimal_env(),
         )
     except Exception as exc:
         logger.error("Browser launch failed: %s — falling back to xdg-open", exc)
