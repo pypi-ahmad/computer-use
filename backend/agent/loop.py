@@ -171,7 +171,7 @@ class AgentLoop:
             f"Provider: {self._provider} | Target: {self._execution_target}",
         )
 
-        from backend.agent.graph import build_agent_graph, NodeBundle
+        from backend.agent.graph import build_agent_graph
         from backend import tracing
 
         bundle = self._build_graph_bundle()
@@ -265,7 +265,6 @@ class AgentLoop:
             ToolBatchCompleted,
         )
         from backend.agent.prompts import get_system_prompt
-        from backend.agent.screenshot import check_service_health
 
         provider_map = {
             "google": Provider.GEMINI,
