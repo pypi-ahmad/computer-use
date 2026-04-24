@@ -175,3 +175,41 @@ specific sandbox posture.  The shared image satisfies it:
   Use tasks; if a screenshot is too large, downscale the bytes
   **before** sending and remap coordinates rather than falling back
   to `\"low\"`.
+
+
+## Google Gemini 3 Flash Preview sandbox alignment
+
+Google's reference Computer Use implementation
+(github.com/google-gemini/computer-use-preview) drives a Playwright
+Chromium.  The shared sandbox supports this contract additively:
+
+- **Browser**: Chromium installed alongside firefox-esr +
+  google-chrome-stable.  Ubuntu 24.04 ships `chromium` as a real
+  apt package; 22.04 variants expose it as `chromium-browser`, so
+  the Dockerfile installs with a fallback chain.  The Gemini adapter
+  helper `_gemini_resolve_browser_binary` prefers
+  `chromium-browser` then `chromium` and warns once before
+  falling back to `firefox-esr` / `firefox`.
+- **Viewport**: 1440x900 — Gemini's docs recommend exactly this
+  resolution, so S1's shared default is kept unchanged.
+- **Coordinate contract**: the model returns 0–999 normalized
+  coordinates; `DesktopExecutor._denormalize_coords` in
+  backend/engine/__init__.py scales them to the actual viewport.
+  Unchanged in this commit; documented here for completeness.
+- **Single-tab paradigm**: soft-hinted via `SYSTEM_PROMPT_GEMINI_CU`
+  in backend/agent/prompts.py so the model treats new-tab links as
+  in-tab navigations.  Hard enforcement (Chromium new-tab
+  interception) requires the optional Playwright path below.
+- **Optional Playwright path**: opt-in via
+  `CUA_GEMINI_USE_PLAYWRIGHT=1` + image rebuild with
+  `--build-arg INSTALL_PLAYWRIGHT=1`.  Off by default to keep the
+  image lean (~500 MB of browser bundles).  The adapter guard
+  `_gemini_playwright_enabled()` returns `False` and logs once
+  when the flag is set but the package is missing, so the session
+  falls back to the xdotool path cleanly.
+- **Safety handshake**: ToS-mandated
+  `safety_acknowledgement: \"true\"` on confirmed
+  `require_confirmation` decisions.  Cannot be bypassed; see
+  `CUA_GEMINI_RELAX_SAFETY` (S1 phase 3) for the only env flag
+  that touches Gemini safety, and note it only adjusts
+  `HarmBlockThreshold` — it does not skip the handshake.

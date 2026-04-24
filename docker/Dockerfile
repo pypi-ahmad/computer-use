@@ -110,6 +110,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb \
     && rm -rf /var/lib/apt/lists/*
 
+# Google Gemini 3 Flash Preview's reference implementation
+# (github.com/google-gemini/computer-use-preview) uses Playwright-controlled
+# Chromium.  Install ``chromium`` alongside firefox-esr + google-chrome-stable
+# so Gemini sessions can route to the reference browser while the Anthropic
+# path keeps firefox-esr and the OpenAI path keeps google-chrome-stable.
+#
+# Ubuntu 24.04 ships ``chromium`` as a real apt package; on 22.04 variants it
+# is a snap transitional-package, where ``chromium-browser`` is the native
+# name.  We install ``chromium`` (24.04) + ``chromium-browser`` via
+# fallback (||) so the build works on either base.
+#
+# Playwright itself is NOT installed by default — it adds ~500 MB of
+# browser-bundled binaries to the image.  To enable Gemini's native-fidelity
+# Playwright path, rebuild with ``--build-arg INSTALL_PLAYWRIGHT=1`` (see
+# docker/SECURITY_NOTES.md) and set ``CUA_GEMINI_USE_PLAYWRIGHT=1`` at
+# container runtime.
+RUN apt-get update \
+    && (apt-get install -y --no-install-recommends chromium \
+        || apt-get install -y --no-install-recommends chromium-browser) \
+    && rm -rf /var/lib/apt/lists/*
+
 # OpenAI Computer Use guide mandates the sandbox be free of lockscreens
 # and screensavers that would steal focus from xdotool / the agent.
 # Idempotent: ``|| true`` so rebuilds with upstream removal succeed.
