@@ -126,6 +126,12 @@ class Config:
             port=_clamp_int("PORT", cls.port, lo=1, hi=65535),
             debug=os.getenv("DEBUG", "").lower() in ("1", "true", "yes"),
             reload=os.getenv("CUA_RELOAD", "").lower() in ("1", "true", "yes"),
+            ws_screenshot_interval=_clamp_float(
+                "CUA_WS_SCREENSHOT_INTERVAL", cls.ws_screenshot_interval, lo=0.05, hi=60.0,
+            ),
+            ws_screenshot_suspend_when_idle=_env_bool(
+                "CUA_WS_SCREENSHOT_SUSPEND_WHEN_IDLE", cls.ws_screenshot_suspend_when_idle,
+            ),
             ui_settle_delay=_clamp_float(
                 "CUA_UI_SETTLE_DELAY", cls.ui_settle_delay, lo=0.0, hi=30.0,
             ),
@@ -166,6 +172,14 @@ def _clamp_int(var: str, default: int, *, lo: int, hi: int) -> int:
     if clamped != value:
         logger.warning("%s=%d out of [%d, %d]; clamped to %d", var, value, lo, hi, clamped)
     return clamped
+
+
+def _env_bool(var: str, default: bool) -> bool:
+    """Read ``var`` as a boolean-like env override, falling back to ``default``."""
+    raw = os.getenv(var)
+    if raw is None or raw == "":
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _clamp_float(var: str, default: float, *, lo: float, hi: float) -> float:
