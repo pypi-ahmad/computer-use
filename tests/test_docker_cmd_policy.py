@@ -27,6 +27,7 @@ def _load_agent_service():
     Mirrors the loader in ``test_gap_coverage.py`` (the file is not on
     ``sys.path`` — it's designed to run inside the container).
     """
+    sys.modules.pop("agent_service_cmd_policy", None)
     path = Path(__file__).resolve().parents[1] / "docker" / "agent_service.py"
     spec = importlib.util.spec_from_file_location("agent_service_cmd_policy", path)
     mod = importlib.util.module_from_spec(spec)
@@ -35,8 +36,15 @@ def _load_agent_service():
     return mod
 
 
-@pytest.fixture(scope="module")
-def svc():
+@pytest.fixture
+def svc(monkeypatch):
+    """Load the module with legacy actions enabled.
+
+    ``run_command`` is intentionally legacy-gated by default, so tests
+    that exercise its branch should do so under the same flag an
+    operator would use when re-enabling it.
+    """
+    monkeypatch.setenv("CUA_ENABLE_LEGACY_ACTIONS", "1")
     return _load_agent_service()
 
 
