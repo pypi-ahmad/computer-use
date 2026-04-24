@@ -441,10 +441,15 @@ Only models with `supports_computer_use: true` in `backend/allowed_models.json` 
 
 | Provider | Model ID | Display Name | Notes |
 |---|---|---|---|
-| Google | `gemini-3-flash-preview` | Gemini 3 Flash Preview | Fast, lightweight |
+| Google | `gemini-2.5-flash` | Gemini 2.5 Flash | Compatibility model id retained for existing sessions; Gemini 3 Flash Preview is the preferred current default |
+| Google | `gemini-2.5-pro` | Gemini 2.5 Pro | Compatibility model id retained for existing sessions; Gemini 3.1 Pro Preview is the preferred current default |
+| Google | `gemini-3-flash-preview` | Gemini 3 Flash Preview | Fast, lightweight. Safety thresholds follow Google's Gemini-3 default ("Off") unless `CUA_GEMINI_RELAX_SAFETY=1` restores `BLOCK_ONLY_HIGH` |
 | Google | `gemini-3.1-pro-preview` | Gemini 3.1 Pro Preview | Built-in Computer Use; `thinking_level=high` recommended |
-| Anthropic | `claude-opus-4-7` | Claude Opus 4.7 | Beta endpoint + `computer_20251124` tool; supports up to 2576px long edge |
-| Anthropic | `claude-sonnet-4-6` | Claude Sonnet 4.6 | Requires beta endpoint + `computer_20251124` tool |
+| Anthropic | `claude-sonnet-4-5` | Claude Sonnet 4.5 | Compatibility model id on the legacy `computer_20250124` tool path |
+| Anthropic | `claude-opus-4-6` | Claude Opus 4.6 | Compatibility model id on the current `computer_20251124` tool path |
+| Anthropic | `claude-opus-4-7` | Claude Opus 4.7 | Beta `computer-use-2025-11-24` + `computer_20251124` tool; supports up to 2576px long edge; adaptive thinking + `enable_zoom`; lean system prompt (4.6-era scaffolding stripped per Anthropic migration guide) |
+| Anthropic | `claude-sonnet-4-6` | Claude Sonnet 4.6 | Beta `computer-use-2025-11-24` + `computer_20251124` tool + `enable_zoom`; scaffolded system prompt retained |
+| OpenAI | `gpt-5` | GPT-5 | Compatibility model id retained for existing sessions; GPT-5.4 is the preferred current default |
 | OpenAI | `gpt-5.4` | GPT-5.4 | Responses API built-in computer tool; ZDR-compatible |
 
 To add or remove models: edit `backend/allowed_models.json`, set `supports_computer_use` appropriately, and restart the backend. The frontend reads the list dynamically via `GET /api/models`.
@@ -510,7 +515,9 @@ Set as environment variables or in a `.env` file in the project root. The `.env`
 | `CUA_SCREENSHOT_SETTLE_DELAY` | `0.15` | Seconds to wait before a screenshot capture. |
 | `CUA_POST_ACTION_SCREENSHOT_DELAY` | `0.4` | Seconds to wait after an action before re-screenshotting. |
 | `CUA_CLAUDE_MAX_TOKENS` | `32768` | Per-turn Claude `max_tokens` budget. Clamped to `[1024, 65536]`. |
+| `CUA_CLAUDE_CACHING` | `0` | Set to `1` to stamp `cache_control: {type: ephemeral}` on the `computer_20251124` tool definition. Caches the tool block across turns (~10 % of first-turn cost on repeats). Opt-in. |
 | `CUA_GEMINI_THINKING_LEVEL` | `high` | Gemini 3 `thinking_level`: `minimal` / `low` / `medium` / `high`. |
+| `CUA_GEMINI_RELAX_SAFETY` | `0` | Set to `1` to attach `BLOCK_ONLY_HIGH` safety thresholds on every Gemini CU request. Default follows Google's published Gemini-3 default ("Off"). The `require_confirmation` handshake is unaffected. |
 | `XDO_SYNC_SLEEP_MS` | `75` | Compensation sleep (ms) after `mousemove`/`click`. Increase on slow CI hosts. |
 | `XDO_WINDOW_SLEEP_MS` | `400` | Same, for `windowactivate`. |
 | `AGENT_SERVICE_TOKEN` | *(auto-generated)* | Shared secret between host backend and in-container agent service. Passed via 0600 `--env-file` (unlinked after `docker run`), **not** `-e`. |
