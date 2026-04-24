@@ -1,9 +1,18 @@
+<!-- markdownlint-disable-file MD013 -->
+
 # USAGE
 
-Operator guide for `computer-use`. The top-level [README](README.md) covers what the project is and how to get it running; this document covers how to drive a session once it is running, every environment variable the backend reads, the sandbox's per-provider behaviour, and the failure modes you are most likely to see.
+Operator reference for `computer-use`. For the project pitch and quickstart context, see
+[README.md](README.md). For architecture, provider internals, and extension points, see
+[TECHNICAL.md](TECHNICAL.md). This guide covers installation, running a session, every
+environment variable the backend reads, the sandbox's per-provider behaviour, and the
+failure modes you are most likely to see.
 
 ## Table of contents
 
+- [What this app is](#what-this-app-is)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
 - [Running a session](#running-a-session)
 - [Model selection](#model-selection)
 - [Configuration reference](#configuration-reference)
@@ -12,6 +21,83 @@ Operator guide for `computer-use`. The top-level [README](README.md) covers what
 - [Observability](#observability)
 - [Troubleshooting](#troubleshooting)
 - [FAQ](#faq)
+- [See also](#see-also)
+- [Getting help](#getting-help)
+
+## What this app is
+
+`computer-use` is a local single-user operator workbench for running provider-native Computer
+Use models against a controlled Ubuntu desktop running in Docker. The frontend provides a live
+screen view, step timeline, log inspector, safety-prompt handling, and session export. The
+backend orchestrates provider adapters (Anthropic, OpenAI, Google), manages the sandbox
+container lifecycle, and streams model-visible screenshots to the UI.
+
+It is built for researchers, adapter implementers, evaluators, and engineers who want to
+inspect real CU sessions rather than treating the model as a black box. It is not a
+multi-tenant SaaS, not a repository-aware coding agent, and not a browser-only automation
+layer. Desktop actions run inside the sandbox container, not on the host.
+
+## Prerequisites
+
+- **Docker 24+** — the sandbox desktop always runs in Docker. Check with `docker --version`.
+- **Python 3.11+** — required for the backend; matches CI. Check with `python --version`.
+- **Node.js 20+** — required for the Vite frontend. Check with `node --version`.
+- **At least one provider API key.** Obtain from:
+  - Anthropic: <https://console.anthropic.com/settings/keys>
+  - OpenAI: <https://platform.openai.com/api-keys>
+  - Google AI: <https://aistudio.google.com/apikey>
+- **Free loopback ports.** Defaults: `3000` (frontend), `8000` (backend), `6080` (noVNC),
+  `5900` (VNC), `9222` (agent service).
+- **Several GB of free disk space** for the sandbox image and browsers.
+
+## Installation
+
+### Recommended — setup script
+
+`setup.sh` and `setup.bat` check prerequisites, build the sandbox image, create the Python
+virtualenv, and install frontend dependencies.
+
+```bash
+git clone https://github.com/pypi-ahmad/computer-use.git
+cd computer-use
+cp .env.example .env
+# add at least one API key to .env
+
+bash setup.sh          # macOS / Linux
+# .\setup.bat          # Windows PowerShell
+
+docker compose up -d                                  # start the sandbox
+source .venv/bin/activate && python -m backend.main   # backend
+cd frontend && npm run dev                            # frontend (second terminal)
+
+```
+
+Open <http://localhost:3000>. The first image build takes several minutes; subsequent starts
+are fast. Re-running `setup.sh` / `setup.bat` does a full rebuild and is meant for setup or
+recovery, not daily use.
+
+### Manual
+
+```bash
+git clone https://github.com/pypi-ahmad/computer-use.git
+cd computer-use
+cp .env.example .env
+
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cd frontend && npm install && cd ..
+
+docker compose up -d
+python -m backend.main
+# second terminal:
+cd frontend && npm run dev
+
+```
+
+The sandbox always runs in Docker even when the backend runs on the host. If the container
+exits immediately, inspect `docker logs cua-environment`. A common first-run cause is the VNC
+guard in `docker/entrypoint.sh`: uncomment `VNC_PASSWORD=...` in `docker-compose.yml` or add
+`CUA_ALLOW_NOPW=1` to the service environment.
 
 ## Running a session
 
