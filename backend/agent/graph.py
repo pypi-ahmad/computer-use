@@ -23,10 +23,9 @@ with the explanation payload. The checkpointer snapshots
 crashes while waiting on a human the run can be fully resumed after
 restart via ``graph.ainvoke(Command(resume=decision), config)``.
 
-Scope (A1): only the Claude engine's ``iter_turns`` yields per-turn
-events; Gemini and OpenAI still drive the legacy ``run_loop`` from a
-shim and emit a single terminal event. Per-turn graph granularity for
-those two providers is a follow-up PR.
+Scope: Claude and Gemini yield native per-turn events into the graph.
+OpenAI still uses the legacy ``run_loop`` shim and yields a terminal
+event stream through the adapter.
 """
 
 from __future__ import annotations
@@ -95,6 +94,7 @@ class AgentGraphState(TypedDict, total=False):
 # past ``preflight``.
 
 _iterators: dict[str, AsyncIterator[TurnEvent]] = {}
+_buffered_events: dict[str, TurnEvent] = {}
 
 
 def _register_iterator(session_id: str, it: AsyncIterator[TurnEvent]) -> None:
@@ -110,6 +110,17 @@ def _get_iterator(session_id: str) -> AsyncIterator[TurnEvent] | None:
 def _drop_iterator(session_id: str) -> None:
     """Remove a session's iterator entry. Safe to call on unknown sessions."""
     _iterators.pop(session_id, None)
+    _buffered_events.pop(session_id, None)
+
+
+def _push_buffered_event(session_id: str, event: TurnEvent) -> None:
+    """Stash *event* for the next graph node to consume."""
+    _buffered_events[session_id] = event
+
+
+def _pop_buffered_event(session_id: str) -> TurnEvent | None:
+    """Return and clear a previously-buffered event, if any."""
+    return _buffered_events.pop(session_id, None)
 
 
 # ---------------------------------------------------------------------------
@@ -290,7 +301,9 @@ def _make_model_turn(bundle: NodeBundle):
             return {"route": "error", "status": "error",
                     "error": "Iterator missing — cannot resume without engine state."}
         try:
-            event = await it.__anext__()
+            event = _pop_buffered_event(sid)
+            if event is None:
+                event = await it.__anext__()
         except StopAsyncIteration:
             return {"route": "completed", "status": "completed",
                     "final_text": state.get("final_text", "")}
@@ -316,7 +329,9 @@ def _make_tool_batch(bundle: NodeBundle):
             return {"route": "error", "status": "error",
                     "error": "Iterator missing — cannot resume tool batch."}
         try:
-            event = await it.__anext__()
+            event = _pop_buffered_event(sid)
+            if event is None:
+                event = await it.__anext__()
         except StopAsyncIteration:
             return {"route": "completed", "status": "completed",
                     "final_text": state.get("final_text", "")}
@@ -381,9 +396,14 @@ def _make_approval_interrupt(bundle: NodeBundle):
             pass
 
         it = _get_iterator(sid)
+        next_route = "model_turn"
         try:
             if it is not None and hasattr(it, "asend"):
-                await it.asend(decision)  # type: ignore[func-returns-value]
+                resumed_event = await it.asend(decision)  # type: ignore[func-returns-value]
+                if resumed_event is not None:
+                    _push_buffered_event(sid, resumed_event)
+                    if isinstance(resumed_event, ToolBatchCompleted):
+                        next_route = "tool_batch"
         except StopAsyncIteration:
             return {
                 "route": "completed",
@@ -405,7 +425,7 @@ def _make_approval_interrupt(bundle: NodeBundle):
 
         bundle.emit_log("info", f"Safety approval resolved: {decision}", None)
         return {
-            "route": "model_turn",
+            "route": next_route,
             "status": "running",
             "approval_decision": decision,
             "pending_approval": None,
