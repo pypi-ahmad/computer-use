@@ -442,12 +442,10 @@ Only models with `supports_computer_use: true` in `backend/allowed_models.json` 
 | Provider | Model ID | Display Name | Notes |
 |---|---|---|---|
 | Google | `gemini-3-flash-preview` | Gemini 3 Flash Preview | Fast, lightweight |
+| Google | `gemini-3.1-pro-preview` | Gemini 3.1 Pro Preview | Built-in Computer Use; `thinking_level=high` recommended |
 | Anthropic | `claude-opus-4-7` | Claude Opus 4.7 | Beta endpoint + `computer_20251124` tool; supports up to 2576px long edge |
 | Anthropic | `claude-sonnet-4-6` | Claude Sonnet 4.6 | Requires beta endpoint + `computer_20251124` tool |
-| Anthropic | `claude-opus-4-6` | Claude Opus 4.6 | Requires beta endpoint + `computer_20251124` tool |
 | OpenAI | `gpt-5.4` | GPT-5.4 | Responses API built-in computer tool; ZDR-compatible |
-
-> `gemini-3.1-pro-preview` is present in `allowed_models.json` with `supports_computer_use: false` and is excluded from the UI. It is reserved for future use if Google confirms CU support.
 
 To add or remove models: edit `backend/allowed_models.json`, set `supports_computer_use` appropriately, and restart the backend. The frontend reads the list dynamically via `GET /api/models`.
 
