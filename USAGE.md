@@ -229,16 +229,31 @@ Task: *"Search Google Shopping for a USB-C GaN charger under $30 with at least 6
 
 What to expect: the Gemini adapter launches Chromium (Google's reference). Coordinates come back normalized 0–999; `DesktopExecutor._px` denormalises against the actual 1440×900 viewport. If the model emits a `safety_decision: require_confirmation` (rare for research tasks, common for financial confirms), the workbench's SafetyModal prompts you; the ToS-mandated `safety_acknowledgement: "true"` echo only fires after you confirm.
 
+### 4. Multi-application workflow (Claude Sonnet 4.6)
+
+Task: *"Open a terminal, create the directory /home/agent/export, open LibreOffice Calc, enter three rows of sample data, save the file to /home/agent/export/data.ods, then open the file manager and confirm it is there."*
+
+What to expect: Sonnet 4.6 is the natural default for cross-application work because it balances cost and accuracy well. The session will touch a terminal emulator, an office application, and a GUI file manager. Watch the Timeline panel — tool batches often show a `zoom` action inside LibreOffice for reading cell content. Expected duration: 3–5 minutes depending on the number of correction turns needed.
+
+### 5. Long-running data extraction (GPT-5.4)
+
+Task: *"Go to [a paginated public data source], collect the name and value from the first 20 rows, and save them line-by-line to /home/agent/Documents/results.txt. Stop when done."*
+
+What to expect: GPT-5.4 batches multiple actions per turn (scroll, read, type) which reduces total turn count for repetitive work. Raise `MAX_STEPS` before starting if the default 50 is too low for the data size. ZDR-safe replay keeps prior turns out of persistent storage — useful if the source data is sensitive. Expected duration: 8–15 minutes for 20 rows with inter-page navigation.
+
 ## Observability
 
 Every session produces both a **LangGraph checkpoint** (per-node state, enables restart-resume on approval) and a **session trace** (ordered `TraceEvent` records with redacted payloads).
 
 - **Live.** The workbench streams `log`, `step`, `screenshot_stream`, `safety_confirmation`, and `agent_finished` events over WebSocket. The Logs panel renders them in real time and supports copy / download / export.
 - **After the run.** Traces land at `$CUA_TRACE_DIR/<session_id>.json` (default `~/.computer-use/traces/`). Inspect with:
+
   ```bash
   python -m backend.tracing list
   python -m backend.tracing dump <session_id>
+
   ```
+
   Screenshots in the persisted trace are redacted to `{"sha256": <hex>, "len": <int>}` — the bytes stay on disk only if you asked for them. Free-text fields pass through the same `scrub_secrets` regex that redacts logs.
 - **Restart-resume.** If the backend is killed while a session is paused on `approval_interrupt`, the LangGraph SQLite checkpointer preserves `pending_approval` and the exact graph state. Posting to `/api/agent/safety-confirm` after restart resumes via `graph.ainvoke(Command(resume=decision), config)`. Test coverage: `tests/test_agent_graph_nodes.py::TestApprovalInterruptResume::test_pause_and_resume_across_fresh_runtime`.
 
@@ -249,12 +264,12 @@ Every session produces both a **LangGraph checkpoint** (per-node state, enables 
 3. **"API key is required" despite having set one.** The UI resolution order is UI > `.env` > system env. A key in `.env` that the backend picked up earlier still needs the UI's "Config File ✓" toggle flipped on. Restart the backend if you added the key after first launch.
 4. **`require_confirmation` / refusal.** Expected. The workbench opens the SafetyModal with the provider's explanation. Approve or deny. A 60 s auto-deny is deliberate — never auto-approve CU safety prompts; Gemini's ToS explicitly forbids it.
 5. **Screenshot is blank.** `Xvfb` hasn't rendered anything yet, or XFCE4 panel hasn't started. Try clicking **Stop Environment** → **Start Environment**. If it persists, `docker exec cua-environment scrot /tmp/test.png` and inspect manually; the most common cause is a stale `/tmp/.X99-lock`.
-5. **Session state bleeding.** Each run reuses the same `cua-environment` container. To reset browser profiles, session history, and `/tmp` state, use `Stop Environment` in the header (which calls `docker rm -f`). A new session will `docker run` fresh.
-6. **`HTTP 400` from OpenAI after upgrading.** The Responses API enum for `reasoning.effort` is `{minimal, low, medium, high}`. Legacy values (`none`, `xhigh`) are mapped to canonical by `OpenAICUClient.__init__`, but a hand-rolled request skipping that path will 400. Use the env var or the request-body override; don't pass legacy values directly to the SDK.
-7. **Claude `HTTP 400: temperature is not supported`.** Opus 4.7 rejects `temperature`, `top_p`, `top_k` at any non-default value. The adapter omits them; if you've patched custom sampling params in, remove them.
-8. **Gemini `400 INVALID_ARGUMENT`.** The adapter's log line names the three most common causes: screenshot too large or corrupt; tool-version mismatch; context exceeded. See [backend/engine/gemini.py](backend/engine/gemini.py) (search for `INVALID_ARGUMENT`).
-9. **Ghost sessions.** If the workbench shows "Agent Running" but nothing happens, the stop flow preserves `sessionId` on transient failures — click **Stop** again. The server's `/api/agent/stop/<sid>` idempotently returns 404 for already-ended sessions.
-10. **Tests fail with `ModuleNotFoundError: uvicorn`.** Four tests in `tests/test_audit_fixes.py::TestPublicBindGuardrail` require uvicorn on the dev host. `pip install uvicorn`.
+6. **Session state bleeding.** Each run reuses the same `cua-environment` container. To reset browser profiles, session history, and `/tmp` state, use `Stop Environment` in the header (which calls `docker rm -f`). A new session will `docker run` fresh.
+7. **`HTTP 400` from OpenAI after upgrading.** The Responses API enum for `reasoning.effort` is `{minimal, low, medium, high}`. Legacy values (`none`, `xhigh`) are mapped to canonical by `OpenAICUClient.__init__`, but a hand-rolled request skipping that path will 400. Use the env var or the request-body override; don't pass legacy values directly to the SDK.
+8. **Claude `HTTP 400: temperature is not supported`.** Opus 4.7 rejects `temperature`, `top_p`, `top_k` at any non-default value. The adapter omits them; if you've patched custom sampling params in, remove them.
+9. **Gemini `400 INVALID_ARGUMENT`.** The adapter's log line names the three most common causes: screenshot too large or corrupt; tool-version mismatch; context exceeded. See [backend/engine/gemini.py](backend/engine/gemini.py) (search for `INVALID_ARGUMENT`).
+10. **Ghost sessions.** If the workbench shows "Agent Running" but nothing happens, the stop flow preserves `sessionId` on transient failures — click **Stop** again. The server's `/api/agent/stop/<sid>` idempotently returns 404 for already-ended sessions.
+11. **Tests fail with `ModuleNotFoundError: uvicorn`.** Four tests in `tests/test_audit_fixes.py::TestPublicBindGuardrail` require uvicorn on the dev host. `pip install uvicorn`.
 
 ## FAQ
 
