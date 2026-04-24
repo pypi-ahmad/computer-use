@@ -88,15 +88,31 @@ class TestVncHttpProxyErrors:
 class TestStartContainer:
     """Unit tests for the fresh-run + teardown branches without touching docker."""
 
-    def test_already_running_short_circuits(self):
+    def test_already_running_rechecks_agent_health_without_docker_calls(self):
         from backend import docker_manager as dm
 
         async def go():
-            with patch.object(dm, "is_container_running", AsyncMock(return_value=True)):
+            with patch.object(dm, "is_container_running", AsyncMock(return_value=True)), \
+                 patch.object(dm, "_wait_for_service", AsyncMock(return_value=True)) as wait_mock:
                 with patch.object(dm, "_run", AsyncMock()) as run_mock:
                     ok = await dm.start_container("cua-test")
             assert ok is True
-            # Fast-path should not issue any docker commands.
+            wait_mock.assert_awaited_once_with("cua-test", already_running=True)
+            # Idempotent fast-path should not issue any docker commands.
+            run_mock.assert_not_called()
+
+        asyncio.run(go())
+
+    def test_already_running_unready_returns_false_without_docker_calls(self):
+        from backend import docker_manager as dm
+
+        async def go():
+            with patch.object(dm, "is_container_running", AsyncMock(return_value=True)), \
+                 patch.object(dm, "_wait_for_service", AsyncMock(return_value=False)) as wait_mock:
+                with patch.object(dm, "_run", AsyncMock()) as run_mock:
+                    ok = await dm.start_container("cua-test")
+            assert ok is False
+            wait_mock.assert_awaited_once_with("cua-test", already_running=True)
             run_mock.assert_not_called()
 
         asyncio.run(go())
@@ -185,8 +201,11 @@ class TestClaudeRefusalBranch:
             screen_width=1440,
             screen_height=900,
             capture_screenshot=AsyncMock(
-                # Return a 1-byte PNG marker; the resize helper accepts bytes.
-                return_value=b"\x89PNG\r\n\x1a\n" + b"0" * 32
+                # Return bytes large enough to pass the adapter's
+                # ``len < 100`` empty-screenshot guard (Fix 3, April
+                # 2026 wave). The test still mocks ``resize_screenshot_for_claude``
+                # so the content is never actually decoded.
+                return_value=b"\x89PNG\r\n\x1a\n" + b"0" * 128
             ),
         )
 
