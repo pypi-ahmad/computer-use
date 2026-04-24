@@ -12,7 +12,8 @@ from __future__ import annotations
 import asyncio
 import tempfile
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -55,8 +56,10 @@ def tmp_sqlite_path():
 def _reset_iterator_registry():
     """Clear the module-level iterator registry between tests."""
     graph_mod._iterators.clear()
+    graph_mod._buffered_events.clear()
     yield
     graph_mod._iterators.clear()
+    graph_mod._buffered_events.clear()
 
 
 def _make_bundle(**overrides):
@@ -265,6 +268,56 @@ class TestFinalize:
             delta = await node({"session_id": "s"})
             assert delta["session_snapshot"] == {"status": "completed"}
             assert "s" not in graph_mod._iterators
+
+        asyncio.run(_go())
+
+
+# ---------------------------------------------------------------------------
+# Approval resume buffering
+# ---------------------------------------------------------------------------
+
+class TestApprovalBufferedResume:
+    """Resumed events from ``asend(decision)`` must not be dropped."""
+
+    def test_tool_batch_returned_by_asend_is_buffered_for_next_node(self):
+        async def _go():
+            async def _iter():
+                decision = yield SafetyRequired(explanation="confirm?")
+                assert decision is True
+                yield ToolBatchCompleted(
+                    turn=1,
+                    model_text="clicked",
+                    results=[CUActionResult(name="click_at")],
+                    screenshot_b64="b64",
+                )
+                yield RunCompleted(final_text="done")
+
+            _register_iterator("s", _iter())
+            model_node = _make_model_turn(_make_bundle())
+            tool_events: list[ToolBatchCompleted] = []
+            tool_node = _make_tool_batch(
+                _make_bundle(emit_step=lambda e: tool_events.append(e))
+            )
+            approval_node = _make_approval_interrupt(_make_bundle())
+
+            delta = await model_node({"session_id": "s"})
+            assert delta["route"] == "approval"
+
+            with patch("backend.agent.graph.interrupt", return_value=True):
+                resumed = await approval_node(
+                    {"session_id": "s", "pending_approval": {"explanation": "confirm?"}}
+                )
+
+            assert resumed["route"] == "tool_batch"
+
+            after_tool = await tool_node({"session_id": "s"})
+            assert after_tool["route"] == "model_turn"
+            assert len(tool_events) == 1
+            assert tool_events[0].turn == 1
+
+            final_delta = await model_node({"session_id": "s"})
+            assert final_delta["route"] == "completed"
+            assert final_delta["final_text"] == "done"
 
         asyncio.run(_go())
 
