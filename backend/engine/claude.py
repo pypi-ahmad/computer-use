@@ -77,6 +77,7 @@ class ClaudeCUClient:
     _NEW_TOOL_MODELS = (
         "claude-opus-4-7", "claude-opus-4.7",
         "claude-sonnet-4-6", "claude-sonnet-4.6",
+        "claude-opus-4-6", "claude-opus-4.6",
     )
 
     def __init__(
