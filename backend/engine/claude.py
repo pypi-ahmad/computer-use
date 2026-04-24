@@ -16,13 +16,19 @@ from backend.engine import (
     CUActionResult,
     CUTurnRecord,
     ActionExecutor,
+    ModelTurnStarted,
+    ToolBatchCompleted,
+    RunCompleted,
+    TurnEvent,
     _call_with_retry,
     get_claude_scale_factor,
     resize_screenshot_for_claude,
+    _is_opus_47,
     DEFAULT_TURN_LIMIT,
     _CONTEXT_PRUNE_KEEP_RECENT,
     _IMAGE_PNG,
 )
+from typing import AsyncIterator
 
 logger = logging.getLogger(__name__)
 
@@ -43,28 +49,34 @@ except ValueError:
 class ClaudeCUClient:
     """Native Claude computer-use tool protocol.
 
-    API contract:
-    - Auto-detects tool version from model name:
-      * Claude Sonnet 4.6 / Opus 4.6 / Opus 4.5 → ``computer_20251124``
-        with beta header ``computer-use-2025-11-24``
-      * All other CU models → ``computer_20250124``
-        with beta header ``computer-use-2025-01-24``
-    - Uses ``client.beta.messages.create()`` (beta endpoint required)
-    - Enables thinking with a conservative token budget
-    - Sends screenshots as base64 in ``tool_result`` content
-    - Claude outputs real pixel coordinates (no normalization)
-    - ``display_number`` is intentionally omitted (optional, often wrong)
-    - Actions: screenshot, click, double_click, type, key, scroll,
-      mouse_move, left_click_drag, triple_click, right_click,
-      middle_click, left_mouse_down, left_mouse_up, hold_key, wait
+    API contract (as of 2026-04):
+    - Auto-detects tool version from model name (overridable):
+      * Claude Opus 4.7 / Opus 4.6 / Sonnet 4.6 / Opus 4.5 →
+        ``computer_20251124`` with beta ``computer-use-2025-11-24``.
+        Coordinates are 1:1 with the reported display pixels
+        (no scale-factor math at typical resolutions) and extended
+        thinking only accepts ``{"type": "adaptive"}``. Sampling
+        params (``temperature``/``top_p``/``top_k``) are rejected by
+        the API and are not sent.
+      * All other CU models → ``computer_20250124`` with beta
+        ``computer-use-2025-01-24`` and the legacy 1568 px /
+        scale-factor screenshot path.
+    - Uses ``client.beta.messages.create()`` (beta endpoint required).
+    - Sends screenshots as base64 in ``tool_result`` content.
+    - ``display_number`` is intentionally omitted.
+    - Actions (``computer_20251124``): screenshot, click, double_click,
+      type, key, scroll, mouse_move, left_click_drag, triple_click,
+      right_click, middle_click, left_mouse_down, left_mouse_up,
+      hold_key, wait, zoom.
+    - TODO: task budgets (beta ``task-budgets-2026-03-13`` +
+      ``output_config.effort`` / ``output_config.task_budget``) are
+      not wired up yet. See Anthropic computer-use docs.
     """
 
     # Models that require the newer computer_20251124 tool version.
     _NEW_TOOL_MODELS = (
         "claude-opus-4-7", "claude-opus-4.7",
         "claude-sonnet-4-6", "claude-sonnet-4.6",
-        "claude-opus-4-6", "claude-opus-4.6",
-        "claude-opus-4-5", "claude-opus-4.5",
     )
 
     def __init__(
@@ -117,20 +129,26 @@ class ClaudeCUClient:
             tool["enable_zoom"] = True
         return [tool]
 
-    async def run_loop(
+    async def iter_turns(
         self,
         goal: str,
         executor: ActionExecutor,
         *,
         turn_limit: int = DEFAULT_TURN_LIMIT,
-        on_safety: Callable[[str], bool] | None = None,
-        on_turn: Callable[[CUTurnRecord], None] | None = None,
         on_log: Callable[[str, str], None] | None = None,
-    ) -> str:
-        """Run the full Claude CU agent loop.
+    ) -> AsyncIterator[TurnEvent]:
+        """Async-generator contract powering the LangGraph node split.
 
-        Handles screenshot scaling, context pruning, safety refusals,
-        and all Claude stop_reason variants. Returns final text.
+        Yields per-turn events (``ModelTurnStarted`` → ``ToolBatchCompleted``)
+        until the run terminates, at which point a final ``RunCompleted``
+        is yielded and the generator returns.
+
+        Claude's safety model is server-side refusal via
+        ``stop_reason=="refusal"`` — there is no client-side
+        ``require_confirmation`` handshake — so this generator never
+        yields ``SafetyRequired``. For consistency with Gemini/OpenAI
+        the outer graph still routes to the ``approval_interrupt``
+        node when a ``SafetyRequired`` event arrives.
         """
         # Compute screenshot scaling to prevent coordinate drift.
         scale = get_claude_scale_factor(executor.screen_width, executor.screen_height, self._model)
@@ -142,6 +160,14 @@ class ClaudeCUClient:
         tools = self._build_tools(scaled_w, scaled_h)
 
         screenshot_bytes = await executor.capture_screenshot()
+        # Mirror the OpenAI + Gemini adapters' empty-screenshot guard
+        # so a broken agent_service doesn't fail deep inside the
+        # Anthropic SDK with a cryptic image-validation error.
+        if not screenshot_bytes or len(screenshot_bytes) < 100:
+            if on_log:
+                on_log("error", "Initial screenshot capture failed or returned empty bytes")
+            yield RunCompleted(final_text="Error: Could not capture initial screenshot")
+            return
         screenshot_bytes, _, _ = resize_screenshot_for_claude(screenshot_bytes, scale)
         screenshot_b64 = base64.standard_b64encode(screenshot_bytes).decode()
 
@@ -162,7 +188,6 @@ class ClaudeCUClient:
             }
         ]
 
-        final_text = ""
         _turn_start: float | None = None
 
         for turn in range(turn_limit):
@@ -172,10 +197,19 @@ class ClaudeCUClient:
             if on_log:
                 on_log("info", f"Claude CU turn {turn + 1}/{turn_limit}")
 
-            # Prune old screenshots to prevent unbounded context growth
             _prune_claude_context(messages, _CONTEXT_PRUNE_KEEP_RECENT)
 
-            # AI4: retry on 429/network transients; non-transient errors propagate.
+            # Thinking config depends on the model, not the tool
+            # version. Only Opus 4.7 requires ``adaptive`` — the API
+            # returns HTTP 400 on ``{"type":"enabled","budget_tokens":N}``
+            # for this model (docs.anthropic.com, 2026-04-24).
+            # Sonnet 4.6 / Opus 4.6 / earlier CU models keep the
+            # existing fixed-budget thinking path unchanged.
+            if _is_opus_47(self._model):
+                thinking_cfg: dict[str, Any] = {"type": "adaptive"}
+            else:
+                thinking_cfg = {"type": "enabled", "budget_tokens": 4096}
+
             response = await _call_with_retry(
                 lambda: self._client.beta.messages.create(
                     model=self._model,
@@ -184,7 +218,7 @@ class ClaudeCUClient:
                     tools=tools,
                     messages=messages,
                     betas=[self._beta_flag],
-                    thinking={"type": "enabled", "budget_tokens": 4096},
+                    thinking=thinking_cfg,
                 ),
                 provider="anthropic",
                 on_log=on_log,
@@ -198,43 +232,59 @@ class ClaudeCUClient:
                           if hasattr(b, "text") and b.text]
             turn_text = " ".join(text_blocks)
 
-            # Handle all stop_reason values explicitly
             stop = response.stop_reason
             if stop == "refusal":
-                # C-7: Anthropic's API does not allow overriding a refusal,
-                # so surfacing a confirm/deny modal would be misleading.
-                # Emit a one-way log notice (the frontend renders a banner
-                # for ``data.type == "refusal_notice"``) and end the turn.
                 refusal_reason = turn_text or "Model refused to continue (safety refusal)."
                 if on_log:
                     on_log("warning", f"Claude refused: {refusal_reason[:200]}")
-                final_text = refusal_reason
-                if on_turn:
-                    on_turn(CUTurnRecord(turn=turn + 1, model_text=final_text, actions=[]))
-                break
+                # Emit an empty-actions tool-batch event so the outer
+                # graph still gets a step record for this turn.
+                yield ToolBatchCompleted(
+                    turn=turn + 1, model_text=refusal_reason,
+                    results=[], screenshot_b64=None,
+                )
+                yield RunCompleted(final_text=refusal_reason)
+                return
             if stop == "model_context_window_exceeded":
                 final_text = "Error: context window exceeded. Task too long."
                 if on_log:
                     on_log("error", "Claude context window exceeded")
-                if on_turn:
-                    on_turn(CUTurnRecord(turn=turn + 1, model_text=final_text, actions=[]))
-                break
+                yield ToolBatchCompleted(
+                    turn=turn + 1, model_text=final_text,
+                    results=[], screenshot_b64=None,
+                )
+                yield RunCompleted(final_text=final_text)
+                return
             if stop in ("max_tokens", "stop_sequence"):
                 final_text = turn_text or f"Response truncated (stop_reason={stop})."
                 if on_log:
                     on_log("warning", f"Claude stop_reason={stop}")
-                if on_turn:
-                    on_turn(CUTurnRecord(turn=turn + 1, model_text=final_text, actions=[]))
-                break
+                yield ToolBatchCompleted(
+                    turn=turn + 1, model_text=final_text,
+                    results=[], screenshot_b64=None,
+                )
+                yield RunCompleted(final_text=final_text)
+                return
             if stop == "end_turn" or not tool_uses:
                 final_text = turn_text
                 if on_log:
                     on_log("info", f"Claude CU completed: {final_text[:200]}")
-                if on_turn:
-                    on_turn(CUTurnRecord(turn=turn + 1, model_text=turn_text, actions=[]))
-                break
+                yield ToolBatchCompleted(
+                    turn=turn + 1, model_text=turn_text,
+                    results=[], screenshot_b64=None,
+                )
+                yield RunCompleted(final_text=final_text)
+                return
 
-            # Execute tool uses
+            # Emit the "model call done, about to run tools" boundary
+            # event. The outer graph transitions preflight/model_turn →
+            # tool_batch here.
+            yield ModelTurnStarted(
+                turn=turn + 1,
+                model_text=turn_text,
+                pending_tool_uses=len(tool_uses),
+            )
+
             tool_result_parts: list[dict[str, Any]] = []
             results: list[CUActionResult] = []
 
@@ -268,16 +318,59 @@ class ClaudeCUClient:
                     "content": content,
                 })
 
-            if on_turn:
-                on_turn(CUTurnRecord(
-                    turn=turn + 1, model_text=turn_text,
-                    actions=results, screenshot_b64=screenshot_b64,
-                ))
+            yield ToolBatchCompleted(
+                turn=turn + 1,
+                model_text=turn_text,
+                results=results,
+                screenshot_b64=screenshot_b64,
+            )
 
             messages.append({"role": "user", "content": tool_result_parts})
 
         if _turn_start is not None and on_log:
             on_log("info", f"turn_duration_ms={int((time.monotonic()-_turn_start)*1000)} provider=anthropic model={self._model}")
+        yield RunCompleted(
+            final_text=f"Claude CU reached the turn limit ({turn_limit}) without a final response."
+        )
+
+    async def run_loop(
+        self,
+        goal: str,
+        executor: ActionExecutor,
+        *,
+        turn_limit: int = DEFAULT_TURN_LIMIT,
+        on_safety: Callable[[str], bool] | None = None,
+        on_turn: Callable[[CUTurnRecord], None] | None = None,
+        on_log: Callable[[str, str], None] | None = None,
+    ) -> str:
+        """Legacy callback-driven driver — now a thin wrapper over ``iter_turns``.
+
+        Preserves the original return contract (final text) and
+        ``on_turn`` / ``on_log`` callback shape for existing callers
+        (tests, benchmarks). ``on_safety`` is accepted for signature
+        parity but is unused — Claude never emits a client-side safety
+        prompt.
+        """
+        del on_safety  # explicit: Claude never emits SafetyRequired
+        final_text = ""
+        pending_turn_text = ""
+
+        async for event in self.iter_turns(
+            goal, executor, turn_limit=turn_limit, on_log=on_log,
+        ):
+            if isinstance(event, ModelTurnStarted):
+                pending_turn_text = event.model_text
+            elif isinstance(event, ToolBatchCompleted):
+                if on_turn:
+                    on_turn(CUTurnRecord(
+                        turn=event.turn,
+                        model_text=event.model_text or pending_turn_text,
+                        actions=event.results,
+                        screenshot_b64=event.screenshot_b64,
+                    ))
+                pending_turn_text = ""
+            elif isinstance(event, RunCompleted):
+                final_text = event.final_text
         return final_text
 
     async def _execute_claude_action(
