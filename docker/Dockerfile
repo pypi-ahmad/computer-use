@@ -195,11 +195,40 @@ RUN (userdel -r ubuntu 2>/dev/null || true) \
 USER agent
 WORKDIR /home/agent
 
+# ── OCI image labels ─────────────────────────────────────────────────────────
+# org.opencontainers.image.* follow the OCI image-spec annotation keys
+# (https://github.com/opencontainers/image-spec/blob/main/annotations.md).
+# Registries render these in their UIs and scanners consume them for
+# provenance. The ``version`` and ``created`` fields should be passed
+# at build time via ``--build-arg`` (docker compose wires this from
+# $GIT_SHA / $BUILD_DATE). Static defaults here keep the image usable
+# even when those args are absent.
+ARG VERSION=dev
+ARG BUILD_DATE=unknown
+ARG VCS_REF=unknown
+LABEL org.opencontainers.image.title="computer-use" \
+      org.opencontainers.image.description="Local research workbench for provider-native Computer Use APIs (Anthropic, OpenAI, Google) over an Ubuntu 24.04 / XFCE4 / Xvfb sandbox." \
+      org.opencontainers.image.source="https://github.com/pypi-ahmad/computer-use" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.base.name="docker.io/library/ubuntu:24.04"
+
 # 5900 = VNC, 6080 = noVNC web UI, 9222 = Agent Service API
 EXPOSE 5900 6080 9222
 
-# Health check — agent_service /health endpoint
+# Health check — agent_service /health endpoint.
+# Liveness probe only: hits the in-container agent service, not the
+# backend's /api/ready dependency aggregator. See backend/server.py
+# for the separation rationale.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:9222/health || exit 1
 
+# SIGTERM handling: entrypoint.sh ends with ``exec python agent_service.py``,
+# so the agent_service process becomes PID 1 and receives SIGTERM
+# directly from ``docker stop``. ``agent_service.py`` installs a
+# ``signal.signal(SIGTERM/SIGINT, _handle_signal)`` that shuts down
+# the ThreadingHTTPServer and exits cleanly. No ``trap`` in the shell
+# is needed because exec replaces the shell.
 ENTRYPOINT ["/entrypoint.sh"]
