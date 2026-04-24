@@ -923,9 +923,9 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
 
     # Resolve reasoning_effort: request > env var > default "low"
     _VALID_REASONING_EFFORTS = {"none", "low", "medium", "high", "xhigh"}
-    reasoning_effort = (req.reasoning_effort or os.getenv("OPENAI_REASONING_EFFORT") or "low").lower()
+    reasoning_effort = (req.reasoning_effort or os.getenv("OPENAI_REASONING_EFFORT") or "high").lower()
     if reasoning_effort not in _VALID_REASONING_EFFORTS:
-        reasoning_effort = "low"
+        reasoning_effort = "high"
 
     # Limit concurrent sessions
     active_count = sum(1 for t in _active_tasks.values() if not t.done())
