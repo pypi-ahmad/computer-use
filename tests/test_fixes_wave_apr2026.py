@@ -138,3 +138,28 @@ async def test_fix4_claude_opus_47_uses_adaptive_thinking_only():
     assert "top_k" not in opus_47
     assert sonnet_46["thinking"] == {"type": "enabled", "budget_tokens": 4096}
     assert opus_46["thinking"] == {"type": "enabled", "budget_tokens": 4096}
+
+
+def test_fix5_opus_47_scale_factor_uses_long_edge_only():
+    """Opus 4.7 skips the legacy total-pixel cap; earlier models do not."""
+    from backend.engine import (
+        _CLAUDE_MAX_LONG_EDGE,
+        _CLAUDE_MAX_PIXELS,
+        get_claude_scale_factor,
+        resize_screenshot_for_claude,
+    )
+
+    assert get_claude_scale_factor(1440, 900, "claude-opus-4-7") == 1.0
+
+    src = _minimal_png(1440, 900)
+    out_bytes, out_w, out_h = resize_screenshot_for_claude(src, 1.0)
+    assert out_bytes == src
+    assert (out_w, out_h) == (1440, 900)
+
+    scale = get_claude_scale_factor(4000, 2000, "claude-opus-4-7")
+    assert scale == pytest.approx(2576 / 4000)
+
+    sonnet_scale = get_claude_scale_factor(1440, 900, "claude-sonnet-4-6")
+    assert sonnet_scale == pytest.approx(
+        min(1.0, _CLAUDE_MAX_LONG_EDGE / 1440, (_CLAUDE_MAX_PIXELS / (1440 * 900)) ** 0.5)
+    )
