@@ -1018,7 +1018,7 @@ class ComputerUseEngine:
                 api_key=api_key,
                 model=model or "gpt-5.4",
                 system_prompt=system_instruction,
-                reasoning_effort=reasoning_effort or "low",
+                reasoning_effort=reasoning_effort or "high",
             )
         else:
             raise ValueError(f"Unsupported provider: {provider}")
