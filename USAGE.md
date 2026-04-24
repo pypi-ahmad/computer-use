@@ -293,3 +293,17 @@ No. The sandbox is load-bearing for isolation. The `AGENT_SERVICE_TOKEN` handsha
 
 **Why is Gemini 3.1 Pro Preview excluded?**
 Google has not enabled Computer Use on that model as of 2026-04-24 despite the Gemini 3 developer guide implying support. The official CU docs list only `gemini-3-flash-preview` and `gemini-2.5-computer-use-preview-10-2025`. See [CHANGELOG.md](CHANGELOG.md) for the forum repro link.
+
+## See also
+
+- [README.md](README.md) — project pitch and quickstart
+- [TECHNICAL.md](TECHNICAL.md) — architecture and internals
+- [CHANGELOG.md](CHANGELOG.md) — release history
+- [docker/SECURITY_NOTES.md](docker/SECURITY_NOTES.md) — sandbox security posture
+
+## Getting help
+
+File bug reports and usage questions at <https://github.com/pypi-ahmad/computer-use/issues>.
+Include: model ID, provider, session ID, whether on noVNC or Screenshot mode, a trace dump
+from `python -m backend.tracing dump <session_id>`, and `docker logs cua-environment` if
+the sandbox was involved.
