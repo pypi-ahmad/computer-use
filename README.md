@@ -171,6 +171,8 @@ Issues and pull requests are welcome. For larger changes, open an issue
 first so the scope is clear. Adapter and sandbox changes should ship
 with tests; `tests/test_adapters_april2026.py` and
 `tests/test_sandbox_*.py` are good starting patterns.
+For the internal architecture and contribution surface, see
+[TECHNICAL.md](TECHNICAL.md).
 
 ## License
 
