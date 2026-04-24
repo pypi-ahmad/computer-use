@@ -144,3 +144,34 @@ anything larger internally.  `CUA_OPUS47_HIRES` is gated on
 `_is_opus_47(model)` in `backend/engine/claude.py` and is
 intentionally ignored for Sonnet 4.6 so the extra framebuffer tokens
 cost nothing in coordinate accuracy.
+
+
+## OpenAI GPT-5.4 sandbox alignment
+
+OpenAI's Computer Use guide (tools-computer-use) prescribes a
+specific sandbox posture.  The shared image satisfies it:
+
+- **Window manager**: XFCE4 (`startxfce4`) \u2014 the WM called out
+  in OpenAI's Option 1 Dockerfile.
+- **Screenshot tool**: ImageMagick `import -window root png:-`
+  is available (`imagemagick` package from the S1 reference
+  baseline).  The runtime path uses `scrot` for speed but
+  ImageMagick remains available for guide parity.
+- **Lockscreen / screensaver**: `light-locker`, `xfce4-screensaver`,
+  and `xfce4-power-manager` are removed at build time to prevent
+  focus-stealing during agent sessions.
+- **Browser launch** (when the agent spawns a browser): pass
+  `--disable-extensions --disable-file-system
+  --no-default-browser-check` for Chromium/Chrome, or
+  `--new-instance --profile <dir>` for Firefox; use a dedicated
+  per-session profile directory; invoke with `env={}` so host
+  credentials do not leak.
+- **Viewport**: 1440x900 (shared default).  OpenAI's reference
+  Dockerfile hardcodes 1280x800, but the guide prose recommends
+  1440x900 / 1600x900 for downscaled screenshots.
+- **Screenshot detail on the API**: the adapter always sends
+  `detail: \"original\"` in every `computer_call_output`.  The
+  guide explicitly discourages `\"high\"` / `\"low\"` for Computer
+  Use tasks; if a screenshot is too large, downscale the bytes
+  **before** sending and remap coordinates rather than falling back
+  to `\"low\"`.
