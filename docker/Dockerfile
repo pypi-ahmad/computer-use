@@ -110,6 +110,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb \
     && rm -rf /var/lib/apt/lists/*
 
+# OpenAI Computer Use guide mandates the sandbox be free of lockscreens
+# and screensavers that would steal focus from xdotool / the agent.
+# Idempotent: ``|| true`` so rebuilds with upstream removal succeed.
+RUN apt-get remove -y light-locker xfce4-screensaver xfce4-power-manager 2>/dev/null || true
+
 # Install Node.js LTS 20 for desktop tooling and optional in-container tasks
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get update \
