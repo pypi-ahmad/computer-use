@@ -10,7 +10,7 @@ import base64
 import logging
 import os
 import time
-from typing import Any, Callable
+from typing import Any, AsyncIterator, Callable
 
 from backend.engine import (
     CUActionResult,
@@ -18,6 +18,11 @@ from backend.engine import (
     SafetyDecision,
     ActionExecutor,
     Environment,
+    ModelTurnStarted,
+    RunCompleted,
+    SafetyRequired,
+    ToolBatchCompleted,
+    TurnEvent,
     _call_with_retry,
     _invoke_safety,
     DEFAULT_TURN_LIMIT,
@@ -78,6 +83,11 @@ class GeminiCUClient:
     - Handles ``safety_decision`` → ``require_confirmation``
     - Supports both ``ENVIRONMENT_BROWSER`` and ``ENVIRONMENT_DESKTOP``
     """
+
+    # One-shot log guards so operators see the safety-threshold choice
+    # exactly once per process, not once per turn.
+    _relax_logged: bool = False
+    _default_logged: bool = False
 
     def __init__(
         self,
@@ -151,30 +161,51 @@ class GeminiCUClient:
             )
         ]
 
-        # Relax safety thresholds so the model doesn't silently refuse when
-        # seeing desktop screenshots that contain innocuous UI chrome the
-        # safety classifier may over-flag (e.g. browser with sign-in pages,
-        # system toolbars, ads).
-        safety_settings = []
-        _HarmCategory = getattr(types, "HarmCategory", None)
-        _SafetySetting = getattr(types, "SafetySetting", None)
-        _HarmBlockThreshold = getattr(types, "HarmBlockThreshold", None)
-        if _HarmCategory and _SafetySetting and _HarmBlockThreshold:
-            # Use BLOCK_ONLY_HIGH to avoid over-blocking desktop screenshots
-            # while still filtering genuinely harmful content.
-            block_level = getattr(_HarmBlockThreshold, "BLOCK_ONLY_HIGH", None)
-            if block_level is not None:
-                for cat_name in (
-                    "HARM_CATEGORY_HARASSMENT",
-                    "HARM_CATEGORY_HATE_SPEECH",
-                    "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                    "HARM_CATEGORY_DANGEROUS_CONTENT",
-                ):
-                    cat = getattr(_HarmCategory, cat_name, None)
-                    if cat is not None:
-                        safety_settings.append(
-                            _SafetySetting(category=cat, threshold=block_level)
-                        )
+        # Safety-threshold relaxation is opt-in.  Per Google's
+        # safety-settings docs (2026-04), the default block threshold
+        # on Gemini 2.5 / 3 models is already "Off" when the client
+        # omits ``safety_settings``, so any additional relaxation
+        # should be an explicit operator choice rather than an
+        # implicit default.  Set ``CUA_GEMINI_RELAX_SAFETY=1`` to
+        # attach BLOCK_ONLY_HIGH across the four HarmCategory buckets.
+        # The ToS-mandated ``require_confirmation`` +
+        # ``safety_acknowledgement`` handshake is unaffected either
+        # way and remains the authoritative safety gate.
+        safety_settings: list[Any] = []
+        if os.environ.get("CUA_GEMINI_RELAX_SAFETY") == "1":
+            if not GeminiCUClient._relax_logged:
+                logger.info(
+                    "Gemini CU safety relaxation enabled "
+                    "(CUA_GEMINI_RELAX_SAFETY=1); attaching "
+                    "BLOCK_ONLY_HIGH thresholds across HarmCategory "
+                    "buckets.  ToS handshake unaffected.",
+                )
+                GeminiCUClient._relax_logged = True
+            _HarmCategory = getattr(types, "HarmCategory", None)
+            _SafetySetting = getattr(types, "SafetySetting", None)
+            _HarmBlockThreshold = getattr(types, "HarmBlockThreshold", None)
+            if _HarmCategory and _SafetySetting and _HarmBlockThreshold:
+                block_level = getattr(_HarmBlockThreshold, "BLOCK_ONLY_HIGH", None)
+                if block_level is not None:
+                    for cat_name in (
+                        "HARM_CATEGORY_HARASSMENT",
+                        "HARM_CATEGORY_HATE_SPEECH",
+                        "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                        "HARM_CATEGORY_DANGEROUS_CONTENT",
+                    ):
+                        cat = getattr(_HarmCategory, cat_name, None)
+                        if cat is not None:
+                            safety_settings.append(
+                                _SafetySetting(category=cat, threshold=block_level)
+                            )
+        elif not GeminiCUClient._default_logged:
+            logger.warning(
+                "Gemini CU using Google's default safety thresholds "
+                "(Off for Gemini 2.5/3 per docs).  Set "
+                "CUA_GEMINI_RELAX_SAFETY=1 to restore the previous "
+                "BLOCK_ONLY_HIGH behaviour.",
+            )
+            GeminiCUClient._default_logged = True
 
         # Use thinking_level (recommended for Gemini 3) instead of
         # legacy include_thoughts / budget_tokens.
@@ -200,28 +231,19 @@ class GeminiCUClient:
             kwargs["system_instruction"] = self._system_instruction
         return self._genai.types.GenerateContentConfig(**kwargs)
 
-    async def run_loop(
+    async def iter_turns(
         self,
         goal: str,
         executor: ActionExecutor,
         *,
         turn_limit: int = DEFAULT_TURN_LIMIT,
-        on_safety: Callable[[str], bool] | None = None,
-        on_turn: Callable[[CUTurnRecord], None] | None = None,
         on_log: Callable[[str, str], None] | None = None,
-    ) -> str:
-        """Run the full Gemini CU agent loop.
+    ) -> AsyncIterator[TurnEvent]:
+        """Yield Gemini turn events for the LangGraph driver.
 
-        Args:
-            goal: Natural language task.
-            executor: Desktop executor used for the local runtime harness.
-            turn_limit: Max loop iterations.
-            on_safety: Callback(explanation) → bool. True=confirm, False=deny.
-            on_turn: Progress callback per turn.
-            on_log: Logging callback(level, message).
-
-        Returns:
-            Final text response from the model.
+        Safety confirmations are emitted as :class:`SafetyRequired`
+        events and resumed via ``agen.asend(bool)`` so the shared graph
+        interrupt path owns the approval lifecycle.
         """
         types = self._types
         config = self._build_config()
@@ -231,7 +253,8 @@ class GeminiCUClient:
         if not screenshot_bytes or len(screenshot_bytes) < 100:
             if on_log:
                 on_log("error", "Initial screenshot capture failed or returned empty bytes")
-            return "Error: Could not capture initial screenshot"
+            yield RunCompleted(final_text="Error: Could not capture initial screenshot")
+            return
 
         contents = [
             types.Content(
@@ -243,7 +266,6 @@ class GeminiCUClient:
             )
         ]
 
-        final_text = ""
         _turn_start: float | None = None
 
         for turn in range(turn_limit):
@@ -277,8 +299,8 @@ class GeminiCUClient:
                             "(3) conversation context exceeded limits. "
                             f"Contents length: {len(contents)} turns, "
                             f"last screenshot: {len(screenshot_bytes)} bytes")
-                final_text = f"Gemini API error: {error_msg}"
-                break
+                yield RunCompleted(final_text=f"Gemini API error: {error_msg}")
+                return
 
             if not response.candidates:
                 if on_log:
@@ -317,14 +339,16 @@ class GeminiCUClient:
                 except Exception as retry_err:
                     if on_log:
                         on_log("error", f"Retry also failed: {retry_err}")
-                    final_text = f"Error: Gemini returned no candidates and retry failed: {retry_err}"
-                    break
+                    yield RunCompleted(
+                        final_text=f"Error: Gemini returned no candidates and retry failed: {retry_err}",
+                    )
+                    return
 
                 if not response.candidates:
                     if on_log:
                         on_log("error", f"Gemini returned no candidates even after retry at turn {turn + 1}")
-                    final_text = "Error: Gemini returned no candidates (after retry)"
-                    break
+                    yield RunCompleted(final_text="Error: Gemini returned no candidates (after retry)")
+                    return
 
             candidate = response.candidates[0]
             contents.append(candidate.content)
@@ -341,9 +365,14 @@ class GeminiCUClient:
                 final_text = turn_text
                 if on_log:
                     on_log("info", f"Gemini CU completed: {final_text[:200]}")
-                if on_turn:
-                    on_turn(CUTurnRecord(turn=turn + 1, model_text=turn_text, actions=[]))
-                break
+                yield RunCompleted(final_text=final_text)
+                return
+
+            yield ModelTurnStarted(
+                turn=turn + 1,
+                model_text=turn_text,
+                pending_tool_uses=len(function_calls),
+            )
 
             # Execute each function call
             results: list[CUActionResult] = []
@@ -359,7 +388,9 @@ class GeminiCUClient:
                 if "safety_decision" in args:
                     sd = args.pop("safety_decision")
                     if isinstance(sd, dict) and sd.get("decision") == "require_confirmation":
-                        confirmed = await _invoke_safety(on_safety, sd.get("explanation", ""))
+                        confirmed = yield SafetyRequired(
+                            explanation=str(sd.get("explanation", "")),
+                        )
                         if not confirmed:
                             if on_log:
                                 on_log("warning", f"Safety denied for {fc.name}")
@@ -383,15 +414,21 @@ class GeminiCUClient:
                 screenshot_bytes = b""
 
             screenshot_b64 = base64.standard_b64encode(screenshot_bytes).decode() if screenshot_bytes else ""
-            if on_turn:
-                on_turn(CUTurnRecord(
-                    turn=turn + 1, model_text=turn_text,
-                    actions=results, screenshot_b64=screenshot_b64 or None,
-                ))
+
+            if terminated and not results:
+                yield RunCompleted(final_text="Agent terminated: safety confirmation denied.")
+                return
+
+            yield ToolBatchCompleted(
+                turn=turn + 1,
+                model_text=turn_text,
+                results=results,
+                screenshot_b64=screenshot_b64 or None,
+            )
 
             if terminated:
-                final_text = "Agent terminated: safety confirmation denied."
-                break
+                yield RunCompleted(final_text="Agent terminated: safety confirmation denied.")
+                return
 
             # Build FunctionResponses with inline screenshot per Gemini CU docs:
             # https://ai.google.dev/gemini-api/docs/computer-use
@@ -435,7 +472,8 @@ class GeminiCUClient:
             if not function_responses:
                 if on_log:
                     on_log("warning", "No function responses to send; ending loop")
-                break
+                yield RunCompleted(final_text=turn_text or "Gemini returned no function responses.")
+                return
 
             contents.append(
                 types.Content(
@@ -446,6 +484,70 @@ class GeminiCUClient:
 
         if _turn_start is not None and on_log:
             on_log("info", f"turn_duration_ms={int((time.monotonic()-_turn_start)*1000)} provider=google model={self._model}")
+        yield RunCompleted(
+            final_text=f"Gemini CU reached the turn limit ({turn_limit}) without a final response.",
+        )
+
+    async def run_loop(
+        self,
+        goal: str,
+        executor: ActionExecutor,
+        *,
+        turn_limit: int = DEFAULT_TURN_LIMIT,
+        on_safety: Callable[[str], bool] | None = None,
+        on_turn: Callable[[CUTurnRecord], None] | None = None,
+        on_log: Callable[[str, str], None] | None = None,
+    ) -> str:
+        """Drive the native iterator while preserving the legacy callback API."""
+        final_text = ""
+        pending_turn_text = ""
+        pending_event: TurnEvent | None = None
+
+        agen = self.iter_turns(
+            goal,
+            executor,
+            turn_limit=turn_limit,
+            on_log=on_log,
+        )
+
+        while True:
+            try:
+                if pending_event is not None:
+                    event = pending_event
+                    pending_event = None
+                else:
+                    event = await agen.__anext__()
+            except StopAsyncIteration:
+                break
+
+            if isinstance(event, ModelTurnStarted):
+                pending_turn_text = event.model_text
+                continue
+
+            if isinstance(event, SafetyRequired):
+                confirmed = await _invoke_safety(on_safety, event.explanation)
+                try:
+                    pending_event = await agen.asend(confirmed)
+                except StopAsyncIteration:
+                    if not final_text and not confirmed:
+                        final_text = "Agent terminated: safety confirmation denied."
+                    break
+                continue
+
+            if isinstance(event, ToolBatchCompleted):
+                if on_turn:
+                    on_turn(CUTurnRecord(
+                        turn=event.turn,
+                        model_text=event.model_text or pending_turn_text,
+                        actions=event.results,
+                        screenshot_b64=event.screenshot_b64,
+                    ))
+                pending_turn_text = ""
+                continue
+
+            if isinstance(event, RunCompleted):
+                final_text = event.final_text
+
         return final_text
 
 
