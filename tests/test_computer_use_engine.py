@@ -109,8 +109,8 @@ class TestLookupClaudeCUConfig:
         assert tv == "computer_20251124"
         assert bf == "computer-use-2025-11-24"
 
-    def test_opus_46_returns_config(self):
-        tv, bf = _lookup_claude_cu_config("claude-opus-4-6")
+    def test_opus_47_returns_config(self):
+        tv, bf = _lookup_claude_cu_config("claude-opus-4-7")
         assert tv == "computer_20251124"
         assert bf == "computer-use-2025-11-24"
 

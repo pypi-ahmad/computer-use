@@ -58,8 +58,7 @@ class TestModelPolicy:
                 assert isinstance(m["cu_betas"], list) and len(m["cu_betas"]) > 0
 
     def test_gemini_31_pro_is_cu_capable(self, models):
-        """gemini-3.1-pro-preview is CU-capable (built-in, supersedes
-        discontinued gemini-3-pro-preview as of 2026-03-09)."""
+        """gemini-3.1-pro-preview is CU-capable (built-in)."""
         for m in models:
             if m["model_id"] == "gemini-3.1-pro-preview":
                 assert m["supports_computer_use"] is True, \
@@ -76,9 +75,9 @@ class TestModelPolicy:
                 assert m["supports_computer_use"] is True
                 assert m["cu_tool_version"] == "computer_20251124"
 
-    def test_claude_opus_46_is_cu_capable(self, models):
+    def test_claude_opus_47_is_cu_capable(self, models):
         for m in models:
-            if m["model_id"] == "claude-opus-4-6":
+            if m["model_id"] == "claude-opus-4-7":
                 assert m["supports_computer_use"] is True
                 assert m["cu_tool_version"] == "computer_20251124"
 
