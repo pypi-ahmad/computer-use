@@ -363,7 +363,7 @@ class OpenAICUClient:
         y = payload.get("y")
         px = int(x) if isinstance(x, (int, float)) else None
         py = int(y) if isinstance(y, (int, float)) else None
-        delta_x = payload.get("delta_x", payload.get("deltaX", 0))
+        delta_x = payload.get("delta_x", payload.get("deltaX", payload.get("scroll_x", 0)))
         delta_y = payload.get("delta_y", payload.get("deltaY", payload.get("scroll_y", 0)))
         dx = int(delta_x) if isinstance(delta_x, (int, float)) else 0
         dy = int(delta_y) if isinstance(delta_y, (int, float)) else 0
