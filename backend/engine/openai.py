@@ -37,14 +37,23 @@ class OpenAICUClient:
     returns screenshots through ``computer_call_output`` items.
     """
 
-    VALID_REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh")
+    # Canonical values per the OpenAI Responses API (April 2026).
+    VALID_REASONING_EFFORTS = ("minimal", "low", "medium", "high")
+    # Legacy aliases from earlier SDKs — accepted on input and mapped
+    # to the canonical enum before the request leaves the process.
+    # Passing ``none`` / ``xhigh`` to the live API returns HTTP 400.
+    _LEGACY_EFFORT_ALIASES = {"none": "minimal", "xhigh": "high"}
 
     def __init__(
         self,
         api_key: str,
         model: str = "gpt-5.4",
         system_prompt: str | None = None,
-        reasoning_effort: str = "low",
+        # CU-mode floor is ``high`` per the April 2026 OpenAI CU guide
+        # ("high is the floor for agentic/computer-use work"). The
+        # server-facing API still lets the user override (falling back
+        # to env + "high" for non-CU paths).
+        reasoning_effort: str = "high",
     ):
         # Prefer the native async client when available. Falling back to
         # the sync client behind ``asyncio.to_thread`` used to burn a
@@ -66,8 +75,14 @@ class OpenAICUClient:
         self._client = AsyncOpenAI(**kwargs)
         self._model = model
         self._system_prompt = system_prompt or ""
+        # Map legacy aliases (``none`` / ``xhigh``) → canonical, then
+        # fall back to ``high`` (the CU floor) on anything unknown so
+        # the wire never carries a value the API will 400 on.
+        reasoning_effort = self._LEGACY_EFFORT_ALIASES.get(
+            reasoning_effort, reasoning_effort,
+        )
         if reasoning_effort not in self.VALID_REASONING_EFFORTS:
-            reasoning_effort = "low"
+            reasoning_effort = "high"
         self._reasoning_effort = reasoning_effort
 
     async def _create_response(self, *, on_log: "Callable[[str, str], None] | None" = None, **kwargs: Any) -> Any:
