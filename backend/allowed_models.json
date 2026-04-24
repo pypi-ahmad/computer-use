@@ -14,8 +14,8 @@
       "provider": "google",
       "model_id": "gemini-3.1-pro-preview",
       "display_name": "Gemini 3.1 Pro Preview",
-      "supports_computer_use": false,
-      "notes": "Stronger reasoning Gemini model. CU support unconfirmed — not listed in official CU docs as of 2026-03-11."
+      "supports_computer_use": true,
+      "notes": "Gemini 3.1 Pro with built-in Computer Use (verified 2026-04-24 against current ai.google.dev docs). No separate CU-only model is required."
     },
     {
       "provider": "anthropic",
