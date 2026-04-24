@@ -81,13 +81,54 @@ ENVIRONMENT:
 - Screenshots are captured after each action and sent back to you automatically.
 
 INTERACTION RULES:
-1. Analyse each screenshot carefully before acting.
-2. Click precisely at the CENTER of UI elements — avoid edges.
+1. Analyse each screenshot carefully before acting. Think step by step about
+   where to click, what to type, and what the expected outcome should be.
+2. Double-check target coordinates: click precisely at the CENTER of UI
+   elements — avoid edges. Verify the element you intend to interact with
+   is actually visible before acting.
 3. Coordinates are real pixel values matching the reported display dimensions.
+4. Verify before returning: re-read the latest screenshot to confirm the
+   action had the intended effect before declaring the task complete.
 
 COMPLETION:
 - Do ONLY what the user literally asked. Do not invent follow-up steps,
   exploration, verification, or "while I'm here" helpfulness.
+- As soon as the literal request is satisfied, STOP emitting tool calls and
+  reply with a single short sentence stating the result. The next turn MUST
+  be text only.
+- If the task is ambiguous, stop after the most conservative interpretation
+  and say so in text rather than guessing further actions.
+- If you are stuck after 3 attempts at the same action, explain the blocker
+  in text and stop.
+
+SAFETY:
+- Do NOT interact with CAPTCHAs or security challenges unless you receive explicit
+  user confirmation.
+- Do NOT enter passwords, credit card numbers, or other sensitive data unless the
+  task explicitly requires it and you have user confirmation.
+"""
+
+# Opus 4.7 is more literal than 4.6 and performs self-verification natively
+# via adaptive thinking.  Per the 2026-04 Anthropic migration guide, strip
+# the 4.6-era "think step by step" / "double-check" / "verify before
+# returning" scaffolding — Opus 4.7 does these on its own and interprets
+# explicit scaffolding too literally (it will add extra screenshot turns
+# and narrate intent in ways that waste tokens and confuse the outer loop).
+SYSTEM_PROMPT_CLAUDE_CU_OPUS_47 = """\
+You are a computer-using agent that completes tasks by interacting with the screen.
+
+You have native computer_use capabilities. Use your built-in computer tool for all
+UI interactions — do NOT describe actions in text; emit tool calls.
+
+ENVIRONMENT:
+- Screen resolution: {viewport_width}x{viewport_height} desktop workspace.
+- Applications run inside an X11 desktop environment in Docker.
+- Coordinates are real pixel values matching the reported display dimensions.
+- Screenshots are captured after each action and sent back to you automatically.
+
+COMPLETION:
+- Do ONLY what the user literally asked. Do not invent follow-up steps,
+  exploration, or "while I'm here" helpfulness.
 - As soon as the literal request is satisfied, STOP emitting tool calls and
   reply with a single short sentence stating the result. The next turn MUST
   be text only.
@@ -147,6 +188,7 @@ def get_system_prompt(
     mode: str = "desktop",
     *,
     provider: str = "google",
+    model: str | None = None,
     **_kwargs: Any,
 ) -> str:
     """Return the system prompt for the computer_use engine.
@@ -161,6 +203,12 @@ def get_system_prompt(
     provider:
         ``"google"``, ``"anthropic"``, or ``"openai"`` — selects the
         provider-appropriate prompt template.
+    model:
+        Optional model id.  When ``provider == "anthropic"`` and the
+        model is Claude Opus 4.7, returns the lean Opus-4.7 prompt
+        variant (no self-verification scaffolding) per the migration
+        guide recommendation.  Other Claude models keep the legacy
+        prompt with scaffolding.
     **_kwargs:
         Accepted for backward compatibility (e.g. ``discovered_tools``
         from old callers) but ignored.
@@ -186,7 +234,13 @@ def get_system_prompt(
     vh = str(_cfg.screen_height)
 
     if provider == "anthropic":
-        template = SYSTEM_PROMPT_CLAUDE_CU
+        # Opus 4.7 gets the lean prompt; 4.6 / Sonnet 4.6 / legacy keep the
+        # original scaffolded prompt.
+        from backend.engine import _is_opus_47
+        if model and _is_opus_47(model):
+            template = SYSTEM_PROMPT_CLAUDE_CU_OPUS_47
+        else:
+            template = SYSTEM_PROMPT_CLAUDE_CU
     elif provider == "openai":
         template = SYSTEM_PROMPT_OPENAI_CU
     else:
