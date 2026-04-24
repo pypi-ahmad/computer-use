@@ -90,3 +90,51 @@ async def test_fix3_claude_initial_screenshot_guard_and_happy_path():
 
     assert captured, "Anthropic SDK must be reached on the happy path"
     assert final_text == ""
+
+
+@pytest.mark.asyncio
+async def test_fix4_claude_opus_47_uses_adaptive_thinking_only():
+    """Opus 4.7 uses adaptive thinking; earlier Claude models keep budgeted mode."""
+    from backend.engine import ClaudeCUClient
+
+    async def capture_request(model: str) -> dict:
+        captured: dict = {}
+
+        class FakeResponse:
+            stop_reason = "end_turn"
+            content: list = []
+
+        async def fake_create(**kwargs):
+            captured.update(kwargs)
+            return FakeResponse()
+
+        class FakeMessages:
+            create = staticmethod(fake_create)
+
+        class FakeBeta:
+            messages = FakeMessages()
+
+        class FakeClient:
+            beta = FakeBeta()
+
+        with patch("anthropic.AsyncAnthropic") as anthropic_async:
+            anthropic_async.return_value = FakeClient()
+            client = ClaudeCUClient(api_key="k", model=model)
+            await client.run_loop(
+                "noop",
+                _FakeExecutor(screenshot=_minimal_png()),
+                turn_limit=1,
+            )
+
+        return captured
+
+    opus_47 = await capture_request("claude-opus-4-7")
+    sonnet_46 = await capture_request("claude-sonnet-4-6")
+    opus_46 = await capture_request("claude-opus-4-6")
+
+    assert opus_47["thinking"] == {"type": "adaptive"}
+    assert "temperature" not in opus_47
+    assert "top_p" not in opus_47
+    assert "top_k" not in opus_47
+    assert sonnet_46["thinking"] == {"type": "enabled", "budget_tokens": 4096}
+    assert opus_46["thinking"] == {"type": "enabled", "budget_tokens": 4096}
