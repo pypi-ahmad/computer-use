@@ -62,11 +62,31 @@ class Config:
 
     # WebSocket
     ws_screenshot_interval: float = 1.5
+    # P-PUB — suspend periodic screenshot capture when zero clients
+    # are subscribed (e.g. every viewer is on the noVNC interactive
+    # surface). The single per-process publisher task stays alive but
+    # goes idle until a subscriber re-registers. Set to False to keep
+    # the old "always capture" behaviour; the loop still dedupes so
+    # bandwidth impact is minimal either way.
+    ws_screenshot_suspend_when_idle: bool = True
 
     # Engine action timings (seconds)
     ui_settle_delay: float = 0.3
     screenshot_settle_delay: float = 0.12
     post_action_screenshot_delay: float = 5.0
+
+    # Container readiness (D-READY) — total budget for the in-container
+    # agent service's ``/health`` endpoint to respond with 200 after
+    # ``docker run`` returns. When exhausted, ``_wait_for_service``
+    # returns ``ready=False`` — the caller MUST NOT assume the sandbox
+    # is usable just because the container process is alive.
+    container_ready_timeout: float = 30.0
+    # Initial backoff between health-check attempts. Each attempt
+    # doubles the delay (capped at ``container_ready_poll_cap``) and
+    # adds 0.5–1.0× jitter so multiple concurrent starts don't
+    # synchronise into a thundering herd against the agent service.
+    container_ready_poll_base: float = 0.5
+    container_ready_poll_cap: float = 3.0
 
     @property
     def agent_service_url(self) -> str:
@@ -114,6 +134,15 @@ class Config:
             ),
             post_action_screenshot_delay=_clamp_float(
                 "CUA_POST_ACTION_SCREENSHOT_DELAY", cls.post_action_screenshot_delay, lo=0.0, hi=60.0,
+            ),
+            container_ready_timeout=_clamp_float(
+                "CUA_CONTAINER_READY_TIMEOUT", cls.container_ready_timeout, lo=1.0, hi=300.0,
+            ),
+            container_ready_poll_base=_clamp_float(
+                "CUA_CONTAINER_READY_POLL_BASE", cls.container_ready_poll_base, lo=0.05, hi=10.0,
+            ),
+            container_ready_poll_cap=_clamp_float(
+                "CUA_CONTAINER_READY_POLL_CAP", cls.container_ready_poll_cap, lo=0.1, hi=30.0,
             ),
         )
 

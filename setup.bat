@@ -19,6 +19,14 @@ if errorlevel 1 (
   exit /b 1
 )
 
+REM Floor: 3.11 — matches tooling (ruff target-version, mypy python_version)
+REM and the lower bound of the CI test matrix.
+python -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)"
+if errorlevel 1 (
+  echo [ERROR] Python 3.11+ is required.
+  exit /b 1
+)
+
 where node >nul 2>&1
 if errorlevel 1 (
   echo [ERROR] Node.js not found.
