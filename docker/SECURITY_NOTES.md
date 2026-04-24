@@ -130,25 +130,17 @@ still the union of Anthropic's reference (`xvfb`, `xdotool`,
 XFCE4 stack — nothing was removed.
 
 
-## Viewport default (1440x900)
+### Sonnet 4.6 lineage note
 
-The sandbox ships with a 1440x900 display by default — the
-union-of-best-practice viewport across all four CU providers:
+Claude Sonnet 4.6 shares Opus 4.7's full-desktop sandbox requirements:
+the same `computer_20251124` tool version, the same
+`computer-use-2025-11-24` beta header, and the same Anthropic
+computer-use-demo package baseline.  No Sonnet-4.6-specific
+packages or viewport overrides exist in the image.
 
-- **Anthropic Opus 4.7** — native 1:1 pixel coordinates; opt into the
-  2576px long-edge ceiling (up to 2560x1600) by setting both
-  CUA_OPUS47_HIRES=1 on the backend and a larger SCREEN_WIDTH /
-  SCREEN_HEIGHT (or WIDTH / HEIGHT) at docker run time.
-- **Anthropic Sonnet 4.6 / Opus 4.6** — models downscale internally;
-  1440x900 is an effective no-op, so the accepted tradeoff is 1:1
-  coordinates everywhere else.
-- **OpenAI GPT-5.4** — the Responses API computer-tool guide prefers
-  1440x900 / 1600x900; 1440x900 is the lower common denominator.
-- **Google Gemini 3 Flash** — CU guide recommends exactly 1440x900
-  for best coordinate accuracy with the normalized 0-999 grid.
-
-CUA_OPUS47_HIRES is strictly opt-in and is ignored for any model
-other than claude-opus-4-7 — there is no point in running a
-2560x1600 framebuffer for a model that downsamples to 1568px
-internally.  See the `\` branch in
-`backend/engine/claude.py` for the gate.
+Sonnet 4.6 does **not** inherit Opus 4.7's 2576px / 1:1 coordinate
+improvements — it keeps the 1568 px / 1.15 MP ceiling and downscales
+anything larger internally.  `CUA_OPUS47_HIRES` is gated on
+`_is_opus_47(model)` in `backend/engine/claude.py` and is
+intentionally ignored for Sonnet 4.6 so the extra framebuffer tokens
+cost nothing in coordinate accuracy.
