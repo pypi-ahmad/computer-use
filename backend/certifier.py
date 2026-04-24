@@ -30,7 +30,12 @@ from typing import Any, Dict, List, Set
 logger = logging.getLogger(__name__)
 
 _SCHEMA_FILENAME = "engine_capabilities.json"
-_DEFAULT_SCHEMA_PATH = Path(__file__).resolve().parent.parent / _SCHEMA_FILENAME
+# The schema file ships alongside this module inside ``backend/`` — use
+# ``parent`` (not ``parent.parent``). The previous resolution pointed at
+# the repo root and broke ``python -m backend.certifier`` on any clean
+# checkout. Kept aligned with ``backend.engine_capabilities`` so the
+# two discover the same file.
+_DEFAULT_SCHEMA_PATH = Path(__file__).resolve().parent / _SCHEMA_FILENAME
 
 # ── Binary mappings derived from environment_requirements prose ───────────────
 

@@ -63,6 +63,66 @@ WINDOW_NORMALIZE_Y = int(os.environ.get("CUA_WINDOW_Y", "80"))
 WINDOW_NORMALIZE_W = int(os.environ.get("CUA_WINDOW_W", "560"))
 WINDOW_NORMALIZE_H = int(os.environ.get("CUA_WINDOW_H", "760"))
 
+# ── Attack-surface reduction (PR <docker-action-trim>) ───────────────────────
+#
+# The engine (``backend/engine/__init__.py::DesktopExecutor``) emits a
+# fixed set of action names on ``POST /action``. Everything outside that
+# set is drift from earlier experiments — window management, browser-tab
+# shortcuts, shell-exec, region screenshots, upload helpers. Serving
+# them by default grows the attack surface and review burden without
+# improving live behaviour.
+#
+# The default posture is minimal: only ``_ENGINE_ACTIONS`` reach the
+# dispatcher. Setting ``CUA_ENABLE_LEGACY_ACTIONS=1`` opts in to the
+# legacy handlers for debug / migration flows. Unknown or disabled
+# action names return HTTP 404 (not 400) so callers get an unambiguous
+# signal rather than a generic "failed" response.
+#
+# DO NOT expand ``_ENGINE_ACTIONS`` without a matching change to the
+# engine adapters and a short note in ``docker/SECURITY_NOTES.md``.
+_ENGINE_ACTIONS: frozenset[str] = frozenset({
+    "click", "double_click", "right_click", "middle_click", "hover",
+    "type", "hotkey", "key", "keydown", "keyup",
+    "scroll", "left_mouse_down", "left_mouse_up", "drag",
+    "open_url",
+})
+
+_LEGACY_ACTIONS: frozenset[str] = frozenset({
+    # Window management (wmctrl / xdotool)
+    "focus_window", "window_activate", "close_window", "search_window",
+    "window_minimize", "window_maximize", "window_move", "window_resize",
+    "focus_click", "focus_mouse", "mousemove",
+    # App launch
+    "open_app", "open_terminal",
+    # Clipboard / alternate input
+    "paste", "copy", "type_slow",
+    # Form helpers (desktop approximation)
+    "fill", "clear_input", "select_option",
+    # Browser-like navigation via keyboard shortcuts
+    "reload", "go_back", "go_forward",
+    "new_tab", "close_tab", "switch_tab", "scroll_to",
+    # DOM / JS stubs (never implemented for desktop)
+    "get_text", "find_element", "evaluate_js", "wait_for",
+    # Scrolling directional variants
+    "scroll_up", "scroll_down",
+    # Vision
+    "screenshot", "screenshot_full", "screenshot_region",
+    # Shell / wait
+    "run_command", "wait",
+})
+
+LEGACY_ACTIONS_ENABLED = _env_bool("CUA_ENABLE_LEGACY_ACTIONS", False)
+
+
+def _is_action_enabled(action: str) -> bool:
+    """Return True when *action* is served by this build."""
+    if action in _ENGINE_ACTIONS:
+        return True
+    if LEGACY_ACTIONS_ENABLED and action in _LEGACY_ACTIONS:
+        return True
+    return False
+
+
 # ── Security constants ────────────────────────────────────────────────────────
 
 _MAX_BODY_SIZE = 1_000_000  # 1 MB request body limit
@@ -75,7 +135,15 @@ _MAX_BODY_SIZE = 1_000_000  # 1 MB request body limit
 # block longer than an X11 helper.
 _SUBPROCESS_TIMEOUT = 10
 
-# Dangerous shell patterns blocked in run_command (defense-in-depth)
+# Dangerous shell patterns blocked in run_command (defense-in-depth).
+# Enforcement lives in :func:`_blocked_cmd_match`, which the
+# ``run_command`` dispatch calls AFTER the allowlist check and BEFORE
+# any subprocess invocation. Patterns are matched case-insensitively
+# against both the executable and the full space-joined argv so
+# obfuscation like ``bash -c 'RM -RF /'`` or ``python -c "import os;
+# os.system('shutdown')"`` is caught as well as a bare match on
+# ``argv[0]``. This list MUST remain the single source of truth —
+# tests reach in via ``docker/agent_service._BLOCKED_CMD_PATTERNS``.
 _BLOCKED_CMD_PATTERNS = (
     "rm -rf /",
     "rm -rf /*",
@@ -91,6 +159,27 @@ _BLOCKED_CMD_PATTERNS = (
     "mv /* ",
     "mv / ",
 )
+
+
+def _blocked_cmd_match(args: list[str]) -> str | None:
+    """Return the first blocked pattern matching *args*, or None.
+
+    The match is case-insensitive and runs against the executable
+    (``args[0]``) AND the space-joined argv. Joining is required so a
+    dangerous phrase hidden in a later arg (``bash -c 'rm -rf /'``,
+    ``python -c "import os; os.system('shutdown')"``) still trips the
+    gate — ``argv[0]``-only checks are what we're trying to strengthen
+    away from. Returning the matched pattern lets the caller log
+    ``pattern=<name>`` at WARN without echoing the full argv (which
+    may contain secrets from prompt-injected commands).
+    """
+    if not args:
+        return None
+    haystack = (args[0] + " " + " ".join(args[1:])).lower()
+    for pattern in _BLOCKED_CMD_PATTERNS:
+        if pattern.lower() in haystack:
+            return pattern
+    return None
 
 # Allowed directories for file upload operations
 _UPLOAD_ALLOWED_PREFIXES = ("/tmp", "/app", "/home")
@@ -1163,10 +1252,25 @@ class AgentHandler(BaseHTTPRequestHandler):
         body = self._read_body()
 
         if self.path == "/action":
-            # Handle 'wait' outside the lock so it doesn't block
-            # screenshots and other concurrent requests for up to 10 s.
+            # Attack-surface gate: unknown or legacy-disabled actions
+            # return HTTP 404 BEFORE any handler runs, so callers get a
+            # clean "not found" signal instead of a generic failure
+            # response. See ``_ENGINE_ACTIONS`` above.
             raw_action = body.get("action", "")
             resolved = resolve_action(raw_action)
+            if not _is_action_enabled(resolved):
+                logger.info(
+                    "action rejected: action=%r resolved=%r legacy_enabled=%s",
+                    raw_action, resolved, LEGACY_ACTIONS_ENABLED,
+                )
+                self._respond(404, {
+                    "success": False,
+                    "error": f"Unknown or disabled action: {resolved!r}",
+                })
+                return
+
+            # Handle 'wait' outside the lock so it doesn't block
+            # screenshots and other concurrent requests for up to 10 s.
             if resolved == "wait":
                 dur = 2.0
                 t = body.get("text", "")
@@ -1472,6 +1576,21 @@ class AgentHandler(BaseHTTPRequestHandler):
             if not args:
                 return {"success": False, "message": "Empty command"}
             if args[0] not in _ALLOWED_COMMANDS:
+                return {"success": False, "message": f"Command not allowed: {args[0]}. Permitted: {', '.join(sorted(_ALLOWED_COMMANDS))}"}
+            # Defense-in-depth: even an allowlisted executable can be
+            # weaponised via an inline script (``bash -c 'rm -rf /'``,
+            # ``python -c "...os.system('shutdown')..."``). Scan the
+            # full argv against ``_BLOCKED_CMD_PATTERNS``. On a hit,
+            # return the SAME error shape as the allowlist denial so
+            # clients can't enumerate which gate fired. Log the matched
+            # pattern name but NOT the argv — a prompt-injected command
+            # could have pasted a secret in there.
+            matched = _blocked_cmd_match(args)
+            if matched is not None:
+                logger.warning(
+                    "run_command blocked: pattern=%r executable=%s",
+                    matched, args[0],
+                )
                 return {"success": False, "message": f"Command not allowed: {args[0]}. Permitted: {', '.join(sorted(_ALLOWED_COMMANDS))}"}
             # S5: wrap in prlimit when available so a runaway child
             # can't burn unbounded CPU / memory inside the container.

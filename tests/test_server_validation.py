@@ -141,6 +141,9 @@ class TestAgentStartValidation:
              patch.dict("backend.server._active_loops", {}, clear=True), \
              patch("backend.server.resolve_api_key", return_value=("sk-test-openai", "ui")), \
              patch("backend.server.start_container", new_callable=AsyncMock, return_value=True), \
+             patch("backend.server.get_container_state",
+                   return_value={"container": "running", "agent": "ready",
+                                 "last_health_error": None}), \
              patch("backend.server.AgentLoop", return_value=fake_loop) as mock_agent_loop, \
              patch("backend.server.asyncio.create_task", side_effect=fake_create_task):
             resp = client.post("/api/agent/start", json={
@@ -182,6 +185,9 @@ class TestAgentStartValidation:
              patch.dict("backend.server._active_loops", {}, clear=True), \
              patch("backend.server.resolve_api_key", return_value=("sk-test-openai", "ui")), \
              patch("backend.server.start_container", new_callable=AsyncMock, return_value=True), \
+             patch("backend.server.get_container_state",
+                   return_value={"container": "running", "agent": "ready",
+                                 "last_health_error": None}), \
              patch("backend.server.AgentLoop", return_value=fake_loop), \
              patch("backend.server.asyncio.create_task", side_effect=fake_create_task):
             resp = client.post("/api/agent/start", json={

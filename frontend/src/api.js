@@ -106,10 +106,75 @@ export async function startAgent(
 
 /**
  * Stops a running agent session.
+ *
+ * Returns a structured result instead of throwing so the caller can
+ * distinguish three outcomes:
+ *   - ``confirmedStopped: true``        → backend explicitly confirmed ``status: "stopped"``.
+ *   - ``sessionGone: true``             → session already gone (positive confirmation, currently 404).
+ *   - everything else                   → transient / ambiguous failure; run may still be alive.
+ *
+ * The caller (see ``useSessionController``) must only clear local
+ * ``sessionId`` / ``agentRunning`` state in the first two cases. On a
+ * transient failure the session handle must be preserved so the user
+ * can retry — otherwise a silent-running agent keeps spending tokens.
+ *
+ * @param {string} sessionId
  * @param {AbortSignal} [signal]
+ * @returns {Promise<{
+ *   ok: boolean,
+ *   status: number,
+ *   data: any,
+ *   confirmedStopped: boolean,
+ *   sessionGone: boolean,
+ *   error?: string,
+ * }>}
  */
 export async function stopAgent(sessionId, signal) {
-  return request(`/agent/stop/${sessionId}`, { method: 'POST', signal })
+  try {
+    const res = await fetch(`${API_BASE}/agent/stop/${sessionId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal,
+    })
+    const ct = res.headers.get('content-type') || ''
+    let data = null
+    try {
+      data = ct.includes('application/json') ? await res.json() : await res.text()
+    } catch {
+      data = null
+    }
+    const responseStatus = data && typeof data === 'object' ? data.status : null
+    if (!res.ok) {
+      const error = (data && typeof data === 'object' && data.error) || (typeof data === 'string' && data) || res.statusText
+      return {
+        ok: false,
+        status: res.status,
+        data,
+        error,
+        confirmedStopped: false,
+        sessionGone: res.status === 404,
+      }
+    }
+    return {
+      ok: true,
+      status: res.status,
+      data,
+      confirmedStopped: responseStatus === 'stopped',
+      sessionGone: false,
+    }
+  } catch (e) {
+    // Network error, aborted request, DNS failure, etc. status=0
+    // signals "we could not even talk to the backend" — caller must
+    // treat this as ambiguous and preserve sessionId.
+    return {
+      ok: false,
+      status: 0,
+      data: null,
+      error: String(e?.message || e),
+      confirmedStopped: false,
+      sessionGone: false,
+    }
+  }
 }
 
 /** Fetches the current or recently-finished status for an agent session. */

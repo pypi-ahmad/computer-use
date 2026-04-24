@@ -21,6 +21,11 @@ command -v docker >/dev/null 2>&1 || error "Docker is required. Install: https:/
 command -v python3 >/dev/null 2>&1 || error "Python 3 is required."
 command -v node >/dev/null 2>&1 || error "Node.js is required."
 
+# Floor: 3.11 — matches tooling (ruff ``target-version``, mypy
+# ``python_version``) and the lower bound of the CI test matrix.
+python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' \
+  || error "Python 3.11+ is required (found: $(python3 -V 2>&1))."
+
 docker info >/dev/null 2>&1 || error "Docker daemon is not running. Start Docker and retry."
 
 info "All prerequisites met."

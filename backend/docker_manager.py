@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import random
 import re
 import secrets
 import stat
 import tempfile
+import time
 
 import httpx
 
@@ -24,6 +26,21 @@ _SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.:/-]*$")
 # ``docker rm -f`` against a partially-started container. All public
 # lifecycle entry points must acquire this lock.
 _LIFECYCLE_LOCK = asyncio.Lock()
+
+# D-READY — most recent readiness observation, updated by
+# :func:`_wait_for_service` and read by :func:`get_state` (and the
+# ``/api/container/status`` REST endpoint). Plain dict instead of a
+# dataclass so callers and tests can mutate or patch it cheaply.
+#
+# ``container``  — "running" | "stopped" | "starting"
+# ``agent``      — "ready"   | "unready" | "unknown"
+# ``last_health_error`` — short string describing the most recent
+#                  failed ``/health`` probe, or None on success/idle.
+_readiness_state: dict[str, str | None] = {
+    "container": "stopped",
+    "agent": "unknown",
+    "last_health_error": None,
+}
 
 
 def _ensure_agent_token() -> str:
@@ -137,8 +154,11 @@ async def _start_container_locked(container: str) -> bool:
     """Inner start routine. Caller must hold :data:`_LIFECYCLE_LOCK`."""
     # Check if container is running
     if await is_container_running(container):
-        logger.info("Container %s is already running", container)
-        return True
+        logger.info(
+            "Container %s is already running; confirming agent service readiness",
+            container,
+        )
+        return await _wait_for_service(container, already_running=True)
 
     # Check if container exists but is stopped
     rc, _, _ = await _run(["docker", "inspect", container])
@@ -196,38 +216,118 @@ async def _start_container_locked(container: str) -> bool:
 
     if rc != 0:
         logger.error("Failed to start container: %s", err)
+        _readiness_state["container"] = "stopped"
+        _readiness_state["agent"] = "unknown"
+        _readiness_state["last_health_error"] = None
         return False
 
     ready = await _wait_for_service(container)
     if not ready:
         # Tear down the half-started container so the next attempt starts clean
         logger.warning("Container %s never became ready; removing", container)
-        await _run(["docker", "rm", "-f", container])
+        rm_rc, _, rm_err = await _run(["docker", "rm", "-f", container])
+        if rm_rc != 0:
+            logger.warning(
+                "Could not remove unready container %s: %s",
+                container,
+                rm_err.strip() or "docker rm failed",
+            )
+            _readiness_state["container"] = (
+                "running" if await is_container_running(container) else "stopped"
+            )
+        else:
+            _readiness_state["container"] = "stopped"
         return False
     return True
 
 
-async def _wait_for_service(container: str) -> bool:
-    """Wait for the agent service to become ready."""
-    logger.info("Waiting for container environment...")
-    for attempt in range(10):
-        await asyncio.sleep(2)
+async def _wait_for_service(container: str, *, already_running: bool = False) -> bool:
+    """Wait for the in-container agent service's ``/health`` to return 200.
+
+    D-READY — previously this function returned ``True`` whenever the
+    container process was still running after the poll loop, even if
+    the agent service never answered. That produced "session started"
+    in the UI followed by cryptic screenshot / action failures. The
+    new contract is strict:
+
+    * ``True``  — ``/health`` returned 200 within the budget.
+    * ``False`` — budget exhausted; caller MUST treat the sandbox as
+      unusable. The container process staying alive is NOT a positive
+      signal on its own.
+
+    Budget is :attr:`config.container_ready_timeout` (default 30 s).
+    Between attempts we sleep for an exponentially-growing delay with
+    0.5–1.0× jitter so parallel starts don't synchronise their probes.
+    Every failure updates :data:`_readiness_state` so :func:`get_state`
+    can report the most recent health error to operators.
+
+    When *already_running* is True, the caller is confirming readiness
+    for an existing container rather than waiting for a fresh boot.
+    That path stays idempotent (no Docker commands are issued) but no
+    longer conflates "container process exists" with "agent is ready".
+    """
+    deadline = time.monotonic() + config.container_ready_timeout
+    delay = config.container_ready_poll_base
+    attempt = 0
+    last_error: str | None = None
+    _readiness_state["container"] = "running" if already_running else "starting"
+    _readiness_state["agent"] = "unknown"
+    _readiness_state["last_health_error"] = None
+
+    logger.info(
+        "%s container %s agent service (budget=%.1fs)",
+        "Confirming" if already_running else "Waiting for",
+        container,
+        config.container_ready_timeout,
+    )
+    while True:
+        attempt += 1
         try:
             async with httpx.AsyncClient(timeout=3.0) as client:
                 resp = await client.get(f"{config.agent_service_url}/health")
                 if resp.status_code == 200:
-                    logger.info("Container %s is ready (agent service up)", container)
+                    logger.info(
+                        "Container %s is ready (agent service up, attempt=%d)",
+                        container, attempt,
+                    )
+                    _readiness_state["container"] = "running"
+                    _readiness_state["agent"] = "ready"
+                    _readiness_state["last_health_error"] = None
                     return True
-        except Exception:
-            pass
-        logger.debug("Waiting for agent service... (attempt %d)", attempt + 1)
+                last_error = f"HTTP {resp.status_code}"
+        except Exception as exc:  # httpx.ConnectError, timeouts, DNS, etc.
+            last_error = f"{type(exc).__name__}: {exc}"
+        _readiness_state["last_health_error"] = last_error
 
-    # Even if agent service isn't responding, container may still be usable
-    if await is_container_running(container):
-        logger.warning("Container running but agent service not confirmed healthy")
-        return True
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        # Exponential backoff with 0.5–1.0× jitter, capped at the
+        # remaining budget so we don't oversleep past the deadline.
+        sleep_for = min(
+            delay * (0.5 + random.random() * 0.5),
+            config.container_ready_poll_cap,
+            remaining,
+        )
+        logger.debug(
+            "Agent service not ready (attempt=%d, err=%s); retrying in %.2fs",
+            attempt, last_error, sleep_for,
+        )
+        await asyncio.sleep(sleep_for)
+        delay = min(delay * 2.0, config.container_ready_poll_cap)
 
-    logger.error("Container failed to become ready")
+    # Budget exhausted. Record the reason and report NOT ready — the
+    # caller (``_start_container_locked``) tears down the half-started
+    # container so the next attempt starts clean.
+    running = await is_container_running(container)
+    _readiness_state["container"] = "running" if running else "stopped"
+    _readiness_state["agent"] = "unready"
+    _readiness_state["last_health_error"] = last_error
+    logger.error(
+        "Container %s agent service failed health check within %.1fs "
+        "(attempts=%d, last_error=%s, container_running=%s)",
+        container, config.container_ready_timeout, attempt, last_error, running,
+    )
     return False
 
 
@@ -241,26 +341,78 @@ async def stop_container(name: str | None = None) -> bool:
         if rc != 0:
             logger.error("Failed to stop container: %s", err)
             return False
+        _readiness_state["container"] = "stopped"
+        _readiness_state["agent"] = "unknown"
+        _readiness_state["last_health_error"] = None
         return True
 
 
 async def get_container_status(name: str | None = None) -> dict:
-    """Return a dict with container running state and service health."""
+    """Return a dict with container running state and service health.
+
+    The ``ready`` key is the preferred readiness signal for callers
+    that gate new work (session creation, action dispatch) on the
+    sandbox being usable. It is True only when the container is
+    running AND ``/health`` currently returns 200. The legacy
+    ``running`` / ``agent_service`` keys are kept for backward
+    compatibility with the existing frontend status card.
+    """
     container = name or config.container_name
     running = await is_container_running(container)
 
     service_healthy = False
+    last_error: str | None = None
     if running:
         try:
             async with httpx.AsyncClient(timeout=3.0) as client:
                 resp = await client.get(f"{config.agent_service_url}/health")
                 service_healthy = resp.status_code == 200
-        except Exception:
-            pass
+                if not service_healthy:
+                    last_error = f"HTTP {resp.status_code}"
+        except Exception as exc:
+            last_error = f"{type(exc).__name__}: {exc}"
+
+    # Reflect the live probe into the cached readiness state so
+    # ``get_state()`` stays consistent with what this endpoint just
+    # returned. Do NOT overwrite ``last_health_error`` when the probe
+    # succeeded — preserve the last-known failure context while the
+    # service is healthy is unhelpful, so clear it.
+    _readiness_state["container"] = "running" if running else "stopped"
+    if running and service_healthy:
+        _readiness_state["agent"] = "ready"
+        _readiness_state["last_health_error"] = None
+    elif running:
+        _readiness_state["agent"] = "unready"
+        _readiness_state["last_health_error"] = last_error
+    else:
+        _readiness_state["agent"] = "unknown"
 
     return {
         "name": container,
         "running": running,
+        "ready": bool(running and service_healthy),
         "image": config.container_image,
         "agent_service": service_healthy,
+        "last_health_error": last_error,
     }
+
+
+def get_state() -> dict[str, str | None]:
+    """Return the most recent container/agent readiness snapshot.
+
+    Preferred accessor for server code that needs to decide whether
+    the sandbox is usable *right now* without paying for a fresh
+    subprocess + HTTP round-trip. Values are updated by
+    :func:`_wait_for_service` during startup and by
+    :func:`get_container_status` on every status poll.
+
+    Shape::
+
+        {
+            "container": "running" | "stopped" | "starting",
+            "agent":     "ready"   | "unready" | "unknown",
+            "last_health_error": str | None,
+        }
+    """
+    # Return a shallow copy so callers can't mutate module state.
+    return dict(_readiness_state)
