@@ -14,8 +14,8 @@
       "provider": "google",
       "model_id": "gemini-3.1-pro-preview",
       "display_name": "Gemini 3.1 Pro Preview",
-      "supports_computer_use": false,
-      "notes": "Stronger reasoning Gemini model. CU support unconfirmed — not listed in official CU docs as of 2026-03-11."
+      "supports_computer_use": true,
+      "notes": "Gemini 3.1 Pro with built-in Computer Use (verified 2026-04-24 against ai.google.dev — CU is built into 3.1 Pro; no separate CU-only model required). Use thinking_level=high for CU workloads. An alternate endpoint 'gemini-3.1-pro-preview-customtools' prioritizes custom tools over bash when a harness defines many custom tools."
     },
     {
       "provider": "anthropic",
@@ -34,15 +34,6 @@
       "cu_tool_version": "computer_20251124",
       "cu_betas": ["computer-use-2025-11-24"],
       "notes": "Claude Sonnet 4.6 — requires beta endpoint + computer_20251124 tool."
-    },
-    {
-      "provider": "anthropic",
-      "model_id": "claude-opus-4-6",
-      "display_name": "Claude Opus 4.6",
-      "supports_computer_use": true,
-      "cu_tool_version": "computer_20251124",
-      "cu_betas": ["computer-use-2025-11-24"],
-      "notes": "Claude Opus 4.6 — requires beta endpoint + computer_20251124 tool."
     },
     {
       "provider": "openai",
