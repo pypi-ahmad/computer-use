@@ -142,6 +142,10 @@ class ClaudeCUClient:
         tools = self._build_tools(scaled_w, scaled_h)
 
         screenshot_bytes = await executor.capture_screenshot()
+        if not screenshot_bytes or len(screenshot_bytes) < 100:
+            if on_log:
+                on_log("error", "Initial screenshot capture failed or returned empty bytes")
+            return "Error: Could not capture initial screenshot"
         screenshot_bytes, _, _ = resize_screenshot_for_claude(screenshot_bytes, scale)
         screenshot_b64 = base64.standard_b64encode(screenshot_bytes).decode()
 
