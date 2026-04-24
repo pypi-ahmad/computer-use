@@ -305,7 +305,9 @@ class AgentLoop:
             if cu_provider is None:
                 raise ValueError(f"Unsupported CU provider: {self._provider}")
             system_instruction = get_system_prompt(
-                "computer_use", self._mode, provider=self._provider,
+                "computer_use", self._mode,
+                provider=self._provider,
+                model=self.session.model,
             )
             engine = ComputerUseEngine(
                 provider=cu_provider,
@@ -464,7 +466,11 @@ class AgentLoop:
 
         cu_env = Environment.DESKTOP
 
-        system_instruction = get_system_prompt("computer_use", self._mode, provider=self._provider)
+        system_instruction = get_system_prompt(
+            "computer_use", self._mode,
+            provider=self._provider,
+            model=self.session.model,
+        )
 
         engine = ComputerUseEngine(
             provider=cu_provider,
