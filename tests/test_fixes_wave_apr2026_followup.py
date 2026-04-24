@@ -273,6 +273,23 @@ class TestScreenshotDetailOriginal:
         # detail must still be "original" even with safety checks present.
         assert payload["output"]["detail"] == "original"
 
+    def test_gpt54_screenshot_output_has_detail_original(self):
+        """Spec-named guard (April 2026 followup): every
+        ``computer_call_output`` emitted by the adapter's shared factory
+        must carry ``output.detail == "original"``. OpenAI's CU guide is
+        explicit that ``high`` / ``low`` image detail should never be
+        used for computer-use tasks."""
+        payload = _build_openai_computer_call_output(
+            "call_detail_guard", "Zm9v",
+        )
+        assert payload["output"]["detail"] == "original"
+        # And with safety acks — the detail must not regress on that path.
+        payload_with_acks = _build_openai_computer_call_output(
+            "call_detail_guard_2", "YmFy",
+            acknowledged_safety_checks=[{"id": "sc", "code": "c", "message": "m"}],
+        )
+        assert payload_with_acks["output"]["detail"] == "original"
+
 
 # ---------------------------------------------------------------------------
 # 4. phase preserved on assistant-message replay
@@ -310,6 +327,35 @@ class TestPhasePreserved:
         sanitized = _sanitize_openai_response_item_for_replay(item)
         # When the model omits phase, the sanitizer must not invent one.
         assert "phase" not in sanitized
+
+    def test_phase_preserved_on_assistant_message_replay(self):
+        """Spec-named guard (April 2026 followup): when an assistant
+        message carries ``phase``, it must still carry ``phase`` after
+        sanitization. Required for gpt-5.3-codex and beyond per the
+        Responses API reference — dropping ``phase`` makes the model
+        unable to distinguish intermediate commentary from the final
+        answer on replay."""
+        item = SimpleNamespace(
+            type="message",
+            role="assistant",
+            status="in_progress",
+            content=[
+                SimpleNamespace(
+                    type="output_text",
+                    text="Working on it",
+                    annotations=[{"type": "file_citation"}],
+                    logprobs=[{"token": "W"}],
+                ),
+            ],
+            phase="commentary",
+        )
+        sanitized = _sanitize_openai_response_item_for_replay(item)
+        assert sanitized["phase"] == "commentary"
+        # Output-only fields must still be stripped on the same pass —
+        # this guard should never re-introduce them.
+        assert "status" not in sanitized
+        assert sanitized["content"][0].get("annotations") is None
+        assert sanitized["content"][0].get("logprobs") is None
 
 
 # ---------------------------------------------------------------------------

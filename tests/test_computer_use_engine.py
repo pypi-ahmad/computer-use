@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -14,6 +14,7 @@ from backend.engine import (
     Environment,
     OpenAICUClient,
     Provider,
+    RunCompleted,
     _lookup_claude_cu_config,
     _CONTEXT_PRUNE_KEEP_RECENT,
     _build_openai_computer_call_output,
@@ -111,6 +112,11 @@ class TestLookupClaudeCUConfig:
 
     def test_opus_47_returns_config(self):
         tv, bf = _lookup_claude_cu_config("claude-opus-4-7")
+        assert tv == "computer_20251124"
+        assert bf == "computer-use-2025-11-24"
+
+    def test_opus_46_returns_config(self):
+        tv, bf = _lookup_claude_cu_config("claude-opus-4-6")
         assert tv == "computer_20251124"
         assert bf == "computer-use-2025-11-24"
 
@@ -289,6 +295,35 @@ class TestOpenAIRuntimePath:
             "code": "confirm",
             "message": "Confirm action",
         }]
+
+
+class TestIterTurnsDispatch:
+    """Provider-specific native iterators should be used when available."""
+
+    def test_gemini_provider_uses_native_iter_turns(self):
+        async def _go():
+            with patch("google.genai.Client"):
+                engine = ComputerUseEngine(
+                    provider=Provider.GEMINI,
+                    api_key="test-key",
+                    model="gemini-3.1-pro-preview",
+                )
+
+            async def fake_iter_turns(*args, **kwargs):
+                yield RunCompleted(final_text="done")
+
+            engine._client.iter_turns = fake_iter_turns  # type: ignore[method-assign]
+            engine._client.run_loop = AsyncMock(side_effect=AssertionError("run_loop should not be used"))
+
+            events = []
+            async for event in engine.iter_turns("noop"):
+                events.append(event)
+
+            assert len(events) == 1
+            assert isinstance(events[0], RunCompleted)
+            assert events[0].final_text == "done"
+
+        asyncio.run(_go())
 
 
 class TestOpenAIReasoningEffort:

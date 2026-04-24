@@ -81,6 +81,15 @@ class TestClaudeScaleFactor:
         )
         assert get_claude_scale_factor(w, h) == pytest.approx(expected)
 
+    def test_modern_tool_version_uses_high_res_budget_even_without_model_match(self):
+        scale = get_claude_scale_factor(
+            1920,
+            1200,
+            "custom-claude-build",
+            tool_version="computer_20251124",
+        )
+        assert scale == 1.0
+
 
 class TestResizeScreenshot:
     """Screenshot resize via Pillow."""
