@@ -9,7 +9,7 @@
 [![React 19](https://img.shields.io/badge/React-19-61DAFB.svg?logo=react&logoColor=black)](https://react.dev)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Docker](https://img.shields.io/badge/Docker-Ubuntu_24.04-2496ED.svg?logo=docker&logoColor=white)](https://docker.com)
-[![Tests](https://img.shields.io/badge/Tests-379_passing-brightgreen.svg)](#-testing)
+[![Tests](https://img.shields.io/badge/Tests-409_passing-brightgreen.svg)](#-testing)
 [![CI](https://img.shields.io/badge/CI-GitHub_Actions-2088FF.svg?logo=githubactions&logoColor=white)](.github/workflows/ci.yml)
 [![Gemini](https://img.shields.io/badge/Gemini-CU_Native-4285F4.svg?logo=google&logoColor=white)](#-supported-models)
 [![Claude](https://img.shields.io/badge/Claude-CU_Native-CC785C.svg?logo=anthropic&logoColor=white)](#-supported-models)
@@ -63,7 +63,7 @@ A single-page React workbench provides real-time desktop streaming (WebSocket sc
 | **Native CU Engine** | Gemini, Claude, and OpenAI native Computer Use tool protocols — structured, pixel-level desktop automation with no prompt hacks |
 | **Desktop Runtime** | `xdotool` + `scrot` to control and observe any X11 application inside the sandbox |
 | **Multi-Provider AI** | Google Gemini, Anthropic Claude, and OpenAI with a centralized model allowlist enforced at the API layer. OpenAI supports configurable reasoning effort (`none`/`low`/`medium`/`high`/`xhigh`) and ZDR (Zero Data Retention) orgs via stateless conversation chaining |
-| **Docker Sandbox** | Ubuntu 24.04 container with resource limits (4 GB RAM, 2 CPUs), `no-new-privileges`, and localhost-only port bindings |
+| **Docker Sandbox** | Ubuntu 24.04 container with resource limits (4 GB RAM, 2 CPUs), `no-new-privileges`, and localhost-only port bindings. Union-of-best-practice package baseline: Anthropic computer-use-demo reference (xvfb + xdotool + scrot + imagemagick + mutter + x11vnc + firefox-esr + xterm + x11-apps + xpdf + tint2 + sudo + build-essential + software-properties-common + netcat-openbsd), OpenAI CU Option-1 WM (XFCE4, lockscreen/screensaver packages removed), and Google Gemini reference (chromium). Single 1440×900 viewport default covers all four providers; Opus 4.7 can opt into its native 2576 px ceiling via `CUA_OPUS47_HIRES=1`. |
 | **Real-Time Streaming** | Live screenshot stream via WebSocket + interactive noVNC desktop access proxied through the backend |
 | **Cross-Platform Host** | Backend + frontend run on Windows, macOS, or Linux; Docker provides the sandboxed Linux desktop |
 | **Safety Confirmation** | CU safety gates surface to the UI with a 60-second countdown — auto-deny on timeout |
@@ -76,7 +76,7 @@ A single-page React workbench provides real-time desktop streaming (WebSocket sc
 | **Theming** | Dark and light themes with persistent toggle via `data-theme` attribute |
 | **Onboarding** | First-run welcome overlay with 3-step guide, dismissible and remembered via localStorage |
 | **Accessibility** | Minimum 12 px font sizes, SVG icons via `lucide-react`, `aria-label` on all icon-only buttons, keyboard-navigable timeline, focus-visible outlines |
-| **Hermetic Test Suite** | 379 tests (unit + integration) using mocks/patches — no running container or network required |
+| **Hermetic Test Suite** | 409 tests (unit + integration) using mocks/patches — no running container or network required |
 | **Structured Observability** | Session-scoped log correlation via `session_id` ContextVar (propagates across async tasks) + per-turn duration metrics (`turn_duration_ms`) for every provider |
 | **Outbound WS Schema** | Pydantic-validated WebSocket events (`backend/ws_schema.py`) with matching TypeScript discriminated union (`frontend/src/types/ws.d.ts`); schema drift logged as warnings |
 | **Versioned REST API** | Every `/api/*` route is also reachable at `/api/v1/*` via an ASGI path-rewrite middleware — zero decorator duplication |
@@ -448,8 +448,10 @@ Keys are resolved in priority order — the first non-empty value wins:
 | `CUA_POST_ACTION_SCREENSHOT_DELAY` | `0.4` | Seconds to wait after an action before re-screenshotting |
 | `CUA_CLAUDE_MAX_TOKENS` | `32768` | Per-turn Claude `max_tokens` budget. Clamped to `[1024, 65536]`. Raised from the old 16 k default because Opus 4.7 long-plan turns truncated mid-reasoning. |
 | `CUA_CLAUDE_CACHING` | `0` | Set to `1` to stamp `cache_control: {type: ephemeral}` on the `computer_20251124` tool definition. Anthropic caches the tool block across turns, cutting repeated tool-def tokens to ~10 % of first-turn cost on multi-turn sessions. Opt-in for zero-risk default. |
+| `CUA_OPUS47_HIRES` | `0` | Opus 4.7-only opt-in. Set to `1` to drop the default 3.75 MP pixel-count cap on screenshots sent to Claude Opus 4.7 while still enforcing the 2576 px long-edge ceiling (so 4000×2500 → 2576×1610). Gated on `_is_opus_47(model)`; ignored for Sonnet 4.6, Opus 4.6, and any other model (which downscale internally and gain no accuracy from the extra framebuffer tokens). Pair with a larger docker-run viewport up to 2560×1600 to actually exercise the hi-res path. |
 | `CUA_GEMINI_THINKING_LEVEL` | `high` | Gemini 3 `thinking_level`: `minimal` / `low` / `medium` / `high`. Drop to `medium`/`low` to trade task accuracy for lower latency and token spend. |
 | `CUA_GEMINI_RELAX_SAFETY` | `0` | Set to `1` to attach `BLOCK_ONLY_HIGH` safety thresholds across the four `HarmCategory` buckets on every Gemini CU request. Default delegates to Google's published default ("Off" for Gemini 2.5 / 3 models, per the safety-settings docs). The ToS-mandated `require_confirmation` + `safety_acknowledgement` handshake is unaffected either way. |
+| `CUA_GEMINI_USE_PLAYWRIGHT` | `0` | Set to `1` to opt into Google's Playwright-driven reference CU path for Gemini sessions (hard single-tab interception, matches `github.com/google-gemini/computer-use-preview`). Requires the Playwright package + browser bundles (~500 MB) — rebuild the sandbox image with `--build-arg INSTALL_PLAYWRIGHT=1`. When the flag is set but Playwright isn't importable, the adapter logs an ERROR and degrades cleanly to the xdotool path so sessions still run. Off by default to keep the image lean. |
 
 **Container-side** (set in `docker-compose.yml` or on the host before `docker run`):
 
