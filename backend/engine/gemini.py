@@ -73,6 +73,94 @@ def _prune_gemini_context(
             content.parts[:] = new_parts
 
 
+# ---------------------------------------------------------------------------
+# S4 — Gemini browser routing + Playwright opt-in
+# ---------------------------------------------------------------------------
+
+# Google's Gemini 3 Flash Preview reference implementation
+# (github.com/google-gemini/computer-use-preview) drives a Chromium instance
+# under Playwright.  The repo's default xdotool/full-desktop harness is
+# compatible (the model returns normalized 0-999 coordinates which
+# ``DesktopExecutor._denormalize_coords`` maps to any viewport), but when
+# the agent has a choice of browser for a Gemini session, Chromium is the
+# reference match.  This helper mirrors that preference so the Gemini adapter
+# (and its tests) can assert "Chromium first, Firefox-ESR fallback with a
+# warning" without disturbing the OpenAI / Anthropic paths.
+
+_GEMINI_CHROMIUM_CANDIDATES: tuple[str, ...] = (
+    "chromium-browser",
+    "chromium",
+)
+_GEMINI_FIREFOX_FALLBACKS: tuple[str, ...] = (
+    "firefox-esr",
+    "firefox",
+)
+
+
+def _gemini_resolve_browser_binary(
+    which: Callable[[str], str | None] | None = None,
+    log: Callable[[str, str], None] | None = None,
+) -> str | None:
+    """Return the first available browser binary path for a Gemini session.
+
+    Preference: ``chromium-browser`` → ``chromium`` → ``firefox-esr`` →
+    ``firefox``.  Emits a single WARNING via *log* (or the module logger)
+    when no Chromium flavour is installed and a Firefox fallback is used,
+    because Google's reference implementation is Chromium-only.
+
+    *which* defaults to ``shutil.which`` and is overridable for tests.
+    Returns ``None`` when no browser is found at all.
+    """
+    import shutil
+
+    if which is None:
+        which = shutil.which
+
+    for name in _GEMINI_CHROMIUM_CANDIDATES:
+        path = which(name)
+        if path:
+            return path
+
+    for name in _GEMINI_FIREFOX_FALLBACKS:
+        path = which(name)
+        if path:
+            msg = (
+                "Gemini: Chromium not installed; falling back to %s. "
+                "Google's reference implementation uses Chromium." % name
+            )
+            if log is not None:
+                log("warning", msg)
+            else:
+                logger.warning(msg)
+            return path
+
+    return None
+
+
+def _gemini_playwright_enabled() -> bool:
+    """Return True only when the opt-in Playwright path is requested AND
+    the ``playwright`` package is actually importable.
+
+    Controlled by ``CUA_GEMINI_USE_PLAYWRIGHT=1``.  Off by default so the
+    image stays lean (Playwright ships ~500 MB of browser bundles).  When
+    the flag is set but Playwright is not installed, logs an error and
+    returns False so the caller falls back to the xdotool path cleanly.
+    """
+    if os.environ.get("CUA_GEMINI_USE_PLAYWRIGHT") != "1":
+        return False
+    try:
+        import playwright  # noqa: F401
+    except ImportError:
+        logger.error(
+            "CUA_GEMINI_USE_PLAYWRIGHT=1 but playwright is not installed. "
+            "Rebuild the image with --build-arg INSTALL_PLAYWRIGHT=1 or "
+            "pip install playwright && playwright install chromium. "
+            "Falling back to the xdotool path for this session."
+        )
+        return False
+    return True
+
+
 class GeminiCUClient:
     """Native Gemini Computer Use tool protocol.
 
