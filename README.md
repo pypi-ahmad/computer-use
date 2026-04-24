@@ -9,7 +9,7 @@
 [![React 19](https://img.shields.io/badge/React-19-61DAFB.svg?logo=react&logoColor=black)](https://react.dev)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Docker](https://img.shields.io/badge/Docker-Ubuntu_24.04-2496ED.svg?logo=docker&logoColor=white)](https://docker.com)
-[![Tests](https://img.shields.io/badge/Tests-243_passing-brightgreen.svg)](#-testing)
+[![Tests](https://img.shields.io/badge/Tests-379_passing-brightgreen.svg)](#-testing)
 [![CI](https://img.shields.io/badge/CI-GitHub_Actions-2088FF.svg?logo=githubactions&logoColor=white)](.github/workflows/ci.yml)
 [![Gemini](https://img.shields.io/badge/Gemini-CU_Native-4285F4.svg?logo=google&logoColor=white)](#-supported-models)
 [![Claude](https://img.shields.io/badge/Claude-CU_Native-CC785C.svg?logo=anthropic&logoColor=white)](#-supported-models)
@@ -76,7 +76,7 @@ A single-page React workbench provides real-time desktop streaming (WebSocket sc
 | **Theming** | Dark and light themes with persistent toggle via `data-theme` attribute |
 | **Onboarding** | First-run welcome overlay with 3-step guide, dismissible and remembered via localStorage |
 | **Accessibility** | Minimum 12 px font sizes, SVG icons via `lucide-react`, `aria-label` on all icon-only buttons, keyboard-navigable timeline, focus-visible outlines |
-| **Hermetic Test Suite** | 243 tests (unit + integration) using mocks/patches — no running container or network required |
+| **Hermetic Test Suite** | 379 tests (unit + integration) using mocks/patches — no running container or network required |
 | **Structured Observability** | Session-scoped log correlation via `session_id` ContextVar (propagates across async tasks) + per-turn duration metrics (`turn_duration_ms`) for every provider |
 | **Outbound WS Schema** | Pydantic-validated WebSocket events (`backend/ws_schema.py`) with matching TypeScript discriminated union (`frontend/src/types/ws.d.ts`); schema drift logged as warnings |
 | **Versioned REST API** | Every `/api/*` route is also reachable at `/api/v1/*` via an ASGI path-rewrite middleware — zero decorator duplication |
@@ -131,8 +131,8 @@ The model receives a **screenshot** (base64 PNG) and the **user's task**, then r
 | **SDK** | `google-genai` | `anthropic` | `openai` |
 | **Tool Protocol** | `types.Tool(computer_use=...)` | `computer_20251124` tool + beta endpoint | Responses API built-in `computer` tool |
 | **Coordinates** | Normalized 0–999 grid, denormalized to pixels by engine | Real pixel values matching reported display size | Real pixel values matching the screenshot |
-| **Screenshot Handling** | Sent as inline `Part` | Pre-resized per Anthropic limits (max 1568px long edge, 1.15M total pixels) | Returned as `computer_call_output` with `detail: "original"` |
-| **Context Pruning** | Old screenshots replaced with text placeholders after 3 turns | Same pruning logic | Uses `previous_response_id` to continue the native loop; ZDR orgs use stateless chaining with full context replay |
+| **Screenshot Handling** | Sent as inline `Part` | Current `computer_20251124` models use the 2576px / ~3.75 MP path with 1:1 coordinates; legacy Claude models keep the 1568px / 1.15 MP scaling path | Returned as `computer_call_output` with `detail: "original"` |
+| **Context Pruning** | Old screenshots replaced with text placeholders after 3 turns | Same pruning logic | Stateless replay of sanitized output items plus `reasoning.encrypted_content`; no `previous_response_id` |
 | **System Prompt** | Detailed action instructions + coordinate semantics | Minimal — Anthropic auto-injects CU schema | OpenAI-specific computer-tool guidance |
 
 ### Supported Actions (15)
@@ -203,13 +203,20 @@ Defined in `backend/allowed_models.json` — the single source of truth for both
 
 | Provider | Model ID | Display Name | Runtime Mode | CU Support | Notes |
 |---|---|---|---|---|---|
-| Google | `gemini-3-flash-preview` | Gemini 3 Flash Preview | Desktop | ✅ Native | Fast, lightweight CU model |
+| Google | `gemini-2.5-flash` | Gemini 2.5 Flash | Desktop | ✅ Native | Compatibility model id retained for existing sessions; Gemini 3 Flash Preview is the preferred current default |
+| Google | `gemini-2.5-pro` | Gemini 2.5 Pro | Desktop | ✅ Native | Compatibility model id retained for existing sessions; Gemini 3.1 Pro Preview is the preferred current default |
+| Google | `gemini-3-flash-preview` | Gemini 3 Flash Preview | Desktop | ✅ Native | Fast, lightweight CU model. Safety thresholds default to Google's published default ("Off" on Gemini 3); opt-in `BLOCK_ONLY_HIGH` via `CUA_GEMINI_RELAX_SAFETY=1` |
 | Google | `gemini-3.1-pro-preview` | Gemini 3.1 Pro Preview | Desktop | ✅ Native | Built-in Computer Use; `thinking_level=high` recommended |
-| Anthropic | `claude-opus-4-7` | Claude Opus 4.7 | Desktop | ✅ Native | Beta endpoint + `computer_20251124` tool; supports up to 2576px long edge |
-| Anthropic | `claude-sonnet-4-6` | Claude Sonnet 4.6 | Desktop | ✅ Native | Beta endpoint + `computer_20251124` tool |
+| Anthropic | `claude-sonnet-4-5` | Claude Sonnet 4.5 | Desktop | ✅ Native | Compatibility model id on the legacy `computer_20250124` path |
+| Anthropic | `claude-opus-4-6` | Claude Opus 4.6 | Desktop | ✅ Native | Compatibility model id on the current `computer_20251124` path |
+| Anthropic | `claude-opus-4-7` | Claude Opus 4.7 | Desktop | ✅ Native | Beta endpoint + `computer_20251124` tool; supports up to 2576px long edge; adaptive thinking + `enable_zoom`; lean system prompt (4.6-era scaffolding stripped per Anthropic migration guide) |
+| Anthropic | `claude-sonnet-4-6` | Claude Sonnet 4.6 | Desktop | ✅ Native | Beta `computer-use-2025-11-24` endpoint + `computer_20251124` tool + `enable_zoom`; retains scaffolded system prompt |
+| OpenAI | `gpt-5` | GPT-5 | Desktop | ✅ Native | Compatibility model id retained for existing sessions; GPT-5.4 is the preferred current default |
 | OpenAI | `gpt-5.4` | GPT-5.4 | Desktop | ✅ Native | Responses API built-in `computer` tool; ZDR-compatible |
 
 > Browser mode was removed from the backend and frontend runtime. All supported providers now run through the desktop harness only.
+
+> Compatibility model ids remain allowlisted for existing sessions and frontends; new sessions should generally prefer Gemini 3 previews, Claude Opus 4.7 / Sonnet 4.6, and GPT-5.4.
 
 > **Adding models:** Edit `backend/allowed_models.json`, restart the backend. The UI auto-refreshes via `GET /api/models`.
 
@@ -440,7 +447,9 @@ Keys are resolved in priority order — the first non-empty value wins:
 | `CUA_SCREENSHOT_SETTLE_DELAY` | `0.15` | Seconds to wait before capturing a screenshot |
 | `CUA_POST_ACTION_SCREENSHOT_DELAY` | `0.4` | Seconds to wait after an action before re-screenshotting |
 | `CUA_CLAUDE_MAX_TOKENS` | `32768` | Per-turn Claude `max_tokens` budget. Clamped to `[1024, 65536]`. Raised from the old 16 k default because Opus 4.7 long-plan turns truncated mid-reasoning. |
+| `CUA_CLAUDE_CACHING` | `0` | Set to `1` to stamp `cache_control: {type: ephemeral}` on the `computer_20251124` tool definition. Anthropic caches the tool block across turns, cutting repeated tool-def tokens to ~10 % of first-turn cost on multi-turn sessions. Opt-in for zero-risk default. |
 | `CUA_GEMINI_THINKING_LEVEL` | `high` | Gemini 3 `thinking_level`: `minimal` / `low` / `medium` / `high`. Drop to `medium`/`low` to trade task accuracy for lower latency and token spend. |
+| `CUA_GEMINI_RELAX_SAFETY` | `0` | Set to `1` to attach `BLOCK_ONLY_HIGH` safety thresholds across the four `HarmCategory` buckets on every Gemini CU request. Default delegates to Google's published default ("Off" for Gemini 2.5 / 3 models, per the safety-settings docs). The ToS-mandated `require_confirmation` + `safety_acknowledgement` handshake is unaffected either way. |
 
 **Container-side** (set in `docker-compose.yml` or on the host before `docker run`):
 
