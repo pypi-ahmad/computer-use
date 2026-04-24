@@ -446,12 +446,12 @@ Only models with `supports_computer_use: true` in `backend/allowed_models.json` 
 |---|---|---|---|
 | Google | `gemini-2.5-flash` | Gemini 2.5 Flash | Compatibility model id retained for existing sessions; Gemini 3 Flash Preview is the preferred current default |
 | Google | `gemini-2.5-pro` | Gemini 2.5 Pro | Compatibility model id retained for existing sessions; Gemini 3.1 Pro Preview is the preferred current default |
-| Google | `gemini-3-flash-preview` | Gemini 3 Flash Preview | Fast, lightweight. Safety thresholds follow Google's Gemini-3 default ("Off") unless `CUA_GEMINI_RELAX_SAFETY=1` restores `BLOCK_ONLY_HIGH` |
+| Google | `gemini-3-flash-preview` | Gemini 3 Flash Preview | Fast, lightweight. Safety thresholds follow Google's Gemini-3 default ("Off") unless `CUA_GEMINI_RELAX_SAFETY=1` restores `BLOCK_ONLY_HIGH`. Browser launches prefer Chromium (Google reference) with Firefox-ESR fallback; optional Playwright-native single-tab path via `CUA_GEMINI_USE_PLAYWRIGHT=1` |
 | Google | `gemini-3.1-pro-preview` | Gemini 3.1 Pro Preview | Built-in Computer Use; `thinking_level=high` recommended |
 | Anthropic | `claude-sonnet-4-5` | Claude Sonnet 4.5 | Compatibility model id on the legacy `computer_20250124` tool path |
 | Anthropic | `claude-opus-4-6` | Claude Opus 4.6 | Compatibility model id on the current `computer_20251124` tool path |
-| Anthropic | `claude-opus-4-7` | Claude Opus 4.7 | Beta `computer-use-2025-11-24` + `computer_20251124` tool; supports up to 2576px long edge; adaptive thinking + `enable_zoom`; lean system prompt (4.6-era scaffolding stripped per Anthropic migration guide) |
-| Anthropic | `claude-sonnet-4-6` | Claude Sonnet 4.6 | Beta `computer-use-2025-11-24` + `computer_20251124` tool + `enable_zoom`; scaffolded system prompt retained |
+| Anthropic | `claude-opus-4-7` | Claude Opus 4.7 | Beta `computer-use-2025-11-24` + `computer_20251124` tool; native 1:1 up to 2576px long edge (opt-in via `CUA_OPUS47_HIRES=1` + larger docker-run viewport); adaptive thinking + `enable_zoom`; lean system prompt (4.6-era scaffolding stripped per Anthropic migration guide) |
+| Anthropic | `claude-sonnet-4-6` | Claude Sonnet 4.6 | Beta `computer-use-2025-11-24` + `computer_20251124` tool + `enable_zoom`; scaffolded system prompt retained. Shares Opus 4.7's sandbox contract; `CUA_OPUS47_HIRES` intentionally ignored (1568 px / 1.15 MP ceiling with internal downscaling) |
 | OpenAI | `gpt-5` | GPT-5 | Compatibility model id retained for existing sessions; GPT-5.4 is the preferred current default |
 | OpenAI | `gpt-5.4` | GPT-5.4 | Responses API built-in computer tool; ZDR-compatible |
 
