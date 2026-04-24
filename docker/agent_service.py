@@ -85,6 +85,9 @@ _ENGINE_ACTIONS: frozenset[str] = frozenset({
     "type", "hotkey", "key", "keydown", "keyup",
     "scroll", "left_mouse_down", "left_mouse_up", "drag",
     "open_url",
+    # ``zoom`` is a ``computer_20251124``-era action (Claude Opus 4.7
+    # et al.) — always on when the adapter advertises enable_zoom.
+    "zoom",
 })
 
 _LEGACY_ACTIONS: frozenset[str] = frozenset({
@@ -1265,7 +1268,11 @@ class AgentHandler(BaseHTTPRequestHandler):
                 )
                 self._respond(404, {
                     "success": False,
-                    "error": f"Unknown or disabled action: {resolved!r}",
+                    # Keep the standard /action error envelope so
+                    # debug callers can treat a gated action like any
+                    # other action failure while the 404 status still
+                    # makes reachability explicit.
+                    "message": f"Unknown or disabled action: {resolved!r}",
                 })
                 return
 
@@ -1621,6 +1628,30 @@ class AgentHandler(BaseHTTPRequestHandler):
                 b64 = _xdo_screenshot_region(coords[0], coords[1], coords[2], coords[3])
                 return {"success": True, "message": "Region screenshot captured", "screenshot": b64}
             return {"success": False, "message": "screenshot_region needs 4 coords [x, y, width, height]"}
+        elif action == "zoom":
+            # Claude ``computer_20251124`` zoom action.  Expects
+            # ``region=[x1, y1, x2, y2]`` with top-left to bottom-right
+            # corners.  The adapter has already validated shape, clamped
+            # to display bounds, and rejected inverted rectangles — we
+            # trust the input here and translate to the scrot region
+            # shape ``x, y, width, height``.  On scrot failure, fall
+            # back to a full-screen screenshot so the model can still
+            # make progress.
+            if len(coords) >= 4:
+                x1, y1, x2, y2 = coords[0], coords[1], coords[2], coords[3]
+                w, h = max(1, x2 - x1), max(1, y2 - y1)
+                try:
+                    b64 = _xdo_screenshot_region(x1, y1, w, h)
+                    return {"success": True, "message": "Zoom region captured", "screenshot": b64}
+                except Exception as exc:
+                    logger.warning("zoom scrot failed: %s; falling back to full screen", exc)
+                    b64 = _xdo_screenshot_full()
+                    return {
+                        "success": False,
+                        "message": f"zoom fallback to full screen: {exc}",
+                        "screenshot": b64,
+                    }
+            return {"success": False, "message": "zoom needs 4 coords [x1, y1, x2, y2]"}
         else:
             return {"success": False, "message": f"Unsupported action '{action}' in desktop engine"}
 

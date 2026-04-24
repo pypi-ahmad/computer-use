@@ -316,40 +316,43 @@ def scrub_secrets(text: str | None) -> str | None:
 _CLAUDE_MAX_LONG_EDGE = 1568
 _CLAUDE_MAX_PIXELS = 1_150_000
 
-# ``computer_20251124`` models (Opus 4.7 / Opus 4.6 / Sonnet 4.6)
-# accept up to 2576 px on the long edge and ~3.75 MP total with
-# native 1:1 coordinates per Anthropic's 2025-11-24 computer-use docs.
+# ``computer_20251124`` models accept up to 2576 px on the long edge and
+# ~3.75 MP total with native 1:1 coordinates per Anthropic's
+# 2025-11-24 computer-use docs.
 _CLAUDE_OPUS_47_MAX_LONG_EDGE = 2576
 _CLAUDE_HIGH_RES_MAX_PIXELS = 3_750_000
 
 
 def _is_opus_47(model_id: str) -> bool:
-    """Return True if *model_id* is a Claude Opus 4.7 variant.
-
-    Opus 4.7 has two Anthropic-specific properties that no other
-    Claude CU model shares as of 2026-04-24 (docs.anthropic.com):
-
-    * Coordinates are 1:1 with actual image pixels (no scale-factor
-      math is required up to the 2576-px long-edge limit).
-    * Extended thinking only accepts ``{"type": "adaptive"}``; the
-      older ``{"type": "enabled", "budget_tokens": N}`` returns HTTP
-      400 on this model.
-
-    The Claude adapter and the screenshot-scaling helper both branch
-    on this predicate — keep it in one place.
-    """
+    """Return True if *model_id* is a Claude Opus 4.7 variant."""
     return model_id.startswith("claude-opus-4-7") or model_id.startswith("claude-opus-4.7")
 
 # Models that use the higher resolution limit (no downscaling needed
 # at typical screen resolutions). All models on the ``computer_20251124``
-# tool version (Opus 4.7, Sonnet 4.6) receive real pixel coordinates
-# with the 2576 px long-edge / ~3.75 MP budget per Anthropic's
-# 2025-11-24 computer-use docs. Older models continue on the legacy
-# 1568 px / scale-factor path.
+# tool version (Opus 4.7 / Opus 4.6 / Sonnet 4.6) receive real pixel
+# coordinates with the 2576 px long-edge / ~3.75 MP budget per
+# Anthropic's 2025-11-24 computer-use docs. Older models continue on
+# the legacy 1568 px / scale-factor path.
 _CLAUDE_HIGH_RES_MODELS = (
     "claude-opus-4-7", "claude-opus-4.7",
+    "claude-opus-4-6", "claude-opus-4.6",
     "claude-sonnet-4-6", "claude-sonnet-4.6",
 )
+
+
+def _uses_claude_20251124(
+    model_id: str = "",
+    tool_version: str | None = None,
+) -> bool:
+    """Return True when the Claude run should use the 2025-11-24 CU path.
+
+    Prefer the explicit tool-version when the caller already knows it
+    (e.g. from ``allowed_models.json``). Fall back to model-prefix
+    detection for older call sites that only pass a model string.
+    """
+    if tool_version is not None:
+        return tool_version == "computer_20251124"
+    return any(model_id.startswith(prefix) for prefix in _CLAUDE_HIGH_RES_MODELS)
 
 # Context pruning: replace screenshots older than this many turns with
 # a placeholder to prevent unbounded context growth.
@@ -466,11 +469,9 @@ class CUTurnRecord:
 # event which graph node to enter (``model_turn``, ``tool_batch``,
 # ``approval_interrupt``, ``finalize``).
 #
-# Scope note (A1): only :class:`backend.engine.claude.ClaudeCUClient`
-# yields ``ModelTurnStarted`` + ``ToolBatchCompleted`` per turn. Gemini
-# and OpenAI iter_turns is a thin shim that drives the existing
-# ``run_loop`` and yields a single ``RunCompleted`` event at the end;
-# their per-turn split and interrupt-based safety are a follow-up PR.
+# Scope note: Claude and Gemini yield native per-turn
+# ``ModelTurnStarted`` + ``ToolBatchCompleted`` events. OpenAI still
+# uses the legacy ``run_loop`` shim until its iterator is inverted.
 
 @dataclass
 class ModelTurnStarted:
@@ -539,8 +540,8 @@ async def iter_turns_via_run_loop(
 ):
     """Adapt a provider's callback-driven ``run_loop`` to ``iter_turns``.
 
-    Used for engines (Gemini, OpenAI) that have not yet been inverted to
-    a native ``iter_turns`` generator. The engine's ``on_turn`` callback
+    Used for engines (currently OpenAI) that have not yet been inverted
+    to a native ``iter_turns`` generator. The engine's ``on_turn`` callback
     is pushed onto an ``asyncio.Queue`` which this generator drains,
     yielding one ``ModelTurnStarted`` + ``ToolBatchCompleted`` pair per
     turn and a terminal ``RunCompleted`` / ``RunFailed``.
@@ -630,7 +631,13 @@ def denormalize_y(y: int, screen_height: int = DEFAULT_SCREEN_HEIGHT) -> int:
     return int(y / GEMINI_NORMALIZED_MAX * screen_height)
 
 
-def get_claude_scale_factor(width: int, height: int, model: str = "") -> float:
+def get_claude_scale_factor(
+    width: int,
+    height: int,
+    model: str = "",
+    *,
+    tool_version: str | None = None,
+) -> float:
     """Compute Anthropic screenshot scale factor per official docs.
 
     Returns a factor <=1.0 that the screenshot should be pre-resized by.
@@ -638,16 +645,10 @@ def get_claude_scale_factor(width: int, height: int, model: str = "") -> float:
     by pre-resizing and reporting the scaled dimensions, we ensure
     coordinates returned by Claude map 1:1 to the reported display size.
 
-    Claude Opus 4.7 supports up to 2576px on the long edge with native
-    1:1 coordinates, so it uses a higher threshold.
+    All ``computer_20251124`` models use the higher 2576px / 3.75MP
+    limits. Legacy models stay on the 1568px / 1.15MP path.
     """
-    if _is_opus_47(model):
-        # Opus 4.7: only the 2576-px long-edge constraint applies.
-        # The ~3.75 MP / 1.15 MP total-pixel caps are not documented
-        # for this model (docs.anthropic.com, 2026-04-24).
-        long_edge = max(width, height)
-        return min(1.0, _CLAUDE_OPUS_47_MAX_LONG_EDGE / long_edge)
-    if model in _CLAUDE_HIGH_RES_MODELS:
+    if _uses_claude_20251124(model, tool_version):
         max_long_edge = _CLAUDE_OPUS_47_MAX_LONG_EDGE
         max_pixels = _CLAUDE_HIGH_RES_MAX_PIXELS
     else:
@@ -1052,6 +1053,35 @@ class DesktopExecutor:
         await asyncio.sleep(_app_config.post_action_screenshot_delay)
         return {}
 
+    async def _act_zoom(self, a: dict) -> dict:
+        """Crop the desktop screenshot to ``region=[x1, y1, x2, y2]``.
+
+        Backs the Claude ``computer_20251124`` zoom action.  The adapter
+        has already validated/clamped the region.  The agent_service
+        endpoint translates [x1,y1,x2,y2] -> scrot's [x,y,w,h] shape and
+        returns the cropped PNG as base64 under ``screenshot``.  We
+        surface it back in ``extra['image_bytes']`` so the Claude
+        tool-result builder can attach it verbatim to the next turn.
+        """
+        region = a.get("region") or []
+        if len(region) != 4:
+            return {"success": False, "message": "zoom requires region=[x1,y1,x2,y2]"}
+        result = await self._post_action({
+            "action": "zoom",
+            "coordinates": [int(region[0]), int(region[1]), int(region[2]), int(region[3])],
+            "mode": "desktop",
+        })
+        extra: dict[str, Any] = {"region": [int(region[0]), int(region[1]), int(region[2]), int(region[3])]}
+        if isinstance(result, dict):
+            extra.update({k: v for k, v in result.items() if k != "screenshot"})
+            b64 = result.get("screenshot")
+            if b64:
+                try:
+                    extra["image_bytes"] = base64.b64decode(b64)
+                except Exception:
+                    pass
+        return extra
+
     async def _act_go_back(self, a: dict) -> dict:
         """Press Alt+Left to go back in desktop browser history."""
         await self._post_action({
@@ -1281,15 +1311,13 @@ class ComputerUseEngine:
     ):
         """Dispatch to the provider's ``iter_turns`` contract.
 
-        Claude: uses the native ``ClaudeCUClient.iter_turns`` generator
-        that yields ``ModelTurnStarted`` / ``ToolBatchCompleted`` per
-        turn. Gemini / OpenAI: adapted from their callback-driven
-        ``run_loop`` via :func:`iter_turns_via_run_loop` (legacy safety
-        flow preserved — see PR 7.2 for native inversion).
+        Claude / Gemini: use their native async-generator contracts.
+        OpenAI: adapted from the callback-driven ``run_loop`` via
+        :func:`iter_turns_via_run_loop` (legacy safety flow preserved).
         """
         executor = self._build_executor()
         try:
-            if self.provider == Provider.CLAUDE:
+            if self.provider in {Provider.CLAUDE, Provider.GEMINI}:
                 async for ev in self._client.iter_turns(
                     goal=goal,
                     executor=executor,

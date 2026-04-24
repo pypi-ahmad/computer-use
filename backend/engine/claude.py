@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import os
 import time
 from typing import Any, Callable
 
@@ -23,7 +24,6 @@ from backend.engine import (
     _call_with_retry,
     get_claude_scale_factor,
     resize_screenshot_for_claude,
-    _is_opus_47,
     DEFAULT_TURN_LIMIT,
     _CONTEXT_PRUNE_KEEP_RECENT,
     _IMAGE_PNG,
@@ -51,7 +51,7 @@ class ClaudeCUClient:
 
     API contract (as of 2026-04):
     - Auto-detects tool version from model name (overridable):
-      * Claude Opus 4.7 / Opus 4.6 / Sonnet 4.6 / Opus 4.5 →
+      * Claude Opus 4.7 / Opus 4.6 / Sonnet 4.6 →
         ``computer_20251124`` with beta ``computer-use-2025-11-24``.
         Coordinates are 1:1 with the reported display pixels
         (no scale-factor math at typical resolutions) and extended
@@ -79,6 +79,9 @@ class ClaudeCUClient:
         "claude-sonnet-4-6", "claude-sonnet-4.6",
         "claude-opus-4-6", "claude-opus-4.6",
     )
+
+    # One-shot flag so we only log "caching enabled" once per process.
+    _caching_logged: bool = False
 
     def __init__(
         self,
@@ -128,6 +131,21 @@ class ClaudeCUClient:
         # Enable zoom action for computer_20251124 tool version
         if self._tool_version == "computer_20251124":
             tool["enable_zoom"] = True
+        # Optional prompt caching on the tool definition.  Anthropic caches
+        # the tool block across turns when cache_control is present, cutting
+        # repeated tool-def tokens to ~10% of first-turn cost on multi-turn
+        # sessions.  Opt-in via env var to stay zero-risk at deploy; emit a
+        # one-shot INFO log the first time it takes effect per process so
+        # operators can confirm.  System-prompt caching is a separate,
+        # larger follow-up (different test requirements).
+        if os.environ.get("CUA_CLAUDE_CACHING") == "1":
+            tool["cache_control"] = {"type": "ephemeral"}
+            if not ClaudeCUClient._caching_logged:
+                logger.info(
+                    "Claude CU prompt caching enabled (CUA_CLAUDE_CACHING=1); "
+                    "tool definition marked ephemeral.",
+                )
+                ClaudeCUClient._caching_logged = True
         return [tool]
 
     async def iter_turns(
@@ -152,7 +170,12 @@ class ClaudeCUClient:
         node when a ``SafetyRequired`` event arrives.
         """
         # Compute screenshot scaling to prevent coordinate drift.
-        scale = get_claude_scale_factor(executor.screen_width, executor.screen_height, self._model)
+        scale = get_claude_scale_factor(
+            executor.screen_width,
+            executor.screen_height,
+            self._model,
+            tool_version=self._tool_version,
+        )
         scaled_w = int(executor.screen_width * scale)
         scaled_h = int(executor.screen_height * scale)
         if scale < 1.0 and on_log:
@@ -200,13 +223,11 @@ class ClaudeCUClient:
 
             _prune_claude_context(messages, _CONTEXT_PRUNE_KEEP_RECENT)
 
-            # Thinking config depends on the model, not the tool
-            # version. Only Opus 4.7 requires ``adaptive`` — the API
-            # returns HTTP 400 on ``{"type":"enabled","budget_tokens":N}``
-            # for this model (docs.anthropic.com, 2026-04-24).
-            # Sonnet 4.6 / Opus 4.6 / earlier CU models keep the
-            # existing fixed-budget thinking path unchanged.
-            if _is_opus_47(self._model):
+            # All ``computer_20251124`` models reject
+            # ``{"type":"enabled","budget_tokens":N}`` and require
+            # adaptive thinking. Legacy ``computer_20250124`` models
+            # keep the older fixed-budget path.
+            if self._tool_version == "computer_20251124":
                 thinking_cfg: dict[str, Any] = {"type": "adaptive"}
             else:
                 thinking_cfg = {"type": "enabled", "budget_tokens": 4096}
@@ -470,10 +491,43 @@ class ClaudeCUClient:
             return CUActionResult(name="wait", extra={"duration": duration})
 
         elif action == "zoom":
-            # Zoom returns a cropped screenshot region — we acknowledge it
-            # but the actual zoom behavior is handled by the API when
-            # enable_zoom is set in the tool definition.
-            return CUActionResult(name="zoom")
+            # Opus 4.7 computer_20251124 zoom action — the model requests
+            # a cropped region of the current screen.  We validate, clamp
+            # to display bounds, reject inverted rectangles, and delegate
+            # to the executor which returns the cropped PNG in
+            # ``extra['image_bytes']``.  On executor failure we fall back
+            # to a full-screen screenshot with a success=False note so
+            # the model can still make forward progress.
+            region = action_input.get("region")
+            if (not isinstance(region, (list, tuple))
+                    or len(region) != 4
+                    or not all(isinstance(v, int) for v in region)):
+                return CUActionResult(
+                    name="zoom", success=False,
+                    error="zoom requires region=[x1, y1, x2, y2] of ints",
+                )
+            x1, y1, x2, y2 = region
+            if x1 >= x2 or y1 >= y2:
+                return CUActionResult(
+                    name="zoom", success=False,
+                    error=f"zoom region is inverted or empty: {region!r}",
+                )
+            sw = getattr(executor, "screen_width", None) or 0
+            sh = getattr(executor, "screen_height", None) or 0
+            if sw and sh:
+                x1 = max(0, min(x1, sw - 1))
+                y1 = max(0, min(y1, sh - 1))
+                x2 = max(x1 + 1, min(x2, sw))
+                y2 = max(y1 + 1, min(y2, sh))
+            try:
+                return await executor.execute(
+                    "zoom", {"region": [x1, y1, x2, y2]},
+                )
+            except Exception as exc:
+                return CUActionResult(
+                    name="zoom", success=False,
+                    error=f"zoom failed: {exc}",
+                )
 
         else:
             return CUActionResult(name=action, success=False,
