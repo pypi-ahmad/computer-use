@@ -462,16 +462,13 @@ def get_claude_scale_factor(width: int, height: int, model: str = "") -> float:
     Claude Opus 4.7 supports up to 2576px on the long edge with native
     1:1 coordinates, so it uses a higher threshold.
     """
-    max_long_edge = (
-        _CLAUDE_OPUS_47_MAX_LONG_EDGE
-        if model in _CLAUDE_HIGH_RES_MODELS
-        else _CLAUDE_MAX_LONG_EDGE
-    )
     long_edge = max(width, height)
+    if _is_opus_47(model):
+        return min(1.0, _CLAUDE_OPUS_47_MAX_LONG_EDGE / long_edge)
     total_pixels = width * height
     return min(
         1.0,
-        max_long_edge / long_edge,
+        _CLAUDE_MAX_LONG_EDGE / long_edge,
         math.sqrt(_CLAUDE_MAX_PIXELS / total_pixels),
     )
 
