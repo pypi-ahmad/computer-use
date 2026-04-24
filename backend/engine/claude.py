@@ -22,10 +22,12 @@ from backend.engine import (
     RunCompleted,
     TurnEvent,
     _call_with_retry,
+    _is_opus_47,
     get_claude_scale_factor,
     resize_screenshot_for_claude,
     DEFAULT_TURN_LIMIT,
     _CONTEXT_PRUNE_KEEP_RECENT,
+    _CLAUDE_OPUS_47_MAX_LONG_EDGE,
     _IMAGE_PNG,
 )
 from typing import AsyncIterator
@@ -176,6 +178,24 @@ class ClaudeCUClient:
             self._model,
             tool_version=self._tool_version,
         )
+        # Opus 4.7 hi-res opt-in.  The default ``get_claude_scale_factor``
+        # enforces BOTH the 2576px long-edge cap AND the 3.75 MP total-
+        # pixel cap; a 2560x1600 hi-fidelity desktop (4.10 MP) therefore
+        # gets silently downscaled even though Opus 4.7's native ceiling
+        # on the long edge is 2576.  When ``CUA_OPUS47_HIRES=1`` AND the
+        # model is Opus 4.7, drop the pixel-count cap and enforce only
+        # the long-edge ceiling so hi-res sessions keep 1:1 coordinates.
+        if (
+            os.environ.get("CUA_OPUS47_HIRES") == "1"
+            and _is_opus_47(self._model)
+        ):
+            long_edge = max(executor.screen_width, executor.screen_height)
+            scale = min(1.0, _CLAUDE_OPUS_47_MAX_LONG_EDGE / long_edge)
+            if on_log:
+                on_log(
+                    "info",
+                    "CUA_OPUS47_HIRES=1: long-edge-only scaling for Opus 4.7",
+                )
         scaled_w = int(executor.screen_width * scale)
         scaled_h = int(executor.screen_height * scale)
         if scale < 1.0 and on_log:

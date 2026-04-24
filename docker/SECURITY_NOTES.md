@@ -35,15 +35,15 @@ gate lives on `POST /action` only.
 
 ## Removed / flagged actions
 
-All handlers below remain in the source file but are **not registered**
-when `CUA_ENABLE_LEGACY_ACTIONS` is unset or `0`. An unknown-action
-request produces:
+All handlers below remain in the source file but are **rejected at the
+`POST /action` gate before dispatch** when `CUA_ENABLE_LEGACY_ACTIONS`
+is unset or `0`. An unknown-action request produces:
 
 ```http
 HTTP/1.1 404 Not Found
 Content-Type: application/json
 
-{"success": false, "error": "Unknown or disabled action: '<name>'"}
+{"success": false, "message": "Unknown or disabled action: '<name>'"}
 ```
 
 | Action                          | Category        | Rationale for removal                                     | Replacement (if any)                                |
@@ -94,3 +94,61 @@ action rejected: action='open_app' resolved='open_app' legacy_enabled=False
 Operators looking for unexpected client behaviour (old engine images,
 prompt-injected action names) should grep container logs for
 `action rejected:`.
+
+## Viewport default (1440x900)
+
+Union-of-best-practice across all CU providers:
+
+- **Anthropic Opus 4.7** — native 1:1 coordinates. Opt into the
+  higher native ceiling (2576px long-edge / ~3.75 MP) by setting
+  `CUA_OPUS47_HIRES=1` in the backend env AND overriding
+  `SCREEN_WIDTH` / `SCREEN_HEIGHT` up to 2560x1600 at `docker run`
+  time. The backend enforces only the long-edge cap on this path
+  (skips the 3.75 MP total-pixel cap) so hi-fidelity sessions keep
+  1:1 coordinates.
+- **Anthropic Sonnet 4.6 / Opus 4.6** — downscale internally; 1440x900
+  is a no-op for them. Do **not** set `CUA_OPUS47_HIRES` for these
+  models — it is gated by `_is_opus_47` and is a no-op outside Opus
+  4.7.
+- **OpenAI GPT-5.4** — the current guide's preferred viewport is
+  1440x900 / 1600x900. The built-in `computer` tool infers display
+  dimensions from the screenshot bytes, so no display_width /
+  display_height kwargs are sent — the viewport we render IS the
+  viewport the model sees.
+- **Google Gemini 3 Flash** — docs recommend exactly 1440x900. The
+  adapter normalises coordinates to the 0-999 grid before the
+  `DesktopExecutor` denormalises them to real pixels.
+
+Sandbox base is `ubuntu:24.04`. The Anthropic computer-use-demo
+reference is `ubuntu:22.04`; we run a newer LTS here because the
+XFCE4 / google-chrome-stable / noVNC stack is already tuned for
+24.04 and downgrading would regress that work. The package set is
+still the union of Anthropic's reference (`xvfb`, `xdotool`,
+`scrot`, `imagemagick`, `mutter`, `x11vnc`, `firefox-esr`, `xterm`,
+`tint2`, `xpdf`, `x11-apps`, `sudo`, `build-essential`,
+`software-properties-common`, `netcat-openbsd`) and the existing
+XFCE4 stack — nothing was removed.
+
+
+## Viewport default (1440x900)
+
+The sandbox ships with a 1440x900 display by default — the
+union-of-best-practice viewport across all four CU providers:
+
+- **Anthropic Opus 4.7** — native 1:1 pixel coordinates; opt into the
+  2576px long-edge ceiling (up to 2560x1600) by setting both
+  CUA_OPUS47_HIRES=1 on the backend and a larger SCREEN_WIDTH /
+  SCREEN_HEIGHT (or WIDTH / HEIGHT) at docker run time.
+- **Anthropic Sonnet 4.6 / Opus 4.6** — models downscale internally;
+  1440x900 is an effective no-op, so the accepted tradeoff is 1:1
+  coordinates everywhere else.
+- **OpenAI GPT-5.4** — the Responses API computer-tool guide prefers
+  1440x900 / 1600x900; 1440x900 is the lower common denominator.
+- **Google Gemini 3 Flash** — CU guide recommends exactly 1440x900
+  for best coordinate accuracy with the normalized 0-999 grid.
+
+CUA_OPUS47_HIRES is strictly opt-in and is ignored for any model
+other than claude-opus-4-7 — there is no point in running a
+2560x1600 framebuffer for a model that downsamples to 1568px
+internally.  See the `\` branch in
+`backend/engine/claude.py` for the gate.
