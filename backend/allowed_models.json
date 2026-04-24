@@ -5,6 +5,20 @@
   "models": [
     {
       "provider": "google",
+      "model_id": "gemini-2.5-flash",
+      "display_name": "Gemini 2.5 Flash",
+      "supports_computer_use": true,
+      "notes": "Legacy compatibility model id retained for existing sessions and frontends. Current Google CU guidance prefers Gemini 3 Flash Preview."
+    },
+    {
+      "provider": "google",
+      "model_id": "gemini-2.5-pro",
+      "display_name": "Gemini 2.5 Pro",
+      "supports_computer_use": true,
+      "notes": "Legacy compatibility model id retained for existing sessions and frontends. Current Google CU guidance prefers Gemini 3.1 Pro Preview."
+    },
+    {
+      "provider": "google",
       "model_id": "gemini-3-flash-preview",
       "display_name": "Gemini 3 Flash Preview",
       "supports_computer_use": true,
@@ -14,8 +28,26 @@
       "provider": "google",
       "model_id": "gemini-3.1-pro-preview",
       "display_name": "Gemini 3.1 Pro Preview",
+      "supports_computer_use": false,
+      "notes": "Computer Use NOT enabled by Google on this model as of 2026-04-24. The official CU docs page (ai.google.dev/gemini-api/docs/computer-use, updated 2026-03-25) lists only gemini-2.5-computer-use-preview-10-2025 and gemini-3-flash-preview; the developer guide that implies 3.1 Pro support is aspirational. Forum repro of `400 INVALID_ARGUMENT: Computer Use is not enabled for models/gemini-3.1-pro-preview` (2026-03-12) remains unresolved. Model stays in the registry for non-CU calls; re-enable when Google adds it to the CU docs page or confirms in the forum thread."
+    },
+    {
+      "provider": "anthropic",
+      "model_id": "claude-sonnet-4-5",
+      "display_name": "Claude Sonnet 4.5",
       "supports_computer_use": true,
-      "notes": "Gemini 3.1 Pro with built-in Computer Use (verified 2026-04-24 against ai.google.dev — CU is built into 3.1 Pro; no separate CU-only model required). Use thinking_level=high for CU workloads. An alternate endpoint 'gemini-3.1-pro-preview-customtools' prioritizes custom tools over bash when a harness defines many custom tools."
+      "cu_tool_version": "computer_20250124",
+      "cu_betas": ["computer-use-2025-01-24"],
+      "notes": "Legacy compatibility model id retained on the older computer_20250124 tool path."
+    },
+    {
+      "provider": "anthropic",
+      "model_id": "claude-opus-4-6",
+      "display_name": "Claude Opus 4.6",
+      "supports_computer_use": true,
+      "cu_tool_version": "computer_20251124",
+      "cu_betas": ["computer-use-2025-11-24"],
+      "notes": "Claude Opus 4.6 — compatibility model retained on the computer_20251124 tool path."
     },
     {
       "provider": "anthropic",
@@ -37,10 +69,24 @@
     },
     {
       "provider": "openai",
+      "model_id": "gpt-5",
+      "display_name": "GPT-5",
+      "supports_computer_use": true,
+      "notes": "Legacy compatibility model id retained for existing sessions. Current OpenAI CU guidance prefers GPT-5.4."
+    },
+    {
+      "provider": "openai",
       "model_id": "gpt-5.4",
       "display_name": "GPT-5.4",
       "supports_computer_use": true,
       "notes": "OpenAI Responses API built-in computer tool."
+    },
+    {
+      "provider": "openai",
+      "model_id": "gpt-5.4-nano",
+      "display_name": "GPT-5.4 Nano",
+      "supports_computer_use": false,
+      "notes": "Per OpenAI API changelog 2026-04-20: GPT-5.4 nano supports compaction, but does NOT support tool search or computer use. Kept in the registry so non-CU callers can still pick it; excluded from the CU-capable list."
     }
   ]
 }
