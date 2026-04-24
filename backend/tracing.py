@@ -619,7 +619,7 @@ def _cli(argv: list[str]) -> int:
     p_dump = sub.add_parser("dump", help="Dump a persisted trace as JSON")
     p_dump.add_argument("session_id")
 
-    p_list = sub.add_parser("list", help="List session ids with persisted traces")
+    sub.add_parser("list", help="List session ids with persisted traces")
 
     args = parser.parse_args(argv)
 

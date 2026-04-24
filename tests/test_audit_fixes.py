@@ -888,7 +888,6 @@ class TestPublicBindGuardrail:
     accidentally publish an unauthenticated REST + WS surface to the LAN."""
 
     def test_default_host_is_loopback(self):
-        from backend.config import Config
 
         # The class default — what callers get when no HOST env is set.
         assert Config.host == "127.0.0.1"
@@ -970,7 +969,6 @@ class TestStuckAgentDetection:
     async def test_three_identical_trips_stop(self):
         from backend.agent.loop import AgentLoop
         from backend.engine import CUActionResult, CUTurnRecord
-        from backend.models import ActionType, AgentAction
 
         loop = AgentLoop(task="hello", api_key="k" * 16)
         # Stub out the callback that requires a real broadcaster.
