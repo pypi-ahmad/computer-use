@@ -92,6 +92,11 @@ class ClaudeCUClient:
         system_prompt: str | None = None,
         tool_version: str | None = None,
         beta_flag: str | None = None,
+        use_builtin_search: bool = False,
+        search_max_uses: int | None = None,
+        search_allowed_domains: list[str] | None = None,
+        search_blocked_domains: list[str] | None = None,
+        attached_file_ids: list[str] | None = None,
     ):
         try:
             import anthropic
@@ -107,6 +112,7 @@ class ClaudeCUClient:
         # blocks a worker for tens of seconds on Opus — the threadpool
         # pressure was real.
         self._client = anthropic.AsyncAnthropic(api_key=api_key)
+        self._api_key = api_key
         self._model = model
         self._system_prompt = system_prompt or ""
 
@@ -121,6 +127,141 @@ class ClaudeCUClient:
         else:
             self._tool_version = "computer_20250124"
             self._beta_flag = "computer-use-2025-01-24"
+
+        # Official Anthropic web_search server tool (April 2026:
+        # tool type ``web_search_20250305``, name ``web_search``).
+        # When enabled the adapter advertises it alongside the
+        # computer-use tool and the model invokes it server-side
+        # (no client-side execution). ``allowed_domains`` and
+        # ``blocked_domains`` are mutually exclusive per Anthropic
+        # docs; the adapter prefers ``allowed_domains`` if both
+        # are supplied.
+        self._use_builtin_search = bool(use_builtin_search)
+        self._search_max_uses = int(search_max_uses) if search_max_uses else 5
+        self._search_allowed_domains = list(search_allowed_domains) if search_allowed_domains else None
+        self._search_blocked_domains = list(search_blocked_domains) if search_blocked_domains else None
+
+        # Anthropic Files API integration. Per the official Computer
+        # Use docs there is no sibling ``file_search`` tool on Claude
+        # (unlike OpenAI / Gemini). Files uploaded via
+        # ``client.beta.files.upload`` are referenced from user
+        # messages with ``document`` content blocks of the shape
+        # ``{"type": "document", "source": {"type": "file",
+        # "file_id": "..."}}``. The Files API is itself a beta and
+        # requires the ``files-api-2025-04-14`` beta header to be
+        # combined with the computer-use beta.
+        #
+        # Per Anthropic's Files API guide
+        # (https://platform.claude.com/docs/en/build-with-claude/files):
+        #   * Document blocks support ``application/pdf`` and
+        #     ``text/plain`` only.
+        #   * ``.csv``, ``.md``, ``.docx``, ``.xlsx`` must be converted
+        #     to plain text and inlined in the message.
+        # The IDs received here are local ``backend.file_store`` IDs
+        # (``f_...``); :func:`_prepare_attached_files` resolves them
+        # against the store, uploads the document-eligible ones to
+        # Anthropic on first use, and pre-extracts the inline-only
+        # ones to text. The result is cached per client instance so
+        # multi-turn runs do not re-upload.
+        self._attached_file_ids = list(attached_file_ids or [])
+        self._anthropic_file_cache: dict[str, str] = {}
+        self._inline_text_cache: dict[str, tuple[str, str]] = {}
+
+    async def _prepare_attached_files(
+        self,
+        on_log: Callable[[str, str], None] | None = None,
+    ) -> tuple[list[dict[str, Any]], list[tuple[str, str]]]:
+        """Resolve local upload IDs into Anthropic-ready content.
+
+        Returns a pair ``(document_blocks, inline_text_pairs)`` where:
+
+        * ``document_blocks`` is a list of ``{"type": "document", ...}``
+          content blocks ready to splice into the initial user message.
+          One per ``.pdf`` / ``.txt`` upload.
+        * ``inline_text_pairs`` is a list of ``(filename, text)`` pairs
+          extracted from ``.md`` / ``.docx`` uploads (the Anthropic Files
+          API does not accept those as document blocks per the official
+          docs, so the adapter inlines them as plain text in the goal
+          message).
+
+        Lookups are resolved against ``backend.file_store.store`` and
+        uploads to Anthropic are cached on the client instance so a
+        multi-turn run does not re-upload on every call.
+        """
+        if not self._attached_file_ids:
+            return [], []
+
+        # Local import to avoid circulars and keep optional deps lazy.
+        from backend.file_store import store as _file_store
+        from backend.file_store import extract_text as _extract_text
+
+        document_blocks: list[dict[str, Any]] = []
+        inline_pairs: list[tuple[str, str]] = []
+
+        records = await _file_store.get_many(self._attached_file_ids)
+        for rec in records:
+            ext = rec.extension
+            if ext in (".pdf", ".txt"):
+                anthropic_id = self._anthropic_file_cache.get(rec.file_id)
+                if anthropic_id is None:
+                    anthropic_id = await self._upload_to_anthropic(rec, on_log)
+                    self._anthropic_file_cache[rec.file_id] = anthropic_id
+                document_blocks.append({
+                    "type": "document",
+                    "source": {"type": "file", "file_id": anthropic_id},
+                    "title": rec.filename,
+                })
+            elif ext in (".md", ".docx"):
+                cached = self._inline_text_cache.get(rec.file_id)
+                if cached is None:
+                    try:
+                        text = _extract_text(rec)
+                    except Exception as exc:
+                        if on_log:
+                            on_log("error",
+                                   f"Claude inline-text extract failed for {rec.filename}: {exc}")
+                        continue
+                    cached = (rec.filename, text)
+                    self._inline_text_cache[rec.file_id] = cached
+                inline_pairs.append(cached)
+            else:
+                if on_log:
+                    on_log("warning",
+                           f"Claude attached_file: unsupported extension {ext} for {rec.filename}")
+
+        return document_blocks, inline_pairs
+
+    async def _upload_to_anthropic(
+        self,
+        rec: Any,
+        on_log: Callable[[str, str], None] | None,
+    ) -> str:
+        """Upload a single ``UploadedFile`` to Anthropic's Files API.
+
+        Returns the Anthropic ``file_id`` (``file_...``). Uses
+        ``client.beta.files.upload`` with the ``files-api-2025-04-14``
+        beta as documented in the Files API guide.
+        """
+        if on_log:
+            on_log("info",
+                   f"Claude Files API upload: {rec.filename} ({rec.size_bytes} bytes)")
+
+        # Use the AsyncAnthropic client directly — its
+        # ``beta.files.upload`` method accepts the same
+        # ``(filename, fileobj, mime_type)`` tuple shape documented
+        # for the sync client. Open the file in a thread to avoid
+        # blocking the event loop on disk I/O.
+        def _open() -> Any:
+            return open(rec.path, "rb")
+
+        fh = await asyncio.to_thread(_open)
+        try:
+            result = await self._client.beta.files.upload(
+                file=(rec.filename, fh, rec.mime_type),
+            )
+        finally:
+            await asyncio.to_thread(fh.close)
+        return result.id
 
     def _build_tools(self, sw: int, sh: int) -> list[dict]:
         """Build the Claude computer-use tool definition with display dimensions."""
@@ -148,7 +289,21 @@ class ClaudeCUClient:
                     "tool definition marked ephemeral.",
                 )
                 ClaudeCUClient._caching_logged = True
-        return [tool]
+        tools: list[dict[str, Any]] = [tool]
+        if self._use_builtin_search:
+            ws_tool: dict[str, Any] = {
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": self._search_max_uses,
+            }
+            # ``allowed_domains`` and ``blocked_domains`` are mutually
+            # exclusive per Anthropic web-search docs.
+            if self._search_allowed_domains:
+                ws_tool["allowed_domains"] = self._search_allowed_domains
+            elif self._search_blocked_domains:
+                ws_tool["blocked_domains"] = self._search_blocked_domains
+            tools.append(ws_tool)
+        return tools
 
     async def iter_turns(
         self,
@@ -215,20 +370,40 @@ class ClaudeCUClient:
         screenshot_bytes, _, _ = resize_screenshot_for_claude(screenshot_bytes, scale)
         screenshot_b64 = base64.standard_b64encode(screenshot_bytes).decode()
 
+        # Initial user content: goal text (with any inline-only
+        # ``.md`` / ``.docx`` extracts prepended), document refs for
+        # ``.pdf`` / ``.txt`` uploaded to the Anthropic Files API,
+        # then the screenshot.
+        document_blocks, inline_pairs = await self._prepare_attached_files(on_log)
+
+        if inline_pairs:
+            inline_sections = "\n\n".join(
+                f"<attached_file name=\"{name}\">\n{text}\n</attached_file>"
+                for name, text in inline_pairs
+            )
+            goal_text = (
+                f"{inline_sections}\n\n"
+                f"The above attached files are provided as plain-text "
+                f"context. User goal:\n\n{goal}"
+            )
+        else:
+            goal_text = goal
+
+        initial_content: list[dict[str, Any]] = [{"type": "text", "text": goal_text}]
+        initial_content.extend(document_blocks)
+        initial_content.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": _IMAGE_PNG,
+                "data": screenshot_b64,
+            },
+        })
+
         messages: list[dict[str, Any]] = [
             {
                 "role": "user",
-                "content": [
-                    {"type": "text", "text": goal},
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": _IMAGE_PNG,
-                            "data": screenshot_b64,
-                        },
-                    },
-                ],
+                "content": initial_content,
             }
         ]
 
@@ -251,6 +426,12 @@ class ClaudeCUClient:
                 thinking_cfg: dict[str, Any] = {"type": "adaptive"}
             else:
                 thinking_cfg = {"type": "enabled", "budget_tokens": 4096}
+            # Attach the Files API beta header alongside computer-use
+            # only when documents are referenced. Keeps the wire
+            # surface minimal for sessions that don't use files.
+            _betas = [self._beta_flag]
+            if self._attached_file_ids:
+                _betas.append("files-api-2025-04-14")
             response = await _call_with_retry(
                 lambda: self._client.beta.messages.create(
                     model=self._model,
@@ -258,7 +439,7 @@ class ClaudeCUClient:
                     system=self._system_prompt,
                     tools=tools,
                     messages=messages,
-                    betas=[self._beta_flag],
+                    betas=_betas,
                     thinking=thinking_cfg,
                 ),
                 provider="anthropic",
@@ -268,12 +449,26 @@ class ClaudeCUClient:
             assistant_content = response.content
             messages.append({"role": "assistant", "content": assistant_content})
 
+            # Only client-side ``tool_use`` blocks are actionable.
+            # ``server_tool_use`` (web_search invocations) and the
+            # corresponding ``web_search_tool_result`` blocks are
+            # already executed by Anthropic; they live inside the
+            # assistant content and we forward them verbatim by virtue
+            # of having appended ``assistant_content`` above.
             tool_uses = [b for b in assistant_content if b.type == "tool_use"]
             text_blocks = [b.text for b in assistant_content
                           if hasattr(b, "text") and b.text]
             turn_text = " ".join(text_blocks)
 
             stop = response.stop_reason
+            if stop == "pause_turn":
+                # Long-running server tool (e.g. web_search) paused the
+                # turn before yielding tool_use blocks. Per Anthropic
+                # docs we resume by re-issuing the request with the
+                # current message history unchanged.
+                if on_log:
+                    on_log("info", f"Claude pause_turn at turn {turn + 1}; resuming.")
+                continue
             if stop == "refusal":
                 refusal_reason = turn_text or "Model refused to continue (safety refusal)."
                 if on_log:
