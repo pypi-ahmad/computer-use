@@ -130,6 +130,12 @@ export default function Workbench() {
   const [task, setTask] = useState('')
   const [maxSteps, setMaxSteps] = useState(saved.maxSteps || 50)
   const [reasoningEffort, setReasoningEffort] = useState(saved.reasoningEffort || 'low')
+  const [useBuiltinSearch, setUseBuiltinSearch] = useState(
+    typeof saved.useBuiltinSearch === 'boolean' ? saved.useBuiltinSearch : false,
+  )
+  const [automationMode, setAutomationMode] = useState(
+    saved.automationMode === 'browser' ? 'browser' : 'desktop',
+  )
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [keyValidation, setKeyValidation] = useState(null)
 
@@ -164,8 +170,8 @@ export default function Workbench() {
 
   useEffect(() => { initTheme() }, [])
   useEffect(() => {
-    saveSettings({ provider, maxSteps, reasoningEffort })
-  }, [provider, maxSteps, reasoningEffort])
+    saveSettings({ provider, maxSteps, reasoningEffort, useBuiltinSearch, automationMode })
+  }, [provider, maxSteps, reasoningEffort, useBuiltinSearch, automationMode])
 
   // C16: model list doesn't depend on provider — fetch once on mount.
   useEffect(() => {
@@ -286,9 +292,10 @@ export default function Workbench() {
         apiKey: keySource === 'ui' ? apiKey.trim() : '',
         model,
         maxSteps: Number(maxSteps),
-        mode: 'desktop',
+        mode: automationMode,
         provider,
         reasoningEffort: provider === 'openai' ? reasoningEffort : null,
+        useBuiltinSearch,
       },
       { modelDisplayName: modelMeta?.display_name || model },
     )
@@ -416,6 +423,8 @@ export default function Workbench() {
           showAdvanced={showAdvanced} setShowAdvanced={setShowAdvanced}
           maxSteps={maxSteps} setMaxSteps={setMaxSteps}
           reasoningEffort={reasoningEffort} setReasoningEffort={setReasoningEffort}
+          useBuiltinSearch={useBuiltinSearch} setUseBuiltinSearch={setUseBuiltinSearch}
+          automationMode={automationMode} setAutomationMode={setAutomationMode}
           task={task} setTask={setTask}
           error={error}
           agentRunning={agentRunning}

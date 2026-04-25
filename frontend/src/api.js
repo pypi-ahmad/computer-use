@@ -62,7 +62,7 @@ export async function stopContainer(signal) {
  * @returns {Promise<{session_id?: string, error?: string}>}
  */
 export async function startAgent(
-  { task, apiKey, model, maxSteps, mode, provider, engine = 'computer_use', executionTarget = 'docker', reasoningEffort },
+  { task, apiKey, model, maxSteps, mode, provider, engine = 'computer_use', executionTarget = 'docker', reasoningEffort, useBuiltinSearch = false },
   signal,
 ) {
   try {
@@ -77,6 +77,7 @@ export async function startAgent(
       execution_target: executionTarget,
     }
     if (reasoningEffort) body.reasoning_effort = reasoningEffort
+    if (useBuiltinSearch) body.use_builtin_search = true
     const res = await fetch(`${API_BASE}/agent/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
