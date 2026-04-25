@@ -141,7 +141,8 @@ Every environment variable the backend reads, grouped by concern. "Where read" n
 |---|---|---|---|---|
 | `ANTHROPIC_API_KEY` | when using Claude | – | Anthropic Messages API key | `backend/config.py` |
 | `OPENAI_API_KEY` | when using OpenAI | – | OpenAI Responses API key | `backend/config.py` |
-| `GOOGLE_API_KEY` | when using Gemini | – | Google Generative AI API key | `backend/config.py` |
+| `GOOGLE_API_KEY` | when using Gemini | – | Google Generative AI API key (preferred) | `backend/config.py` |
+| `GEMINI_API_KEY` | when using Gemini | – | Alias accepted as fallback when `GOOGLE_API_KEY` is unset | `backend/config.py` |
 
 Keys resolve in priority order: UI input > `.env` > system env. Keys entered in the UI are sent per-request over loopback only and never written to disk or `localStorage`.
 
@@ -178,7 +179,7 @@ Keys resolve in priority order: UI input > `.env` > system env. Keys entered in 
 | Variable | Required | Default | Purpose | Where read |
 |---|---|---|---|---|
 | `OPENAI_REASONING_EFFORT` | no | `high` | `minimal` / `low` / `medium` / `high`; legacy `none` → `minimal`, `xhigh` → `high` | `backend/engine/openai.py` |
-| `OPENAI_BASE_URL` | no | – | Override for Azure / proxy deployments | `backend/engine/openai.py` |
+| `OPENAI_BASE_URL` | no | – | Override for regional endpoints (e.g. `https://us.api.openai.com/v1`) or Azure / proxy deployments | `backend/engine/openai.py` |
 | `CUA_CLAUDE_CACHING` | no | unset | When `1`: add `cache_control: {"type":"ephemeral"}` to the `computer_20251124` tool block | `backend/engine/claude.py` |
 | `CUA_CLAUDE_MAX_TOKENS` | no | `32768` | Per-turn `max_tokens` for Claude CU calls | `backend/engine/claude.py` |
 | `CUA_OPUS47_HIRES` | no | unset | Opus 4.7 only: bypass the 3.75 MP pixel cap, enforce only the 2576-px long-edge | `backend/engine/claude.py` |

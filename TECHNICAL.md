@@ -348,6 +348,8 @@ that reads them.
 
 - `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and `GOOGLE_API_KEY`
   (strings, no defaults) are resolved in `backend/config.py`.
+  `GEMINI_API_KEY` is honored as a fallback alias for the Gemini
+  provider when `GOOGLE_API_KEY` is unset.
 - `VITE_WS_TOKEN` (string, build-time frontend env, no default) is read
   in `frontend/src/hooks/useWebSocket.js` and
   `frontend/src/components/ScreenView.jsx`; it must match
@@ -414,7 +416,8 @@ that reads them.
 ### 8.4 Provider-specific knobs
 
 - `OPENAI_BASE_URL` (string, no default) is read in
-  `backend/engine/openai.py`.
+  `backend/engine/openai.py`. Use it to target regional endpoints
+  (e.g. `https://us.api.openai.com/v1`) or Azure / proxy deployments.
 - `OPENAI_REASONING_EFFORT` (string, default `high`) is read in
   `backend/server.py`; `OpenAICUClient` canonicalizes legacy aliases.
 - `CUA_CLAUDE_MAX_TOKENS`, `CUA_CLAUDE_CACHING`, and

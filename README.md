@@ -519,7 +519,8 @@ Here are the most important environment variables to understand first:
 |---|---|---|
 | `ANTHROPIC_API_KEY` | your Anthropic key | Required for Claude sessions |
 | `OPENAI_API_KEY` | your OpenAI key | Required for GPT-5.4 sessions |
-| `GOOGLE_API_KEY` | your Google AI key | Required for Gemini sessions |
+| `GOOGLE_API_KEY` | your Google AI key | Required for Gemini sessions (preferred name) |
+| `GEMINI_API_KEY` | your Google AI key | Accepted as a fallback alias for the Gemini provider |
 | `HOST` / `PORT` | `127.0.0.1` / `8000` | Backend bind address and port |
 | `CUA_WS_TOKEN` | custom secret | Needed when you intentionally expose `/ws` or `/vnc/websockify` beyond loopback |
 | `SCREEN_WIDTH` / `SCREEN_HEIGHT` | `1440` / `900` | Default virtual desktop size |
