@@ -1,9 +1,18 @@
+<!-- markdownlint-disable-file MD013 -->
+
 # USAGE
 
-Operator guide for `computer-use`. The top-level [README](README.md) covers what the project is and how to get it running; this document covers how to drive a session once it is running, every environment variable the backend reads, the sandbox's per-provider behaviour, and the failure modes you are most likely to see.
+Operator reference for `computer-use`. For the project pitch and quickstart context, see
+[README.md](README.md). For architecture, provider internals, and extension points, see
+[TECHNICAL.md](TECHNICAL.md). This guide covers installation, running a session, every
+environment variable the backend reads, the sandbox's per-provider behaviour, and the
+failure modes you are most likely to see.
 
 ## Table of contents
 
+- [What this app is](#what-this-app-is)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
 - [Running a session](#running-a-session)
 - [Model selection](#model-selection)
 - [Configuration reference](#configuration-reference)
@@ -12,6 +21,83 @@ Operator guide for `computer-use`. The top-level [README](README.md) covers what
 - [Observability](#observability)
 - [Troubleshooting](#troubleshooting)
 - [FAQ](#faq)
+- [See also](#see-also)
+- [Getting help](#getting-help)
+
+## What this app is
+
+`computer-use` is a local single-user operator workbench for running provider-native Computer
+Use models against a controlled Ubuntu desktop running in Docker. The frontend provides a live
+screen view, step timeline, log inspector, safety-prompt handling, and session export. The
+backend orchestrates provider adapters (Anthropic, OpenAI, Google), manages the sandbox
+container lifecycle, and streams model-visible screenshots to the UI.
+
+It is built for researchers, adapter implementers, evaluators, and engineers who want to
+inspect real CU sessions rather than treating the model as a black box. It is not a
+multi-tenant SaaS, not a repository-aware coding agent, and not a browser-only automation
+layer. Desktop actions run inside the sandbox container, not on the host.
+
+## Prerequisites
+
+- **Docker 24+** — the sandbox desktop always runs in Docker. Check with `docker --version`.
+- **Python 3.11+** — required for the backend; matches CI. Check with `python --version`.
+- **Node.js 20+** — required for the Vite frontend. Check with `node --version`.
+- **At least one provider API key.** Obtain from:
+  - Anthropic: <https://console.anthropic.com/settings/keys>
+  - OpenAI: <https://platform.openai.com/api-keys>
+  - Google AI: <https://aistudio.google.com/apikey>
+- **Free loopback ports.** Defaults: `3000` (frontend), `8000` (backend), `6080` (noVNC),
+  `5900` (VNC), `9222` (agent service).
+- **Several GB of free disk space** for the sandbox image and browsers.
+
+## Installation
+
+### Recommended — setup script
+
+`setup.sh` and `setup.bat` check prerequisites, build the sandbox image, create the Python
+virtualenv, and install frontend dependencies.
+
+```bash
+git clone https://github.com/pypi-ahmad/computer-use.git
+cd computer-use
+cp .env.example .env
+# add at least one API key to .env
+
+bash setup.sh          # macOS / Linux
+# .\setup.bat          # Windows PowerShell
+
+docker compose up -d                                  # start the sandbox
+source .venv/bin/activate && python -m backend.main   # backend
+cd frontend && npm run dev                            # frontend (second terminal)
+
+```
+
+Open <http://localhost:3000>. The first image build takes several minutes; subsequent starts
+are fast. Re-running `setup.sh` / `setup.bat` does a full rebuild and is meant for setup or
+recovery, not daily use.
+
+### Manual
+
+```bash
+git clone https://github.com/pypi-ahmad/computer-use.git
+cd computer-use
+cp .env.example .env
+
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cd frontend && npm install && cd ..
+
+docker compose up -d
+python -m backend.main
+# second terminal:
+cd frontend && npm run dev
+
+```
+
+The sandbox always runs in Docker even when the backend runs on the host. If the container
+exits immediately, inspect `docker logs cua-environment`. A common first-run cause is the VNC
+guard in `docker/entrypoint.sh`: uncomment `VNC_PASSWORD=...` in `docker-compose.yml` or add
+`CUA_ALLOW_NOPW=1` to the service environment.
 
 ## Running a session
 
@@ -143,16 +229,31 @@ Task: *"Search Google Shopping for a USB-C GaN charger under $30 with at least 6
 
 What to expect: the Gemini adapter launches Chromium (Google's reference). Coordinates come back normalized 0–999; `DesktopExecutor._px` denormalises against the actual 1440×900 viewport. If the model emits a `safety_decision: require_confirmation` (rare for research tasks, common for financial confirms), the workbench's SafetyModal prompts you; the ToS-mandated `safety_acknowledgement: "true"` echo only fires after you confirm.
 
+### 4. Multi-application workflow (Claude Sonnet 4.6)
+
+Task: *"Open a terminal, create the directory /home/agent/export, open LibreOffice Calc, enter three rows of sample data, save the file to /home/agent/export/data.ods, then open the file manager and confirm it is there."*
+
+What to expect: Sonnet 4.6 is the natural default for cross-application work because it balances cost and accuracy well. The session will touch a terminal emulator, an office application, and a GUI file manager. Watch the Timeline panel — tool batches often show a `zoom` action inside LibreOffice for reading cell content. Expected duration: 3–5 minutes depending on the number of correction turns needed.
+
+### 5. Long-running data extraction (GPT-5.4)
+
+Task: *"Go to [a paginated public data source], collect the name and value from the first 20 rows, and save them line-by-line to /home/agent/Documents/results.txt. Stop when done."*
+
+What to expect: GPT-5.4 batches multiple actions per turn (scroll, read, type) which reduces total turn count for repetitive work. Raise `MAX_STEPS` before starting if the default 50 is too low for the data size. ZDR-safe replay keeps prior turns out of persistent storage — useful if the source data is sensitive. Expected duration: 8–15 minutes for 20 rows with inter-page navigation.
+
 ## Observability
 
 Every session produces both a **LangGraph checkpoint** (per-node state, enables restart-resume on approval) and a **session trace** (ordered `TraceEvent` records with redacted payloads).
 
 - **Live.** The workbench streams `log`, `step`, `screenshot_stream`, `safety_confirmation`, and `agent_finished` events over WebSocket. The Logs panel renders them in real time and supports copy / download / export.
 - **After the run.** Traces land at `$CUA_TRACE_DIR/<session_id>.json` (default `~/.computer-use/traces/`). Inspect with:
+
   ```bash
   python -m backend.tracing list
   python -m backend.tracing dump <session_id>
+
   ```
+
   Screenshots in the persisted trace are redacted to `{"sha256": <hex>, "len": <int>}` — the bytes stay on disk only if you asked for them. Free-text fields pass through the same `scrub_secrets` regex that redacts logs.
 - **Restart-resume.** If the backend is killed while a session is paused on `approval_interrupt`, the LangGraph SQLite checkpointer preserves `pending_approval` and the exact graph state. Posting to `/api/agent/safety-confirm` after restart resumes via `graph.ainvoke(Command(resume=decision), config)`. Test coverage: `tests/test_agent_graph_nodes.py::TestApprovalInterruptResume::test_pause_and_resume_across_fresh_runtime`.
 
@@ -163,12 +264,12 @@ Every session produces both a **LangGraph checkpoint** (per-node state, enables 
 3. **"API key is required" despite having set one.** The UI resolution order is UI > `.env` > system env. A key in `.env` that the backend picked up earlier still needs the UI's "Config File ✓" toggle flipped on. Restart the backend if you added the key after first launch.
 4. **`require_confirmation` / refusal.** Expected. The workbench opens the SafetyModal with the provider's explanation. Approve or deny. A 60 s auto-deny is deliberate — never auto-approve CU safety prompts; Gemini's ToS explicitly forbids it.
 5. **Screenshot is blank.** `Xvfb` hasn't rendered anything yet, or XFCE4 panel hasn't started. Try clicking **Stop Environment** → **Start Environment**. If it persists, `docker exec cua-environment scrot /tmp/test.png` and inspect manually; the most common cause is a stale `/tmp/.X99-lock`.
-5. **Session state bleeding.** Each run reuses the same `cua-environment` container. To reset browser profiles, session history, and `/tmp` state, use `Stop Environment` in the header (which calls `docker rm -f`). A new session will `docker run` fresh.
-6. **`HTTP 400` from OpenAI after upgrading.** The Responses API enum for `reasoning.effort` is `{minimal, low, medium, high}`. Legacy values (`none`, `xhigh`) are mapped to canonical by `OpenAICUClient.__init__`, but a hand-rolled request skipping that path will 400. Use the env var or the request-body override; don't pass legacy values directly to the SDK.
-7. **Claude `HTTP 400: temperature is not supported`.** Opus 4.7 rejects `temperature`, `top_p`, `top_k` at any non-default value. The adapter omits them; if you've patched custom sampling params in, remove them.
-8. **Gemini `400 INVALID_ARGUMENT`.** The adapter's log line names the three most common causes: screenshot too large or corrupt; tool-version mismatch; context exceeded. See [backend/engine/gemini.py](backend/engine/gemini.py) (search for `INVALID_ARGUMENT`).
-9. **Ghost sessions.** If the workbench shows "Agent Running" but nothing happens, the stop flow preserves `sessionId` on transient failures — click **Stop** again. The server's `/api/agent/stop/<sid>` idempotently returns 404 for already-ended sessions.
-10. **Tests fail with `ModuleNotFoundError: uvicorn`.** Four tests in `tests/test_audit_fixes.py::TestPublicBindGuardrail` require uvicorn on the dev host. `pip install uvicorn`.
+6. **Session state bleeding.** Each run reuses the same `cua-environment` container. To reset browser profiles, session history, and `/tmp` state, use `Stop Environment` in the header (which calls `docker rm -f`). A new session will `docker run` fresh.
+7. **`HTTP 400` from OpenAI after upgrading.** The Responses API enum for `reasoning.effort` is `{minimal, low, medium, high}`. Legacy values (`none`, `xhigh`) are mapped to canonical by `OpenAICUClient.__init__`, but a hand-rolled request skipping that path will 400. Use the env var or the request-body override; don't pass legacy values directly to the SDK.
+8. **Claude `HTTP 400: temperature is not supported`.** Opus 4.7 rejects `temperature`, `top_p`, `top_k` at any non-default value. The adapter omits them; if you've patched custom sampling params in, remove them.
+9. **Gemini `400 INVALID_ARGUMENT`.** The adapter's log line names the three most common causes: screenshot too large or corrupt; tool-version mismatch; context exceeded. See [backend/engine/gemini.py](backend/engine/gemini.py) (search for `INVALID_ARGUMENT`).
+10. **Ghost sessions.** If the workbench shows "Agent Running" but nothing happens, the stop flow preserves `sessionId` on transient failures — click **Stop** again. The server's `/api/agent/stop/<sid>` idempotently returns 404 for already-ended sessions.
+11. **Tests fail with `ModuleNotFoundError: uvicorn`.** Four tests in `tests/test_audit_fixes.py::TestPublicBindGuardrail` require uvicorn on the dev host. `pip install uvicorn`.
 
 ## FAQ
 
@@ -192,3 +293,17 @@ No. The sandbox is load-bearing for isolation. The `AGENT_SERVICE_TOKEN` handsha
 
 **Why is Gemini 3.1 Pro Preview excluded?**
 Google has not enabled Computer Use on that model as of 2026-04-24 despite the Gemini 3 developer guide implying support. The official CU docs list only `gemini-3-flash-preview` and `gemini-2.5-computer-use-preview-10-2025`. See [CHANGELOG.md](CHANGELOG.md) for the forum repro link.
+
+## See also
+
+- [README.md](README.md) — project pitch and quickstart
+- [TECHNICAL.md](TECHNICAL.md) — architecture and internals
+- [CHANGELOG.md](CHANGELOG.md) — release history
+- [docker/SECURITY_NOTES.md](docker/SECURITY_NOTES.md) — sandbox security posture
+
+## Getting help
+
+File bug reports and usage questions at <https://github.com/pypi-ahmad/computer-use/issues>.
+Include: model ID, provider, session ID, whether on noVNC or Screenshot mode, a trace dump
+from `python -m backend.tracing dump <session_id>`, and `docker logs cua-environment` if
+the sandbox was involved.
