@@ -1,5 +1,7 @@
 FROM ubuntu:24.04
 
+# hadolint global ignore=DL3008
+
 ENV DEBIAN_FRONTEND=noninteractive
 ENV DISPLAY=:99
 # Viewport default is 1440x900 — single best-compromise across all four CU
@@ -24,6 +26,8 @@ ENV SCREEN_DEPTH=24
 ENV AGENT_SERVICE_PORT=9222
 ENV LIBGL_ALWAYS_SOFTWARE=1
 ENV PYTHONPATH=/app
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # D2 — Split installs into stable-to-volatile layers so churn in
@@ -139,7 +143,7 @@ RUN apt-get remove -y light-locker xfce4-screensaver xfce4-power-manager 2>/dev/
 # Install Node.js LTS 20 for desktop tooling and optional in-container tasks
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get update \
-    && apt-get install -y nodejs \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 RUN node -v && npm -v && npx -v
 
@@ -151,7 +155,7 @@ COPY requirements.txt /tmp/requirements.txt
 RUN /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt
 
 # --- Google Chrome (item 1) ---
-RUN wget -qO- https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google.gpg \
+RUN curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google.gpg \
  && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
     > /etc/apt/sources.list.d/google-chrome.list \
  && apt-get update && apt-get install -y --no-install-recommends google-chrome-stable \

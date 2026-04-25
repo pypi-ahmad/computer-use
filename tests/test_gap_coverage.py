@@ -581,10 +581,11 @@ class TestCorsOriginFilter:
 
 class TestStreamScreenshotsResilience:
     def test_unexpected_exception_does_not_kill_task(self):
-        """A non-HTTP error inside the loop must trigger backoff, not exit."""
+        """A non-HTTP error inside the shared publisher must trigger backoff."""
         from backend import server
 
         calls = {"n": 0}
+        session_id = "gap-stream-resilience"
 
         async def flaky_capture(mode="desktop"):
             calls["n"] += 1
@@ -600,18 +601,25 @@ class TestStreamScreenshotsResilience:
                 sent_events.append(msg)
 
         async def driver():
-            from backend import docker_manager
+            server._cleanup_session(session_id)
             with patch.object(server, "capture_screenshot", side_effect=flaky_capture), \
-                 patch.object(docker_manager, "is_container_running", new=AsyncMock(return_value=True)), \
-                 patch.object(server.config, "ws_screenshot_interval", 0.01):
-                task = asyncio.create_task(server._stream_screenshots(FakeWS()))
+                patch("backend.docker_manager.is_container_running", new=AsyncMock(return_value=True)), \
+                patch.object(server.config, "ws_screenshot_interval", 0.01):
+                ws = FakeWS()
+                server._active_tasks[session_id] = MagicMock()
+                server._active_loops[session_id] = MagicMock()
+                server._subscribe_screenshots(ws, session_id)
+                task = server._screenshot_publisher_task
+                assert task is not None
                 # Give the loop enough time to hit the exception and recover.
                 await asyncio.sleep(2.3)
-                task.cancel()
+                server._unsubscribe_screenshots(ws)
                 try:
                     await task
                 except asyncio.CancelledError:
                     pass
+                finally:
+                    server._cleanup_session(session_id)
 
         asyncio.run(driver())
         assert calls["n"] >= 2, "loop should retry after broad Exception"
@@ -902,11 +910,12 @@ class TestConcurrentSessionLimit:
 
 class TestScreenshotStreamerTimeout:
     def test_timeout_does_not_close_websocket(self):
-        """A raised httpx.TimeoutException must trigger backoff, not exit."""
+        """A timeout inside the shared publisher must trigger backoff."""
         import httpx
         from backend import server
 
         calls = {"n": 0}
+        session_id = "gap-stream-timeout"
 
         async def flaky_capture(mode="desktop"):
             calls["n"] += 1
@@ -930,19 +939,25 @@ class TestScreenshotStreamerTimeout:
         ws = FakeWS()
 
         async def driver():
-            from backend import docker_manager
+            server._cleanup_session(session_id)
             with patch.object(server, "capture_screenshot", side_effect=flaky_capture), \
-                 patch.object(docker_manager, "is_container_running", new=AsyncMock(return_value=True)), \
-                 patch.object(server.config, "ws_screenshot_interval", 0.01):
-                task = asyncio.create_task(server._stream_screenshots(ws))
+                patch("backend.docker_manager.is_container_running", new=AsyncMock(return_value=True)), \
+                patch.object(server.config, "ws_screenshot_interval", 0.01):
+                server._active_tasks[session_id] = MagicMock()
+                server._active_loops[session_id] = MagicMock()
+                server._subscribe_screenshots(ws, session_id)
+                task = server._screenshot_publisher_task
+                assert task is not None
                 # Sleep long enough to hit the timeout and the 2s backoff and
                 # then a successful second capture.
                 await asyncio.sleep(2.5)
-                task.cancel()
+                server._unsubscribe_screenshots(ws)
                 try:
                     await task
                 except asyncio.CancelledError:
                     pass
+                finally:
+                    server._cleanup_session(session_id)
 
         asyncio.run(driver())
 
