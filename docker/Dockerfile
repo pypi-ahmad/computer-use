@@ -87,14 +87,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-dejavu-core \
     fonts-liberation \
     fonts-noto-core \
+    galculator \
     gedit \
+    gimp \
     gnome-terminal \
     htop \
     imagemagick \
+    inkscape \
     libreoffice \
     libreoffice-gtk3 \
     mutter \
     novnc \
+    ristretto \
     scrot \
     tint2 \
     vlc \
@@ -107,6 +111,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xdotool \
     xfce4 \
     xfce4-goodies \
+    xfce4-settings \
+    xfce4-taskmanager \
     xfce4-terminal \
     xournalpp \
     xpdf \
@@ -130,18 +136,17 @@ RUN arch="$(dpkg --print-architecture)" \
     && ln -sf /opt/firefox/firefox /usr/local/bin/firefox-esr \
     && rm -f /tmp/firefox-esr.tar
 
-# Google Gemini 3 Flash Preview's reference implementation
-# (github.com/google-gemini/computer-use-preview) uses Playwright-controlled
-# Chromium. Ubuntu 24.04 exposes chromium/firefox apt entries as snap shims,
-# so this image installs Google Chrome Stable below and publishes
-# chromium-compatible aliases that keep Gemini's Chromium-first resolver on a
-# Chrome-class browser without relying on snapd inside the container.
-#
-# Playwright itself is NOT installed by default — it adds ~500 MB of
-# browser-bundled binaries to the image.  To enable Gemini's native-fidelity
-# Playwright path, rebuild with ``--build-arg INSTALL_PLAYWRIGHT=1`` (see
-# docker/SECURITY_NOTES.md) and set ``CUA_GEMINI_USE_PLAYWRIGHT=1`` at
-# container runtime.
+# Google Gemini Computer Use's reference implementation
+# (github.com/google-gemini/computer-use-preview) drives Chromium
+# through Playwright. To align the unified sandbox with that
+# contract — without abandoning the single-container architecture —
+# this image runs Google Chrome inside the container with CDP
+# enabled (see docker/entrypoint.sh) and the backend connects to it
+# via ``playwright.connect_over_cdp("http://127.0.0.1:9223")``.
+# Playwright is therefore needed inside the container only for its
+# Chromium launcher dependencies (already covered by chrome-stable
+# below); the Python package is installed on the backend host via
+# requirements.txt.
 # OpenAI Computer Use guide mandates the sandbox be free of lockscreens
 # and screensavers that would steal focus from xdotool / the agent.
 # Idempotent: ``|| true`` so rebuilds with upstream removal succeed.
@@ -168,6 +173,16 @@ RUN curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor
  && apt-get update && apt-get install -y --no-install-recommends google-chrome-stable \
  && ln -sf /usr/bin/google-chrome-stable /usr/local/bin/chromium \
  && ln -sf /usr/bin/google-chrome-stable /usr/local/bin/chromium-browser \
+ && rm -rf /var/lib/apt/lists/*
+
+# --- Visual Studio Code (Microsoft official apt repo) ---
+# Provides the ``code`` binary the CU agent can invoke for editor /
+# tabs / settings UI tasks. Repo + signing key per Microsoft's docs:
+# https://code.visualstudio.com/docs/setup/linux#_debian-and-ubuntu-based-distributions
+RUN curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft.gpg \
+ && echo "deb [arch=amd64,arm64,armhf signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/code stable main" \
+    > /etc/apt/sources.list.d/vscode.list \
+ && apt-get update && apt-get install -y --no-install-recommends code \
  && rm -rf /var/lib/apt/lists/*
 
 # ── Pre-create Chrome profile to suppress first-run dialogs & keyring ────────
