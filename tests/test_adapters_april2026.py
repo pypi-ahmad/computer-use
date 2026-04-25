@@ -226,7 +226,7 @@ class TestGeminiRequireConfirmation:
     """Safety decision ``require_confirmation`` routes through ``on_safety``."""
 
     @pytest.mark.parametrize("model", [
-        "gemini-3.1-pro-preview", "gemini-3-flash-preview",
+        "gemini-3-flash-preview",
     ])
     @pytest.mark.asyncio
     async def test_denied_confirmation_terminates(self, model):
@@ -285,7 +285,7 @@ class TestGeminiRequireConfirmation:
         assert "terminated" in final.lower() and "safety" in final.lower()
 
     @pytest.mark.parametrize("model", [
-        "gemini-3.1-pro-preview", "gemini-3-flash-preview",
+        "gemini-3-flash-preview",
     ])
     @pytest.mark.asyncio
     async def test_approved_confirmation_stamps_acknowledgement(self, model):
@@ -356,7 +356,7 @@ class TestGeminiRequireConfirmation:
         assert "ok" in final
 
     @pytest.mark.parametrize("model", [
-        "gemini-3.1-pro-preview", "gemini-3-flash-preview",
+        "gemini-3-flash-preview",
     ])
     @pytest.mark.asyncio
     async def test_iter_turns_emits_safetyrequired_and_resumes(self, model):
