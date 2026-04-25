@@ -39,6 +39,25 @@ class TestConfig:
         providers = {entry["provider"] for entry in get_all_key_statuses()}
         assert "openai" in providers
 
+    def test_resolve_google_accepts_gemini_alias(self):
+        """``GEMINI_API_KEY`` is honored as an alias for the google provider."""
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("GOOGLE_API_KEY", "GEMINI_API_KEY")}
+        env["GEMINI_API_KEY"] = "AIza-from-gemini-alias"
+        with patch.dict(os.environ, env, clear=True):
+            key, source = resolve_api_key("google")
+        assert key == "AIza-from-gemini-alias"
+        assert source == "env"
+
+    def test_resolve_google_prefers_canonical_over_alias(self):
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("GOOGLE_API_KEY", "GEMINI_API_KEY")}
+        env["GOOGLE_API_KEY"] = "AIza-canonical"
+        env["GEMINI_API_KEY"] = "AIza-alias"
+        with patch.dict(os.environ, env, clear=True):
+            key, _ = resolve_api_key("google")
+        assert key == "AIza-canonical"
+
 
 class TestEnvClamping:
     """S3 — numeric env values must be clamped to safe ranges."""
