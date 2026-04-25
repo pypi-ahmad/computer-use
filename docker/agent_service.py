@@ -85,6 +85,9 @@ _ENGINE_ACTIONS: frozenset[str] = frozenset({
     "type", "hotkey", "key", "keydown", "keyup",
     "scroll", "left_mouse_down", "left_mouse_up", "drag",
     "open_url",
+    # ``zoom`` is a ``computer_20251124``-era action (Claude Opus 4.7
+    # et al.) — always on when the adapter advertises enable_zoom.
+    "zoom",
 })
 
 _LEGACY_ACTIONS: frozenset[str] = frozenset({
@@ -687,13 +690,18 @@ def _xdo_left_mouse_up() -> dict:
 # Pre-created profile directory (seeded at build-time in Dockerfile)
 _CHROME_PROFILE_DIR = "/tmp/chrome-profile"
 
-# Chrome flags that suppress ALL first-run UI, keyring dialogs, and sync prompts
+# Chrome flags that suppress ALL first-run UI, keyring dialogs, and sync
+# prompts. ``--disable-extensions`` and ``--disable-file-system`` are
+# explicitly required by the OpenAI Computer Use guide's browser-security
+# posture (Option 1 / Chromium path) — a compromised renderer with file-
+# system access would be a direct jailbreak out of the sandbox.
 _CHROME_FLAGS: list[str] = [
     "--no-sandbox",
     "--no-first-run",
     "--disable-first-run-ui",
     "--disable-sync",
     "--disable-extensions",
+    "--disable-file-system",
     "--disable-default-apps",
     "--disable-popup-blocking",
     "--disable-translate",
@@ -704,6 +712,24 @@ _CHROME_FLAGS: list[str] = [
     f"--user-data-dir={_CHROME_PROFILE_DIR}",
     f"--window-size={SCREEN_WIDTH},{SCREEN_HEIGHT}",
 ]
+
+
+# Minimal environment for the browser subprocess. The OpenAI CU guide
+# recommends dropping the host environment entirely to prevent a
+# compromised renderer from reading operator secrets (API keys,
+# AGENT_SERVICE_TOKEN, etc.) out of the process env. We still need
+# DISPLAY / HOME / PATH / LANG / XDG_RUNTIME_DIR for the X11 client
+# and Chrome's profile paths to resolve, so those are whitelisted.
+def _browser_minimal_env() -> dict[str, str]:
+    """Return a minimal env for the browser subprocess — whitelist
+    only what X11 + Chrome profile loading need. No host leakage."""
+    return {
+        "DISPLAY": os.environ.get("DISPLAY", ":99"),
+        "HOME": os.environ.get("HOME", "/home/agent"),
+        "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+        "XDG_RUNTIME_DIR": os.environ.get("XDG_RUNTIME_DIR", "/tmp/xdg-runtime-dir"),
+    }
 
 # Known modal window titles that should be auto-dismissed after browser launch
 _KNOWN_MODAL_TITLES = (
@@ -809,7 +835,7 @@ def _open_url_in_browser(url: str) -> dict:
             cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            env={**os.environ, "DISPLAY": ":99"},
+            env=_browser_minimal_env(),
         )
     except Exception as exc:
         logger.error("Browser launch failed: %s — falling back to xdg-open", exc)
@@ -1265,7 +1291,11 @@ class AgentHandler(BaseHTTPRequestHandler):
                 )
                 self._respond(404, {
                     "success": False,
-                    "error": f"Unknown or disabled action: {resolved!r}",
+                    # Keep the standard /action error envelope so
+                    # debug callers can treat a gated action like any
+                    # other action failure while the 404 status still
+                    # makes reachability explicit.
+                    "message": f"Unknown or disabled action: {resolved!r}",
                 })
                 return
 
@@ -1621,6 +1651,30 @@ class AgentHandler(BaseHTTPRequestHandler):
                 b64 = _xdo_screenshot_region(coords[0], coords[1], coords[2], coords[3])
                 return {"success": True, "message": "Region screenshot captured", "screenshot": b64}
             return {"success": False, "message": "screenshot_region needs 4 coords [x, y, width, height]"}
+        elif action == "zoom":
+            # Claude ``computer_20251124`` zoom action.  Expects
+            # ``region=[x1, y1, x2, y2]`` with top-left to bottom-right
+            # corners.  The adapter has already validated shape, clamped
+            # to display bounds, and rejected inverted rectangles — we
+            # trust the input here and translate to the scrot region
+            # shape ``x, y, width, height``.  On scrot failure, fall
+            # back to a full-screen screenshot so the model can still
+            # make progress.
+            if len(coords) >= 4:
+                x1, y1, x2, y2 = coords[0], coords[1], coords[2], coords[3]
+                w, h = max(1, x2 - x1), max(1, y2 - y1)
+                try:
+                    b64 = _xdo_screenshot_region(x1, y1, w, h)
+                    return {"success": True, "message": "Zoom region captured", "screenshot": b64}
+                except Exception as exc:
+                    logger.warning("zoom scrot failed: %s; falling back to full screen", exc)
+                    b64 = _xdo_screenshot_full()
+                    return {
+                        "success": False,
+                        "message": f"zoom fallback to full screen: {exc}",
+                        "screenshot": b64,
+                    }
+            return {"success": False, "message": "zoom needs 4 coords [x1, y1, x2, y2]"}
         else:
             return {"success": False, "message": f"Unsupported action '{action}' in desktop engine"}
 

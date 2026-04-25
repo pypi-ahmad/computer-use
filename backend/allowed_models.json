@@ -5,6 +5,20 @@
   "models": [
     {
       "provider": "google",
+      "model_id": "gemini-2.5-flash",
+      "display_name": "Gemini 2.5 Flash",
+      "supports_computer_use": true,
+      "notes": "Legacy compatibility model id retained for existing sessions and frontends. Current Google CU guidance prefers Gemini 3 Flash Preview."
+    },
+    {
+      "provider": "google",
+      "model_id": "gemini-2.5-pro",
+      "display_name": "Gemini 2.5 Pro",
+      "supports_computer_use": true,
+      "notes": "Legacy compatibility model id retained for existing sessions and frontends. Current Google CU guidance prefers Gemini 3.1 Pro Preview."
+    },
+    {
+      "provider": "google",
       "model_id": "gemini-3-flash-preview",
       "display_name": "Gemini 3 Flash Preview",
       "supports_computer_use": true,
@@ -36,13 +50,11 @@
       "notes": "Claude Sonnet 4.6 — requires beta endpoint + computer_20251124 tool."
     },
     {
-      "provider": "anthropic",
-      "model_id": "claude-opus-4-6",
-      "display_name": "Claude Opus 4.6",
+      "provider": "openai",
+      "model_id": "gpt-5",
+      "display_name": "GPT-5",
       "supports_computer_use": true,
-      "cu_tool_version": "computer_20251124",
-      "cu_betas": ["computer-use-2025-11-24"],
-      "notes": "Claude Opus 4.6 — requires beta endpoint + computer_20251124 tool."
+      "notes": "Legacy compatibility model id retained for existing sessions. Current OpenAI CU guidance prefers GPT-5.4."
     },
     {
       "provider": "openai",
@@ -50,6 +62,13 @@
       "display_name": "GPT-5.4",
       "supports_computer_use": true,
       "notes": "OpenAI Responses API built-in computer tool."
+    },
+    {
+      "provider": "openai",
+      "model_id": "gpt-5.4-nano",
+      "display_name": "GPT-5.4 Nano",
+      "supports_computer_use": false,
+      "notes": "Per OpenAI API changelog 2026-04-20: GPT-5.4 nano supports compaction, but does NOT support tool search or computer use. Kept in the registry so non-CU callers can still pick it; excluded from the CU-capable list."
     }
   ]
 }
