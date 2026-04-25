@@ -652,7 +652,9 @@ def get_claude_scale_factor(
     coordinates returned by Claude map 1:1 to the reported display size.
 
     All ``computer_20251124`` models use the higher 2576px / 3.75MP
-    limits. Legacy models stay on the 1568px / 1.15MP path.
+    limits by default. Legacy models stay on the 1568px / 1.15MP path.
+    Opus 4.7's long-edge-only override is handled separately in
+    ``ClaudeCUClient`` when ``CUA_OPUS47_HIRES=1`` is enabled.
     """
     if _uses_claude_20251124(model, tool_version):
         max_long_edge = _CLAUDE_OPUS_47_MAX_LONG_EDGE
@@ -661,8 +663,6 @@ def get_claude_scale_factor(
         max_long_edge = _CLAUDE_MAX_LONG_EDGE
         max_pixels = _CLAUDE_MAX_PIXELS
     long_edge = max(width, height)
-    if _is_opus_47(model):
-        return min(1.0, _CLAUDE_OPUS_47_MAX_LONG_EDGE / long_edge)
     total_pixels = width * height
     return min(
         1.0,
