@@ -152,6 +152,61 @@ else
 fi
 
 # ─────────────────────────────────────────────
+# 5c. Chromium CDP endpoint for Gemini's Playwright path
+# ─────────────────────────────────────────────
+# Google's official Gemini Computer Use docs use Playwright as the
+# client-side action handler. To preserve the unified Docker
+# container while honouring that contract, we pre-launch Chrome
+# inside the sandbox with the Chrome DevTools Protocol exposed on
+# 127.0.0.1:9223 (mapped to host loopback by docker-compose.yml).
+# The backend then drives this Chromium via
+# ``playwright.connect_over_cdp("http://127.0.0.1:9223")`` so the
+# browser remains sandboxed AND visible in the existing noVNC view.
+#
+# Disable: set ``CUA_DISABLE_CDP=1`` to skip launching the CDP
+# Chromium (the backend will fall back to the xdotool DesktopExecutor).
+if command -v google-chrome >/dev/null 2>&1 && [ "${CUA_DISABLE_CDP:-}" != "1" ]; then
+    echo "[CDP] Launching Chromium with remote debugging on :9223..."
+    # OpenAI CU hardening flags + minimal env (no host secrets in PATH).
+    # ``--remote-allow-origins=*`` is required since Chrome 111 to
+    # accept WebSocket upgrades from the Playwright client.
+    env -i \
+        DISPLAY=:99 \
+        HOME="${HOME:-/home/agent}" \
+        PATH="/usr/local/bin:/usr/bin:/bin" \
+        LANG="${LANG:-C.UTF-8}" \
+        XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}" \
+        google-chrome \
+            --remote-debugging-port=9223 \
+            --remote-debugging-address=0.0.0.0 \
+            --remote-allow-origins=* \
+            --user-data-dir=/tmp/chrome-profile \
+            --no-default-browser-check \
+            --no-first-run \
+            --disable-extensions \
+            --disable-file-system \
+            --disable-features=Translate \
+            --window-size="${SCREEN_WIDTH},${SCREEN_HEIGHT}" \
+            --window-position=0,0 \
+            about:blank \
+        > /tmp/chrome-cdp.log 2>&1 &
+    CHROME_CDP_PID=$!
+    # Wait briefly for the CDP endpoint to come up so health checks pass.
+    for i in $(seq 1 20); do
+        if curl -fs http://127.0.0.1:9223/json/version >/dev/null 2>&1; then
+            echo "[CDP] ✓ Chromium CDP endpoint ready on :9223"
+            break
+        fi
+        sleep 0.25
+    done
+    if ! kill -0 "$CHROME_CDP_PID" 2>/dev/null; then
+        echo "[CDP] WARNING: Chrome exited before CDP became ready (see /tmp/chrome-cdp.log)"
+    fi
+else
+    echo "[CDP] Skipped (CUA_DISABLE_CDP=${CUA_DISABLE_CDP:-} or no chrome)"
+fi
+
+# ─────────────────────────────────────────────
 # 8. Pre-flight verification
 # ─────────────────────────────────────────────
 echo "[Verify] Running pre-flight checks..."
