@@ -319,6 +319,7 @@ _CLAUDE_MAX_PIXELS = 1_150_000
 # Claude Opus 4.7 supports higher resolution — up to 2576px on the
 # long edge with 1:1 coordinates (no scale-factor conversion required).
 _CLAUDE_OPUS_47_MAX_LONG_EDGE = 2576
+_CLAUDE_HIGH_RES_MAX_PIXELS = 3_750_000
 
 
 def _is_opus_47(model_id: str) -> bool:
@@ -459,13 +460,18 @@ def get_claude_scale_factor(width: int, height: int, model: str = "") -> float:
     by pre-resizing and reporting the scaled dimensions, we ensure
     coordinates returned by Claude map 1:1 to the reported display size.
 
-    Claude Opus 4.7 supports up to 2576px on the long edge with native
-    1:1 coordinates, so it uses a higher threshold.
+    Claude Opus 4.7 uses the higher 2576px / 3.75MP default path.
+    Long-edge-only scaling is handled separately by the newer adapter
+    path when explicitly enabled.
     """
     long_edge = max(width, height)
-    if _is_opus_47(model):
-        return min(1.0, _CLAUDE_OPUS_47_MAX_LONG_EDGE / long_edge)
     total_pixels = width * height
+    if _is_opus_47(model):
+        return min(
+            1.0,
+            _CLAUDE_OPUS_47_MAX_LONG_EDGE / long_edge,
+            math.sqrt(_CLAUDE_HIGH_RES_MAX_PIXELS / total_pixels),
+        )
     return min(
         1.0,
         _CLAUDE_MAX_LONG_EDGE / long_edge,
