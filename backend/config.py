@@ -204,11 +204,13 @@ config = Config.from_env()
 
 # ── API Key Resolution ────────────────────────────────────────────────────────
 
-# Maps provider name → env var name for API keys.
-_PROVIDER_KEY_ENV_VARS: dict[str, str] = {
-    "google": "GOOGLE_API_KEY",
-    "anthropic": "ANTHROPIC_API_KEY",
-    "openai": "OPENAI_API_KEY",
+# Maps provider name → tuple of accepted env var names for API keys.
+# The first entry is the canonical/preferred name; later entries are
+# aliases checked in order (e.g. ``GEMINI_API_KEY`` for Google).
+_PROVIDER_KEY_ENV_VARS: dict[str, tuple[str, ...]] = {
+    "google": ("GOOGLE_API_KEY", "GEMINI_API_KEY"),
+    "anthropic": ("ANTHROPIC_API_KEY",),
+    "openai": ("OPENAI_API_KEY",),
 }
 
 
@@ -272,9 +274,9 @@ def resolve_api_key(provider: str, ui_key: str | None = None) -> tuple[str | Non
     if ui_key and ui_key.strip():
         return ui_key.strip(), "ui"
 
-    # 2. Environment (.env file or system env var)
-    env_var = _PROVIDER_KEY_ENV_VARS.get(provider)
-    if env_var:
+    # 2. Environment (.env file or system env var) — try each alias in order
+    env_vars = _PROVIDER_KEY_ENV_VARS.get(provider, ())
+    for env_var in env_vars:
         value, source = _detect_key_source(env_var)
         if value:
             return value, source
@@ -285,8 +287,13 @@ def resolve_api_key(provider: str, ui_key: str | None = None) -> tuple[str | Non
 def get_all_key_statuses() -> list[dict]:
     """Return the availability status of API keys for all providers."""
     statuses: list[dict] = []
-    for provider, env_var in _PROVIDER_KEY_ENV_VARS.items():
-        value, source = _detect_key_source(env_var)
+    for provider, env_vars in _PROVIDER_KEY_ENV_VARS.items():
+        value: str | None = None
+        source = "none"
+        for env_var in env_vars:
+            value, source = _detect_key_source(env_var)
+            if value:
+                break
         status = KeyStatus(
             provider=provider,
             available=bool(value),

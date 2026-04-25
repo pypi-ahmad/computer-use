@@ -860,7 +860,7 @@ async def ready():
 
     # At least one provider API key configured (env or .env, NOT UI).
     # Mirrors ``backend.config``'s ``_PROVIDER_KEY_ENV_VARS`` map.
-    key_env_names = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY")
+    key_env_names = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY")
     has_any_key = any(os.environ.get(name, "").strip() for name in key_env_names)
     if not has_any_key:
         reasons.append(
