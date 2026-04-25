@@ -246,7 +246,9 @@ starts or checks the sandbox, coordinates the LangGraph state machine, handles
 pause/resume logic, proxies noVNC, and broadcasts run events to the UI.
 
 The third plane is the sandbox. It is an Ubuntu 24.04 container with Xvfb,
-XFCE4, browsers, utility applications, VNC plumbing, and an HTTP agent service.
+XFCE4, hardened browsers, common desktop apps such as LibreOffice, XFCE
+Settings/Task Manager, Ristretto, galculator, GIMP, Inkscape, and VS Code,
+plus the VNC plumbing and HTTP agent service the backend drives.
 The backend tells that agent service to click, type, drag, scroll, and capture
 screenshots. The model never touches the host directly.
 
@@ -320,8 +322,7 @@ The current selectable CU-capable models are:
 | Anthropic | `claude-opus-4-7` | `computer_20251124` | Highest-capability Anthropic path, strongest option for long-horizon or dense reasoning tasks. |
 | Anthropic | `claude-sonnet-4-6` | `computer_20251124` | Balanced default for many desktop tasks. |
 | OpenAI | `gpt-5.4` | built-in `computer` tool | Uses the Responses API with stateless replay and `detail: "original"` screenshot outputs. |
-| Google | `gemini-3-flash-preview` | `types.Tool(computer_use=...)` | Lower-latency, lower-cost Google path, good for many practical web tasks. |
-| Google | `gemini-3.1-pro-preview` | `types.Tool(computer_use=...)` | Higher-reasoning Google path for tasks that need more planning depth than Flash. |
+| Google | `gemini-3-flash-preview` | `types.Tool(computer_use=...)` | Sole Gemini Computer Use SKU per Google's official docs. |
 
 The registry also contains `gpt-5.4-nano`, but it is intentionally marked as not
 supporting Computer Use and therefore is not surfaced as a selectable CU model.
@@ -600,8 +601,24 @@ Google sessions use the Gemini computer-use tool path. Gemini returns normalized
 coordinates, which the executor denormalizes to actual pixels before passing
 them to the container-side desktop service. That distinction is easy to miss if
 you are comparing provider logs casually, but it is critical when debugging
-action accuracy. The repo supports both Gemini 3 Flash Preview and Gemini 3.1
-Pro Preview on the current CU path.
+action accuracy. Browser-mode Gemini sessions default to the
+Playwright-over-CDP path against the in-container Chrome session, with
+`CUA_GEMINI_USE_PLAYWRIGHT=0` falling back to the xdotool path. The repo
+standardizes on `gemini-3-flash-preview`, the only Gemini SKU on Google's
+current Computer Use supported-model list that this project ships against.
+
+### Document attachments
+
+The backend now supports provider-native document grounding through
+`POST /api/files/upload` plus `attached_files` on `POST /api/agent/start`, but
+the current React workbench still does not expose a file uploader. OpenAI turns
+those server-side file ids into a vector store and attaches the `file_search`
+tool. Gemini uploads into a File Search store, runs a one-shot file-search-only
+RAG pre-step because Google's docs forbid combining File Search with other
+tools in the same call, then injects the grounded text into the Computer Use
+loop. Anthropic uses the official Files API: `.pdf` and `.txt` become
+`document` blocks, while `.md` and `.docx` are extracted to plain text because
+Claude document blocks only support PDF and `text/plain`.
 
 ## Frontend experience
 
@@ -668,8 +685,10 @@ good balanced default here.
 and stop when the answer is grounded."
 
 This is the sort of work where model reasoning quality matters more than raw
-action speed. Gemini 3.1 Pro Preview or Claude Opus 4.7 may be the better fit,
-depending on the exact task.
+action speed. Claude Opus 4.7 is often the strongest fit here. If you need the
+Google path, `gemini-3-flash-preview` is the only supported Gemini CU SKU and
+can also ground itself on uploaded documents through the backend's pre-step RAG
+path.
 
 ### Sandbox and policy debugging task
 
@@ -859,16 +878,16 @@ meant to stand on its own for a serious first read.
 
 If you want balance, start with `claude-sonnet-4-6` or `gpt-5.4`. If you want
 the strongest Anthropic path for harder tasks, use `claude-opus-4-7`. If you
-want a lower-cost Google option, use `gemini-3-flash-preview`. If you want more
-reasoning depth on the Google side, try `gemini-3.1-pro-preview`.
+want a lower-cost Google option, use `gemini-3-flash-preview` — the only
+Gemini SKU on Google's official Computer Use supported-model list.
 
 ### Can I point this at my code repository and ask it to implement features?
 
 Not in the sense of a repository-aware coding agent. The project is a desktop
-automation workbench. You can certainly open an editor inside the sandbox and
-ask a model to interact with files the way a person would, but the system is not
-designed as a semantic code assistant with repository-native planning and edit
-tools.
+automation workbench. You can certainly open VS Code or another editor inside
+the sandbox and ask a model to interact with files the way a person would, but
+the system is not designed as a semantic code assistant with repository-native
+planning and edit tools.
 
 ### How should I think about screenshots?
 

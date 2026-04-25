@@ -120,11 +120,47 @@ class StartTaskRequest(BaseModel):
     api_key: Optional[str] = Field(default=None, max_length=256)
     model: str = Field(default="gemini-3-flash-preview", max_length=64)
     max_steps: int = Field(default=50, ge=1, le=200)
+    # Automation mode:
+    #   * "desktop"  — full X11 desktop (xdotool harness, all apps).
+    #   * "browser"  — chromium-focused: hints Gemini's Computer Use tool
+    #                  with ``ENVIRONMENT_BROWSER`` per the official docs
+    #                  (https://ai.google.dev/gemini-api/docs/computer-use)
+    #                  and switches the system prompt to browser-only
+    #                  guidance for all three providers. The runtime
+    #                  harness stays the same unified Docker container —
+    #                  Chromium runs as an X11 app and is screenshot via
+    #                  scrot, so the Computer-Use wire contract
+    #                  (Anthropic ``computer_20251124`` / OpenAI
+    #                  ``{"type":"computer"}`` / Gemini ``ComputerUse``)
+    #                  remains identical.
     mode: str = Field(max_length=20)
     engine: str = Field(default="computer_use", max_length=20)
     provider: str = Field(max_length=20)
     execution_target: str = Field(default="docker", max_length=20)  # only "docker" is supported
     reasoning_effort: Optional[str] = Field(default=None, max_length=10)  # OpenAI only: none|low|medium|high|xhigh
+    # Official provider-native web-search tool toggle.
+    # When True, the engine attaches the provider's first-party search
+    # tool to every model call:
+    #   * OpenAI Responses API → ``{"type": "web_search"}``
+    #   * Anthropic Messages    → ``{"type": "web_search_20250305", ...}``
+    #   * Gemini GenerateContent → ``Tool(google_search=GoogleSearch())``
+    # The model still decides whether to invoke search per turn; this
+    # flag only controls availability. Off by default per provider docs.
+    use_builtin_search: bool = False
+    search_max_uses: Optional[int] = Field(default=None, ge=1, le=20)  # Anthropic max_uses cap
+    search_allowed_domains: Optional[list[str]] = Field(default=None, max_length=64)
+    search_blocked_domains: Optional[list[str]] = Field(default=None, max_length=64)
+    # Server-side file ids previously persisted via POST /api/files/upload.
+    # When non-empty the engine adapter creates a provider-side store
+    # (OpenAI vector_store / Gemini file_search_store / Anthropic Files API
+    # uploads) and injects the provider-appropriate grounding path per
+    # the official April 2026 docs:
+    #   * https://developers.openai.com/api/docs/guides/tools-file-search
+    #   * https://ai.google.dev/gemini-api/docs/file-search
+    #   * https://platform.claude.com/docs/en/build-with-claude/files
+    # When empty, no provider-side attachment flow is activated and the
+    # agent runs in its normal flow (the activation rule is doc-mandated).
+    attached_files: Optional[list[str]] = Field(default=None, max_length=10)
 
 
 class TaskStatusResponse(BaseModel):
