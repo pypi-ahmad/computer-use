@@ -12,6 +12,7 @@ services:
       - SCREEN_DEPTH=24
       - AGENT_SERVICE_PORT=9222
       - AGENT_MODE=desktop
+      - CUA_ALLOW_NOPW=1
       # - VNC_PASSWORD=changeme   # uncomment to require VNC auth
     ports:
       - "127.0.0.1:5900:5900"
@@ -37,16 +38,16 @@ services:
     # image; tightening those would need a dedicated H1 follow-up.
     tmpfs:
       - /tmp:size=512m,mode=1777
-      - /var/run:size=16m,mode=755
+      - /var/run:size=16m,mode=1777
     deploy:
       resources:
         limits:
           memory: 4g
           cpus: "2"
+          pids: 256
     # D5 — fork-bomb / fd-flood mitigation at the container boundary.
     # The desktop session (XFCE + Chrome + xdotool helpers) sits well
     # under 256 processes and a few hundred fds in normal operation.
-    pids_limit: 256
     ulimits:
       nofile:
         soft: 1024
