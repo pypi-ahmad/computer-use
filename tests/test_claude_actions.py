@@ -157,8 +157,11 @@ class TestClaudeActionDispatch:
 
     @pytest.mark.asyncio
     async def test_zoom(self, client, executor):
+        # ``zoom`` now takes a required ``region=[x1,y1,x2,y2]`` and
+        # delegates to the executor.  Covered more thoroughly in
+        # tests/test_opus_47_followup.py.
         result = await client._execute_claude_action(
-            {"action": "zoom"},
+            {"action": "zoom", "region": [0, 0, 100, 100]},
             executor,
         )
         assert result.success
@@ -204,6 +207,12 @@ class TestClaudeToolConfig:
         assert client._beta_flag == "computer-use-2025-11-24"
 
     def test_tool_version_auto_detect_opus(self):
+        with patch("anthropic.Anthropic"):
+            client = ClaudeCUClient(api_key="test", model="claude-opus-4-7")
+        assert client._tool_version == "computer_20251124"
+        assert client._beta_flag == "computer-use-2025-11-24"
+
+    def test_tool_version_auto_detect_opus_46(self):
         with patch("anthropic.Anthropic"):
             client = ClaudeCUClient(api_key="test", model="claude-opus-4-6")
         assert client._tool_version == "computer_20251124"

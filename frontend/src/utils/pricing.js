@@ -11,7 +11,6 @@ const MODEL_PRICING = {
   // Anthropic Claude
   'claude-opus-4-7': { input: 5.00, output: 25.00 },
   'claude-sonnet-4-6': { input: 3.00, output: 15.00 },
-  'claude-opus-4-6': { input: 15.00, output: 75.00 },
   // OpenAI
   'gpt-5.4': { input: 3.00, output: 12.00 },
 }
