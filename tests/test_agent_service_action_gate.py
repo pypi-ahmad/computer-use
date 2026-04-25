@@ -12,6 +12,19 @@ import sys
 import pytest
 
 
+def _make_post_handler(agent_service, body: dict):
+    """Construct a minimal POST /action handler and capture its response."""
+    captured: dict[str, object] = {}
+    handler = agent_service.AgentHandler.__new__(agent_service.AgentHandler)
+    handler.path = "/action"
+    handler._authorized = lambda: True
+    handler._read_body = lambda: body
+    handler._respond = lambda status, payload: captured.update(
+        {"status": status, "payload": payload}
+    )
+    return handler, captured
+
+
 @pytest.fixture
 def agent_service(monkeypatch):
     """Import docker.agent_service with a clean env and return the module."""
@@ -47,6 +60,9 @@ class TestEngineActionSet:
         "type", "hotkey", "key", "keydown", "keyup",
         "scroll", "left_mouse_down", "left_mouse_up", "drag",
         "open_url",
+        # ``zoom`` is a ``computer_20251124``-era action (Opus 4.7):
+        # always on when the adapter advertises ``enable_zoom``.
+        "zoom",
     })
 
     def test_engine_action_set_matches_expected(self, agent_service):
@@ -83,6 +99,17 @@ class TestActionGate:
 
     def test_unknown_still_blocked_with_legacy_flag(self, agent_service_legacy):
         assert not agent_service_legacy._is_action_enabled("definitely_not_real")
+
+    def test_disabled_action_404_preserves_action_error_envelope(self, agent_service):
+        handler, captured = _make_post_handler(
+            agent_service, {"action": "run_command", "mode": "desktop"},
+        )
+        handler.do_POST()
+        assert captured["status"] == 404
+        assert captured["payload"] == {
+            "success": False,
+            "message": "Unknown or disabled action: 'run_command'",
+        }
 
 
 class TestDefensesPreserved:

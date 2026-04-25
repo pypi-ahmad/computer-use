@@ -3,8 +3,8 @@
 Covers:
   * Claude: tool-version branching (``computer_20251124`` vs
     ``computer_20250124``), adaptive thinking, 1:1 coordinates for
-    Opus 4.7 / Sonnet 4.6 / Opus 4.6, legacy scale-factor path for
-    pre-4.5 models.
+    Opus 4.7 / Sonnet 4.6, legacy scale-factor path for pre-4.5
+    models.
   * OpenAI: ``gpt-5.4`` default with ``reasoning.effort == "high"``
     floor, ZDR-safe replay (no ``previous_response_id``), and
     ``include=["reasoning.encrypted_content"]``.
@@ -38,7 +38,7 @@ class TestClaudeToolVersioning:
     """Tool version + beta header must track model class."""
 
     @pytest.mark.parametrize("model", [
-        "claude-opus-4-7", "claude-sonnet-4-6", "claude-opus-4-6",
+        "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6",
     ])
     def test_new_tool_version_models(self, model):
         from backend.engine import ClaudeCUClient
@@ -75,8 +75,11 @@ class TestClaudeCoordinateSpace:
 class TestClaudeThinkingMode:
     """``computer_20251124`` rejects ``budget_tokens``; must send adaptive."""
 
+    @pytest.mark.parametrize("model", [
+        "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6",
+    ])
     @pytest.mark.asyncio
-    async def test_adaptive_thinking_for_new_tool_version(self):
+    async def test_adaptive_thinking_for_new_tool_version(self, model):
         from backend.engine import ClaudeCUClient
 
         captured: dict = {}
@@ -120,7 +123,7 @@ class TestClaudeThinkingMode:
 
         with patch("anthropic.AsyncAnthropic") as AA:
             AA.return_value = FakeClient()
-            client = ClaudeCUClient(api_key="k", model="claude-opus-4-7")
+            client = ClaudeCUClient(api_key="k", model=model)
 
             # Drive one turn of the generator to capture the request.
             gen = client.iter_turns("noop", FakeExecutor(), turn_limit=1)
@@ -222,15 +225,18 @@ class TestOpenAIZDRReplay:
 class TestGeminiRequireConfirmation:
     """Safety decision ``require_confirmation`` routes through ``on_safety``."""
 
+    @pytest.mark.parametrize("model", [
+        "gemini-3.1-pro-preview", "gemini-3-flash-preview",
+    ])
     @pytest.mark.asyncio
-    async def test_denied_confirmation_terminates(self):
+    async def test_denied_confirmation_terminates(self, model):
         from backend.engine import GeminiCUClient, Environment
 
         # Build the client with the SDK mocked at import time.
         with patch("google.genai.Client"):
             client = GeminiCUClient(
                 api_key="k",
-                model="gemini-3.1-pro-preview",
+                model=model,
                 environment=Environment.DESKTOP,
             )
 
@@ -278,14 +284,17 @@ class TestGeminiRequireConfirmation:
         assert explanations == ["Confirm destructive click"]
         assert "terminated" in final.lower() and "safety" in final.lower()
 
+    @pytest.mark.parametrize("model", [
+        "gemini-3.1-pro-preview", "gemini-3-flash-preview",
+    ])
     @pytest.mark.asyncio
-    async def test_approved_confirmation_stamps_acknowledgement(self):
+    async def test_approved_confirmation_stamps_acknowledgement(self, model):
         from backend.engine import GeminiCUClient, Environment
 
         with patch("google.genai.Client"):
             client = GeminiCUClient(
                 api_key="k",
-                model="gemini-3.1-pro-preview",
+                model=model,
                 environment=Environment.DESKTOP,
             )
 
@@ -345,3 +354,84 @@ class TestGeminiRequireConfirmation:
         assert "safety_decision" not in args
         # Final text from the terminal turn.
         assert "ok" in final
+
+    @pytest.mark.parametrize("model", [
+        "gemini-3.1-pro-preview", "gemini-3-flash-preview",
+    ])
+    @pytest.mark.asyncio
+    async def test_iter_turns_emits_safetyrequired_and_resumes(self, model):
+        from backend.engine import (
+            GeminiCUClient,
+            Environment,
+            ModelTurnStarted,
+            RunCompleted,
+            SafetyRequired,
+            ToolBatchCompleted,
+        )
+
+        with patch("google.genai.Client"):
+            client = GeminiCUClient(
+                api_key="k",
+                model=model,
+                environment=Environment.DESKTOP,
+            )
+
+        gated_fc = SimpleNamespace(
+            name="click_at",
+            args={"x": 10, "y": 20, "safety_decision": {
+                "decision": "require_confirmation",
+                "explanation": "Confirm click",
+            }},
+        )
+        gated_part = SimpleNamespace(
+            function_call=gated_fc, text=None, inline_data=None, function_response=None,
+        )
+        final_part = SimpleNamespace(
+            function_call=None, text="ok", inline_data=None, function_response=None,
+        )
+        responses = iter([
+            SimpleNamespace(
+                candidates=[SimpleNamespace(content=SimpleNamespace(parts=[gated_part], role="model"))],
+            ),
+            SimpleNamespace(
+                candidates=[SimpleNamespace(content=SimpleNamespace(parts=[final_part], role="model"))],
+            ),
+        ])
+
+        async def fake_gen(**kwargs):
+            return next(responses)
+
+        client._generate = fake_gen  # type: ignore[method-assign]
+
+        import backend.engine.gemini as gem
+        with patch.object(gem, "_prune_gemini_context", lambda *a, **k: None):
+
+            class FakeExecutor:
+                screen_width = 1280
+                screen_height = 800
+
+                async def capture_screenshot(self):
+                    return b"x" * 512
+
+                async def execute(self, name, args):
+                    return CUActionResult(name=name, extra=dict(args))
+
+                def get_current_url(self):
+                    return ""
+
+            agen = client.iter_turns("noop", FakeExecutor(), turn_limit=3)
+            first = await agen.__anext__()
+            assert isinstance(first, ModelTurnStarted)
+            assert first.pending_tool_uses == 1
+
+            gated = await agen.__anext__()
+            assert isinstance(gated, SafetyRequired)
+            assert gated.explanation == "Confirm click"
+
+            resumed = await agen.asend(True)
+            assert isinstance(resumed, ToolBatchCompleted)
+            assert resumed.results[0].safety_decision == SafetyDecision.REQUIRE_CONFIRMATION
+
+            final = await agen.__anext__()
+            assert isinstance(final, RunCompleted)
+            assert final.final_text == "ok"

@@ -7,6 +7,13 @@ import sys
 import uvicorn
 
 from backend.config import config
+from backend.logging_ctx import configure_logging
+
+# Install structured logging before the first ``logger.*`` call so the
+# bind-guardrail ERROR lines (which fire before uvicorn.run) come out
+# in the configured format. LOG_FORMAT=json and LOG_LEVEL=DEBUG are
+# the two knobs.
+configure_logging()
 
 logger = logging.getLogger(__name__)
 
