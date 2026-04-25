@@ -80,7 +80,6 @@ class TestDegradedContainerStartup:
 
     def test_ready_agent_does_not_409(self, client):
         """Sanity check: same payload, ``agent=ready`` → not a 409."""
-        from backend import server
         from types import SimpleNamespace
         from backend.models import AgentSession, SessionStatus
 

@@ -2,8 +2,24 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV DISPLAY=:99
+# Viewport default is 1440x900 — single best-compromise across all four CU
+# target models:
+#   - Anthropic Opus 4.7 (native 1:1 up to 2576px / 3.75MP; opt into the
+#     higher ceiling via CUA_OPUS47_HIRES=1 + larger docker-run viewport)
+#   - Anthropic Sonnet 4.6 / Opus 4.6 (downscale internally; 1440x900 ≈ no-op)
+#   - OpenAI GPT-5.4 (guide prefers 1440x900 / 1600x900)
+#   - Google Gemini 3 Flash (docs recommend exactly 1440x900)
+# For Opus 4.7 hi-fidelity sessions: set CUA_OPUS47_HIRES=1 and override
+# SCREEN_WIDTH/SCREEN_HEIGHT up to 2560x1600 at docker run time. Do NOT
+# set CUA_OPUS47_HIRES for other models — they downscale internally.
 ENV SCREEN_WIDTH=1440
 ENV SCREEN_HEIGHT=900
+# ``WIDTH`` / ``HEIGHT`` are accepted as aliases of the canonical
+# ``SCREEN_*`` names for parity with Anthropic's computer-use-demo
+# quickstart container.  Overridden at docker-run time if either form
+# is passed; the entrypoint reconciles them.
+ENV WIDTH=1440
+ENV HEIGHT=900
 ENV SCREEN_DEPTH=24
 ENV AGENT_SERVICE_PORT=9222
 ENV LIBGL_ALWAYS_SOFTWARE=1
@@ -15,8 +31,12 @@ ENV PYTHONPATH=/app
 # base-packages layer below it. Order: core → python → desktop/apps → chrome.
 # ──────────────────────────────────────────────────────────────────────────────
 
-# (a) Core build / network tools — changes rarely
+# (a) Core build / network tools — changes rarely. Extended with the
+# Anthropic computer-use-demo reference set (build-essential, sudo,
+# software-properties-common, netcat-openbsd) so the union-of-best-
+# practice packages are available for any of the four CU providers.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     ca-certificates \
     curl \
     dnsutils \
@@ -27,9 +47,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     jq \
     lsof \
     net-tools \
+    netcat-openbsd \
     p7zip-full \
     socat \
+    software-properties-common \
     strace \
+    sudo \
     unzip \
     wget \
     xdg-utils \
@@ -45,11 +68,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
-# (c) Desktop + X11 + apps — the volatile tier; invalidated most often
+# (c) Desktop + X11 + apps — the volatile tier; invalidated most often.
+# Extended with Anthropic reference desktop packages (mutter, xterm,
+# imagemagick, firefox-esr, x11-apps, xpdf, tint2) so the sandbox is
+# the union of the Anthropic computer-use-demo baseline and the existing
+# XFCE4 stack. XFCE4 remains the primary WM; mutter is installed
+# alongside for parity with Anthropic's reference. No removals.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     dbus-x11 \
     evince \
     ffmpeg \
+    firefox-esr \
     flameshot \
     fonts-dejavu-core \
     fonts-liberation \
@@ -57,13 +86,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gedit \
     gnome-terminal \
     htop \
+    imagemagick \
     libreoffice \
     libreoffice-gtk3 \
+    mutter \
     novnc \
     scrot \
+    tint2 \
     vlc \
     websockify \
     wmctrl \
+    x11-apps \
     x11-utils \
     x11vnc \
     xclip \
@@ -72,8 +105,36 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xfce4-goodies \
     xfce4-terminal \
     xournalpp \
+    xpdf \
+    xterm \
     xvfb \
     && rm -rf /var/lib/apt/lists/*
+
+# Google Gemini 3 Flash Preview's reference implementation
+# (github.com/google-gemini/computer-use-preview) uses Playwright-controlled
+# Chromium.  Install ``chromium`` alongside firefox-esr + google-chrome-stable
+# so Gemini sessions can route to the reference browser while the Anthropic
+# path keeps firefox-esr and the OpenAI path keeps google-chrome-stable.
+#
+# Ubuntu 24.04 ships ``chromium`` as a real apt package; on 22.04 variants it
+# is a snap transitional-package, where ``chromium-browser`` is the native
+# name.  We install ``chromium`` (24.04) + ``chromium-browser`` via
+# fallback (||) so the build works on either base.
+#
+# Playwright itself is NOT installed by default — it adds ~500 MB of
+# browser-bundled binaries to the image.  To enable Gemini's native-fidelity
+# Playwright path, rebuild with ``--build-arg INSTALL_PLAYWRIGHT=1`` (see
+# docker/SECURITY_NOTES.md) and set ``CUA_GEMINI_USE_PLAYWRIGHT=1`` at
+# container runtime.
+RUN apt-get update \
+    && (apt-get install -y --no-install-recommends chromium \
+        || apt-get install -y --no-install-recommends chromium-browser) \
+    && rm -rf /var/lib/apt/lists/*
+
+# OpenAI Computer Use guide mandates the sandbox be free of lockscreens
+# and screensavers that would steal focus from xdotool / the agent.
+# Idempotent: ``|| true`` so rebuilds with upstream removal succeed.
+RUN apt-get remove -y light-locker xfce4-screensaver xfce4-power-manager 2>/dev/null || true
 
 # Install Node.js LTS 20 for desktop tooling and optional in-container tasks
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
@@ -134,11 +195,40 @@ RUN (userdel -r ubuntu 2>/dev/null || true) \
 USER agent
 WORKDIR /home/agent
 
+# ── OCI image labels ─────────────────────────────────────────────────────────
+# org.opencontainers.image.* follow the OCI image-spec annotation keys
+# (https://github.com/opencontainers/image-spec/blob/main/annotations.md).
+# Registries render these in their UIs and scanners consume them for
+# provenance. The ``version`` and ``created`` fields should be passed
+# at build time via ``--build-arg`` (docker compose wires this from
+# $GIT_SHA / $BUILD_DATE). Static defaults here keep the image usable
+# even when those args are absent.
+ARG VERSION=dev
+ARG BUILD_DATE=unknown
+ARG VCS_REF=unknown
+LABEL org.opencontainers.image.title="computer-use" \
+      org.opencontainers.image.description="Local research workbench for provider-native Computer Use APIs (Anthropic, OpenAI, Google) over an Ubuntu 24.04 / XFCE4 / Xvfb sandbox." \
+      org.opencontainers.image.source="https://github.com/pypi-ahmad/computer-use" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.base.name="docker.io/library/ubuntu:24.04"
+
 # 5900 = VNC, 6080 = noVNC web UI, 9222 = Agent Service API
 EXPOSE 5900 6080 9222
 
-# Health check — agent_service /health endpoint
+# Health check — agent_service /health endpoint.
+# Liveness probe only: hits the in-container agent service, not the
+# backend's /api/ready dependency aggregator. See backend/server.py
+# for the separation rationale.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:9222/health || exit 1
 
+# SIGTERM handling: entrypoint.sh ends with ``exec python agent_service.py``,
+# so the agent_service process becomes PID 1 and receives SIGTERM
+# directly from ``docker stop``. ``agent_service.py`` installs a
+# ``signal.signal(SIGTERM/SIGINT, _handle_signal)`` that shuts down
+# the ThreadingHTTPServer and exits cleanly. No ``trap`` in the shell
+# is needed because exec replaces the shell.
 ENTRYPOINT ["/entrypoint.sh"]

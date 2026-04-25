@@ -27,15 +27,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Set
 
+from backend.engine_capabilities import get_default_schema_path
+
 logger = logging.getLogger(__name__)
 
-_SCHEMA_FILENAME = "engine_capabilities.json"
-# The schema file ships alongside this module inside ``backend/`` — use
-# ``parent`` (not ``parent.parent``). The previous resolution pointed at
-# the repo root and broke ``python -m backend.certifier`` on any clean
-# checkout. Kept aligned with ``backend.engine_capabilities`` so the
-# two discover the same file.
-_DEFAULT_SCHEMA_PATH = Path(__file__).resolve().parent / _SCHEMA_FILENAME
+# Reuse the live capability loader's path discovery so the validator and
+# runtime always point at the same bundled schema file.
+_DEFAULT_SCHEMA_PATH = get_default_schema_path()
 
 # ── Binary mappings derived from environment_requirements prose ───────────────
 

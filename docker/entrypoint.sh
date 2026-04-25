@@ -3,8 +3,13 @@
 set -euo pipefail
 
 export DISPLAY=:99
-export SCREEN_WIDTH=${SCREEN_WIDTH:-1440}
-export SCREEN_HEIGHT=${SCREEN_HEIGHT:-900}
+# Accept ``WIDTH`` / ``HEIGHT`` as aliases of ``SCREEN_WIDTH`` /
+# ``SCREEN_HEIGHT`` for parity with Anthropic's computer-use-demo
+# quickstart.  The canonical names (SCREEN_*) win if both are set.
+export SCREEN_WIDTH=${SCREEN_WIDTH:-${WIDTH:-1440}}
+export SCREEN_HEIGHT=${SCREEN_HEIGHT:-${HEIGHT:-900}}
+export WIDTH=${WIDTH:-${SCREEN_WIDTH}}
+export HEIGHT=${HEIGHT:-${SCREEN_HEIGHT}}
 export SCREEN_DEPTH=${SCREEN_DEPTH:-24}
 export PATH="$PATH:/usr/bin:/usr/local/bin"
 export PYTHONPATH=/app
@@ -122,6 +127,16 @@ fi
 # ─────────────────────────────────────────────
 # 5b. Browser bootstrap — default browser + pre-warm Chrome profile
 # ─────────────────────────────────────────────
+# OpenAI Computer Use guide (tools-computer-use) mandates these browser
+# defaults when the agent launches a browser programmatically:
+#   chromium/chrome: --disable-extensions --disable-file-system \
+#                    --no-default-browser-check \
+#                    --user-data-dir="$SAFE_PROFILE_DIR"
+#   firefox-esr:     --new-instance --profile "$SAFE_PROFILE_DIR"
+# The subprocess must be invoked with an empty env block (env={}) so
+# host credentials / tokens cannot leak into the browser session.
+# This container seeds the default-browser setting only; any
+# agent-driven browser launch from the backend MUST pass those flags.
 echo "[Browser] Configuring default browser..."
 # Set Google Chrome as the default web browser for xdg-open
 if command -v google-chrome >/dev/null 2>&1; then

@@ -9,6 +9,7 @@ raised ``FileNotFoundError`` on every clean checkout unless an explicit
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -25,7 +26,7 @@ def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
         cwd=str(_REPO_ROOT),
         capture_output=True,
         text=True,
-        timeout=20,
+        timeout=10,
     )
 
 
@@ -49,17 +50,23 @@ class TestCertifierCli:
             f"Unexpected exit={result.returncode}\nstdout:\n{result.stdout}\n"
             f"stderr:\n{result.stderr}"
         )
+        report = json.loads(result.stdout)
+        assert report["schema_version"]
+        assert report["engine_count"] >= 1
 
     def test_explicit_schema_override_still_errors_on_missing_file(self):
         """``--schema`` must still override the default. Passing a path
         that doesn't exist must produce a non-zero exit and a clear
         error (not silently fall back to the default)."""
-        result = _run_cli("--schema", "/nonexistent-schema-for-test.json")
+        bad_schema = _REPO_ROOT / "__missing_certifier_schema__.json"
+        assert not bad_schema.exists()
+
+        result = _run_cli("--schema", str(bad_schema))
         assert result.returncode != 0
         # The error message must name the missing path so operators
         # know they typo'd rather than hit an unrelated bug.
         combined = result.stdout + result.stderr
-        assert "nonexistent-schema-for-test.json" in combined, (
+        assert str(bad_schema) in combined, (
             f"Error message did not reference the bad path.\n"
             f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
         )

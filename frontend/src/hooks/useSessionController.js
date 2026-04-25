@@ -54,7 +54,7 @@ export default function useSessionController({ onToast, onHistoryEntry } = {}) {
     clearSteps,
     clearFinished,
     clearSafetyPrompt,
-    setScreenshotMode,
+    setScreenshotMode: setWsScreenshotMode,
   } = ws
 
   // Session-scoped state.
@@ -305,6 +305,15 @@ export default function useSessionController({ onToast, onHistoryEntry } = {}) {
     if (!sessionId) return
     await requestStop(sessionId)
   }, [requestStop, sessionId])
+
+  // Keep the screen-view subscription session-bound without making the
+  // screen component care about session ids directly. The callback
+  // identity intentionally changes with ``sessionId`` so ScreenView's
+  // effect re-sends on start/finish transitions as well as surface
+  // toggles.
+  const setScreenshotMode = useCallback((mode) => {
+    setWsScreenshotMode(mode, sessionId)
+  }, [setWsScreenshotMode, sessionId])
 
   /** Dismiss the completion banner. */
   const dismissCompletion = useCallback(() => setCompletionData(null), [])

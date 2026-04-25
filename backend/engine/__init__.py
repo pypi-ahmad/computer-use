@@ -316,9 +316,16 @@ def scrub_secrets(text: str | None) -> str | None:
 _CLAUDE_MAX_LONG_EDGE = 1568
 _CLAUDE_MAX_PIXELS = 1_150_000
 
-# Claude Opus 4.7 supports higher resolution — up to 2576px on the
-# long edge with 1:1 coordinates (no scale-factor conversion required).
+# ``computer_20251124`` models accept up to 2576 px on the long edge and
+# ~3.75 MP total with native 1:1 coordinates per Anthropic's
+# 2025-11-24 computer-use docs.
 _CLAUDE_OPUS_47_MAX_LONG_EDGE = 2576
+_CLAUDE_HIGH_RES_MAX_PIXELS = 3_750_000
+
+
+def _is_opus_47(model_id: str) -> bool:
+    """Return True if *model_id* is a Claude Opus 4.7 variant."""
+    return model_id.startswith("claude-opus-4-7") or model_id.startswith("claude-opus-4.7")
 
 
 def _is_opus_47(model_id: str) -> bool:
@@ -327,10 +334,31 @@ def _is_opus_47(model_id: str) -> bool:
 
 
 # Models that use the higher resolution limit (no downscaling needed
-# at typical screen resolutions).
+# at typical screen resolutions). All models on the ``computer_20251124``
+# tool version (Opus 4.7 / Opus 4.6 / Sonnet 4.6) receive real pixel
+# coordinates with the 2576 px long-edge / ~3.75 MP budget per
+# Anthropic's 2025-11-24 computer-use docs. Older models continue on
+# the legacy 1568 px / scale-factor path.
 _CLAUDE_HIGH_RES_MODELS = (
     "claude-opus-4-7", "claude-opus-4.7",
+    "claude-opus-4-6", "claude-opus-4.6",
+    "claude-sonnet-4-6", "claude-sonnet-4.6",
 )
+
+
+def _uses_claude_20251124(
+    model_id: str = "",
+    tool_version: str | None = None,
+) -> bool:
+    """Return True when the Claude run should use the 2025-11-24 CU path.
+
+    Prefer the explicit tool-version when the caller already knows it
+    (e.g. from ``allowed_models.json``). Fall back to model-prefix
+    detection for older call sites that only pass a model string.
+    """
+    if tool_version is not None:
+        return tool_version == "computer_20251124"
+    return any(model_id.startswith(prefix) for prefix in _CLAUDE_HIGH_RES_MODELS)
 
 # Context pruning: replace screenshots older than this many turns with
 # a placeholder to prevent unbounded context growth.
@@ -438,6 +466,164 @@ class CUTurnRecord:
 
 
 # ---------------------------------------------------------------------------
+# Graph turn events (PR 7 — inverted control flow)
+# ---------------------------------------------------------------------------
+#
+# Per-engine ``iter_turns`` is an ``AsyncIterator[TurnEvent]``. It is the
+# ground-truth state-machine of a provider run — the outer LangGraph
+# :mod:`backend.agent.graph` drives it one event at a time, deciding per
+# event which graph node to enter (``model_turn``, ``tool_batch``,
+# ``approval_interrupt``, ``finalize``).
+#
+# Scope note: Claude and Gemini yield native per-turn
+# ``ModelTurnStarted`` + ``ToolBatchCompleted`` events. OpenAI still
+# uses the legacy ``run_loop`` shim until its iterator is inverted.
+
+@dataclass
+class ModelTurnStarted:
+    """Model call has produced text + pending tool uses for this turn.
+
+    The outer graph enters the ``tool_batch`` node next, which pulls the
+    following ``ToolBatchCompleted`` event off the iterator.
+    """
+    turn: int
+    model_text: str
+    pending_tool_uses: int
+
+
+@dataclass
+class ToolBatchCompleted:
+    """All tool uses for the current turn have been executed on the desktop."""
+    turn: int
+    model_text: str
+    results: list[CUActionResult]
+    screenshot_b64: str | None = None
+
+
+@dataclass
+class SafetyRequired:
+    """The provider asked the client to confirm a require_confirmation action.
+
+    The graph converts this into a LangGraph ``interrupt()`` so the
+    pending approval becomes part of checkpointed state. The decision
+    comes back to ``iter_turns`` via ``agen.asend(bool)``.
+    """
+    explanation: str
+
+
+@dataclass
+class RunCompleted:
+    """The provider loop exited cleanly with a final text response."""
+    final_text: str
+
+
+@dataclass
+class RunFailed:
+    """The provider loop raised a non-retryable error.
+
+    Transient retries are handled inside ``_call_with_retry`` before any
+    event is yielded, so reaching this event means we should abort the
+    graph run.
+    """
+    error: str
+
+
+TurnEvent = ModelTurnStarted | ToolBatchCompleted | SafetyRequired | RunCompleted | RunFailed
+
+
+# ---------------------------------------------------------------------------
+# Shim: drive a legacy ``run_loop`` through the iter_turns contract.
+# ---------------------------------------------------------------------------
+
+async def iter_turns_via_run_loop(
+    run_loop: "Callable[..., Any]",
+    *,
+    goal: str,
+    executor: "ActionExecutor",
+    turn_limit: int,
+    on_safety: "Callable[[str], Any] | None",
+    on_log: "Callable[[str, str], None] | None",
+):
+    """Adapt a provider's callback-driven ``run_loop`` to ``iter_turns``.
+
+    Used for engines (currently OpenAI) that have not yet been inverted
+    to a native ``iter_turns`` generator. The engine's ``on_turn`` callback
+    is pushed onto an ``asyncio.Queue`` which this generator drains,
+    yielding one ``ModelTurnStarted`` + ``ToolBatchCompleted`` pair per
+    turn and a terminal ``RunCompleted`` / ``RunFailed``.
+
+    ``on_safety`` is forwarded to ``run_loop`` verbatim — safety
+    approvals for these engines still flow through the legacy
+    ``backend.agent.safety`` asyncio.Event registry. Routing those
+    through a graph-level ``interrupt()`` is a follow-up PR.
+    """
+    import asyncio as _asyncio
+    queue: "_asyncio.Queue[tuple[str, Any]]" = _asyncio.Queue()
+
+    def _on_turn(rec: "CUTurnRecord") -> None:
+        # Keep it strictly non-blocking — queue is unbounded so put_nowait is safe.
+        queue.put_nowait(("turn", rec))
+
+    def _on_log(level: str, msg: str) -> None:
+        if on_log is not None:
+            try:
+                on_log(level, msg)
+            except Exception:
+                pass
+
+    async def _runner() -> None:
+        try:
+            final = await run_loop(
+                goal=goal,
+                executor=executor,
+                turn_limit=turn_limit,
+                on_safety=on_safety,
+                on_turn=_on_turn,
+                on_log=_on_log,
+            )
+            queue.put_nowait(("done", final or ""))
+        except _asyncio.CancelledError:
+            queue.put_nowait(("cancel", "Run cancelled"))
+            raise
+        except Exception as exc:
+            queue.put_nowait(("error", f"{type(exc).__name__}: {exc}"))
+
+    task = _asyncio.create_task(_runner())
+    try:
+        while True:
+            kind, payload = await queue.get()
+            if kind == "turn":
+                rec: CUTurnRecord = payload
+                yield ModelTurnStarted(
+                    turn=rec.turn,
+                    model_text=rec.model_text,
+                    pending_tool_uses=len(rec.actions),
+                )
+                yield ToolBatchCompleted(
+                    turn=rec.turn,
+                    model_text=rec.model_text,
+                    results=rec.actions,
+                    screenshot_b64=rec.screenshot_b64,
+                )
+            elif kind == "done":
+                yield RunCompleted(final_text=str(payload))
+                return
+            elif kind == "error":
+                yield RunFailed(error=str(payload))
+                return
+            elif kind == "cancel":
+                yield RunCompleted(final_text="Stopped by user.")
+                return
+    finally:
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except BaseException:
+                pass
+
+
+# ---------------------------------------------------------------------------
 # Coordinate helpers
 # ---------------------------------------------------------------------------
 
@@ -451,7 +637,13 @@ def denormalize_y(y: int, screen_height: int = DEFAULT_SCREEN_HEIGHT) -> int:
     return int(y / GEMINI_NORMALIZED_MAX * screen_height)
 
 
-def get_claude_scale_factor(width: int, height: int, model: str = "") -> float:
+def get_claude_scale_factor(
+    width: int,
+    height: int,
+    model: str = "",
+    *,
+    tool_version: str | None = None,
+) -> float:
     """Compute Anthropic screenshot scale factor per official docs.
 
     Returns a factor <=1.0 that the screenshot should be pre-resized by.
@@ -459,17 +651,23 @@ def get_claude_scale_factor(width: int, height: int, model: str = "") -> float:
     by pre-resizing and reporting the scaled dimensions, we ensure
     coordinates returned by Claude map 1:1 to the reported display size.
 
-    Claude Opus 4.7 supports up to 2576px on the long edge with native
-    1:1 coordinates, so it uses a higher threshold.
+    All ``computer_20251124`` models use the higher 2576px / 3.75MP
+    limits. Legacy models stay on the 1568px / 1.15MP path.
     """
+    if _uses_claude_20251124(model, tool_version):
+        max_long_edge = _CLAUDE_OPUS_47_MAX_LONG_EDGE
+        max_pixels = _CLAUDE_HIGH_RES_MAX_PIXELS
+    else:
+        max_long_edge = _CLAUDE_MAX_LONG_EDGE
+        max_pixels = _CLAUDE_MAX_PIXELS
     long_edge = max(width, height)
     if _is_opus_47(model):
         return min(1.0, _CLAUDE_OPUS_47_MAX_LONG_EDGE / long_edge)
     total_pixels = width * height
     return min(
         1.0,
-        _CLAUDE_MAX_LONG_EDGE / long_edge,
-        math.sqrt(_CLAUDE_MAX_PIXELS / total_pixels),
+        max_long_edge / long_edge,
+        math.sqrt(max_pixels / total_pixels),
     )
 
 
@@ -863,6 +1061,35 @@ class DesktopExecutor:
         await asyncio.sleep(_app_config.post_action_screenshot_delay)
         return {}
 
+    async def _act_zoom(self, a: dict) -> dict:
+        """Crop the desktop screenshot to ``region=[x1, y1, x2, y2]``.
+
+        Backs the Claude ``computer_20251124`` zoom action.  The adapter
+        has already validated/clamped the region.  The agent_service
+        endpoint translates [x1,y1,x2,y2] -> scrot's [x,y,w,h] shape and
+        returns the cropped PNG as base64 under ``screenshot``.  We
+        surface it back in ``extra['image_bytes']`` so the Claude
+        tool-result builder can attach it verbatim to the next turn.
+        """
+        region = a.get("region") or []
+        if len(region) != 4:
+            return {"success": False, "message": "zoom requires region=[x1,y1,x2,y2]"}
+        result = await self._post_action({
+            "action": "zoom",
+            "coordinates": [int(region[0]), int(region[1]), int(region[2]), int(region[3])],
+            "mode": "desktop",
+        })
+        extra: dict[str, Any] = {"region": [int(region[0]), int(region[1]), int(region[2]), int(region[3])]}
+        if isinstance(result, dict):
+            extra.update({k: v for k, v in result.items() if k != "screenshot"})
+            b64 = result.get("screenshot")
+            if b64:
+                try:
+                    extra["image_bytes"] = base64.b64decode(b64)
+                except Exception:
+                    pass
+        return extra
+
     async def _act_go_back(self, a: dict) -> dict:
         """Press Alt+Left to go back in desktop browser history."""
         await self._post_action({
@@ -1082,6 +1309,47 @@ class ComputerUseEngine:
                 except Exception:
                     logger.debug("Error closing executor", exc_info=True)
 
+    async def iter_turns(
+        self,
+        goal: str,
+        *,
+        turn_limit: int = DEFAULT_TURN_LIMIT,
+        on_safety: Callable[[str], Any] | None = None,
+        on_log: Callable[[str, str], None] | None = None,
+    ):
+        """Dispatch to the provider's ``iter_turns`` contract.
+
+        Claude / Gemini: use their native async-generator contracts.
+        OpenAI: adapted from the callback-driven ``run_loop`` via
+        :func:`iter_turns_via_run_loop` (legacy safety flow preserved).
+        """
+        executor = self._build_executor()
+        try:
+            if self.provider in {Provider.CLAUDE, Provider.GEMINI}:
+                async for ev in self._client.iter_turns(
+                    goal=goal,
+                    executor=executor,
+                    turn_limit=turn_limit,
+                    on_log=on_log,
+                ):
+                    yield ev
+            else:
+                async for ev in iter_turns_via_run_loop(
+                    self._client.run_loop,
+                    goal=goal,
+                    executor=executor,
+                    turn_limit=turn_limit,
+                    on_safety=on_safety,
+                    on_log=on_log,
+                ):
+                    yield ev
+        finally:
+            if hasattr(executor, "aclose"):
+                try:
+                    await executor.aclose()
+                except Exception:
+                    logger.debug("Error closing executor", exc_info=True)
+
 
 # ---------------------------------------------------------------------------
 # Per-provider client re-exports (Q2 — class bodies live in their own files)
@@ -1100,6 +1368,13 @@ __all__ = [
     "SafetyDecision",
     "CUActionResult",
     "CUTurnRecord",
+    "ModelTurnStarted",
+    "ToolBatchCompleted",
+    "SafetyRequired",
+    "RunCompleted",
+    "RunFailed",
+    "TurnEvent",
+    "iter_turns_via_run_loop",
     "ActionExecutor",
     "DesktopExecutor",
     "GeminiCUClient",

@@ -35,15 +35,15 @@ gate lives on `POST /action` only.
 
 ## Removed / flagged actions
 
-All handlers below remain in the source file but are **not registered**
-when `CUA_ENABLE_LEGACY_ACTIONS` is unset or `0`. An unknown-action
-request produces:
+All handlers below remain in the source file but are **rejected at the
+`POST /action` gate before dispatch** when `CUA_ENABLE_LEGACY_ACTIONS`
+is unset or `0`. An unknown-action request produces:
 
 ```http
 HTTP/1.1 404 Not Found
 Content-Type: application/json
 
-{"success": false, "error": "Unknown or disabled action: '<name>'"}
+{"success": false, "message": "Unknown or disabled action: '<name>'"}
 ```
 
 | Action                          | Category        | Rationale for removal                                     | Replacement (if any)                                |
@@ -94,3 +94,122 @@ action rejected: action='open_app' resolved='open_app' legacy_enabled=False
 Operators looking for unexpected client behaviour (old engine images,
 prompt-injected action names) should grep container logs for
 `action rejected:`.
+
+## Viewport default (1440x900)
+
+Union-of-best-practice across all CU providers:
+
+- **Anthropic Opus 4.7** — native 1:1 coordinates. Opt into the
+  higher native ceiling (2576px long-edge / ~3.75 MP) by setting
+  `CUA_OPUS47_HIRES=1` in the backend env AND overriding
+  `SCREEN_WIDTH` / `SCREEN_HEIGHT` up to 2560x1600 at `docker run`
+  time. The backend enforces only the long-edge cap on this path
+  (skips the 3.75 MP total-pixel cap) so hi-fidelity sessions keep
+  1:1 coordinates.
+- **Anthropic Sonnet 4.6 / Opus 4.6** — downscale internally; 1440x900
+  is a no-op for them. Do **not** set `CUA_OPUS47_HIRES` for these
+  models — it is gated by `_is_opus_47` and is a no-op outside Opus
+  4.7.
+- **OpenAI GPT-5.4** — the current guide's preferred viewport is
+  1440x900 / 1600x900. The built-in `computer` tool infers display
+  dimensions from the screenshot bytes, so no display_width /
+  display_height kwargs are sent — the viewport we render IS the
+  viewport the model sees.
+- **Google Gemini 3 Flash** — docs recommend exactly 1440x900. The
+  adapter normalises coordinates to the 0-999 grid before the
+  `DesktopExecutor` denormalises them to real pixels.
+
+Sandbox base is `ubuntu:24.04`. The Anthropic computer-use-demo
+reference is `ubuntu:22.04`; we run a newer LTS here because the
+XFCE4 / google-chrome-stable / noVNC stack is already tuned for
+24.04 and downgrading would regress that work. The package set is
+still the union of Anthropic's reference (`xvfb`, `xdotool`,
+`scrot`, `imagemagick`, `mutter`, `x11vnc`, `firefox-esr`, `xterm`,
+`tint2`, `xpdf`, `x11-apps`, `sudo`, `build-essential`,
+`software-properties-common`, `netcat-openbsd`) and the existing
+XFCE4 stack — nothing was removed.
+
+
+### Sonnet 4.6 lineage note
+
+Claude Sonnet 4.6 shares Opus 4.7's full-desktop sandbox requirements:
+the same `computer_20251124` tool version, the same
+`computer-use-2025-11-24` beta header, and the same Anthropic
+computer-use-demo package baseline.  No Sonnet-4.6-specific
+packages or viewport overrides exist in the image.
+
+Sonnet 4.6 does **not** inherit Opus 4.7's 2576px / 1:1 coordinate
+improvements — it keeps the 1568 px / 1.15 MP ceiling and downscales
+anything larger internally.  `CUA_OPUS47_HIRES` is gated on
+`_is_opus_47(model)` in `backend/engine/claude.py` and is
+intentionally ignored for Sonnet 4.6 so the extra framebuffer tokens
+cost nothing in coordinate accuracy.
+
+
+## OpenAI GPT-5.4 sandbox alignment
+
+OpenAI's Computer Use guide (tools-computer-use) prescribes a
+specific sandbox posture.  The shared image satisfies it:
+
+- **Window manager**: XFCE4 (`startxfce4`) \u2014 the WM called out
+  in OpenAI's Option 1 Dockerfile.
+- **Screenshot tool**: ImageMagick `import -window root png:-`
+  is available (`imagemagick` package from the S1 reference
+  baseline).  The runtime path uses `scrot` for speed but
+  ImageMagick remains available for guide parity.
+- **Lockscreen / screensaver**: `light-locker`, `xfce4-screensaver`,
+  and `xfce4-power-manager` are removed at build time to prevent
+  focus-stealing during agent sessions.
+- **Browser launch** (when the agent spawns a browser): pass
+  `--disable-extensions --disable-file-system
+  --no-default-browser-check` for Chromium/Chrome, or
+  `--new-instance --profile <dir>` for Firefox; use a dedicated
+  per-session profile directory; invoke with `env={}` so host
+  credentials do not leak.
+- **Viewport**: 1440x900 (shared default).  OpenAI's reference
+  Dockerfile hardcodes 1280x800, but the guide prose recommends
+  1440x900 / 1600x900 for downscaled screenshots.
+- **Screenshot detail on the API**: the adapter always sends
+  `detail: \"original\"` in every `computer_call_output`.  The
+  guide explicitly discourages `\"high\"` / `\"low\"` for Computer
+  Use tasks; if a screenshot is too large, downscale the bytes
+  **before** sending and remap coordinates rather than falling back
+  to `\"low\"`.
+
+
+## Google Gemini 3 Flash Preview sandbox alignment
+
+Google's reference Computer Use implementation
+(github.com/google-gemini/computer-use-preview) drives a Playwright
+Chromium.  The shared sandbox supports this contract additively:
+
+- **Browser**: Chromium installed alongside firefox-esr +
+  google-chrome-stable.  Ubuntu 24.04 ships `chromium` as a real
+  apt package; 22.04 variants expose it as `chromium-browser`, so
+  the Dockerfile installs with a fallback chain.  The Gemini adapter
+  helper `_gemini_resolve_browser_binary` prefers
+  `chromium-browser` then `chromium` and warns once before
+  falling back to `firefox-esr` / `firefox`.
+- **Viewport**: 1440x900 — Gemini's docs recommend exactly this
+  resolution, so S1's shared default is kept unchanged.
+- **Coordinate contract**: the model returns 0–999 normalized
+  coordinates; `DesktopExecutor._denormalize_coords` in
+  backend/engine/__init__.py scales them to the actual viewport.
+  Unchanged in this commit; documented here for completeness.
+- **Single-tab paradigm**: soft-hinted via `SYSTEM_PROMPT_GEMINI_CU`
+  in backend/agent/prompts.py so the model treats new-tab links as
+  in-tab navigations.  Hard enforcement (Chromium new-tab
+  interception) requires the optional Playwright path below.
+- **Optional Playwright path**: opt-in via
+  `CUA_GEMINI_USE_PLAYWRIGHT=1` + image rebuild with
+  `--build-arg INSTALL_PLAYWRIGHT=1`.  Off by default to keep the
+  image lean (~500 MB of browser bundles).  The adapter guard
+  `_gemini_playwright_enabled()` returns `False` and logs once
+  when the flag is set but the package is missing, so the session
+  falls back to the xdotool path cleanly.
+- **Safety handshake**: ToS-mandated
+  `safety_acknowledgement: \"true\"` on confirmed
+  `require_confirmation` decisions.  Cannot be bypassed; see
+  `CUA_GEMINI_RELAX_SAFETY` (S1 phase 3) for the only env flag
+  that touches Gemini safety, and note it only adjusts
+  `HarmBlockThreshold` — it does not skip the handshake.
