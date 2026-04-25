@@ -127,7 +127,9 @@ still the union of Anthropic's reference (`xvfb`, `xdotool`,
 `scrot`, `imagemagick`, `mutter`, `x11vnc`, `firefox-esr`, `xterm`,
 `tint2`, `xpdf`, `x11-apps`, `sudo`, `build-essential`,
 `software-properties-common`, `netcat-openbsd`) and the existing
-XFCE4 stack — nothing was removed.
+XFCE4 stack, now widened further with XFCE Settings/Task Manager,
+Ristretto, galculator, GIMP, Inkscape, and VS Code — nothing was
+removed.
 
 
 ### Sonnet 4.6 lineage note
@@ -183,13 +185,14 @@ Google's reference Computer Use implementation
 (github.com/google-gemini/computer-use-preview) drives a Playwright
 Chromium.  The shared sandbox supports this contract additively:
 
-- **Browser**: Chromium installed alongside firefox-esr +
-  google-chrome-stable.  Ubuntu 24.04 ships `chromium` as a real
-  apt package; 22.04 variants expose it as `chromium-browser`, so
-  the Dockerfile installs with a fallback chain.  The Gemini adapter
-  helper `_gemini_resolve_browser_binary` prefers
-  `chromium-browser` then `chromium` and warns once before
-  falling back to `firefox-esr` / `firefox`.
+- **Browser**: `google-chrome-stable` is the actual installed
+  Chromium-family browser. The Dockerfile also exposes `chromium`
+  and `chromium-browser` compatibility names as symlinks to that
+  Chrome install, with `firefox-esr` alongside it. The Gemini
+  adapter helper `_gemini_resolve_browser_binary` still prefers
+  `chromium-browser` then `chromium`, which now resolve to the
+  hardened Chrome binary, and warns once before falling back to
+  `firefox-esr` / `firefox`.
 - **Viewport**: 1440x900 — Gemini's docs recommend exactly this
   resolution, so S1's shared default is kept unchanged.
 - **Coordinate contract**: the model returns 0–999 normalized
@@ -200,13 +203,18 @@ Chromium.  The shared sandbox supports this contract additively:
   in backend/agent/prompts.py so the model treats new-tab links as
   in-tab navigations.  Hard enforcement (Chromium new-tab
   interception) requires the optional Playwright path below.
-- **Optional Playwright path**: opt-in via
-  `CUA_GEMINI_USE_PLAYWRIGHT=1` + image rebuild with
-  `--build-arg INSTALL_PLAYWRIGHT=1`.  Off by default to keep the
-  image lean (~500 MB of browser bundles).  The adapter guard
-  `_gemini_playwright_enabled()` returns `False` and logs once
-  when the flag is set but the package is missing, so the session
-  falls back to the xdotool path cleanly.
+- **Playwright path (default for Gemini browser mode)**:
+  ``docker/entrypoint.sh`` pre-launches Google Chrome inside the
+  unified sandbox with ``--remote-debugging-port=9223``,
+  ``--remote-allow-origins=*`` and the OpenAI-CU hardening flags
+  (``--disable-extensions``, ``--disable-file-system``,
+  ``--no-default-browser-check``, ``--user-data-dir=/tmp/chrome-profile``).
+  ``docker-compose.yml`` already publishes ``127.0.0.1:9223:9223``,
+  so the backend connects via
+  ``playwright.connect_over_cdp("http://127.0.0.1:9223")`` without
+  needing host-side Chromium bundles. Disable with
+  ``CUA_GEMINI_USE_PLAYWRIGHT=0`` (backend) or ``CUA_DISABLE_CDP=1``
+  (container)—both fall back cleanly to the xdotool path.
 - **Safety handshake**: ToS-mandated
   `safety_acknowledgement: \"true\"` on confirmed
   `require_confirmation` decisions.  Cannot be bypassed; see

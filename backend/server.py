@@ -143,6 +143,13 @@ async def _lifespan(_app: FastAPI):
         except Exception:
             logger.exception("Error closing shared executor httpx clients")
 
+        # Wipe any uploaded RAG files left over on disk.
+        try:
+            from backend.file_store import store as _file_store
+            await _file_store.close()
+        except Exception:
+            logger.exception("Error closing file_store")
+
         logger.info("CUA backend shut down")
 
 
@@ -1011,6 +1018,89 @@ async def api_screenshot(request: Request):
         return _error_response(500, "Could not capture screenshot")
 
 
+# ── File upload (RAG / file_search) ──────────────────────────────────
+# Files live on disk in a temp directory keyed by an opaque server-side
+# id; the id flows back to the caller, then into the agent/start
+# payload as ``attached_files``. At session start, each engine adapter
+# hands the bytes to the appropriate provider-side store
+# (OpenAI vector_stores / Gemini file_search_stores / Anthropic Files API).
+# Per the user-facing contract: .md/.txt/.pdf/.docx, max 10 files,
+# max 1 GB each.  Provider-side caps (Gemini 100 MB/file, Anthropic
+# 500 MB/file) surface as upstream API errors at session start.
+
+_FILE_UPLOAD_BYTES_CAP = 1 * 1024 * 1024 * 1024  # 1 GB; mirrors file_store.MAX_FILE_BYTES
+
+
+@app.post("/api/files/upload")
+async def api_upload_file(request: Request):
+    """Persist a single uploaded file to the server-side store."""
+    forbidden = _require_origin(request)
+    if forbidden is not None:
+        return forbidden
+
+    # Rate-limit uploads per IP using the same bucket as agent/start
+    # so a script can't burn through disk by hammering the endpoint.
+    if not _agent_start_limiter.allow(_client_ip(request)):
+        return _error_response(429, "Rate limit exceeded — slow down uploads")
+
+    try:
+        form = await request.form()
+    except Exception:
+        return _error_response(400, "Invalid multipart payload")
+
+    upload = form.get("file")
+    if upload is None or not hasattr(upload, "read"):
+        return _error_response(400, "Missing 'file' field")
+
+    filename = getattr(upload, "filename", None) or ""
+    # Defend the disk budget *before* spooling the entire payload into
+    # memory — Starlette's UploadFile streams to a SpooledTemporaryFile
+    # but ``.read()`` materialises it.  We refuse Content-Length over
+    # the cap; multipart framing means the actual file body is slightly
+    # smaller, never larger.
+    cl = request.headers.get("content-length")
+    if cl and cl.isdigit() and int(cl) > _FILE_UPLOAD_BYTES_CAP + 1024 * 1024:
+        return _error_response(413, "File exceeds 1 GB limit")
+
+    try:
+        data = await upload.read()
+    except Exception:
+        return _error_response(400, "Could not read upload payload")
+
+    from backend.file_store import store as _file_store
+    try:
+        rec = await _file_store.add(filename=filename, data=data)
+    except ValueError as exc:
+        return _error_response(400, str(exc))
+    except Exception:
+        logger.exception("file_store.add failed")
+        return _error_response(500, "Could not persist file")
+
+    logger.info(
+        "AUDIT files/upload — id=%s name=%r size=%d ext=%s",
+        rec.file_id, rec.filename, rec.size_bytes, rec.extension,
+    )
+    return {
+        "file_id": rec.file_id,
+        "filename": rec.filename,
+        "size_bytes": rec.size_bytes,
+        "mime_type": rec.mime_type,
+    }
+
+
+@app.delete("/api/files/{file_id}")
+async def api_delete_file(file_id: str, request: Request):
+    """Drop a previously uploaded file from the store + disk."""
+    forbidden = _require_origin(request)
+    if forbidden is not None:
+        return forbidden
+    from backend.file_store import store as _file_store
+    ok = await _file_store.delete(file_id)
+    if not ok:
+        return _error_response(404, f"file_id not found: {file_id}")
+    return {"deleted": file_id}
+
+
 @app.post("/api/agent/start")
 async def api_start_agent(req: StartTaskRequest, request: Request):
     """Start a new agent session with input validation."""
@@ -1027,8 +1117,8 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
     # ── Validate inputs ───────────────────────────────────────────────
     if req.engine != "computer_use":
         return _error_response(400, f"Invalid engine: {req.engine}. Only 'computer_use' is supported.")
-    if req.mode != "desktop":
-        return _error_response(400, "Browser mode is no longer supported. Use mode='desktop'.")
+    if req.mode not in ("desktop", "browser"):
+        return _error_response(400, f"Invalid mode: {req.mode}. Must be 'desktop' or 'browser'.")
     if req.execution_target != "docker":
         return _error_response(400, f"Invalid execution_target: {req.execution_target}. Only 'docker' is supported.")
     if req.provider not in _VALID_PROVIDERS:
@@ -1049,6 +1139,23 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
 
     # Cap max_steps to prevent runaway agents
     req.max_steps = min(req.max_steps, _MAX_STEPS_HARD_CAP)
+
+    # Validate attached_files (optional). Activation rule: file_search
+    # is only attached when the user explicitly uploads files.
+    if req.attached_files:
+        from backend.file_store import store as _file_store
+        seen = set()
+        for fid in req.attached_files:
+            if not isinstance(fid, str) or not fid.startswith("f_"):
+                return _error_response(400, f"invalid file_id: {fid!r}")
+            if fid in seen:
+                return _error_response(400, f"duplicate file_id: {fid}")
+            seen.add(fid)
+            if (await _file_store.get(fid)) is None:
+                return _error_response(
+                    400,
+                    f"file_id {fid} is unknown or expired; re-upload it",
+                )
 
     # Resolve reasoning_effort: request > env var > default "high".
     # "high" is the CU floor per the OpenAI Responses computer-use
@@ -1111,6 +1218,11 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
         provider=req.provider,
         execution_target=req.execution_target,
         reasoning_effort=reasoning_effort if req.provider == "openai" else None,
+        use_builtin_search=req.use_builtin_search,
+        search_max_uses=req.search_max_uses,
+        search_allowed_domains=req.search_allowed_domains,
+        search_blocked_domains=req.search_blocked_domains,
+        attached_files=req.attached_files or [],
         on_log=lambda entry: _schedule_broadcast(
             "log", {"log": entry.model_dump()}
         ),
