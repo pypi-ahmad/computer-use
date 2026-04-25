@@ -2,10 +2,11 @@
 
 Pins the contract introduced in this commit:
 
-* Dockerfile installs chromium (24.04) with a chromium-browser fallback
-  for 22.04-derived bases.
-* firefox-esr is retained (Anthropic reference); S1 viewport 1440x900
-  stays unchanged (Google's exact recommendation).
+* Dockerfile exposes chromium / chromium-browser aliases backed by the
+    installed Chrome binary, because Ubuntu 24.04 only ships snap-backed
+    browser shims in apt.
+* firefox-esr is retained via Mozilla's ESR tarball; S1 viewport 1440x900
+    stays unchanged (Google's exact recommendation).
 * Gemini adapter helper ``_gemini_resolve_browser_binary`` prefers
   chromium over firefox and emits a one-shot warning on fallback.
 * ``_gemini_playwright_enabled`` is opt-in only and never pulls in
@@ -32,19 +33,18 @@ _DOCKERFILE = Path("docker/Dockerfile")
 
 
 class TestSandboxDockerfileGemini:
-    def test_dockerfile_has_chromium(self):
-        """Google's Gemini reference runs Chromium; the sandbox installs
-        it alongside the existing browsers.  Accept either the native
-        ``chromium`` (24.04) or ``chromium-browser`` (22.04) name."""
+    def test_dockerfile_exposes_chromium_compatible_binaries(self):
+        """Gemini wants a Chromium-class browser even though Noble's apt
+        packages are snap-only. The Dockerfile must therefore publish both
+        resolver names as aliases to the installed Chrome binary."""
         text = _DOCKERFILE.read_text(encoding="utf-8")
-        # Must install one flavour via apt (chained || fallback covers both).
-        assert (
-            "apt-get install -y --no-install-recommends chromium" in text
-        ), "Dockerfile must install chromium for Gemini sessions"
-        # And the fallback to chromium-browser must be documented/present.
-        assert "chromium-browser" in text, (
-            "Dockerfile must fall back to chromium-browser on 22.04-style bases"
+        assert "/usr/local/bin/chromium" in text, (
+            "Dockerfile must expose a chromium alias for Gemini sessions"
         )
+        assert "/usr/local/bin/chromium-browser" in text, (
+            "Dockerfile must expose a chromium-browser alias for Gemini sessions"
+        )
+        assert "google-chrome-stable" in text
 
     def test_dockerfile_still_has_firefox_esr(self):
         """Regression guard: Anthropic's reference uses Firefox-ESR.
