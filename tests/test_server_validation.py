@@ -98,13 +98,43 @@ class TestAgentStartValidation:
         assert resp.status_code == 400
         assert "engine" in resp.json().get("error", "").lower()
 
-    def test_browser_mode_rejected(self, client):
+    def test_browser_mode_accepted(self, client):
+        """Browser mode is now supported and routes to ENVIRONMENT_BROWSER for Gemini."""
+        from backend.server import _agent_start_limiter
+        _agent_start_limiter._calls.clear()  # avoid collision with prior tests in the rolling window
+        fake_loop = SimpleNamespace(session_id="session-browser-1", run=AsyncMock())
+        fake_task = Mock()
+        fake_task.done.return_value = False
+
+        def fake_create_task(coro):
+            coro.close()
+            return fake_task
+
+        with patch.dict("backend.server._active_tasks", {}, clear=True), \
+             patch.dict("backend.server._active_loops", {}, clear=True), \
+             patch("backend.server.resolve_api_key", return_value=("AIza-test", "ui")), \
+             patch("backend.server.start_container", new_callable=AsyncMock, return_value=True), \
+             patch("backend.server.get_container_state",
+                   return_value={"container": "running", "agent": "ready",
+                                 "last_health_error": None}), \
+             patch("backend.server.AgentLoop", return_value=fake_loop) as mock_agent_loop, \
+             patch("backend.server.asyncio.create_task", side_effect=fake_create_task):
+            resp = client.post("/api/agent/start", json={
+                "task": "test", "engine": "computer_use", "provider": "google",
+                "model": "gemini-3-flash-preview", "mode": "browser",
+                "execution_target": "docker",
+            })
+        assert resp.status_code == 200
+        assert resp.json()["mode"] == "browser"
+        assert mock_agent_loop.call_args.kwargs["mode"] == "browser"
+
+    def test_unknown_mode_rejected(self, client):
         resp = client.post("/api/agent/start", json={
             "task": "test", "engine": "computer_use", "provider": "google",
-            "model": "gemini-3-flash-preview", "mode": "browser",
+            "model": "gemini-3-flash-preview", "mode": "carplay",
         })
         assert resp.status_code == 400
-        assert "no longer supported" in resp.json().get("error", "").lower()
+        assert "mode" in resp.json().get("error", "").lower()
 
     def test_invalid_provider_rejected(self, client):
         resp = client.post("/api/agent/start", json={

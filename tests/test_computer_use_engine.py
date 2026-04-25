@@ -80,15 +80,19 @@ class TestComputerUseEngine:
             )
         assert engine._client._model == "gpt-5.4"
 
-    def test_browser_env_is_rejected(self):
+    def test_browser_env_builds_desktop_executor(self):
+        """Browser mode reuses the unified xdotool harness; the
+        provider-side ``Environment.BROWSER`` flag only changes the
+        Gemini ComputerUse environment hint and the system prompt."""
         with patch("anthropic.Anthropic"):
             engine = ComputerUseEngine(
                 provider=Provider.CLAUDE,
                 api_key="test-key",
                 environment=Environment.BROWSER,
             )
-        with pytest.raises(ValueError, match="Browser mode is no longer supported"):
-            engine._build_executor(page=None)
+        executor = engine._build_executor(page=None)
+        from backend.engine import DesktopExecutor
+        assert isinstance(executor, DesktopExecutor)
 
     def test_desktop_env_creates_desktop_executor(self):
         with patch("anthropic.Anthropic"):
@@ -305,7 +309,7 @@ class TestIterTurnsDispatch:
                 engine = ComputerUseEngine(
                     provider=Provider.GEMINI,
                     api_key="test-key",
-                    model="gemini-3.1-pro-preview",
+                    model="gemini-3-flash-preview",
                 )
 
             async def fake_iter_turns(*args, **kwargs):

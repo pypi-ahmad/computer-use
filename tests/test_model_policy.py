@@ -57,13 +57,6 @@ class TestModelPolicy:
                 assert "cu_betas" in m, f"{m['model_id']} missing cu_betas"
                 assert isinstance(m["cu_betas"], list) and len(m["cu_betas"]) > 0
 
-    def test_gemini_31_pro_preview_is_cu_capable(self, models):
-        """gemini-3.1-pro-preview remains on the current Google CU path."""
-        entry = next(
-            m for m in models if m["model_id"] == "gemini-3.1-pro-preview"
-        )
-        assert entry["supports_computer_use"] is True
-
     def test_gemini_3_flash_is_cu_capable(self, models):
         for m in models:
             if m["model_id"] == "gemini-3-flash-preview":
@@ -94,6 +87,8 @@ class TestModelPolicy:
             "gpt-5",
             "gemini-2.5-flash",
             "gemini-2.5-pro",
+            "gemini-3.1-pro-preview",
+            "gemini-2.5-computer-use-preview-10-2025",
         }
         listed = {m["model_id"] for m in models}
         assert removed.isdisjoint(listed)
