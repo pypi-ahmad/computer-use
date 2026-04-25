@@ -115,10 +115,9 @@ class TestLookupClaudeCUConfig:
         assert tv == "computer_20251124"
         assert bf == "computer-use-2025-11-24"
 
-    def test_opus_46_returns_config(self):
+    def test_removed_opus_46_returns_none(self):
         tv, bf = _lookup_claude_cu_config("claude-opus-4-6")
-        assert tv == "computer_20251124"
-        assert bf == "computer-use-2025-11-24"
+        assert tv is None and bf is None
 
     def test_unknown_model_returns_none(self):
         tv, bf = _lookup_claude_cu_config("unknown-model")
