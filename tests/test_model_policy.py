@@ -57,13 +57,16 @@ class TestModelPolicy:
                 assert "cu_betas" in m, f"{m['model_id']} missing cu_betas"
                 assert isinstance(m["cu_betas"], list) and len(m["cu_betas"]) > 0
 
-    def test_gemini_31_pro_is_cu_capable(self, models):
-        """gemini-3.1-pro-preview is CU-capable (built-in, supersedes
-        discontinued gemini-3-pro-preview as of 2026-03-09)."""
-        for m in models:
-            if m["model_id"] == "gemini-3.1-pro-preview":
-                assert m["supports_computer_use"] is True, \
-                    "gemini-3.1-pro-preview should be marked as CU-capable"
+    def test_gemini_31_pro_preview_not_cu_until_google_enables(self, models):
+        """gemini-3.1-pro-preview does NOT have CU enabled per Google
+        forum 2026-03-12 + official CU docs 2026-03-25 (which list only
+        gemini-2.5-computer-use-preview-10-2025 and gemini-3-flash-preview).
+        Keep this asserted until Google re-enables. See CHANGELOG for
+        the full reference."""
+        entry = next(
+            m for m in models if m["model_id"] == "gemini-3.1-pro-preview"
+        )
+        assert entry["supports_computer_use"] is False
 
     def test_gemini_3_flash_is_cu_capable(self, models):
         for m in models:
@@ -76,17 +79,45 @@ class TestModelPolicy:
                 assert m["supports_computer_use"] is True
                 assert m["cu_tool_version"] == "computer_20251124"
 
-    def test_claude_opus_46_is_cu_capable(self, models):
+    def test_claude_opus_47_is_cu_capable(self, models):
+        for m in models:
+            if m["model_id"] == "claude-opus-4-7":
+                assert m["supports_computer_use"] is True
+                assert m["cu_tool_version"] == "computer_20251124"
+
+    def test_claude_opus_46_remains_supported(self, models):
         for m in models:
             if m["model_id"] == "claude-opus-4-6":
                 assert m["supports_computer_use"] is True
                 assert m["cu_tool_version"] == "computer_20251124"
+
+    def test_claude_sonnet_45_remains_supported(self, models):
+        for m in models:
+            if m["model_id"] == "claude-sonnet-4-5":
+                assert m["supports_computer_use"] is True
+                assert m["cu_tool_version"] == "computer_20250124"
 
     def test_gpt_54_is_cu_capable(self, models):
         for m in models:
             if m["model_id"] == "gpt-5.4":
                 assert m["provider"] == "openai"
                 assert m["supports_computer_use"] is True
+
+    def test_gpt_5_compatibility_id_remains_supported(self, models):
+        for m in models:
+            if m["model_id"] == "gpt-5":
+                assert m["provider"] == "openai"
+                assert m["supports_computer_use"] is True
+
+    def test_gemini_25_compatibility_ids_remain_supported(self, models):
+        seen = {
+            m["model_id"] for m in models
+            if m["model_id"] in {"gemini-2.5-pro", "gemini-2.5-flash"}
+        }
+        assert seen == {"gemini-2.5-pro", "gemini-2.5-flash"}
+
+    def test_discontinued_gemini_3_pro_preview_is_not_listed(self, models):
+        assert all(m["model_id"] != "gemini-3-pro-preview" for m in models)
 
     def test_no_duplicate_model_ids(self, models):
         ids = [m["model_id"] for m in models]

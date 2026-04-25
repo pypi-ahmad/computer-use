@@ -40,8 +40,10 @@ from backend.agent.graph import (
 from backend.agent import safety as safety_registry
 from backend.agent.screenshot import capture_screenshot, check_service_health
 from backend.docker_manager import (
+    _run as _dm_run,
     build_image,
     get_container_status,
+    get_state as get_container_state,
     start_container,
     stop_container,
 )
@@ -92,6 +94,7 @@ async def _lifespan(_app: FastAPI):
     try:
         yield
     finally:
+        global _novnc_client, _screenshot_publisher_task, _last_screenshot_frame
         # ── shutdown ──────────────────────────────────────────────────
         # Cancel in-flight run tasks, then await them (and any pending
         # broadcasts) so finalize-node persistence and WS flushes get a
@@ -103,6 +106,9 @@ async def _lifespan(_app: FastAPI):
                 task.cancel()
                 pending.append(task)
         pending.extend(t for t in list(_broadcast_tasks) if not t.done())
+        if _screenshot_publisher_task is not None and not _screenshot_publisher_task.done():
+            _screenshot_publisher_task.cancel()
+            pending.append(_screenshot_publisher_task)
         if pending:
             try:
                 await asyncio.gather(*pending, return_exceptions=True)
@@ -111,8 +117,12 @@ async def _lifespan(_app: FastAPI):
         _active_tasks.clear()
         _active_loops.clear()
         _broadcast_tasks.clear()
+        _screenshot_subscribers.clear()
+        _screenshot_subscribers_by_session.clear()
+        _ws_screenshot_sessions.clear()
+        _screenshot_publisher_task = None
+        _last_screenshot_frame = None
 
-        global _novnc_client
         if _novnc_client is not None and not _novnc_client.is_closed:
             try:
                 await _novnc_client.aclose()
@@ -334,11 +344,29 @@ _MAX_STEPS_HARD_CAP = 200
 # pass ``?token=<value>`` on connect. Unset (default) preserves the
 # localhost-only behaviour existing deployments rely on.
 _WS_AUTH_TOKEN = os.getenv("CUA_WS_TOKEN", "").strip()
+_WS_AUTH_CLOSE_CODE = 4401
+_WS_AUTH_CLOSE_REASON = "bad or missing token"
 
 
 def _consteq(a: str, b: str) -> bool:
     """Constant-time string comparison for secrets."""
     return hmac.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
+
+
+def _ws_token_ok(ws: WebSocket) -> bool:
+    """Return True when the shared-secret gate passes (or is disabled).
+
+    Empty ``CUA_WS_TOKEN`` (unset) means default-open: the gate always
+    passes so local development keeps working without configuration.
+    Callers must still run :func:`_ws_origin_ok` separately.
+
+    This is the single source of truth for /ws and /vnc/websockify so
+    the two interactive surfaces stay in lockstep.
+    """
+    if not _WS_AUTH_TOKEN:
+        return True
+    supplied = ws.query_params.get("token", "")
+    return bool(supplied) and _consteq(supplied, _WS_AUTH_TOKEN)
 
 
 # Hosts that may embed or connect to this backend in addition to the CORS
@@ -613,6 +641,39 @@ _active_tasks: dict[str, asyncio.Task] = {}
 # avoids mutation-during-iteration when two broadcasts interleave.
 _ws_clients: set[WebSocket] = set()
 
+# ── P-PUB — shared screenshot publisher ──────────────────────────────
+#
+# Previously every ``/ws`` client spawned its own ``_stream_screenshots``
+# task. With N viewers that meant N independent ``capture_screenshot``
+# calls contending with keyboard/mouse actions behind the single
+# container-side ``_ACTION_LOCK``, and every client received the same
+# frames anyway. The publisher below replaces that with ONE loop per
+# container/process that fans the latest frame out to every subscribed
+# client. Subscribers are tracked per session so ``_cleanup_session``
+# can drop demand for a finished run without closing the websocket.
+#
+# Reference counting:
+#   * ``_screenshot_subscribers`` is a subset of ``_ws_clients``.
+#   * ``_screenshot_subscribers_by_session`` tracks which ws clients are
+#     actively using screenshot fallback for each live session.
+#   * Adding the first subscriber starts :func:`_screenshot_publisher_loop`.
+#   * Removing the last subscriber cancels it (or, when
+#     ``config.ws_screenshot_suspend_when_idle`` is False, leaves it
+#     running — the loop still dedupes so it's cheap).
+#   * On disconnect / session cleanup, :func:`_unsubscribe_screenshots`
+#     is idempotent — double-unsubscribe is a no-op.
+_screenshot_subscribers: set[WebSocket] = set()
+_ws_screenshot_sessions: dict[WebSocket, str] = {}
+_screenshot_subscribers_by_session: dict[str, set[WebSocket]] = {}
+_screenshot_publisher_task: asyncio.Task | None = None
+# Cached most-recent (b64, hash) so a newly-attached subscriber can
+# paint immediately instead of waiting up to one cadence interval.
+_last_screenshot_frame: tuple[str, str] | None = None
+# Metric for tests / ops: how many times the publisher loop has
+# actually invoked ``capture_screenshot``. Observable via logs and
+# the dedicated test harness; NOT exposed over HTTP.
+_screenshot_capture_count: int = 0
+
 
 def _cleanup_session(sid: str) -> None:
     """Remove bookkeeping for a session (tasks, loops, safety state).
@@ -635,6 +696,10 @@ def _cleanup_session(sid: str) -> None:
         safety_registry.clear(sid)
     except Exception:
         logger.exception("cleanup: safety_registry.clear failed for %s", sid)
+    try:
+        _drop_screenshot_session(sid)
+    except Exception:
+        logger.exception("cleanup: screenshot-subscriber cleanup failed for %s", sid)
     # C9: cancel any queued broadcast tasks for this session so they
     # don't keep the event loop busy after the agent has finished.
     try:
@@ -706,6 +771,7 @@ async def _broadcast(event: str, data: dict) -> None:
         except Exception:
             stale.append(ws)
     for ws in stale:
+        _unsubscribe_screenshots(ws)
         _ws_clients.discard(ws)
 
 
@@ -749,8 +815,71 @@ def _schedule_broadcast(event: str, data: dict, *, session_id: str | None = None
 
 @app.get("/api/health")
 async def health():
-    """Liveness probe."""
+    """Liveness probe.
+
+    Returns 200 with ``{"status": "ok"}`` as long as the FastAPI
+    process is servicing requests. This is intentionally cheap and
+    has no dependency on the Docker daemon or provider API keys —
+    the Docker HEALTHCHECK directive points here, not at ``/ready``,
+    so a slow upstream provider or a transient docker-daemon hiccup
+    does not mark the container itself as unhealthy.
+    """
     return {"status": "ok"}
+
+
+@app.get("/api/ready")
+async def ready():
+    """Readiness probe.
+
+    Returns 200 only when the backend can actually start a session:
+
+      * the Docker daemon is reachable (``docker ps`` succeeds);
+      * at least one provider API key is configured (UI entry is not
+        enough at readiness time — a deployed instance needs a
+        .env or system-env key to serve traffic);
+      * the sandbox container is either already ``running`` or
+        ``stopped``-and-cleanly-startable (``unknown`` from the
+        cached readiness dict is tolerated because the first session
+        start will probe it live).
+
+    On failure returns HTTP 503 with a ``reasons`` list so the
+    operator sees which check tripped. Not wired into the Docker
+    HEALTHCHECK directive — that's deliberately liveness-only — so
+    readiness can be surfaced to a separate orchestrator (kubelet
+    probe, load-balancer, etc.) without taking the container down.
+    """
+    reasons: list[str] = []
+
+    # Docker daemon reachable?
+    try:
+        rc, _, err = await _dm_run(["docker", "version", "--format", "{{.Server.Version}}"])
+        if rc != 0:
+            reasons.append(f"docker daemon unreachable: {err.strip() or 'non-zero exit'}")
+    except Exception as exc:  # docker binary missing, permissions, etc.
+        reasons.append(f"docker daemon probe failed: {type(exc).__name__}: {exc}")
+
+    # At least one provider API key configured (env or .env, NOT UI).
+    # Mirrors ``backend.config``'s ``_PROVIDER_KEY_ENV_VARS`` map.
+    key_env_names = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY")
+    has_any_key = any(os.environ.get(name, "").strip() for name in key_env_names)
+    if not has_any_key:
+        reasons.append(
+            "no provider API key configured; set one of "
+            + ", ".join(key_env_names),
+        )
+
+    # Sandbox state must not be a hard ``error`` state.
+    state = get_container_state()
+    container = (state or {}).get("container", "unknown")
+    if container not in ("running", "stopped", "starting", "unknown"):
+        reasons.append(f"container in unexpected state: {container!r}")
+
+    if reasons:
+        return JSONResponse(
+            status_code=503,
+            content={"ready": False, "reasons": reasons},
+        )
+    return {"ready": True, "container": container}
 
 
 @app.get("/api/models")
@@ -921,8 +1050,16 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
     # Cap max_steps to prevent runaway agents
     req.max_steps = min(req.max_steps, _MAX_STEPS_HARD_CAP)
 
-    # Resolve reasoning_effort: request > env var > default "low"
-    _VALID_REASONING_EFFORTS = {"none", "low", "medium", "high", "xhigh"}
+    # Resolve reasoning_effort: request > env var > default "high".
+    # "high" is the CU floor per the OpenAI Responses computer-use
+    # guide (April 2026); the env var and per-request override let
+    # operators opt down when running cheap scenarios.
+    # Canonical values per the OpenAI Responses API (2026-04):
+    # {"minimal","low","medium","high"}. ``none`` / ``xhigh`` are
+    # legacy aliases from earlier SDKs — ``OpenAICUClient.__init__``
+    # maps them to the canonical enum before the request is built,
+    # so we accept them here for wire-compat with older frontends.
+    _VALID_REASONING_EFFORTS = {"minimal", "low", "medium", "high", "none", "xhigh"}
     reasoning_effort = (req.reasoning_effort or os.getenv("OPENAI_REASONING_EFFORT") or "high").lower()
     if reasoning_effort not in _VALID_REASONING_EFFORTS:
         reasoning_effort = "high"
@@ -939,8 +1076,30 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
                 req.execution_target)
 
     container_ok = await start_container()
+    state = get_container_state()
+    # D-READY — session creation requires a positive ready signal, not
+    # just "docker says the container exists". ``start_container()``
+    # refreshes readiness even on the already-running fast path, then we
+    # re-check the cached state here so a race between readiness and
+    # teardown can still be surfaced as a clean 409 instead of a later
+    # screenshot/action network error.
     if not container_ok:
-        return _error_response(503, "Could not start the virtual environment. Please check that the system is set up correctly.")
+        if state.get("agent") == "unready":
+            detail = state.get("last_health_error") or "agent service not reachable"
+            return _error_response(
+                409,
+                f"Sandbox is not ready ({detail}). Restart the environment and try again.",
+            )
+        return _error_response(
+            503,
+            "Could not start the virtual environment. Please check that the system is set up correctly.",
+        )
+    if state.get("agent") != "ready":
+        detail = state.get("last_health_error") or "agent service not reachable"
+        return _error_response(
+            409,
+            f"Sandbox is not ready ({detail}). Restart the environment and try again.",
+        )
 
     loop = AgentLoop(
         task=req.task,
@@ -1139,16 +1298,21 @@ async def api_validate_key(req: ValidateKeyRequest, request: Request):
 async def api_agent_safety_confirm(req: SafetyConfirmRequest, request: Request):
     """Respond to a CU safety_decision / require_confirmation prompt.
 
-    C-1: origin-gated so a malicious page can't auto-confirm a destructive
-    action when the user has the workbench open in another tab.
+    Two resolution paths coexist (see PR 7):
 
-    When the native Computer Use engine encounters a
-    ``require_confirmation`` safety decision, it broadcasts a
-    ``safety_confirmation`` event via WebSocket.  The frontend displays
-    a dialog and calls this endpoint with the user's decision.
+    1. **Graph interrupt path** — used when the agent graph paused at
+       ``approval_interrupt``. We call ``graph.ainvoke(Command(
+       resume=decision), ...)`` so the interrupt returns the user's
+       choice and the run continues from the checkpointed state. This
+       path survives a backend restart: the checkpointer restores
+       ``pending_approval`` and the resume call picks up where the run
+       left off.
+    2. **Legacy asyncio.Event path** — still used by Gemini / OpenAI
+       whose ``run_loop`` has not yet been inverted into ``iter_turns``.
+       We store the decision in :mod:`backend.agent.safety` and signal
+       the waiting loop. Claude never reaches this path.
 
-    The AgentLoop awaits an event in :mod:`backend.agent.safety` which
-    this endpoint signals.
+    We invoke both unconditionally — the unused path is a cheap no-op.
     """
     forbidden = _require_origin(request)
     if forbidden is not None:
@@ -1157,14 +1321,82 @@ async def api_agent_safety_confirm(req: SafetyConfirmRequest, request: Request):
     if not _is_valid_uuid(sid):
         return _error_response(400, "Invalid session_id")
     if sid not in _active_loops:
-        return _error_response(404, "Session not found")
+        # The graph interrupt path can still serve this request if the
+        # backend was just restarted and the session is suspended in
+        # the checkpointer but has no live AgentLoop yet.
+        resumed_via_graph = await _try_resume_graph(sid, req.confirm)
+        if not resumed_via_graph:
+            return _error_response(404, "Session not found")
+        logger.info(
+            "AUDIT safety_confirm (graph-resume-after-restart) — session_id=%s confirm=%s",
+            sid, req.confirm,
+        )
+        return {"session_id": sid, "confirmed": req.confirm}
 
-    # Store the decision and signal the waiting loop
+    # Legacy asyncio.Event signal for Gemini/OpenAI.
     safety_registry.decisions[sid] = req.confirm
     safety_registry.get_or_create_event(sid).set()
 
+    # Graph interrupt resume — harmless no-op if no interrupt is pending.
+    await _try_resume_graph(sid, req.confirm)
+
     logger.info("AUDIT safety_confirm — session_id=%s confirm=%s", sid, req.confirm)
     return {"session_id": sid, "confirmed": req.confirm}
+
+
+async def _try_resume_graph(session_id: str, decision: bool) -> bool:
+    """Try resuming a graph paused on ``approval_interrupt``.
+
+    Returns True if the graph was actually resumed, False otherwise
+    (e.g. runtime not initialised, no pending interrupt, other errors).
+    Errors are logged but never propagated to the caller.
+    """
+    try:
+        from backend.agent.graph import build_agent_graph, NodeBundle, get_runtime
+        runtime = get_runtime()
+        if runtime.checkpointer is None:
+            return False
+        config = {"configurable": {"thread_id": session_id}}
+        tup = await runtime.checkpointer.aget_tuple(config)
+        if tup is None:
+            return False
+        pending_tasks = tup.pending_writes or []
+        # Quick heuristic: only call resume if there's an interrupt
+        # pending. Otherwise ainvoke(Command) raises.
+        channel_values = tup.checkpoint.get("channel_values") or {}
+        if not channel_values.get("pending_approval"):
+            return False
+        from langgraph.types import Command
+        # Build a minimal bundle — only used if the run actually
+        # advances past approval (in which case an AgentLoop is live
+        # and will receive events via its own bundle). For a pure
+        # after-restart resume, the graph hits a dead iterator
+        # immediately and finalizes with an error; that's acceptable
+        # for the A1 scope and documented as a follow-up.
+        async def _noop_health() -> bool:
+            return True
+        async def _noop_iter(sid: str, task: str, max_steps: int):
+            # Yield nothing — forces the graph to finalize if there is
+            # no live engine.
+            if False:
+                yield None
+            return
+        loop_ref = _active_loops.get(session_id)
+        bundle = (
+            loop_ref._build_graph_bundle()
+            if loop_ref is not None and hasattr(loop_ref, "_build_graph_bundle")
+            else NodeBundle(check_health=_noop_health, start_iter=_noop_iter)
+        )
+        graph = build_agent_graph(bundle)
+        await graph.ainvoke(Command(resume=bool(decision)), config=config)
+        del pending_tasks
+        return True
+    except Exception as exc:
+        logger.warning(
+            "Graph resume on safety-confirm failed for %s: %s",
+            session_id, exc,
+        )
+        return False
 
 
 @app.get("/api/agent/history/{session_id}")
@@ -1204,6 +1436,18 @@ async def vnc_ws_proxy(ws: WebSocket):
         logger.warning(
             "Rejected /vnc/websockify from bad origin: %r",
             ws.headers.get("origin", ""),
+        )
+        return
+    # Shared-secret gate — must match /ws exactly. Reject BEFORE
+    # ws.accept() and BEFORE opening the upstream socket to the
+    # container's websockify, so a missing/bad token never gets any
+    # data plane access and never consumes a backend connection slot.
+    if not _ws_token_ok(ws):
+        await ws.close(code=_WS_AUTH_CLOSE_CODE, reason=_WS_AUTH_CLOSE_REASON)
+        logger.warning(
+            "Rejected /vnc/websockify connection from %s: %s",
+            ws.client.host if ws.client else "unknown",
+            _WS_AUTH_CLOSE_REASON,
         )
         return
     await ws.accept()
@@ -1306,29 +1550,43 @@ async def websocket_endpoint(ws: WebSocket):
         return
     # Optional shared-secret gate. When CUA_WS_TOKEN is set, reject any
     # connection that doesn't present a matching ``?token=`` param.
-    if _WS_AUTH_TOKEN:
-        supplied = ws.query_params.get("token", "")
-        if not supplied or not _consteq(supplied, _WS_AUTH_TOKEN):
-            await ws.close(code=4401)  # custom: unauthorized
-            logger.warning(
-                "Rejected /ws connection from %s: bad or missing token",
-                ws.client.host if ws.client else "unknown",
-            )
-            return
+    # Reuses the same helper as /vnc/websockify so the two surfaces
+    # cannot drift apart.
+    if not _ws_token_ok(ws):
+        await ws.close(code=_WS_AUTH_CLOSE_CODE, reason=_WS_AUTH_CLOSE_REASON)
+        logger.warning(
+            "Rejected /ws connection from %s: %s",
+            ws.client.host if ws.client else "unknown",
+            _WS_AUTH_CLOSE_REASON,
+        )
+        return
     await ws.accept()
     _ws_clients.add(ws)
     logger.info("WebSocket client connected (%d total)", len(_ws_clients))
 
-    streaming_task: asyncio.Task | None = None
     try:
-        streaming_task = asyncio.create_task(_stream_screenshots(ws))
-
         while True:
             data = await ws.receive_text()
             try:
                 msg = json.loads(data)
-                if msg.get("type") == "ping":
+                mtype = msg.get("type")
+                if mtype == "ping":
                     await ws.send_text(json.dumps({"event": "pong"}))
+                elif mtype == "screenshot_mode":
+                    # P-PUB — client tells us whether it currently
+                    # needs the fallback screenshot stream. ``on`` /
+                    # unknown-value defaults to subscribed only when the
+                    # client also supplies an active session_id. Missing
+                    # or stale session ids degrade to "off" so the
+                    # publisher's lifetime is bounded by live sessions.
+                    mode = (msg.get("mode") or "on").lower()
+                    raw_session_id = (msg.get("session_id") or "").strip()
+                    if mode == "off":
+                        _unsubscribe_screenshots(ws)
+                    elif raw_session_id and raw_session_id in _active_loops:
+                        _subscribe_screenshots(ws, raw_session_id)
+                    else:
+                        _unsubscribe_screenshots(ws)
             except json.JSONDecodeError:
                 pass
 
@@ -1337,82 +1595,195 @@ async def websocket_endpoint(ws: WebSocket):
     except Exception as e:
         logger.warning("WebSocket error: %s", e)
     finally:
+        _unsubscribe_screenshots(ws)
         if ws in _ws_clients:
             _ws_clients.discard(ws)
-        if streaming_task:
-            streaming_task.cancel()
 
 
-async def _stream_screenshots(ws: WebSocket):
-    """Periodically send screenshots to a specific WS client.
+async def _screenshot_publisher_loop():
+    """Single capture loop that fans the latest frame to every
+    subscribed /ws client.
 
-    Uses 'desktop' mode (scrot) so the full X11 display is visible,
-    including the browser window, desktop background, and taskbar.
-    Skips capture attempts when the container is not running to avoid
-    spamming warnings.
+    Design notes:
+
+    * One loop per process. Started lazily by
+      :func:`_subscribe_screenshots` on the 0→1 transition and
+      cancelled by :func:`_unsubscribe_screenshots` on the 1→0
+      transition when ``config.ws_screenshot_suspend_when_idle`` is
+      True (default).
+    * A subscriber is a ws client that has explicitly told us it
+      wants screenshot frames (i.e. it is in the screenshot-fallback
+      view). Clients on the noVNC interactive surface send
+      ``{"type": "screenshot_mode", "mode": "off"}`` and do NOT
+      count as subscribers — when every viewer is on noVNC we
+      perform zero ``capture_screenshot`` calls, which is the whole
+      point of this refactor.
+    * Dedup is kept from the old per-client implementation: we only
+      fan out a frame whose PNG hash differs from the previous one.
     """
     from backend.docker_manager import is_container_running
 
+    global _screenshot_capture_count, _last_screenshot_frame
     auth_reported = False
     error_reported = False
-    # Hash of the last frame we actually sent to this client. Frame
-    # captures that hash-equal the previous frame are skipped so an
-    # idle desktop doesn't burn bandwidth broadcasting identical PNGs.
-    last_frame_hash: str | None = None
-    while True:
-        try:
-            await asyncio.sleep(config.ws_screenshot_interval)
-            # Only attempt capture when the container is actually running
-            if not await is_container_running():
-                # Reset sticky flags so we'll re-surface issues after a restart
+    last_hash: str | None = _last_screenshot_frame[1] if _last_screenshot_frame else None
+    logger.info("Screenshot publisher started (cadence=%.2fs)", config.ws_screenshot_interval)
+    try:
+        while True:
+            try:
+                await asyncio.sleep(config.ws_screenshot_interval)
+                # No-subscriber suspend path. The loop task stays
+                # alive but doesn't capture, so ``_screenshot_capture_count``
+                # stays flat — this is what the "all clients on noVNC"
+                # success criterion asserts.
+                if config.ws_screenshot_suspend_when_idle and not _screenshot_subscribers:
+                    auth_reported = False
+                    error_reported = False
+                    continue
+                if not await is_container_running():
+                    auth_reported = False
+                    error_reported = False
+                    last_hash = None
+                    continue
+
+                b64 = await capture_screenshot(mode="desktop")
+                _screenshot_capture_count += 1
                 auth_reported = False
                 error_reported = False
-                last_frame_hash = None
-                continue
-            b64 = await capture_screenshot(mode="desktop")
-            auth_reported = False
-            error_reported = False
-            # Cheap in-process dedup — hash the raw PNG bytes (avoids the
-            # ~33% overhead of hashing the base64-encoded form).
-            try:
-                frame_hash = hashlib.blake2b(
-                    base64.b64decode(b64), digest_size=16,
-                ).hexdigest()
-            except Exception:
-                frame_hash = hashlib.blake2b(
-                    b64.encode("ascii"), digest_size=16,
-                ).hexdigest()
-            if frame_hash == last_frame_hash:
-                continue
-            last_frame_hash = frame_hash
-            await ws.send_text(json.dumps({
-                "event": "screenshot_stream",
-                "screenshot": b64,
-            }))
-        except asyncio.CancelledError:
-            break
-        except WebSocketDisconnect:
-            break
-        except httpx.HTTPStatusError as exc:
-            status = exc.response.status_code if exc.response is not None else 0
-            if status in (401, 403) and not auth_reported:
-                auth_reported = True
-                logger.warning(
-                    "Screenshot stream auth failed (%s) — likely AGENT_SERVICE_TOKEN "
-                    "mismatch after container restart", status,
-                )
+
                 try:
-                    await ws.send_text(json.dumps({
+                    frame_hash = hashlib.blake2b(
+                        base64.b64decode(b64), digest_size=16,
+                    ).hexdigest()
+                except Exception:
+                    frame_hash = hashlib.blake2b(
+                        b64.encode("ascii"), digest_size=16,
+                    ).hexdigest()
+
+                # Always refresh the cache so a newly-attached
+                # subscriber gets the freshest frame even when we
+                # skip the fan-out below because the frame is a
+                # duplicate of the previous one.
+                _last_screenshot_frame = (b64, frame_hash)
+                if frame_hash == last_hash:
+                    continue
+                last_hash = frame_hash
+
+                msg = json.dumps({"event": "screenshot_stream", "screenshot": b64})
+                stale: list[WebSocket] = []
+                for ws in list(_screenshot_subscribers):
+                    try:
+                        await ws.send_text(msg)
+                    except Exception:
+                        stale.append(ws)
+                for ws in stale:
+                    _unsubscribe_screenshots(ws)
+                    _ws_clients.discard(ws)
+            except asyncio.CancelledError:
+                raise
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code if exc.response is not None else 0
+                if status in (401, 403) and not auth_reported:
+                    auth_reported = True
+                    logger.warning(
+                        "Screenshot publisher auth failed (%s) — likely "
+                        "AGENT_SERVICE_TOKEN mismatch after container restart",
+                        status,
+                    )
+                    notice = json.dumps({
                         "event": "auth_failed",
                         "status": status,
                         "message": "Agent service rejected request (token mismatch). "
                                    "Restart the backend to pick up the current container token.",
-                    }))
-                except Exception:
-                    pass
-            await asyncio.sleep(2)
-        except Exception as exc:
-            if not error_reported:
-                error_reported = True
-                logger.warning("Screenshot stream error: %s", exc)
-            await asyncio.sleep(2)
+                    })
+                    for ws in list(_screenshot_subscribers):
+                        try:
+                            await ws.send_text(notice)
+                        except Exception:
+                            pass
+                await asyncio.sleep(2)
+            except Exception as exc:
+                if not error_reported:
+                    error_reported = True
+                    logger.warning("Screenshot publisher error: %s", exc)
+                await asyncio.sleep(2)
+    except asyncio.CancelledError:
+        logger.info("Screenshot publisher stopped")
+        raise
+
+
+def _detach_screenshot_subscriber(ws: WebSocket) -> str | None:
+    """Remove *ws* from screenshot bookkeeping and return its session id."""
+    session_id = _ws_screenshot_sessions.pop(ws, None)
+    _screenshot_subscribers.discard(ws)
+    if session_id is not None:
+        bucket = _screenshot_subscribers_by_session.get(session_id)
+        if bucket is not None:
+            bucket.discard(ws)
+            if not bucket:
+                _screenshot_subscribers_by_session.pop(session_id, None)
+    return session_id
+
+
+def _maybe_stop_screenshot_publisher() -> None:
+    """Cancel the idle publisher and clear stale cached frames."""
+    global _screenshot_publisher_task, _last_screenshot_frame
+    if _screenshot_publisher_task is not None and _screenshot_publisher_task.done():
+        _screenshot_publisher_task = None
+    if config.ws_screenshot_suspend_when_idle and not _screenshot_subscribers:
+        _last_screenshot_frame = None
+        if _screenshot_publisher_task is not None and not _screenshot_publisher_task.done():
+            _screenshot_publisher_task.cancel()
+            _screenshot_publisher_task = None
+
+
+def _drop_screenshot_session(session_id: str) -> None:
+    """Remove every screenshot subscriber currently attached to *session_id*."""
+    for ws in list(_screenshot_subscribers_by_session.pop(session_id, ())):
+        if _ws_screenshot_sessions.get(ws) == session_id:
+            _ws_screenshot_sessions.pop(ws, None)
+        _screenshot_subscribers.discard(ws)
+    _maybe_stop_screenshot_publisher()
+
+
+def _subscribe_screenshots(ws: WebSocket, session_id: str) -> None:
+    """Add *ws* to the screenshot subscriber set for *session_id*.
+
+    Idempotent. On the 0→1 transition starts the shared publisher
+    task. The cached last frame (if any) is sent synchronously via a
+    scheduled send so the new subscriber paints something before the
+    next cadence tick.
+    """
+    global _screenshot_publisher_task
+    if not session_id:
+        _unsubscribe_screenshots(ws)
+        return
+    if ws in _screenshot_subscribers and _ws_screenshot_sessions.get(ws) == session_id:
+        return
+    _detach_screenshot_subscriber(ws)
+    _ws_screenshot_sessions[ws] = session_id
+    _screenshot_subscribers.add(ws)
+    _screenshot_subscribers_by_session.setdefault(session_id, set()).add(ws)
+    # Replay cached frame to the new subscriber so small UIs feel
+    # instant. Fire-and-forget: if the send fails the publisher will
+    # reap this ws on its next tick.
+    if _last_screenshot_frame is not None:
+        b64, _ = _last_screenshot_frame
+        try:
+            asyncio.get_running_loop().create_task(
+                ws.send_text(json.dumps({"event": "screenshot_stream", "screenshot": b64}))
+            )
+        except RuntimeError:
+            pass
+    if _screenshot_publisher_task is None or _screenshot_publisher_task.done():
+        _screenshot_publisher_task = asyncio.create_task(_screenshot_publisher_loop())
+
+
+def _unsubscribe_screenshots(ws: WebSocket) -> None:
+    """Remove *ws* from the subscriber set. Idempotent.
+
+    On the 1→0 transition cancels the shared publisher when
+    ``config.ws_screenshot_suspend_when_idle`` is True (default).
+    """
+    _detach_screenshot_subscriber(ws)
+    _maybe_stop_screenshot_publisher()
