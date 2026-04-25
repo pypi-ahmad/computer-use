@@ -15,6 +15,7 @@ failure modes you are most likely to see.
 - [Installation](#installation)
 - [Running a session](#running-a-session)
 - [Model selection](#model-selection)
+- [Document attachments](#document-attachments)
 - [Configuration reference](#configuration-reference)
 - [Sandbox behavior](#sandbox-behavior)
 - [Workflows](#workflows)
@@ -120,16 +121,75 @@ A session is one agent run, end-to-end: model selection → task entry → conta
 ## Model selection
 
 Costs and latencies below are approximate and change frequently; treat them as ordering hints, not absolute numbers. Verify on the provider's current pricing page before committing to a sustained workload.
+The frontend cost badge uses current list prices from the official provider pricing pages, but it still does not model prompt caching, batch discounts, File Search embedding charges, or search/query surcharges.
 
 | Model | Best for | Tradeoffs |
 |---|---|---|
 | **Claude Opus 4.7** | Long-horizon agentic tasks, vision-heavy work, spreadsheet/document editing | Highest unit cost. Adaptive thinking only (`{type: adaptive}`); legacy `enabled + budget_tokens` returns HTTP 400. Sampling params (`temperature`, `top_p`, `top_k`) rejected. 1:1 pixel coordinates up to 2576 px long-edge — set `CUA_OPUS47_HIRES=1` plus a larger `SCREEN_WIDTH`/`SCREEN_HEIGHT` to use the full ceiling. |
 | **Claude Sonnet 4.6** | General CU tasks, web automation, default choice | Cheaper and faster than Opus 4.7; downscales internally to 1568 px / 1.15 MP so a 1440×900 default viewport is a no-op. Adaptive thinking recommended; legacy `enabled + budget_tokens` still accepted but deprecated. |
 | **GPT-5.4** | Built-in `computer` tool on the Responses API, ZDR-safe | Uses stateless replay with `reasoning.encrypted_content` + `store=false` instead of `previous_response_id`. CU floor is `reasoning.effort="high"`. `detail: "original"` is hard-coded on every `computer_call_output` per the OpenAI guide. Prompts > 272k tokens hit the 2× input / 1.5× output overage multiplier — prune session history before it grows past that. |
-| **Gemini 3 Flash Preview** | Browser-centric tasks, price-sensitive workflows, Google-reference parity | Built-in CU; no separate model id required. Normalized 0–999 coordinates denormalised to pixels by `DesktopExecutor._px`. `thinking_level=high` recommended. Usually the best Google default when you want lower cost and faster turns. |
-| **Gemini 3.1 Pro Preview** | Google tasks that need stronger reasoning than Flash | Higher cost than Flash, but keeps the same built-in CU path and normalized-coordinate contract. Use it when Flash is not enough for long-horizon planning or denser page understanding. |
+| **Gemini 3 Flash Preview** | Browser-centric tasks, price-sensitive workflows, Google-reference parity | Built-in CU; no separate model id required. Normalized 0–999 coordinates denormalised to pixels by `DesktopExecutor._px`. Browser-mode sessions default to the Playwright-over-CDP path against the in-container Chrome session; set `CUA_GEMINI_USE_PLAYWRIGHT=0` to fall back to xdotool. When attached files are provided through the API, Gemini File Search runs in a separate pre-step because Google's docs do not allow `file_search` to share a call with other tools. |
 
 The model picker is driven directly from [backend/allowed_models.json](backend/allowed_models.json). If a model ID is not listed there, it is not selectable for new sessions.
+
+### Web search (official provider tools)
+
+The workbench's **Advanced Settings → Enable web search** toggle attaches each provider's first-party search tool to the model call. The model decides per turn whether to invoke it; the toggle only controls availability. Off by default per provider docs.
+
+| Provider | Tool emitted | Notes |
+|---|---|---|
+| OpenAI (`gpt-5.4`) | Responses API `{"type": "web_search"}` | Optional `filters.allowed_domains` / `filters.blocked_domains` via `search_allowed_domains` / `search_blocked_domains` on `POST /api/agent/start`. `gpt-5.4-nano` is excluded per the OpenAI 2026-04-20 changelog and the adapter logs a warning + skips the tool. |
+| Anthropic (`claude-opus-4-7`, `claude-sonnet-4-6`) | Messages API `{"type": "web_search_20250305", "name": "web_search", "max_uses": N}` | `search_max_uses` defaults to 5; `allowed_domains` / `blocked_domains` are mutually exclusive — the adapter prefers `allowed_domains` when both are sent. `pause_turn` stop reason is honoured: the loop resumes the conversation unchanged. |
+| Gemini (`gemini-3-flash-preview`) | `Tool(google_search=GoogleSearch())` | Added alongside the `computer_use` tool. `include_server_side_tool_invocations=True` is set on the `GenerateContentConfig` per the [tool combination docs](https://ai.google.dev/gemini-api/docs/computer-use#tool-combination). Domain filters / max-uses are not part of the Gemini grounding contract and are accepted-but-ignored. |
+
+API contract — `POST /api/agent/start` accepts:
+
+```jsonc
+{
+  "use_builtin_search": false,                  // default off
+  "search_max_uses": 5,                         // 1..20, Anthropic only
+  "search_allowed_domains": ["example.com"],   // OpenAI + Anthropic
+  "search_blocked_domains": ["bad.test"]       // OpenAI + Anthropic
+}
+```
+
+## Document attachments
+
+The backend already supports provider-native document grounding, but the current
+React workbench does not yet expose a file uploader. Today this section applies
+to direct API callers or custom clients.
+
+1. Upload a file with `POST /api/files/upload` as multipart form data with a
+   single `file` field.
+2. Take the returned `file_id` and include it in `attached_files` on
+   `POST /api/agent/start`.
+
+```bash
+curl -F "file=@notes.pdf" http://127.0.0.1:8000/api/files/upload
+```
+
+```jsonc
+{
+  "task": "Read the uploaded notes, then log into the site and apply the right values.",
+  "provider": "google",
+  "model": "gemini-3-flash-preview",
+  "attached_files": ["f_example123"]
+}
+```
+
+Current upload contract:
+
+- Allowed extensions: `.md`, `.txt`, `.pdf`, `.docx`
+- Max files per session: `10`
+- Server-side caps: `1 GB` per file, `1 GB` total per session, 6-hour TTL for unused uploads
+- Tighter provider caps still apply: Gemini File Search currently caps documents at `100 MB/file`; Anthropic Files API caps uploads at `500 MB/file`
+- `DELETE /api/files/{file_id}` removes an upload early instead of waiting for TTL cleanup
+
+Provider behavior differs on purpose:
+
+- OpenAI creates a vector store and attaches the Responses `file_search` tool.
+- Gemini creates a File Search store, runs a one-shot file-search-only RAG pre-step because Google's docs say File Search cannot be combined with other tools, then injects the grounded text/citations into the first Computer Use turn. `google_search` can still be enabled for later turns.
+- Anthropic uses the official Files API. `.pdf` and `.txt` are uploaded and referenced as `document` blocks; `.md` and `.docx` are extracted to plain text and inlined because Claude document blocks only accept PDF and `text/plain`.
 
 ## Configuration reference
 
@@ -185,7 +245,7 @@ Keys resolve in priority order: UI input > `.env` > system env. Keys entered in 
 | `CUA_OPUS47_HIRES` | no | unset | Opus 4.7 only: bypass the 3.75 MP pixel cap, enforce only the 2576-px long-edge | `backend/engine/claude.py` |
 | `CUA_GEMINI_THINKING_LEVEL` | no | `high` | `minimal` / `low` / `medium` / `high` | `backend/engine/gemini.py` |
 | `CUA_GEMINI_RELAX_SAFETY` | no | unset | When `1`: apply `BLOCK_ONLY_HIGH` thresholds; default is Google's own "Off" for Gemini 3 | `backend/engine/gemini.py` |
-| `CUA_GEMINI_USE_PLAYWRIGHT` | no | unset | When `1` and `playwright` is installed: use Playwright-controlled Chromium for native-fidelity Gemini sessions. Off keeps the xdotool path | `backend/engine/gemini.py` |
+| `CUA_GEMINI_USE_PLAYWRIGHT` | no | `1` (default) | When unset or `1`: Gemini browser-mode sessions drive the in-container Chromium via Playwright `connect_over_cdp` against the sandbox's CDP endpoint (`127.0.0.1:9223`, exposed by `docker/entrypoint.sh`). Set to `0` to fall back to the xdotool path | `backend/engine/gemini.py` |
 | `GEMINI_MODEL` | no | `gemini-3-flash-preview` | Default model id when none is passed | `backend/config.py` |
 
 ### Observability + development
@@ -205,7 +265,8 @@ The Docker sandbox is the union of Anthropic's computer-use-demo package baselin
 
 - **Viewport.** 1440×900 by default — the exact Gemini docs recommendation, OpenAI's preferred downscale target, Anthropic-compatible. Override with `SCREEN_WIDTH` / `SCREEN_HEIGHT` (or the `WIDTH` / `HEIGHT` aliases). Set `CUA_OPUS47_HIRES=1` with a larger viewport for Opus 4.7's 2576-px ceiling.
 - **Window manager.** XFCE4. `mutter` is installed alongside for Anthropic-reference parity but XFCE4 is the active WM.
-- **Browsers.** Google Chrome (pre-profiled to suppress first-run UI), Chromium, Firefox-ESR all coexist. The Gemini adapter prefers Chromium to match Google's reference; the OpenAI adapter spawns Chrome with `--disable-extensions --disable-file-system --no-default-browser-check --user-data-dir=<profile>`; both use a minimal env (DISPLAY, HOME, PATH, LANG, XDG_RUNTIME_DIR only — no host-env inheritance that would leak API keys into a compromised renderer).
+- **Browsers.** Google Chrome is the actual installed Chromium-family browser and is pre-profiled to suppress first-run UI. The image also exposes `chromium` and `chromium-browser` compatibility names that point at the same Chrome install, so Gemini's Playwright/CDP path and browser-binary resolver can target Chromium-style names without a separate package. Firefox-ESR is installed alongside it. The OpenAI adapter still spawns Chrome with `--disable-extensions --disable-file-system --no-default-browser-check --user-data-dir=<profile>`; both providers use a minimal env (DISPLAY, HOME, PATH, LANG, XDG_RUNTIME_DIR only — no host-env inheritance that would leak API keys into a compromised renderer).
+- **Desktop apps.** The shared image includes LibreOffice, XFCE Settings Manager, XFCE Task Manager, Ristretto, galculator, GIMP, Inkscape, and VS Code (`code`) so the same sandbox can cover office, system-settings, image-viewing/editing, and editor-centric tasks without a custom rebuild.
 - **Action surface.** Only actions the engine emits are reachable. Everything else (`run_command`, window management, DOM stubs, `screenshot_region` POST) returns HTTP 404 on `POST /action` unless `CUA_ENABLE_LEGACY_ACTIONS=1`. `run_command` has an executable allowlist + blocked-pattern regex that fires on the full argv (catches `bash -c 'rm -rf /'`, not just argv[0]).
 - **Session reset.** Each `docker run` starts fresh. The `--user-data-dir` profile is pre-created at build time (`/tmp/chrome-profile`) and reused; to fully reset browser state between sessions, stop and restart the container.
 
@@ -294,7 +355,7 @@ Export the trace: `python -m backend.tracing dump <session_id> > session.json`. 
 No. The sandbox is load-bearing for isolation. The `AGENT_SERVICE_TOKEN` handshake, the `no-new-privileges` flag, the dropped Linux capabilities, the Chrome profile hardening, and the browser subprocess's minimal env all assume a container boundary.
 
 **Why is Gemini 3.1 Pro Preview excluded?**
-Google has not enabled Computer Use on that model as of 2026-04-24 despite the Gemini 3 developer guide implying support. The official CU docs list only `gemini-3-flash-preview` and `gemini-2.5-computer-use-preview-10-2025`. See [CHANGELOG.md](CHANGELOG.md) for the forum repro link.
+Google has not enabled Computer Use on that model. The repo exposes only `gemini-3-flash-preview` for Gemini Computer Use; all other Gemini ids have been removed from `backend/allowed_models.json`. See [CHANGELOG.md](CHANGELOG.md).
 
 ## See also
 
