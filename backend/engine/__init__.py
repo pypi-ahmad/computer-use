@@ -1215,6 +1215,11 @@ class ComputerUseEngine:
         container_name: str = "cua-environment",
         agent_service_url: str = "http://127.0.0.1:9222",
         reasoning_effort: str | None = None,
+        use_builtin_search: bool = False,
+        search_max_uses: int | None = None,
+        search_allowed_domains: list[str] | None = None,
+        search_blocked_domains: list[str] | None = None,
+        attached_files: list[str] | None = None,
     ):
         self.provider = provider
         self.environment = environment
@@ -1222,6 +1227,21 @@ class ComputerUseEngine:
         self.screen_height = screen_height
         self._container_name = container_name
         self._agent_service_url = agent_service_url
+        self._attached_file_ids = list(attached_files or [])
+
+        # Bundle the optional search options once so each adapter
+        # receives the same shape via a single kwarg.
+        search_kwargs: dict[str, Any] = {
+            "use_builtin_search": bool(use_builtin_search),
+            "search_max_uses": search_max_uses,
+            "search_allowed_domains": list(search_allowed_domains) if search_allowed_domains else None,
+            "search_blocked_domains": list(search_blocked_domains) if search_blocked_domains else None,
+        }
+        # File-search activation rule (per all 3 official docs): only
+        # attach the provider-side ``file_search`` tool when the user
+        # has explicitly uploaded files.  When empty the adapter falls
+        # through to its normal flow with no retrieval.
+        file_kwargs: dict[str, Any] = {"attached_file_ids": self._attached_file_ids}
 
         if provider == Provider.GEMINI:
             self._client: Any = GeminiCUClient(
@@ -1230,6 +1250,8 @@ class ComputerUseEngine:
                 environment=environment,
                 excluded_actions=excluded_actions,
                 system_instruction=system_instruction,
+                **search_kwargs,
+                **file_kwargs,
             )
         elif provider == Provider.CLAUDE:
             # Look up tool_version / beta_flag from allowed_models.json
@@ -1242,6 +1264,8 @@ class ComputerUseEngine:
                 system_prompt=system_instruction,
                 tool_version=_tv,
                 beta_flag=_bf,
+                **search_kwargs,
+                **file_kwargs,
             )
         elif provider == Provider.OPENAI:
             self._client = OpenAICUClient(
@@ -1249,17 +1273,49 @@ class ComputerUseEngine:
                 model=model or "gpt-5.4",
                 system_prompt=system_instruction,
                 reasoning_effort=reasoning_effort or "high",
+                **search_kwargs,
+                **file_kwargs,
             )
         else:
             raise ValueError(f"Unsupported provider: {provider}")
 
     def _build_executor(self, page: Any = None) -> ActionExecutor:
-        """Build the supported desktop executor."""
-        # Gemini uses normalized 0-999 coords; Claude uses real pixels
+        """Build the action executor for this session.
+
+        Default path: the unified xdotool ``DesktopExecutor`` against
+        the Docker sandbox.  Both DESKTOP and BROWSER environments
+        share that harness — Chromium runs as a normal X11
+        application on the same desktop, so screenshots and click
+        coordinates work the same way in either mode.
+
+        Gemini browser-mode opt-in: per Google's official Computer
+        Use docs (https://ai.google.dev/gemini-api/docs/computer-use),
+        the recommended client-side action handler is Playwright.
+        When the operator sets ``CUA_GEMINI_USE_PLAYWRIGHT=1`` and
+        ``playwright`` is importable, route Gemini browser sessions
+        through ``GeminiPlaywrightExecutor`` which drives a
+        Chromium ``page`` via ``page.mouse``, ``page.keyboard``,
+        ``page.goto``, and ``page.screenshot()`` exactly as shown
+        in the docs sample. The flag is off by default so the
+        default image stays lean (~500 MB Playwright bundle).
+        """
+        # Gemini uses normalized 0-999 coords; Claude/OpenAI use real pixels
         normalize = self.provider == Provider.GEMINI
 
-        if self.environment == Environment.BROWSER:
-            raise ValueError("Browser mode is no longer supported. Use Environment.DESKTOP.")
+        if (
+            self.provider == Provider.GEMINI
+            and self.environment == Environment.BROWSER
+        ):
+            from backend.engine.gemini import _gemini_playwright_enabled
+            if _gemini_playwright_enabled():
+                from backend.engine.playwright_executor import (
+                    GeminiPlaywrightExecutor,
+                )
+                return GeminiPlaywrightExecutor(
+                    screen_width=self.screen_width,
+                    screen_height=self.screen_height,
+                )
+
         return DesktopExecutor(
             screen_width=self.screen_width,
             screen_height=self.screen_height,

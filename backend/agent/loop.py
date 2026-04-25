@@ -68,6 +68,11 @@ class AgentLoop:
         provider: str = "google",
         execution_target: str = "docker",
         reasoning_effort: str | None = None,
+        use_builtin_search: bool = False,
+        search_max_uses: int | None = None,
+        search_allowed_domains: list[str] | None = None,
+        search_blocked_domains: list[str] | None = None,
+        attached_files: list[str] | None = None,
         on_step: Optional[Callable] = None,
         on_log: Optional[Callable] = None,
         on_screenshot: Optional[Callable] = None,
@@ -86,6 +91,11 @@ class AgentLoop:
         self._provider = provider
         self._execution_target = execution_target
         self._reasoning_effort = reasoning_effort
+        self._use_builtin_search = use_builtin_search
+        self._search_max_uses = search_max_uses
+        self._search_allowed_domains = search_allowed_domains
+        self._search_blocked_domains = search_blocked_domains
+        self._attached_files = attached_files or []
         self._action_history: list[AgentAction] = []
         self._stop_requested = False
         self._consecutive_errors = 0
@@ -308,17 +318,32 @@ class AgentLoop:
                 provider=self._provider,
                 model=self.session.model,
             )
+            # Browser mode hints Gemini's CU tool with ENVIRONMENT_BROWSER
+            # per https://ai.google.dev/gemini-api/docs/computer-use.
+            # Anthropic / OpenAI carry the same desktop-style ``computer``
+            # tool in either mode (their docs do not expose an env
+            # parameter); the prompt template carries the browser focus.
+            cu_env = (
+                Environment.BROWSER
+                if self._mode == "browser" and cu_provider == Provider.GEMINI
+                else Environment.DESKTOP
+            )
             engine = ComputerUseEngine(
                 provider=cu_provider,
                 api_key=self._api_key,
                 model=self.session.model,
-                environment=Environment.DESKTOP,
+                environment=cu_env,
                 screen_width=config.screen_width,
                 screen_height=config.screen_height,
                 system_instruction=system_instruction,
                 container_name=config.container_name,
                 agent_service_url=config.agent_service_url,
                 reasoning_effort=self._reasoning_effort,
+                use_builtin_search=self._use_builtin_search,
+                search_max_uses=self._search_max_uses,
+                search_allowed_domains=self._search_allowed_domains,
+                search_blocked_domains=self._search_blocked_domains,
+                attached_files=self._attached_files,
             )
 
             # Legacy safety callback used by Gemini / OpenAI's run_loop
@@ -463,7 +488,14 @@ class AgentLoop:
             self.session.status = SessionStatus.ERROR
             return self.session
 
-        cu_env = Environment.DESKTOP
+        # See ``_start_iter`` — Gemini gets ENVIRONMENT_BROWSER hint when
+        # the user picks browser mode; the other two providers ride on
+        # the prompt template since their CU tools have no env param.
+        cu_env = (
+            Environment.BROWSER
+            if self._mode == "browser" and cu_provider == Provider.GEMINI
+            else Environment.DESKTOP
+        )
 
         system_instruction = get_system_prompt(
             "computer_use", self._mode,
@@ -482,6 +514,11 @@ class AgentLoop:
             container_name=config.container_name,
             agent_service_url=config.agent_service_url,
             reasoning_effort=self._reasoning_effort,
+            use_builtin_search=self._use_builtin_search,
+            search_max_uses=self._search_max_uses,
+            search_allowed_domains=self._search_allowed_domains,
+            search_blocked_domains=self._search_blocked_domains,
+            attached_files=self._attached_files,
         )
 
         # AI2: loop-detection state. We hash (action_name + coords/text)
