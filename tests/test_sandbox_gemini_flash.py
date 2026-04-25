@@ -135,25 +135,31 @@ class TestGeminiCoordinateContract:
 
 
 class TestGeminiPlaywrightOptIn:
-    def test_gemini_playwright_path_opt_in_only(self, monkeypatch):
-        """Without the env flag, the Playwright path MUST stay off
-        regardless of whether the package is installed — otherwise a
-        dev install would silently change runtime behaviour."""
+    def test_gemini_playwright_path_default_on(self, monkeypatch):
+        """Per Google's official Computer Use docs the recommended
+        client-side action handler is Playwright. The unified sandbox
+        pre-launches Chromium with CDP exposed on 127.0.0.1:9223 so
+        the backend can connect via ``connect_over_cdp`` while staying
+        inside the single Docker container. Therefore the Playwright
+        path is ON by default; ``CUA_GEMINI_USE_PLAYWRIGHT=0`` is the
+        explicit opt-out."""
         monkeypatch.delenv("CUA_GEMINI_USE_PLAYWRIGHT", raising=False)
-        assert _gemini_playwright_enabled() is False
+        assert _gemini_playwright_enabled() is True
 
-        # Even setting to a non-"1" truthy-looking value must be off.
-        monkeypatch.setenv("CUA_GEMINI_USE_PLAYWRIGHT", "true")
-        assert _gemini_playwright_enabled() is False
-        monkeypatch.setenv("CUA_GEMINI_USE_PLAYWRIGHT", "yes")
+        # Explicit opt-in still works.
+        monkeypatch.setenv("CUA_GEMINI_USE_PLAYWRIGHT", "1")
+        assert _gemini_playwright_enabled() is True
+
+        # Explicit opt-out forces the xdotool path.
+        monkeypatch.setenv("CUA_GEMINI_USE_PLAYWRIGHT", "0")
         assert _gemini_playwright_enabled() is False
 
     def test_gemini_playwright_falls_back_when_package_missing(
         self, monkeypatch,
     ):
-        """Flag on + package not installed → return False and log
+        """Default on + package not installed → return False and log
         error, so the caller degrades to the xdotool path."""
-        monkeypatch.setenv("CUA_GEMINI_USE_PLAYWRIGHT", "1")
+        monkeypatch.delenv("CUA_GEMINI_USE_PLAYWRIGHT", raising=False)
 
         import builtins
 
