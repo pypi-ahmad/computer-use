@@ -74,15 +74,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # (c) Desktop + X11 + apps — the volatile tier; invalidated most often.
 # Extended with Anthropic reference desktop packages (mutter, xterm,
-# imagemagick, firefox-esr, x11-apps, xpdf, tint2) so the sandbox is
-# the union of the Anthropic computer-use-demo baseline and the existing
-# XFCE4 stack. XFCE4 remains the primary WM; mutter is installed
-# alongside for parity with Anthropic's reference. No removals.
+# imagemagick, x11-apps, xpdf, tint2) so the sandbox is the union of the
+# Anthropic computer-use-demo baseline and the existing XFCE4 stack.
+# XFCE4 remains the primary WM; mutter is installed alongside for parity
+# with Anthropic's reference. Firefox-ESR is installed in a follow-up step
+# because Ubuntu 24.04 exposes only snap-backed apt shims for Firefox.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     dbus-x11 \
     evince \
     ffmpeg \
-    firefox-esr \
     flameshot \
     fonts-dejavu-core \
     fonts-liberation \
@@ -114,27 +114,34 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb \
     && rm -rf /var/lib/apt/lists/*
 
+# Ubuntu 24.04 does not ship a usable deb for Firefox-ESR; the apt entries
+# are snap shims that fail in this container. Install Mozilla's official ESR
+# tarball and expose both binary names expected by the Anthropic / Gemini
+# fallbacks.
+RUN arch="$(dpkg --print-architecture)" \
+    && case "$arch" in \
+        amd64) firefox_arch="linux64" ;; \
+        arm64) firefox_arch="linux-aarch64" ;; \
+        *) echo "Unsupported Firefox ESR arch: $arch" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL "https://download.mozilla.org/?product=firefox-esr-latest-ssl&os=${firefox_arch}&lang=en-US" -o /tmp/firefox-esr.tar \
+    && tar -xaf /tmp/firefox-esr.tar -C /opt \
+    && ln -sf /opt/firefox/firefox /usr/local/bin/firefox \
+    && ln -sf /opt/firefox/firefox /usr/local/bin/firefox-esr \
+    && rm -f /tmp/firefox-esr.tar
+
 # Google Gemini 3 Flash Preview's reference implementation
 # (github.com/google-gemini/computer-use-preview) uses Playwright-controlled
-# Chromium.  Install ``chromium`` alongside firefox-esr + google-chrome-stable
-# so Gemini sessions can route to the reference browser while the Anthropic
-# path keeps firefox-esr and the OpenAI path keeps google-chrome-stable.
-#
-# Ubuntu 24.04 ships ``chromium`` as a real apt package; on 22.04 variants it
-# is a snap transitional-package, where ``chromium-browser`` is the native
-# name.  We install ``chromium`` (24.04) + ``chromium-browser`` via
-# fallback (||) so the build works on either base.
+# Chromium. Ubuntu 24.04 exposes chromium/firefox apt entries as snap shims,
+# so this image installs Google Chrome Stable below and publishes
+# chromium-compatible aliases that keep Gemini's Chromium-first resolver on a
+# Chrome-class browser without relying on snapd inside the container.
 #
 # Playwright itself is NOT installed by default — it adds ~500 MB of
 # browser-bundled binaries to the image.  To enable Gemini's native-fidelity
 # Playwright path, rebuild with ``--build-arg INSTALL_PLAYWRIGHT=1`` (see
 # docker/SECURITY_NOTES.md) and set ``CUA_GEMINI_USE_PLAYWRIGHT=1`` at
 # container runtime.
-RUN apt-get update \
-    && (apt-get install -y --no-install-recommends chromium \
-        || apt-get install -y --no-install-recommends chromium-browser) \
-    && rm -rf /var/lib/apt/lists/*
-
 # OpenAI Computer Use guide mandates the sandbox be free of lockscreens
 # and screensavers that would steal focus from xdotool / the agent.
 # Idempotent: ``|| true`` so rebuilds with upstream removal succeed.
@@ -159,6 +166,8 @@ RUN curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor
  && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
     > /etc/apt/sources.list.d/google-chrome.list \
  && apt-get update && apt-get install -y --no-install-recommends google-chrome-stable \
+ && ln -sf /usr/bin/google-chrome-stable /usr/local/bin/chromium \
+ && ln -sf /usr/bin/google-chrome-stable /usr/local/bin/chromium-browser \
  && rm -rf /var/lib/apt/lists/*
 
 # ── Pre-create Chrome profile to suppress first-run dialogs & keyring ────────
