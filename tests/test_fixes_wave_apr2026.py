@@ -220,12 +220,13 @@ class TestClaudeScaleFactorOpus47:
     def test_opus_47_1440x900_is_identity(self):
         assert get_claude_scale_factor(1440, 900, "claude-opus-4-7") == 1.0
 
-    def test_opus_47_long_edge_enforced(self):
-        # 4000-px long edge must shrink to exactly 2576, regardless of
-        # total-pixel count (8 MP here, far above the legacy 1.15 MP
-        # cap and the 3.75 MP high-res cap).
-        scale = get_claude_scale_factor(4000, 2000, "claude-opus-4-7")
-        assert scale == pytest.approx(2576 / 4000)
+    def test_opus_47_default_path_respects_high_res_pixel_cap(self):
+        # Without ``CUA_OPUS47_HIRES=1``, Opus 4.7 stays on the shared
+        # 2576px / 3.75 MP path used by current-tool Claude models.
+        # At 2560x1600, the long edge is still within 2576, so the
+        # 3.75 MP pixel cap is the binding constraint.
+        scale = get_claude_scale_factor(2560, 1600, "claude-opus-4-7")
+        assert scale == pytest.approx((3_750_000 / (2560 * 1600)) ** 0.5)
 
     def test_sonnet_46_unchanged_at_typical_res(self):
         # Sonnet 4.6 stays on the high-res path (2576-px + 3.75 MP).
