@@ -184,6 +184,16 @@ Claude never yields `SafetyRequired`; refusal is server-side through
 `cache_control: {"type": "ephemeral"}` and `_prune_claude_context()`
 removes old image payloads.
 
+When `attached_file_ids` is non-empty, `ClaudeCUClient` resolves the
+local `f_...` ids against `backend.file_store`, adds the
+`files-api-2025-04-14` beta, uploads `.pdf` / `.txt` files through
+`client.beta.files.upload()`, and emits `document` content blocks with
+the returned `file_...` ids. `.md` and `.docx` are not legal Claude
+document blocks, so the adapter extracts them to plain text and inlines
+that text into the initial user turn instead. Upload ids and extracted
+text are cached on the client instance so multi-turn runs do not
+re-upload or re-extract the same material.
+
 ### 4.3 OpenAI
 
 `backend/engine/openai.py` implements `OpenAICUClient` against the
@@ -220,16 +230,37 @@ When Gemini returns
 `safety_decision.decision == "require_confirmation"`, the adapter yields
 `SafetyRequired`; confirmed tool results include
 `safety_acknowledgement: "true"`. `CUA_GEMINI_RELAX_SAFETY=1` changes
-harm-block thresholds, not that handshake. The optional Playwright path
-is incomplete: the runtime flag exists, but the default image does not
-install Playwright and the current `docker/Dockerfile` does not define
-the `INSTALL_PLAYWRIGHT` build arg mentioned in comments. Treat it as a
-future extension point.
+harm-block thresholds, not that handshake. The Playwright path is
+now the default for Gemini browser-mode sessions: ``docker/entrypoint.sh``
+pre-launches Google Chrome inside the unified sandbox with
+``--remote-debugging-port=9223``, ``docker-compose.yml`` publishes
+that port to host loopback, and
+``backend.engine.playwright_executor.GeminiPlaywrightExecutor``
+attaches via ``playwright.connect_over_cdp("http://127.0.0.1:9223")``
+so the same Chromium is driven through the docs-recommended
+``page.mouse`` / ``page.keyboard`` / ``page.goto`` /
+``page.screenshot()`` API while remaining sandboxed and visible in
+the existing noVNC viewer. Set ``CUA_GEMINI_USE_PLAYWRIGHT=0`` to
+fall back to the xdotool ``DesktopExecutor``; set
+``CUA_DISABLE_CDP=1`` on the container to skip the CDP launch when
+debugging the desktop path.
 
-`gemini-3.1-pro-preview` is kept in `backend/allowed_models.json` with
-`supports_computer_use: false`. The rationale is documented in
-[CHANGELOG.md](CHANGELOG.md): Google has not enabled Computer Use on that
-model, and the repo keeps the id only for non-CU compatibility.
+When `attached_file_ids` is non-empty, `_ensure_file_search_store()`
+creates a per-session Gemini File Search store and uploads the selected
+files before the loop starts. Google's File Search docs say
+`file_search` cannot be combined with other tools, so the adapter does
+not attach `Tool(file_search=...)` to the same Computer Use call.
+Instead `_run_file_search_pre_step()` performs a one-shot
+File-Search-only `generate_content()` call, captures the grounded text
+and citations, and prepends that context to the first Computer Use user
+turn. This keeps the loop doc-compliant while still allowing
+`google_search` during later Computer Use turns.
+
+`gemini-3.1-pro-preview` and every other non-Flash Gemini id have been
+removed from `backend/allowed_models.json`. Google's official Computer
+Use docs list only `gemini-3-flash-preview` (and the legacy
+`gemini-2.5-computer-use-preview-10-2025`); the repo standardises on
+Flash as the single Gemini CU SKU. See [CHANGELOG.md](CHANGELOG.md).
 
 ## 5. Agent orchestration (LangGraph)
 
@@ -321,6 +352,11 @@ The repo ships one sandbox image that is the union of Anthropic's,
 OpenAI's, and Google's published requirements. That keeps the backend on
 one execution target and lets the same `DesktopExecutor` serve every
 provider at the cost of a larger, broader image to audit.
+
+That shared image now also includes a wider task-app surface used in
+docs and evals: LibreOffice, XFCE Settings/Task Manager, Ristretto,
+galculator, GIMP, Inkscape, and VS Code (`code`) alongside the browser
+stack.
 
 ## 7. Observability and tracing
 
@@ -477,11 +513,12 @@ invocation because `pyproject.toml` pins `testpaths = ["tests"]`.
    `/ws` screenshot capture should stop when everyone is on noVNC. See
    `backend/server.py::_screenshot_publisher_loop()` and the
    screenshot-publisher tests.
-6. **`gemini-3.1-pro-preview` stays in the registry, but not as CU.**
-   Existing sessions and frontends may still reference the id, so the
-   repo keeps it in `backend/allowed_models.json` while marking
-   `supports_computer_use: false`. See [CHANGELOG.md](CHANGELOG.md) and
-   the corresponding commit in repo history.
+6. **Gemini is restricted to `gemini-3-flash-preview`.**
+   All other Gemini ids (including `gemini-3.1-pro-preview` and
+   `gemini-2.5-computer-use-preview-10-2025`) have been removed from
+   `backend/allowed_models.json` to match Google's official Computer
+   Use supported-model list and avoid `400 INVALID_ARGUMENT: Computer
+   Use is not enabled` errors. See [CHANGELOG.md](CHANGELOG.md).
 7. **Host-to-container auth uses a generated token, not a plain `-e`
    flag.** `backend/docker_manager.py` writes `AGENT_SERVICE_TOKEN` to a
    temporary env-file and unlinks it after `docker run`, reducing leakage
