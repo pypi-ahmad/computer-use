@@ -1,18 +1,26 @@
 /**
  * Approximate model pricing for cost estimation.
- * Values are in USD per 1 million tokens. Clearly approximate.
+ * Values are in USD per 1 million tokens (text input / output, paid tier,
+ * standard processing — caching, batch, and data-residency multipliers
+ * are NOT modeled here; this is a per-step list-price approximation).
+ *
  * Centralized here so updates only need to happen in one place.
- * Last reviewed: 2026-04 (approximate — check provider pricing pages for current rates).
+ *
+ * Last reviewed: 2026-04-25 against the official provider pricing pages.
+ *   - Gemini 3 Flash Preview: https://ai.google.dev/gemini-api/docs/pricing
+ *   - Claude Opus 4.7 / Sonnet 4.6: https://platform.claude.com/docs/en/about-claude/pricing
+ *   - GPT-5.4: https://openai.com/api/pricing/
  */
 const MODEL_PRICING = {
-  // Google Gemini
-  'gemini-3-flash-preview': { input: 0.15, output: 0.60 },
-  'gemini-3.1-pro-preview': { input: 1.25, output: 5.00 },
-  // Anthropic Claude
+  // Google — Gemini 3 Flash Preview (paid tier, text/image/video input).
+  // Audio input is $1.00/M (not modeled — CU only sends text + screenshots).
+  'gemini-3-flash-preview': { input: 0.50, output: 3.00 },
+  // Anthropic — base input / base output (1.25× cache-write and 0.1× cache-hit
+  // multipliers from the Anthropic pricing page are not modeled here).
   'claude-opus-4-7': { input: 5.00, output: 25.00 },
   'claude-sonnet-4-6': { input: 3.00, output: 15.00 },
-  // OpenAI
-  'gpt-5.4': { input: 3.00, output: 12.00 },
+  // OpenAI — GPT-5.4 standard pricing (cached input is $0.25/M, not modeled).
+  'gpt-5.4': { input: 2.50, output: 15.00 },
 }
 
 // Rough average tokens per CU step.
