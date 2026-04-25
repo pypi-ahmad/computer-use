@@ -54,6 +54,23 @@ class OpenAICUClient:
         # server-facing API still lets the user override (falling back
         # to env + "high" for non-CU paths).
         reasoning_effort: str = "high",
+        # Official OpenAI Responses API web-search tool (April 2026).
+        # When ``use_builtin_search`` is True the adapter appends
+        # ``{"type": "web_search"}`` to the tools list and the model
+        # decides per turn whether to invoke it. ``search_max_uses`` is
+        # not part of OpenAI's contract (Anthropic-only) and is
+        # ignored here for parity with the unified factory shape.
+        use_builtin_search: bool = False,
+        search_max_uses: int | None = None,
+        search_allowed_domains: list[str] | None = None,
+        search_blocked_domains: list[str] | None = None,
+        # File-search activation (April 2026 Responses API):
+        # https://developers.openai.com/api/docs/guides/tools-file-search
+        # When ``attached_file_ids`` is non-empty, the adapter creates a
+        # vector store, uploads every server-side file to it, and
+        # appends ``{"type":"file_search","vector_store_ids":[id]}``
+        # to the tools list per the docs.
+        attached_file_ids: list[str] | None = None,
     ):
         # Prefer the native async client when available. Falling back to
         # the sync client behind ``asyncio.to_thread`` used to burn a
@@ -84,6 +101,21 @@ class OpenAICUClient:
         if reasoning_effort not in self.VALID_REASONING_EFFORTS:
             reasoning_effort = "high"
         self._reasoning_effort = reasoning_effort
+        # Web-search wiring (April 2026 Responses API: tool type
+        # ``web_search``). gpt-5.4-nano doesn't support search per the
+        # OpenAI 2026-04-20 changelog; the server-side allowlist gates
+        # CU-only models so this flag is only ever True for gpt-5.4.
+        # Unsupported model + flag combinations no-op gracefully
+        # (see ``_build_tools``).
+        self._use_builtin_search = bool(use_builtin_search)
+        self._search_allowed_domains = list(search_allowed_domains) if search_allowed_domains else None
+        self._search_blocked_domains = list(search_blocked_domains) if search_blocked_domains else None
+        del search_max_uses  # OpenAI tool has no max_uses parameter
+        # Provider-side vector store id, lazily provisioned on the first
+        # ``run_loop`` invocation when ``_attached_file_ids`` is non-empty.
+        # Re-used across turns; cleaned up at run-loop exit.
+        self._attached_file_ids: list[str] = list(attached_file_ids or [])
+        self._vector_store_id: str | None = None
 
     def _build_tools(
         self,
@@ -117,7 +149,38 @@ class OpenAICUClient:
             ]
         if model.startswith("gpt-5.4"):
             # Built-in tool — dimensions inferred from screenshot bytes.
-            return [{"type": "computer"}]
+            tools: list[dict[str, Any]] = [{"type": "computer"}]
+            if self._use_builtin_search and not model.startswith("gpt-5.4-nano"):
+                # April 2026 Responses API: ``{"type": "web_search"}``.
+                # Optional ``filters.allowed_domains`` /
+                # ``filters.blocked_domains`` per the Web Search tool
+                # reference. The model decides whether to call it.
+                ws_tool: dict[str, Any] = {"type": "web_search"}
+                filters: dict[str, Any] = {}
+                if self._search_allowed_domains:
+                    filters["allowed_domains"] = self._search_allowed_domains
+                if self._search_blocked_domains:
+                    filters["blocked_domains"] = self._search_blocked_domains
+                if filters:
+                    ws_tool["filters"] = filters
+                tools.append(ws_tool)
+            elif self._use_builtin_search and on_log is not None:
+                on_log(
+                    "warning",
+                    f"OpenAI: web_search requested but model {model!r} does not "
+                    "support it (gpt-5.4-nano per 2026-04-20 changelog); skipping.",
+                )
+            # File-search tool, gated by user upload (activation rule
+            # per https://developers.openai.com/api/docs/guides/tools-file-search).
+            # Vector store is provisioned in ``_ensure_vector_store``
+            # before the first turn — by the time we render the tools
+            # list ``self._vector_store_id`` is already set.
+            if self._vector_store_id is not None:
+                tools.append({
+                    "type": "file_search",
+                    "vector_store_ids": [self._vector_store_id],
+                })
+            return tools
         # Any other OpenAI model flagged as CU-capable: use the new
         # short-form tool but warn, since we have not verified it.
         if on_log is not None:
@@ -136,6 +199,79 @@ class OpenAICUClient:
             on_log=on_log,
         )
 
+    async def _ensure_vector_store(
+        self,
+        *,
+        on_log: "Callable[[str, str], None] | None" = None,
+    ) -> None:
+        """Provision the vector store and upload all attached files.
+
+        Implements the official two-step setup from
+        https://developers.openai.com/api/docs/guides/tools-file-search:
+
+          1. ``client.vector_stores.create(...)``
+          2. ``client.vector_stores.files.upload_and_poll(vector_store_id=..., file=...)``
+
+        ``upload_and_poll`` blocks until the file is fully indexed so
+        the first ``responses.create`` call sees a queryable store.
+        """
+        if not self._attached_file_ids or self._vector_store_id is not None:
+            return
+        from backend.file_store import store as _file_store
+        recs = await _file_store.get_many(self._attached_file_ids)
+        if not recs:
+            if on_log:
+                on_log("warning", "OpenAI file_search: no readable files; skipping")
+            return
+
+        if on_log:
+            on_log("info", f"OpenAI file_search: provisioning vector store for {len(recs)} file(s)")
+        vs = await self._client.vector_stores.create(name=f"cua-session-{int(time.time())}")
+        self._vector_store_id = vs.id
+
+        # Upload each file via the async client.  ``upload_and_poll``
+        # accepts a (filename, bytes, mime) tuple per the openai SDK.
+        for rec in recs:
+            try:
+                await self._client.vector_stores.files.upload_and_poll(
+                    vector_store_id=self._vector_store_id,
+                    file=(rec.filename, rec.read_bytes(), rec.mime_type),
+                )
+                if on_log:
+                    on_log(
+                        "info",
+                        f"OpenAI file_search: indexed {rec.filename} "
+                        f"({rec.size_bytes} bytes)",
+                    )
+            except Exception as exc:
+                if on_log:
+                    on_log(
+                        "error",
+                        f"OpenAI file_search: upload failed for {rec.filename}: {exc}",
+                    )
+                raise
+
+    async def _cleanup_vector_store(
+        self,
+        *,
+        on_log: "Callable[[str, str], None] | None" = None,
+    ) -> None:
+        """Delete the per-session vector store at run-loop exit.
+
+        Best-effort: a transient delete failure does not propagate, the
+        store will be GC'd by OpenAI eventually.  See the retrieval
+        guide for vector store lifecycle.
+        """
+        if not self._vector_store_id:
+            return
+        try:
+            await self._client.vector_stores.delete(vector_store_id=self._vector_store_id)
+        except Exception as exc:
+            if on_log:
+                on_log("warning", f"OpenAI file_search: vector store cleanup failed: {exc}")
+        finally:
+            self._vector_store_id = None
+
     async def run_loop(
         self,
         goal: str,
@@ -147,6 +283,33 @@ class OpenAICUClient:
         on_log: Callable[[str, str], None] | None = None,
     ) -> str:
         """Run the OpenAI native computer-use loop via the Responses API."""
+        # Provision the vector store before the first turn so the
+        # ``file_search`` tool reference is non-null when ``_build_tools``
+        # renders the request payload.
+        await self._ensure_vector_store(on_log=on_log)
+        try:
+            return await self._run_loop_inner(
+                goal,
+                executor,
+                turn_limit=turn_limit,
+                on_safety=on_safety,
+                on_turn=on_turn,
+                on_log=on_log,
+            )
+        finally:
+            await self._cleanup_vector_store(on_log=on_log)
+
+    async def _run_loop_inner(
+        self,
+        goal: str,
+        executor: ActionExecutor,
+        *,
+        turn_limit: int = DEFAULT_TURN_LIMIT,
+        on_safety: Callable[[str], bool] | None = None,
+        on_turn: Callable[[CUTurnRecord], None] | None = None,
+        on_log: Callable[[str, str], None] | None = None,
+    ) -> str:
+        """Inner Responses-API loop (the original ``run_loop`` body)."""
         screenshot_bytes = await executor.capture_screenshot()
         if not screenshot_bytes or len(screenshot_bytes) < 100:
             if on_log:
