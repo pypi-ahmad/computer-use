@@ -32,6 +32,9 @@ export default function ControlPanel({
   showAdvanced, setShowAdvanced,
   maxSteps, setMaxSteps,
   reasoningEffort, setReasoningEffort,
+  useBuiltinSearch, setUseBuiltinSearch,
+  // Automation mode
+  automationMode, setAutomationMode,
   // Task
   task, setTask,
   error,
@@ -165,6 +168,55 @@ export default function ControlPanel({
             )}
           </div>
         )}
+      </div>
+
+      {/* Automation mode — prominent, outside Advanced Settings.
+          Desktop = full X11 sandbox (any app); Browser = Chromium-only,
+          activates Gemini's ENVIRONMENT_BROWSER hint and a browser-
+          focused system prompt for all three providers. */}
+      <div className="wb-section">
+        <label className="wb-label">Automation Mode</label>
+        <select
+          className="wb-select"
+          value={automationMode}
+          onChange={(e) => setAutomationMode(e.target.value)}
+          disabled={agentRunning}
+          aria-label="Automation mode"
+        >
+          <option value="desktop">Desktop — full X11 sandbox (any app)</option>
+          <option value="browser">Browser — Chromium-focused web tasks</option>
+        </select>
+        <span style={{ fontSize: 11, color: 'var(--text-secondary)', display: 'block', marginTop: 4 }}>
+          {automationMode === 'browser'
+            ? 'Gemini receives ENVIRONMENT_BROWSER per Google\'s docs; all providers get a browser-focused system prompt.'
+            : 'Full desktop environment — any application available inside the sandbox.'}
+        </span>
+      </div>
+
+      {/* Web search toggle — prominent, outside Advanced Settings.
+          Off by default; when on, the model gets its provider's
+          official web_search / google_search tool. */}
+      <div className="wb-section">
+        <label className="wb-label">Web Search</label>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={!!useBuiltinSearch}
+          onClick={() => setUseBuiltinSearch(!useBuiltinSearch)}
+          disabled={agentRunning}
+          className={`wb-btn ${useBuiltinSearch ? 'wb-btn-primary' : 'wb-btn-secondary'}`}
+          style={{ width: '100%', justifyContent: 'center' }}
+          title={useBuiltinSearch
+            ? 'Web search is ON — the model can call its provider\'s official search tool.'
+            : 'Web search is OFF — the model cannot search the internet.'}
+        >
+          {useBuiltinSearch ? '● Web Search: ON' : '○ Web Search: OFF'}
+        </button>
+        <span style={{ fontSize: 11, color: 'var(--text-secondary)', display: 'block', marginTop: 4 }}>
+          {useBuiltinSearch
+            ? 'Model may call its provider\'s official search tool (OpenAI web_search, Anthropic web_search_20250305, Gemini google_search).'
+            : 'Model cannot search the internet. Same behaviour as before web search support was added.'}
+        </span>
       </div>
 
       {/* Task */}

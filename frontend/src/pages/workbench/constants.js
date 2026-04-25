@@ -50,7 +50,6 @@ export const ACTION_LABEL_MAP = {
 
 export const MODEL_HINTS = {
   'gemini-3-flash-preview': { hint: 'Fast and affordable — good for simple tasks', tier: 'Budget' },
-  'gemini-3.1-pro-preview': { hint: 'Stronger reasoning — use when Flash is not enough', tier: 'Mid-range' },
   'claude-sonnet-4-6': { hint: 'Balanced speed and capability — recommended for most tasks', tier: 'Mid-range', recommended: true },
   'claude-opus-4-7': { hint: 'Most capable — best for complex multi-step tasks', tier: 'Premium' },
   'gpt-5.4': { hint: 'OpenAI\'s built-in computer use model', tier: 'Mid-range' },
