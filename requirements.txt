@@ -13,3 +13,6 @@ langgraph==1.0.10
 langgraph-checkpoint==4.0.0
 langgraph-checkpoint-sqlite==3.0.3
 aiosqlite==0.20.0
+pypdf==5.1.0
+python-docx==1.1.2
+playwright==1.50.0
