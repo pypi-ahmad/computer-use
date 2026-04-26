@@ -1,3 +1,5 @@
+from __future__ import annotations
+# === merged from tests/test_gemini_flash_followup.py ===
 """Gemini 3 Flash Preview CU follow-ups.
 
 Covers:
@@ -12,7 +14,6 @@ Covers:
   * Default viewport is 1440x900 as recommended by the CU guide.
 """
 
-from __future__ import annotations
 
 from unittest.mock import patch
 
@@ -214,8 +215,196 @@ class TestGeminiFlashViewportDefault:
         """The CU guide recommends 1440x900 for best coordinate
         accuracy.  The project's default config (used to render the
         prompt viewport and provision the Xvfb display) must match."""
-        from backend.config import Config
+        from backend.infra.config import Config
 
         cfg = Config()
         assert cfg.screen_width == 1440
         assert cfg.screen_height == 900
+
+# === merged from tests/test_sandbox_gemini_flash.py ===
+"""Prompt S4 — Google Gemini 3 Flash Preview sandbox alignment tests.
+
+Pins the contract introduced in this commit:
+
+* Dockerfile exposes chromium / chromium-browser aliases backed by the
+    installed Chrome binary, because Ubuntu 24.04 only ships snap-backed
+    browser shims in apt.
+* firefox-esr is retained via Mozilla's ESR tarball; S1 viewport 1440x900
+    stays unchanged (Google's exact recommendation).
+* Gemini adapter helper ``_gemini_resolve_browser_binary`` prefers
+  chromium over firefox and emits a one-shot warning on fallback.
+* ``_gemini_playwright_enabled`` is opt-in only and never pulls in
+  Playwright by default.
+* Coordinate denormalization (0-999 → pixels) stays in the shared
+  executor — regression guard.
+"""
+
+
+from pathlib import Path
+import types
+from unittest.mock import patch
+
+
+from backend.engine import denormalize_x, denormalize_y
+from backend.engine.gemini import (
+    _gemini_playwright_enabled,
+    _gemini_resolve_browser_binary,
+)
+from backend.agent.prompts import SYSTEM_PROMPT_GEMINI_CU
+
+
+_DOCKERFILE = Path("docker/Dockerfile")
+
+
+class TestSandboxDockerfileGemini:
+    def test_dockerfile_exposes_chromium_compatible_binaries(self):
+        """Gemini wants a Chromium-class browser even though Noble's apt
+        packages are snap-only. The Dockerfile must therefore publish both
+        resolver names as aliases to the installed Chrome binary."""
+        text = _DOCKERFILE.read_text(encoding="utf-8")
+        assert "/usr/local/bin/chromium" in text, (
+            "Dockerfile must expose a chromium alias for Gemini sessions"
+        )
+        assert "/usr/local/bin/chromium-browser" in text, (
+            "Dockerfile must expose a chromium-browser alias for Gemini sessions"
+        )
+        assert "google-chrome-stable" in text
+
+    def test_dockerfile_still_has_firefox_esr(self):
+        """Regression guard: Anthropic's reference uses Firefox-ESR.
+        This commit must not remove or replace it."""
+        text = _DOCKERFILE.read_text(encoding="utf-8")
+        assert "firefox-esr" in text
+
+    def test_dockerfile_viewport_still_1440x900(self):
+        """Regression guard: Gemini's docs recommend exactly 1440x900,
+        which is S1's shared default.  Do not change."""
+        text = _DOCKERFILE.read_text(encoding="utf-8")
+        assert "ENV SCREEN_WIDTH=1440" in text
+        assert "ENV SCREEN_HEIGHT=900" in text
+
+
+class TestGeminiBrowserResolver:
+    def test_gemini_adapter_routes_to_chromium(self):
+        """When both Chromium and Firefox are available, Gemini picks
+        Chromium (Google reference)."""
+
+        def fake_which(name: str) -> str | None:
+            return {
+                "chromium-browser": "/usr/bin/chromium-browser",
+                "chromium": "/usr/bin/chromium",
+                "firefox-esr": "/usr/bin/firefox-esr",
+                "firefox": "/usr/bin/firefox",
+            }.get(name)
+
+        logs: list[tuple[str, str]] = []
+        path = _gemini_resolve_browser_binary(
+            which=fake_which,
+            log=lambda lvl, msg: logs.append((lvl, msg)),
+        )
+        assert path == "/usr/bin/chromium-browser"
+        # No fallback warning when Chromium is present.
+        assert logs == []
+
+    def test_gemini_adapter_falls_back_to_firefox_with_warning(self):
+        """When Chromium is unavailable, Firefox-ESR is acceptable but
+        the adapter must emit a WARNING so the operator knows the
+        session is off-reference."""
+
+        def fake_which(name: str) -> str | None:
+            return {
+                "firefox-esr": "/usr/bin/firefox-esr",
+                "firefox": "/usr/bin/firefox",
+            }.get(name)
+
+        logs: list[tuple[str, str]] = []
+        path = _gemini_resolve_browser_binary(
+            which=fake_which,
+            log=lambda lvl, msg: logs.append((lvl, msg)),
+        )
+        assert path == "/usr/bin/firefox-esr"
+        assert len(logs) == 1
+        level, msg = logs[0]
+        assert level == "warning"
+        assert "Chromium" in msg
+        assert "reference" in msg.lower()
+
+    def test_gemini_resolver_returns_none_when_no_browser(self):
+        """No browser installed → None; caller decides how to degrade."""
+        logs: list[tuple[str, str]] = []
+        path = _gemini_resolve_browser_binary(
+            which=lambda _name: None,
+            log=lambda lvl, msg: logs.append((lvl, msg)),
+        )
+        assert path is None
+        assert logs == []
+
+
+class TestGeminiCoordinateContract:
+    def test_gemini_coordinate_denormalization(self):
+        """0-999 normalized → pixels.  The scaling helpers in
+        ``backend.engine`` are the single source of truth — exercised
+        here as a regression guard so a refactor cannot silently drop
+        the contract Gemini depends on."""
+        # Extremes.
+        assert denormalize_x(0, 1440) == 0
+        assert denormalize_y(0, 900) == 0
+        # Midpoint.
+        assert denormalize_x(500, 1440) == 720
+        assert denormalize_y(500, 900) == 450
+        # Max normalized value (999, not 1000).
+        # int(999/1000 * 1440) = int(1438.56) = 1438.
+        assert denormalize_x(999, 1440) == 1438
+        assert denormalize_y(999, 900) == 899
+
+
+class TestGeminiPlaywrightOptIn:
+    def test_gemini_playwright_path_default_on(self, monkeypatch):
+        """Per Google's official Computer Use docs the recommended
+        client-side action handler is Playwright. The unified sandbox
+        pre-launches Chromium with CDP exposed on 127.0.0.1:9223 so
+        the backend can connect via ``connect_over_cdp`` while staying
+        inside the single Docker container. Therefore the Playwright
+        path is ON by default; ``CUA_GEMINI_USE_PLAYWRIGHT=0`` is the
+        explicit opt-out."""
+        monkeypatch.delenv("CUA_GEMINI_USE_PLAYWRIGHT", raising=False)
+        with patch.dict("sys.modules", {"playwright": types.ModuleType("playwright")}):
+            assert _gemini_playwright_enabled() is True
+
+        # Explicit opt-in still works.
+        monkeypatch.setenv("CUA_GEMINI_USE_PLAYWRIGHT", "1")
+        with patch.dict("sys.modules", {"playwright": types.ModuleType("playwright")}):
+            assert _gemini_playwright_enabled() is True
+
+        # Explicit opt-out forces the xdotool path.
+        monkeypatch.setenv("CUA_GEMINI_USE_PLAYWRIGHT", "0")
+        assert _gemini_playwright_enabled() is False
+
+    def test_gemini_playwright_falls_back_when_package_missing(
+        self, monkeypatch,
+    ):
+        """Default on + package not installed → return False and log
+        error, so the caller degrades to the xdotool path."""
+        monkeypatch.delenv("CUA_GEMINI_USE_PLAYWRIGHT", raising=False)
+
+        import builtins
+
+        real_import = builtins.__import__
+
+        def blocked_import(name, *args, **kwargs):
+            if name == "playwright" or name.startswith("playwright."):
+                raise ImportError("no playwright in test env")
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=blocked_import):
+            assert _gemini_playwright_enabled() is False
+
+
+class TestGeminiSingleTabPrompt:
+    def test_single_tab_hint_present(self):
+        """Soft single-tab enforcement via the Gemini system prompt."""
+        prompt = SYSTEM_PROMPT_GEMINI_CU.lower()
+        assert "single-tab" in prompt or "single tab" in prompt
+        # And the prompt names the reference so the operator can audit.
+        assert "new tab" in prompt
+

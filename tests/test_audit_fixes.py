@@ -1,10 +1,10 @@
+from __future__ import annotations
 """Regression tests for the second-wave audit fixes.
 
 Each test pairs with a finding ID from the audit report so a future
 refactor that reintroduces a fixed bug gets caught by name.
 """
 
-from __future__ import annotations
 
 import asyncio
 import os
@@ -15,7 +15,7 @@ import httpx
 import pytest
 
 from backend.agent.prompts import get_system_prompt
-from backend.config import Config
+from backend.infra.config import Config
 
 
 # ── C1 / AI1 — prompt placeholder substitution ─────────────────────────────
@@ -28,11 +28,11 @@ class TestPromptViewportSubstitution:
     @pytest.mark.parametrize("provider", ["google", "anthropic", "openai"])
     def test_placeholders_expanded(self, provider, monkeypatch):
         # Force a non-default resolution. ``get_system_prompt`` does a
-        # lazy import of ``backend.config.config`` inside the function
-        # body, so we patch the attribute on the ``backend.config``
+        # lazy import of ``backend.infra.config.config`` inside the function
+        # body, so we patch the attribute on the ``backend.infra.config``
         # module to make the substitution pick up the new dimensions.
-        import backend.config as cfg_mod
-        from backend.config import Config as _Config
+        import backend.infra.config as cfg_mod
+        from backend.infra.config import Config as _Config
 
         cfg = _Config(screen_width=1920, screen_height=1080)
         monkeypatch.setattr(cfg_mod, "config", cfg, raising=False)
@@ -47,8 +47,8 @@ class TestPromptViewportSubstitution:
     def test_no_literal_1440x900_at_custom_resolution(self, monkeypatch):
         """If the user set SCREEN_WIDTH=1920, the prompt must not still
         claim the screen is 1440x900."""
-        import backend.config as cfg_mod
-        from backend.config import Config as _Config
+        import backend.infra.config as cfg_mod
+        from backend.infra.config import Config as _Config
 
         cfg = _Config(screen_width=1920, screen_height=1080)
         monkeypatch.setattr(cfg_mod, "config", cfg, raising=False)
@@ -361,7 +361,7 @@ class TestScreenshotFallback:
 
     @pytest.mark.asyncio
     async def test_5xx_falls_back(self, monkeypatch):
-        from backend.agent import screenshot as ss
+        from backend.agent import loop as ss
 
         called = {}
 
@@ -390,7 +390,7 @@ class TestScreenshotFallback:
 
     @pytest.mark.asyncio
     async def test_401_propagates(self, monkeypatch):
-        from backend.agent import screenshot as ss
+        from backend.agent import loop as ss
 
         resp = self._response(401, {"error": "unauthorized"})
 
@@ -735,8 +735,7 @@ class TestContainerReadinessGating:
         """Container process survives but /health always errors → False,
         and get_state() reports running=True, agent=unready with the
         last error preserved for operators to see."""
-        from backend import docker_manager as dm
-
+        from backend.infra import docker as dm
         # Tight budget so the test doesn't actually wait 30s. Also
         # shrink the backoff floor so the jitter doesn't dominate.
         monkeypatch.setattr(dm.config, "container_ready_timeout", 0.3)
@@ -773,8 +772,7 @@ class TestContainerReadinessGating:
     def test_wait_for_service_returns_true_on_first_healthy_probe(self, monkeypatch):
         """Happy path: a 200 from /health flips state to ready and
         clears any prior last_health_error."""
-        from backend import docker_manager as dm
-
+        from backend.infra import docker as dm
         monkeypatch.setattr(dm.config, "container_ready_timeout", 0.5)
         monkeypatch.setattr(dm.config, "container_ready_poll_base", 0.01)
 
@@ -939,8 +937,7 @@ class TestPublicBindGuardrail:
 
 class TestTokenEnvFile:
     def test_env_file_is_mode_0600(self, tmp_path, monkeypatch):
-        from backend import docker_manager as dm
-
+        from backend.infra import docker as dm
         path = dm._write_token_env_file("secret-value")
         try:
             assert os.path.exists(path)
@@ -1035,7 +1032,7 @@ class TestStuckAgentDetection:
         assert loop._stop_requested is True
         assert cancelled.is_set(), "engine task must be cancelled when stuck"
         # Session ends in STOPPED, not COMPLETED.
-        from backend.models import SessionStatus
+        from backend.models.schemas import SessionStatus
         assert loop.session.status == SessionStatus.STOPPED
 
     @pytest.mark.asyncio
@@ -1115,12 +1112,26 @@ class TestGeminiNativeAsync:
         assert "aio.models.generate_content" in src
 
     def test_gemini_module_does_not_import_asyncio(self):
-        """The asyncio import was only used by the removed fallback; keep
-        it gone so a future regression that re-adds `to_thread` is caught
-        at import time by lint/review."""
-        import backend.engine.gemini as gem_mod
+        """``asyncio`` is allowed in :mod:`backend.engine.gemini` only for\n        the file-search blocking-call wrappers (``asyncio.to_thread``\n        for ``create``/``upload``/``delete`` against the synchronous\n        google-genai file-search API per the official April 2026 docs).\n        The ``_generate`` path must remain native-async \u2014 see\n        ``test_no_to_thread_in_generate_source`` for the lock there."""
+        import inspect
 
-        assert not hasattr(gem_mod, "asyncio"), (
-            "backend.engine.gemini must not import asyncio — the only "
-            "consumer was the removed to_thread fallback."
-        )
+        import backend.engine.gemini as gem_mod
+        from backend.engine.gemini import GeminiCUClient
+
+        # ``_generate`` lock: native-async only, no to_thread fallback.
+        assert "to_thread(" not in inspect.getsource(GeminiCUClient._generate)
+
+        # Everywhere else ``asyncio.to_thread`` is permitted only for
+        # the documented file-search wrappers.
+        src = inspect.getsource(gem_mod)
+        for occurrence_line in [
+            ln.strip() for ln in src.splitlines() if "asyncio.to_thread(" in ln
+        ]:
+            assert (
+                "_create_store_blocking" in occurrence_line
+                or "_upload_blocking" in occurrence_line
+                or "_delete_blocking" in occurrence_line
+            ), (
+                "Unexpected asyncio.to_thread use outside the file-search "
+                f"blocking-call wrappers: {occurrence_line!r}"
+            )
