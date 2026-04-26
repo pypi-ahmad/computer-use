@@ -13,6 +13,7 @@ failure modes you are most likely to see.
 - [What this app is](#what-this-app-is)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
+- [Rebuilding and operations](#rebuilding-and-operations)
 - [Running a session](#running-a-session)
 - [Model selection](#model-selection)
 - [Document attachments](#document-attachments)
@@ -99,6 +100,116 @@ The sandbox always runs in Docker even when the backend runs on the host. If the
 exits immediately, inspect `docker logs cua-environment`. A common first-run cause is the VNC
 guard in `docker/entrypoint.sh`: uncomment `VNC_PASSWORD=...` in `docker-compose.yml` or add
 `CUA_ALLOW_NOPW=1` to the service environment.
+
+## Rebuilding and operations
+
+This section covers the recurring Docker and process-management tasks you will
+run after the initial install: rebuilding the sandbox image cleanly, restarting
+the backend and frontend, and clearing orphaned containers. Every command is
+annotated so you understand what it does before you run it.
+
+### Full clean rebuild
+
+Use this when you change `docker/Dockerfile`, bump pinned versions in
+`requirements.txt`, or suspect a stale layer is hiding a fix. Each step is
+ordered from least to most destructive so you can stop at any point.
+
+```powershell
+# 1. Stop the running sandbox container and remove the compose network.
+#    Non-destructive: images, volumes, and source files are untouched.
+docker compose down
+
+# 2. Reclaim disk by deleting every image not currently referenced by a
+#    running container. -a includes images without any container reference,
+#    -f skips the interactive confirmation. Safe here because the sandbox
+#    image is reproducible from the Dockerfile.
+docker image prune -a -f
+
+# 3. (Optional) Wipe the BuildKit layer cache. Only run this if you want a
+#    fully cold build, e.g. you suspect a corrupted cache. It makes the
+#    next build slower because nothing is cached anymore.
+docker builder prune -f
+
+# 4. Rebuild the sandbox image with no cache reuse. --no-cache forces every
+#    Dockerfile instruction to re-execute. cua-environment is the compose
+#    service name from docker-compose.yml.
+docker compose build --no-cache cua-environment
+
+# 5. Start the sandbox in detached mode. -d returns control immediately and
+#    the container keeps running in the background. Tail its logs with
+#    `docker logs -f cua-environment`.
+docker compose up -d
+```
+
+### Start backend and frontend after a rebuild
+
+The Docker container only hosts the desktop sandbox. The FastAPI backend and
+the Vite frontend run on your host machine and must each be started in their
+own terminal so you can read their logs independently.
+
+```powershell
+# Backend  first terminal
+cd a:\computer-use
+.venv\Scripts\Activate.ps1            # activates the project virtualenv
+
+# Create or refresh your API-key file. .env is gitignored so the keys you
+# write here never leave your machine. Edit .env after copying and set
+# ANTHROPIC_API_KEY / OPENAI_API_KEY / GOOGLE_API_KEY for the providers you
+# intend to use.
+Copy-Item .env.example .env           # only if .env does not exist yet
+
+python -m backend.main                # serves http://localhost:8000
+```
+
+```powershell
+# Frontend  second terminal (leave the backend running in the first one)
+cd a:\computer-use\frontend
+npm install                           # first run, or after deps change
+npm run dev                           # serves http://localhost:3000
+```
+
+Open <http://localhost:3000>. The frontend talks to the backend on `8000`,
+the backend talks to the sandbox on `9222` (agent service) and `9223`
+(Chrome DevTools Protocol used by the Gemini Playwright path).
+
+### Restart after a backend code change
+
+When you have only changed Python under `backend/` or files copied late in
+the Dockerfile, the cached image layers are still valid up to the COPY of
+those files. A normal down/up cycle picks up your changes; no rebuild is
+required:
+
+```powershell
+docker compose down
+docker compose up -d
+```
+
+If you also touched `docker/Dockerfile` or `requirements.txt`, run the full
+clean rebuild above instead.
+
+### Resolving the "Container name already in use" error
+
+If `docker compose up -d` fails with
+
+```text
+Error response from daemon: Conflict. The container name "/cua-environment"
+is already in use by container "<id>".
+```
+
+an old container with the same name still exists outside the current compose
+project (for example, left over from an earlier branch or a different
+`COMPOSE_PROJECT_NAME`). `docker compose down` only removes containers it
+owns, so the orphan must be removed directly:
+
+```powershell
+# -f forces removal even if the container is running. The image and the
+# rest of the system are kept; only the named container is deleted.
+docker rm -f cua-environment
+
+docker compose up -d
+```
+
+After this, the next `docker compose up -d` will create the container cleanly.
 
 ## Running a session
 
