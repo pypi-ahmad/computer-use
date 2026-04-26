@@ -1,3 +1,4 @@
+// === merged from frontend/src/pages/workbench/ControlPanel.jsx ===
 /**
  * ControlPanel — the left sidebar of the Workbench.
  *
@@ -12,7 +13,9 @@
  */
 
 import { Check } from 'lucide-react'
-import { MAX_TASK_LENGTH, MODEL_HINTS, PROVIDERS, TASK_EXAMPLES } from './constants'
+import { useRef, useState } from 'react'
+import { MAX_TASK_LENGTH, PROVIDERS, TASK_EXAMPLES } from './ControlPanel'
+import { uploadFile, deleteFile } from '../../api'
 
 export default function ControlPanel({
   // Provider/model
@@ -33,8 +36,8 @@ export default function ControlPanel({
   maxSteps, setMaxSteps,
   reasoningEffort, setReasoningEffort,
   useBuiltinSearch, setUseBuiltinSearch,
-  // Automation mode
-  automationMode, setAutomationMode,
+  // Attached files (provider file-search / Anthropic Files API / OpenAI vector store)
+  attachedFiles = [], setAttachedFiles = () => {},
   // Task
   task, setTask,
   error,
@@ -66,14 +69,6 @@ export default function ControlPanel({
             <option value="">No models available</option>
           )}
         </select>
-        {model && MODEL_HINTS[model] && (
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '4px 0 0', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ padding: '1px 6px', borderRadius: 8, fontSize: 11, background: MODEL_HINTS[model].recommended ? 'var(--accent)' : 'var(--bg-primary)', color: MODEL_HINTS[model].recommended ? '#fff' : 'var(--text-secondary)', border: '1px solid var(--border)' }}>
-              {MODEL_HINTS[model].tier}
-            </span>
-            <span>{MODEL_HINTS[model].hint}</span>
-          </div>
-        )}
         {modelsLoaded && models.length === 0 && (
           <p className="wb-error" style={{ margin: '4px 0 0' }}>No models available for this provider.</p>
         )}
@@ -170,32 +165,9 @@ export default function ControlPanel({
         )}
       </div>
 
-      {/* Automation mode — prominent, outside Advanced Settings.
-          Desktop = full X11 sandbox (any app); Browser = Chromium-only,
-          activates Gemini's ENVIRONMENT_BROWSER hint and a browser-
-          focused system prompt for all three providers. */}
-      <div className="wb-section">
-        <label className="wb-label">Automation Mode</label>
-        <select
-          className="wb-select"
-          value={automationMode}
-          onChange={(e) => setAutomationMode(e.target.value)}
-          disabled={agentRunning}
-          aria-label="Automation mode"
-        >
-          <option value="desktop">Desktop — full X11 sandbox (any app)</option>
-          <option value="browser">Browser — Chromium-focused web tasks</option>
-        </select>
-        <span style={{ fontSize: 11, color: 'var(--text-secondary)', display: 'block', marginTop: 4 }}>
-          {automationMode === 'browser'
-            ? 'Gemini receives ENVIRONMENT_BROWSER per Google\'s docs; all providers get a browser-focused system prompt.'
-            : 'Full desktop environment — any application available inside the sandbox.'}
-        </span>
-      </div>
-
-      {/* Web search toggle — prominent, outside Advanced Settings.
-          Off by default; when on, the model gets its provider's
-          official web_search / google_search tool. */}
+      {/* Web search toggle — when ON, the request advertises each
+          provider's official first-party search tool alongside the
+          computer-use tool. When OFF, only computer use is available. */}
       <div className="wb-section">
         <label className="wb-label">Web Search</label>
         <button
@@ -207,17 +179,29 @@ export default function ControlPanel({
           className={`wb-btn ${useBuiltinSearch ? 'wb-btn-primary' : 'wb-btn-secondary'}`}
           style={{ width: '100%', justifyContent: 'center' }}
           title={useBuiltinSearch
-            ? 'Web search is ON — the model can call its provider\'s official search tool.'
-            : 'Web search is OFF — the model cannot search the internet.'}
+            ? 'Web search is ON — the model may call its provider\'s official search tool during the computer-use run.'
+            : 'Web search is OFF — only the provider\'s computer-use tool is available.'}
         >
           {useBuiltinSearch ? '● Web Search: ON' : '○ Web Search: OFF'}
         </button>
         <span style={{ fontSize: 11, color: 'var(--text-secondary)', display: 'block', marginTop: 4 }}>
           {useBuiltinSearch
-            ? 'Model may call its provider\'s official search tool (OpenAI web_search, Anthropic web_search_20250305, Gemini google_search).'
-            : 'Model cannot search the internet. Same behaviour as before web search support was added.'}
+            ? 'ON: provider-native search is advertised in the same request as Computer Use (OpenAI web_search, Anthropic web_search_20250305, Gemini google_search).'
+            : 'OFF: only Computer Use is advertised. The model can still use native browser actions inside the sandbox.'}
         </span>
       </div>
+
+      {/* Document Attachments — uploaded once, referenced by file_id in startAgent.
+          Routed per-provider:
+            - OpenAI: vector store + file_search tool
+            - Anthropic: Files API (PDF/TXT) or inline (MD/DOCX) document blocks
+            - Gemini: file-search store + RAG pre-step
+          Backend caps: 10 files per session, 1 GB per file. */}
+      <FileAttachments
+        attachedFiles={attachedFiles}
+        setAttachedFiles={setAttachedFiles}
+        agentRunning={agentRunning}
+      />
 
       {/* Task */}
       <div className="wb-section wb-section-grow">
@@ -263,3 +247,199 @@ export default function ControlPanel({
     </aside>
   )
 }
+
+/**
+ * FileAttachments — multi-file uploader for the next agent run.
+ *
+ * Files are POSTed to /api/files/upload immediately on selection so the
+ * upload latency is paid before "Start Agent" is clicked, not during.
+ * The returned file_id is then forwarded as ``attached_files`` in the
+ * startAgent payload, where each provider's adapter consumes it
+ * according to its own document protocol.
+ */
+function FileAttachments({ attachedFiles, setAttachedFiles, agentRunning }) {
+  const inputRef = useRef(null)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState('')
+
+  // Hard cap per backend models.py (max_length=10). Block before the
+  // request goes out so the user gets a clear message instead of 422.
+  const MAX_FILES = 10
+
+  const handleFiles = async (fileList) => {
+    if (!fileList || fileList.length === 0) return
+    setUploadError('')
+    if (attachedFiles.length + fileList.length > MAX_FILES) {
+      setUploadError(`Maximum ${MAX_FILES} files per session.`)
+      return
+    }
+    setUploading(true)
+    const newRecords = []
+    for (const file of Array.from(fileList)) {
+      try {
+        const rec = await uploadFile(file)
+        newRecords.push(rec)
+      } catch (e) {
+        setUploadError(`Upload failed: ${e.message || 'unknown error'}`)
+      }
+    }
+    if (newRecords.length > 0) {
+      setAttachedFiles([...attachedFiles, ...newRecords])
+    }
+    setUploading(false)
+    if (inputRef.current) inputRef.current.value = ''
+  }
+
+  const handleRemove = async (fileId) => {
+    try {
+      await deleteFile(fileId)
+    } catch {
+      // Even if backend deletion fails, drop it from local state so
+      // the user can move on; orphan cleanup is handled server-side.
+    }
+    setAttachedFiles(attachedFiles.filter(f => f.file_id !== fileId))
+  }
+
+  const formatBytes = (n) => {
+    if (n < 1024) return `${n} B`
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+    return `${(n / (1024 * 1024)).toFixed(1)} MB`
+  }
+
+  return (
+    <div className="wb-section">
+      <label className="wb-label">Document Attachments ({attachedFiles.length}/{MAX_FILES})</label>
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        accept=".pdf,.txt,.md,.docx"
+        onChange={(e) => handleFiles(e.target.files)}
+        disabled={agentRunning || uploading || attachedFiles.length >= MAX_FILES}
+        style={{ display: 'block', width: '100%', fontSize: 12, marginBottom: 6 }}
+      />
+      {uploading && (
+        <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Uploading…</span>
+      )}
+      {uploadError && (
+        <span style={{ fontSize: 11, color: 'var(--error)', display: 'block', marginTop: 4 }}>
+          {uploadError}
+        </span>
+      )}
+      {attachedFiles.length > 0 && (
+        <ul style={{ listStyle: 'none', padding: 0, margin: '6px 0 0 0' }}>
+          {attachedFiles.map(f => (
+            <li
+              key={f.file_id}
+              style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '4px 6px', marginBottom: 2,
+                background: 'var(--bg-secondary)', borderRadius: 4,
+                fontSize: 11,
+              }}
+            >
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {f.filename} <span style={{ color: 'var(--text-secondary)' }}>({formatBytes(f.size_bytes)})</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => handleRemove(f.file_id)}
+                disabled={agentRunning}
+                aria-label={`Remove ${f.filename}`}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  color: 'var(--text-secondary)', fontSize: 14, padding: '0 4px',
+                  marginLeft: 6,
+                }}
+                title="Remove"
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <span style={{ fontSize: 10, color: 'var(--text-secondary)', display: 'block', marginTop: 4 }}>
+        PDF, TXT, MD, DOCX. Documents are routed to the provider's official
+        retrieval contract (OpenAI vector store, Anthropic Files API, Gemini
+        file-search).
+      </span>
+    </div>
+  )
+}
+
+// === merged from frontend/src/pages/workbench/constants.js ===
+/**
+ * Workbench-scoped constants.
+ *
+ * Extracted verbatim from ``Workbench.jsx`` (pre-PR). No values
+ * changed — the split is purely to allow the new panel components
+ * to import what they render without pulling in the whole page
+ * module and its side-effect CSS import.
+ */
+
+import {
+  MousePointer2, Keyboard, Type as TypeIcon, ScrollText, Globe, ArrowLeft,
+  ArrowRight, Timer, Clipboard, Copy, RefreshCw, Plus, X as XIcon,
+  Shuffle, Search, Monitor, Rocket, Camera, CheckCircle2, AlertCircle,
+  Zap,
+} from 'lucide-react'
+
+export const PROVIDERS = [
+  { value: 'google', label: 'Google Gemini', envVar: 'GOOGLE_API_KEY', placeholder: 'Paste your Google API key' },
+  { value: 'anthropic', label: 'Anthropic Claude', envVar: 'ANTHROPIC_API_KEY', placeholder: 'Paste your Anthropic API key' },
+  { value: 'openai', label: 'OpenAI GPT-5.4', envVar: 'OPENAI_API_KEY', placeholder: 'Paste your OpenAI API key' },
+]
+
+export const ICON_SIZE = 14
+
+export const ACTION_ICON_MAP = {
+  click: MousePointer2, double_click: MousePointer2, right_click: MousePointer2, hover: MousePointer2,
+  type: Keyboard, fill: TypeIcon, key: Keyboard, hotkey: Keyboard,
+  paste: Clipboard, copy: Copy,
+  open_url: Globe, reload: RefreshCw, go_back: ArrowLeft, go_forward: ArrowRight,
+  new_tab: Plus, close_tab: XIcon, switch_tab: Shuffle,
+  scroll: ScrollText, scroll_to: ScrollText,
+  get_text: Search, find_element: Search, evaluate_js: Monitor,
+  focus_window: Monitor, open_app: Rocket,
+  wait: Timer, wait_for: Timer, screenshot_region: Camera,
+  done: CheckCircle2, error: AlertCircle,
+}
+
+export const ACTION_LABEL_MAP = {
+  click: 'Clicked', double_click: 'Double-clicked', right_click: 'Right-clicked', hover: 'Hovered',
+  type: 'Typed text', fill: 'Filled field', key: 'Pressed key', hotkey: 'Pressed keys',
+  paste: 'Pasted', copy: 'Copied',
+  open_url: 'Opened URL', reload: 'Reloaded page', go_back: 'Went back', go_forward: 'Went forward',
+  new_tab: 'Opened new tab', close_tab: 'Closed tab', switch_tab: 'Switched tab',
+  scroll: 'Scrolled', scroll_to: 'Scrolled to',
+  get_text: 'Read text', find_element: 'Found element', evaluate_js: 'Ran script',
+  focus_window: 'Switched window', open_app: 'Opened app',
+  wait: 'Waited', wait_for: 'Waited for', screenshot_region: 'Captured region',
+  done: 'Finished', error: 'Error',
+}
+
+export const MODEL_HINTS = {
+  'gemini-3-flash-preview': { hint: 'Fast and affordable — good for simple tasks', tier: 'Budget' },
+  'claude-sonnet-4-6': { hint: 'Balanced speed and capability — recommended for most tasks', tier: 'Mid-range', recommended: true },
+  'claude-opus-4-7': { hint: 'Most capable — best for complex multi-step tasks', tier: 'Premium' },
+  'gpt-5.4': { hint: 'OpenAI\'s built-in computer use model', tier: 'Mid-range' },
+}
+
+export const TASK_EXAMPLES = [
+  'Open Chrome and search for "weather in New York"',
+  'Open LibreOffice Writer and type a short letter',
+  'Open the file manager and create a folder called "Projects"',
+  'Open the terminal and check the current date',
+  'Open Chrome and navigate to wikipedia.org',
+]
+
+export const SETTINGS_KEY = 'cua_settings_v1'
+export const MAX_TASK_LENGTH = 10000
+
+/** Return the lucide icon component for an action name, or ``Zap`` as fallback. */
+export function getActionIcon(action) {
+  const Icon = ACTION_ICON_MAP[action] || Zap
+  return Icon
+}
+
