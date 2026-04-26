@@ -37,8 +37,8 @@ Every session produces a sidecar JSON file at
 `$CUA_TRACE_DIR/<session_id>.json`. Inspect it with:
 
 ```bash
-python -m backend.tracing dump <session_id>
-python -m backend.tracing list
+python -m backend.infra.observability dump <session_id>
+python -m backend.infra.observability list
 ```
 
 During an eval the `conftest.py` fixture pins `$CUA_TRACE_DIR` to a
@@ -53,7 +53,7 @@ tmp directory; outside of evals it defaults to
    LangGraph's interrupt-resume.
 2. Call `evals._harness.run_graph_with_decision(...)` to run the
    graph and finalize the trace.
-3. Load the trace with `backend.tracing.load_trace(session_id)` and
+3. Load the trace with `backend.infra.observability.load_trace(session_id)` and
    assert on the ordered events using `tracing.iter_events(...)`.
 4. Call `tracing.assert_invariants(trace)` as a baseline.
 

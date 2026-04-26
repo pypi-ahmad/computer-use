@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Internal agent service — runs INSIDE the Docker container.
 
 Provides a lightweight HTTP API for desktop automation using xdotool and
@@ -5,7 +6,6 @@ scrot. Applications run inside the X11 desktop and are controlled through
 desktop input events only.
 """
 
-from __future__ import annotations
 
 import base64
 import json
@@ -28,10 +28,10 @@ logging.basicConfig(
 logger = logging.getLogger("agent_service")
 
 try:
-    from backend.action_aliases import resolve_action
+    from backend.models.registry import resolve_action
 except ImportError:
     # Fallback if backend not available (e.g. local dev outside docker)
-    logger.warning("backend.action_aliases not found, alias resolution disabled")
+    logger.warning("backend.models.registry not found, alias resolution disabled")
 
     def resolve_action(a):
         """Identity fallback when backend.tools is unavailable."""

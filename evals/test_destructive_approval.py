@@ -8,7 +8,7 @@ approval.
 
 from __future__ import annotations
 
-from backend import tracing
+from backend.infra import observability as tracing
 from backend.engine import SafetyRequired, RunCompleted
 
 from ._harness import load_trace_or_fail, run_async, run_graph_with_decision
