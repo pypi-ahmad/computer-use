@@ -101,3 +101,9 @@ tmp/
 # If you store curated screenshots/gifs for README, keep them under:
 #   assets/
 # and do NOT ignore that folder.
+
+# Build/test artifacts (local only)
+build_log.txt
+frontend/build_output.txt
+package-lock.json
+
