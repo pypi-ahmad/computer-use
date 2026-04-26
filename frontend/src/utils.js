@@ -1,3 +1,33 @@
+// === merged from frontend/src/utils/escapeHtml.js ===
+// Q-7: shared HTML-entity escaper used by the Workbench HTML exporter.
+// Escapes all 5 entities so callers placing data inside attributes
+// (`"`) or single-quoted content (`'`) can't XSS the exported file
+// when it's opened locally.
+export function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+// === merged from frontend/src/utils/formatTime.js ===
+/**
+ * Formats a timestamp into a locale time string (HH:MM:SS, 24-hour).
+ * Returns '--:--:--' if the timestamp is invalid.
+ * @param {string|number|Date} ts - Timestamp to format.
+ * @returns {string} Formatted time string.
+ */
+export default function formatTime(ts) {
+  try {
+    return new Date(ts).toLocaleTimeString('en-US', { hour12: false })
+  } catch {
+    return '--:--:--'
+  }
+}
+
+// === merged from frontend/src/utils/pricing.js ===
 /**
  * Approximate model pricing for cost estimation.
  * Values are in USD per 1 million tokens (text input / output, paid tier,
@@ -53,3 +83,56 @@ export function estimateCost(modelId, steps) {
     note: 'Approximate — actual cost depends on token usage',
   }
 }
+
+// === merged from frontend/src/utils/sessionHistory.js ===
+/**
+ * Bounded session history stored in localStorage.
+ * Never stores API keys or sensitive data.
+ */
+const HISTORY_KEY = 'cua_session_history_v1'
+const MAX_SESSIONS = 50
+
+export function getSessionHistory() {
+  try {
+    const data = JSON.parse(localStorage.getItem(HISTORY_KEY))
+    return Array.isArray(data) ? data : []
+  } catch {
+    return []
+  }
+}
+
+export function addSessionToHistory(entry) {
+  const history = getSessionHistory()
+  history.unshift(entry)
+  if (history.length > MAX_SESSIONS) history.length = MAX_SESSIONS
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(history))
+  } catch {
+    // Storage full — silently drop
+  }
+}
+
+export function clearSessionHistory() {
+  localStorage.removeItem(HISTORY_KEY)
+}
+
+// === merged from frontend/src/utils/theme.js ===
+/**
+ * Theme management — persists preference in localStorage and
+ * applies it via a data-theme attribute on <html>.
+ */
+const THEME_KEY = 'cua_theme'
+
+export function getTheme() {
+  return localStorage.getItem(THEME_KEY) || 'dark'
+}
+
+export function setTheme(theme) {
+  localStorage.setItem(THEME_KEY, theme)
+  document.documentElement.setAttribute('data-theme', theme)
+}
+
+export function initTheme() {
+  setTheme(getTheme())
+}
+
