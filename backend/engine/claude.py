@@ -1,10 +1,10 @@
+from __future__ import annotations
 """Claude Computer Use client — split out of ``backend.engine`` (Q2).
 
 The class body lives here; ``backend.engine`` re-exports it so imports
 like ``from backend.engine import ClaudeCUClient`` keep working.
 """
 
-from __future__ import annotations
 
 import asyncio
 import base64
@@ -25,6 +25,7 @@ from backend.engine import (
     _is_opus_47,
     get_claude_scale_factor,
     resize_screenshot_for_claude,
+    _append_source_footer,
     DEFAULT_TURN_LIMIT,
     _CONTEXT_PRUNE_KEEP_RECENT,
     _CLAUDE_OPUS_47_MAX_LONG_EDGE,
@@ -33,6 +34,39 @@ from backend.engine import (
 from typing import AsyncIterator
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_claude_sources(content_blocks: list[Any]) -> list[tuple[str, str]]:
+    """Collect cited/source URLs from Anthropic assistant content blocks."""
+    sources: list[tuple[str, str]] = []
+    for block in content_blocks:
+        if hasattr(block, "model_dump"):
+            block_dict = block.model_dump()
+        elif hasattr(block, "__dict__"):
+            block_dict = {
+                key: value for key, value in vars(block).items()
+                if not key.startswith("_")
+            }
+        elif isinstance(block, dict):
+            block_dict = dict(block)
+        else:
+            block_dict = {}
+
+        for citation in block_dict.get("citations", []) or []:
+            if not isinstance(citation, dict):
+                continue
+            url = citation.get("url")
+            if url:
+                sources.append((citation.get("title") or url, url))
+
+        if block_dict.get("type") == "web_search_tool_result":
+            for result in block_dict.get("content", []) or []:
+                if not isinstance(result, dict):
+                    continue
+                url = result.get("url")
+                if url:
+                    sources.append((result.get("title") or url, url))
+    return sources
 
 # Per-turn Claude max_tokens budget. Opus 4.7 long-plan tasks frequently
 # truncate at 16k; bumping to 32k removes the artificial ceiling while
@@ -157,7 +191,7 @@ class ClaudeCUClient:
         #     ``text/plain`` only.
         #   * ``.csv``, ``.md``, ``.docx``, ``.xlsx`` must be converted
         #     to plain text and inlined in the message.
-        # The IDs received here are local ``backend.file_store`` IDs
+        # The IDs received here are local ``backend.infra.storage`` IDs
         # (``f_...``); :func:`_prepare_attached_files` resolves them
         # against the store, uploads the document-eligible ones to
         # Anthropic on first use, and pre-extracts the inline-only
@@ -184,7 +218,7 @@ class ClaudeCUClient:
           docs, so the adapter inlines them as plain text in the goal
           message).
 
-        Lookups are resolved against ``backend.file_store.store`` and
+        Lookups are resolved against ``backend.infra.storage.store`` and
         uploads to Anthropic are cached on the client instance so a
         multi-turn run does not re-upload on every call.
         """
@@ -192,8 +226,8 @@ class ClaudeCUClient:
             return [], []
 
         # Local import to avoid circulars and keep optional deps lazy.
-        from backend.file_store import store as _file_store
-        from backend.file_store import extract_text as _extract_text
+        from backend.infra.storage import store as _file_store
+        from backend.infra.storage import extract_text as _extract_text
 
         document_blocks: list[dict[str, Any]] = []
         inline_pairs: list[tuple[str, str]] = []
@@ -408,6 +442,8 @@ class ClaudeCUClient:
         ]
 
         _turn_start: float | None = None
+        saw_computer_action = False
+        nudged_for_computer_use = False
 
         for turn in range(turn_limit):
             if _turn_start is not None and on_log:
@@ -502,7 +538,47 @@ class ClaudeCUClient:
                 yield RunCompleted(final_text=final_text)
                 return
             if stop == "end_turn" or not tool_uses:
-                final_text = turn_text
+                if (self._use_builtin_search or self._attached_file_ids) and not saw_computer_action and not nudged_for_computer_use:
+                    if on_log:
+                        on_log(
+                            "info",
+                            "Claude CU: retrieval-only turn before any computer action; nudging the model to continue with the computer tool.",
+                        )
+                    try:
+                        refreshed_screenshot = await executor.capture_screenshot()
+                    except Exception:
+                        refreshed_screenshot = screenshot_bytes
+                    refreshed_screenshot, _, _ = resize_screenshot_for_claude(
+                        refreshed_screenshot, scale,
+                    )
+                    messages.append({
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": (
+                                    "Use any retrieved search/file context to continue, but do not stop yet. "
+                                    "This app's purpose is computer use: the task is not complete until you perform "
+                                    "the requested action with the computer tool on the current screen. "
+                                    "Continue with computer actions now."
+                                ),
+                            },
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": _IMAGE_PNG,
+                                    "data": base64.standard_b64encode(refreshed_screenshot).decode(),
+                                },
+                            },
+                        ],
+                    })
+                    nudged_for_computer_use = True
+                    continue
+                final_text = _append_source_footer(
+                    turn_text,
+                    _extract_claude_sources(assistant_content),
+                )
                 if on_log:
                     on_log("info", f"Claude CU completed: {final_text[:200]}")
                 yield ToolBatchCompleted(
@@ -511,6 +587,8 @@ class ClaudeCUClient:
                 )
                 yield RunCompleted(final_text=final_text)
                 return
+
+            saw_computer_action = True
 
             # Emit the "model call done, about to run tools" boundary
             # event. The outer graph transitions preflight/model_turn →

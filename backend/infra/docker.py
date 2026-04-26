@@ -14,7 +14,7 @@ import time
 
 import httpx
 
-from backend.config import config
+from backend.infra.config import config
 
 logger = logging.getLogger(__name__)
 

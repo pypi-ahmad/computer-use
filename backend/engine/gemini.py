@@ -1,11 +1,12 @@
+from __future__ import annotations
 """Gemini Computer Use client — split out of ``backend.engine`` (Q2).
 
 The class body lives here; ``backend.engine`` re-exports it so imports
 like ``from backend.engine import GeminiCUClient`` keep working.
 """
 
-from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import os
@@ -25,12 +26,31 @@ from backend.engine import (
     TurnEvent,
     _call_with_retry,
     _invoke_safety,
+    _append_source_footer,
     DEFAULT_TURN_LIMIT,
     _CONTEXT_PRUNE_KEEP_RECENT,
     _IMAGE_PNG,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_gemini_sources(response: Any) -> list[tuple[str, str]]:
+    """Collect grounded web sources from Gemini response metadata."""
+    sources: list[tuple[str, str]] = []
+    candidates = getattr(response, "candidates", None) or []
+    if not candidates:
+        return sources
+    gm = getattr(candidates[0], "grounding_metadata", None)
+    chunks = getattr(gm, "grounding_chunks", None) or []
+    for chunk in chunks:
+        web = getattr(chunk, "web", None)
+        if web is None:
+            continue
+        url = getattr(web, "uri", None)
+        if url:
+            sources.append((getattr(web, "title", None) or url, url))
+    return sources
 
 
 # ---------------------------------------------------------------------------
@@ -155,20 +175,8 @@ def _gemini_playwright_enabled() -> bool:
     backend we log once and return False so the caller falls back to
     the xdotool path cleanly.
     """
-    flag = os.environ.get("CUA_GEMINI_USE_PLAYWRIGHT")
-    if flag is not None and flag.strip() == "0":
-        return False
-    try:
-        import playwright  # noqa: F401
-    except ImportError:
-        logger.error(
-            "Gemini browser mode requested the Playwright path but the "
-            "``playwright`` package is not installed in the backend "
-            "venv. Install via ``pip install -r requirements.txt``. "
-            "Falling back to the xdotool path for this session."
-        )
-        return False
-    return True
+    from backend.engine.playwright_executor import browser_playwright_enabled
+    return browser_playwright_enabled()
 
 
 class GeminiCUClient:
@@ -191,7 +199,7 @@ class GeminiCUClient:
         self,
         api_key: str,
         model: str = "gemini-3-flash-preview",
-        environment: Environment = Environment.BROWSER,
+        environment: Environment = Environment.DESKTOP,
         excluded_actions: list[str] | None = None,
         system_instruction: str | None = None,
         use_builtin_search: bool = False,
@@ -274,18 +282,23 @@ class GeminiCUClient:
         )
 
     def _get_env_enum(self) -> Any:
-        """Map the Environment enum to the google-genai SDK environment constant."""
+        """Return the SDK environment constant per official docs.
+
+        Always reports ``ENVIRONMENT_DESKTOP`` since the unified sandbox
+        is a full X11 desktop with Chromium pre-installed; the model
+        decides whether to drive desktop apps or the browser. Falls
+        back to ``ENVIRONMENT_BROWSER`` only if the SDK version lacks
+        the desktop constant.
+        """
         types = self._types
-        if self._environment == Environment.DESKTOP:
-            desktop_env = getattr(types.Environment, "ENVIRONMENT_DESKTOP", None)
-            if desktop_env is not None:
-                return desktop_env
-            logger.warning(
-                "ENVIRONMENT_DESKTOP not available in google-genai SDK; "
-                "falling back to ENVIRONMENT_BROWSER.  Desktop xdotool "
-                "actions will still execute via DesktopExecutor."
-            )
-            return types.Environment.ENVIRONMENT_BROWSER
+        desktop_env = getattr(types.Environment, "ENVIRONMENT_DESKTOP", None)
+        if desktop_env is not None:
+            return desktop_env
+        logger.warning(
+            "ENVIRONMENT_DESKTOP not available in google-genai SDK; "
+            "falling back to ENVIRONMENT_BROWSER. Desktop xdotool "
+            "actions will still execute via DesktopExecutor."
+        )
         return types.Environment.ENVIRONMENT_BROWSER
 
     def _build_config(self) -> Any:
@@ -428,7 +441,7 @@ class GeminiCUClient:
         """
         if not self._attached_file_ids or self._file_search_store_name is not None:
             return
-        from backend.file_store import store as _file_store
+        from backend.infra.storage import store as _file_store
         recs = await _file_store.get_many(self._attached_file_ids)
         if not recs:
             if on_log:
@@ -705,6 +718,8 @@ class GeminiCUClient:
         ]
 
         _turn_start: float | None = None
+        saw_computer_action = False
+        nudged_for_computer_use = False
 
         for turn in range(turn_limit):
             if _turn_start is not None and on_log:
@@ -800,11 +815,44 @@ class GeminiCUClient:
 
             # No function calls → model is done
             if not function_calls:
-                final_text = turn_text
+                if (self._use_builtin_search or self._attached_file_ids) and not saw_computer_action and not nudged_for_computer_use:
+                    if on_log:
+                        on_log(
+                            "info",
+                            "Gemini CU: retrieval-only turn before any computer action; nudging the model to continue with the computer_use tool.",
+                        )
+                    try:
+                        retry_ss = await executor.capture_screenshot()
+                    except Exception:
+                        retry_ss = screenshot_bytes
+                    contents.append(
+                        types.Content(
+                            role="user",
+                            parts=[
+                                types.Part(
+                                    text=(
+                                        "Use any retrieved search/file context to continue, but do not stop yet. "
+                                        "This app's purpose is computer use: the task is not complete until you perform "
+                                        "the requested action with the computer_use tool on the current screen. "
+                                        "Continue with computer actions now."
+                                    )
+                                ),
+                                types.Part.from_bytes(data=retry_ss, mime_type=_IMAGE_PNG),
+                            ],
+                        )
+                    )
+                    nudged_for_computer_use = True
+                    continue
+                final_text = _append_source_footer(
+                    turn_text,
+                    _extract_gemini_sources(response),
+                )
                 if on_log:
                     on_log("info", f"Gemini CU completed: {final_text[:200]}")
                 yield RunCompleted(final_text=final_text)
                 return
+
+            saw_computer_action = True
 
             yield ModelTurnStarted(
                 turn=turn + 1,

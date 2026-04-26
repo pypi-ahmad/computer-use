@@ -52,7 +52,7 @@ class Config:
     # Override with ``HOST=0.0.0.0`` only when you have also set
     # ``CUA_WS_TOKEN`` and fronted the REST endpoints with auth.
     host: str = "127.0.0.1"
-    port: int = 8000
+    port: int = 8100
     debug: bool = False
     # Hot-reload is strictly a development-time feature. Previously
     # DEBUG=1 also turned on uvicorn --reload, which was dangerous in
