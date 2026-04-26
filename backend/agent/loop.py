@@ -1,4 +1,3 @@
-from __future__ import annotations
 """Agent loop — the core orchestrator for the Computer Use engine.
 
 Delegates to the native CU protocol for the perceive → act → screenshot
@@ -6,6 +5,7 @@ cycle. Manages session lifecycle and callbacks for the desktop-native
 runtime path.
 """
 
+from __future__ import annotations
 
 import asyncio
 import hashlib
@@ -29,12 +29,41 @@ from backend.models.schemas import (
     StepRecord,
     StructuredError,
 )
+from backend.agent import screenshot as _screenshot
 from backend.infra.observability import session_id_var
 
 if TYPE_CHECKING:
     from backend.agent.graph import NodeBundle
 
 logger = logging.getLogger(__name__)
+
+
+def _get_client():
+    """Compatibility wrapper for tests that patch backend.agent.loop._get_client."""
+    return _screenshot._get_client()
+
+
+async def _fallback_docker_screenshot() -> str:
+    """Compatibility wrapper for tests that patch backend.agent.loop._fallback_docker_screenshot."""
+    return await _screenshot._fallback_docker_screenshot()
+
+
+async def check_service_health() -> bool:
+    """Proxy to the shared screenshot helper module."""
+    return await _screenshot.check_service_health()
+
+
+async def capture_screenshot(*, mode: str = "desktop") -> str:
+    """Proxy screenshot capture while honoring loop-level monkeypatches in tests."""
+    original_get_client = _screenshot._get_client
+    original_fallback = _screenshot._fallback_docker_screenshot
+    _screenshot._get_client = _get_client
+    _screenshot._fallback_docker_screenshot = _fallback_docker_screenshot
+    try:
+        return await _screenshot.capture_screenshot(mode=mode)
+    finally:
+        _screenshot._get_client = original_get_client
+        _screenshot._fallback_docker_screenshot = original_fallback
 
 # CU action name → ActionType best-effort mapping for the step timeline.
 # Static mapping, defined once at module level.
@@ -182,7 +211,7 @@ class AgentLoop:
         )
 
         from backend.agent.graph import build_agent_graph
-        from backend.infra import observability as tracing
+        from backend import tracing
 
         bundle = self._build_graph_bundle()
         # OBS: wrap the bundle so every graph-edge event lands in the
@@ -190,7 +219,7 @@ class AgentLoop:
         # original callbacks still fire, so existing logging and WS
         # broadcasts are unchanged.
         tracing.start_session(self.session.session_id, task=self.session.task)
-        bundle = tracing.install_bundle(bundle, self.session.session_id)
+        bundle = tracing.install(bundle, self.session.session_id)
         graph = build_agent_graph(bundle)
 
         _sid_token = session_id_var.set(self.session.session_id)
@@ -678,136 +707,3 @@ class AgentLoop:
             except Exception:
                 logger.warning("Callback %r raised an exception", cb, exc_info=True)
 
-
-# === merged from backend/agent/screenshot.py ===
-"""Screenshot capture via the internal agent service.
-
-Calls the HTTP API exposed by the agent service running inside the
-container. The supported runtime path is desktop capture via scrot.
-"""
-
-
-import base64
-import os
-
-import httpx
-
-from backend.infra.config import config
-
-
-# Reusable async client
-_http_client: httpx.AsyncClient | None = None
-
-
-def _auth_headers() -> dict[str, str]:
-    """Return the shared-secret header for authenticated agent_service calls."""
-    token = os.environ.get("AGENT_SERVICE_TOKEN", "").strip()
-    return {"X-Agent-Token": token} if token else {}
-
-
-def _get_client() -> httpx.AsyncClient:
-    """Return or create the module-level reusable httpx client."""
-    global _http_client
-    if _http_client is None or _http_client.is_closed:
-        _http_client = httpx.AsyncClient(timeout=15.0)
-    return _http_client
-
-
-async def capture_screenshot(mode: str = "desktop") -> str:
-    """Capture a PNG screenshot and return base64 string.
-
-    The screenshot comes from the in-container agent service.
-
-    Args:
-        mode: 'desktop'. Browser mode is no longer supported.
-
-    Returns:
-        Base64-encoded PNG string.
-    """
-    # â”€â”€ Default: screenshot via agent_service â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    url = f"{config.agent_service_url}/screenshot?mode={mode}"
-    client = _get_client()
-
-    try:
-        resp = await client.get(url, headers=_auth_headers())
-        # Surface auth failures immediately with a well-formed
-        # HTTPStatusError (C10). ``raise_for_status`` requires
-        # ``Response._request`` to be set; fabricate an error here if
-        # the response was constructed without one (common in tests).
-        if resp.status_code in (401, 403):
-            raise httpx.HTTPStatusError(
-                f"agent_service returned {resp.status_code}",
-                request=getattr(resp, "_request", None) or httpx.Request("GET", url),
-                response=resp,
-            )
-        resp.raise_for_status()
-        data = resp.json()
-
-        if "error" in data:
-            raise RuntimeError(data["error"])
-
-        b64 = data["screenshot"]
-        method = data.get("method", "unknown")
-        logger.debug("Screenshot captured via %s (%d chars)", method, len(b64))
-        return b64
-
-    except (
-        httpx.ConnectError,
-        httpx.TimeoutException,
-        httpx.HTTPStatusError,
-        RuntimeError,
-    ) as e:
-        # C10: fall back to ``docker exec`` not only for network-level
-        # failures but also when the service returned 5xx or an
-        # ``{"error": ...}`` payload. Auth failures (401/403) are
-        # re-raised so the caller can surface a clear message to the UI
-        # rather than silently masking a token mismatch.
-        if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
-            if e.response.status_code in (401, 403):
-                raise
-        logger.warning("Agent service screenshot failed, falling back to docker exec: %s", e)
-        return await _fallback_docker_screenshot()
-
-
-async def _fallback_docker_screenshot() -> str:
-    """Fallback: grab screenshot via docker exec + scrot."""
-    name = config.container_name
-
-    proc = await asyncio.create_subprocess_exec(
-        "docker", "exec", name, "scrot", "-z", "-o", "/tmp/screenshot.png",
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-    )
-    _, stderr = await proc.communicate()
-
-    if proc.returncode != 0:
-        proc = await asyncio.create_subprocess_exec(
-            "docker", "exec", name, "import", "-window", "root", "/tmp/screenshot.png",
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr = await proc.communicate()
-        if proc.returncode != 0:
-            raise RuntimeError(f"Screenshot capture failed: {stderr.decode().strip()}")
-
-    proc_read = await asyncio.create_subprocess_exec(
-        "docker", "exec", name, "cat", "/tmp/screenshot.png",
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await proc_read.communicate()
-
-    if proc_read.returncode != 0 or not stdout:
-        raise RuntimeError(f"Failed to read screenshot: {stderr.decode().strip()}")
-
-    b64 = base64.b64encode(stdout).decode("ascii")
-    logger.info("Screenshot via fallback: %d bytes", len(stdout))
-    return b64
-
-
-async def check_service_health() -> bool:
-    """Check if the internal agent service is responsive."""
-    url = f"{config.agent_service_url}/health"
-    client = _get_client()
-    try:
-        resp = await client.get(url, timeout=3.0)
-        return resp.status_code == 200
-    except Exception:
-        return False
