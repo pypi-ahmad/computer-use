@@ -1,0 +1,26 @@
+name: Gemini Lifecycle Watchdog
+
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/models/allowed_models.json'
+      - 'backend/engine/gemini.py'
+      - '.github/workflows/gemini-changelog-watchdog.yml'
+      - 'scripts/gemini_changelog_watchdog.py'
+      - 'docs/gemini-successor-evaluation.md'
+
+jobs:
+  gemini-3-flash-preview-watchdog:
+    name: Gemini 3 Flash Preview lifecycle watchdog
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check Gemini changelog for shutdown announcements
+        run: python scripts/gemini_changelog_watchdog.py

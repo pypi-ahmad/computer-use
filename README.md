@@ -7,15 +7,6 @@ computer-use agents on a controlled Ubuntu desktop.
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
 [![Last commit](https://img.shields.io/github/last-commit/pypi-ahmad/computer-use)](https://github.com/pypi-ahmad/computer-use/commits)
 
-[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![React](https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB)](https://react.dev/)
-[![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white)](https://vite.dev/)
-[![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
-[![Playwright](https://img.shields.io/badge/Playwright-2EAD33?logo=playwright&logoColor=white)](https://playwright.dev/)
-[![Anthropic](https://img.shields.io/badge/Anthropic-191919?logo=anthropic&logoColor=white)](https://www.anthropic.com/)
-[![OpenAI](https://img.shields.io/badge/OpenAI-412991?logo=openai&logoColor=white)](https://openai.com/)
-[![Google Gemini](https://img.shields.io/badge/Google%20Gemini-4285F4?logo=googlegemini&logoColor=white)](https://deepmind.google/technologies/gemini/)
-
 Repository URL: https://github.com/pypi-ahmad/computer-use.git
 
 `computer-use` is a local, single-user research workbench that lets you run
@@ -31,9 +22,36 @@ If you only need the shortest path to trying the project, jump to
 If you want the architecture and code-level contract map, see
 [TECHNICAL.md](TECHNICAL.md).
 
+## Tech stack
+
+**Backend and orchestration**
+
+[![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-1C3C3C?logo=langchain&logoColor=white)](https://www.langchain.com/langgraph)
+
+**Frontend**
+
+[![React](https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB)](https://react.dev/)
+[![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white)](https://vite.dev/)
+
+**Sandbox and automation**
+
+[![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
+[![Ubuntu%2024.04](https://img.shields.io/badge/Ubuntu%2024.04-E95420?logo=ubuntu&logoColor=white)](https://ubuntu.com/)
+[![Playwright](https://img.shields.io/badge/Playwright-2EAD33?logo=playwright&logoColor=white)](https://playwright.dev/)
+
+**Providers and quality gates**
+
+[![Anthropic](https://img.shields.io/badge/Anthropic-191919?logo=anthropic&logoColor=white)](https://www.anthropic.com/)
+[![OpenAI](https://img.shields.io/badge/OpenAI-412991?logo=openai&logoColor=white)](https://openai.com/)
+[![Google%20Gemini](https://img.shields.io/badge/Google%20Gemini-4285F4?logo=googlegemini&logoColor=white)](https://deepmind.google/technologies/gemini/)
+[![Pytest](https://img.shields.io/badge/Pytest-0A9EDC?logo=pytest&logoColor=white)](https://pytest.org/)
+
 ## Table of contents
 
 - [Executive summary](#executive-summary)
+- [Tech stack](#tech-stack)
 - [Why this project exists](#why-this-project-exists)
 - [Who this is for](#who-this-is-for)
 - [Who this is not for](#who-this-is-not-for)
@@ -331,12 +349,12 @@ The current selectable CU-capable models are:
 |---|---|---|---|
 | Anthropic | `claude-opus-4-7` | `computer_20251124` | Highest-capability Anthropic path, strongest option for long-horizon or dense reasoning tasks. |
 | Anthropic | `claude-sonnet-4-6` | `computer_20251124` | Balanced default for many desktop tasks. |
-| OpenAI | `gpt-5.5` | built-in `computer` tool | Default OpenAI CU model. Uses the Responses API with stateless replay, `phase` preservation, and `detail: "original"` screenshot outputs. |
-| OpenAI | `gpt-5.4` | built-in `computer` tool | Still supported for CU workloads that need the prior GPT-5.4 behavior. |
+| OpenAI | `gpt-5.5` | built-in `computer` tool | Default OpenAI CU model. Uses the Responses API with stateless replay, `phase` preservation, and `detail: "original"` screenshot outputs. `Reasoning Effort` defaults to `medium` per OpenAI's GPT-5.5 model page. |
+| OpenAI | `gpt-5.4` | built-in `computer` tool | Still supported for CU workloads that need the prior GPT-5.4 behavior. `Reasoning Effort` defaults to `none` per OpenAI's GPT-5.4 model page. |
 | Google | `gemini-3-flash-preview` | `types.Tool(computer_use=...)` | Sole Gemini Computer Use SKU per Google's official docs. |
 
-The registry also contains `gpt-5.5-pro` and `gpt-5.4-nano`, but they are intentionally marked as not
-supporting Computer Use and therefore are not surfaced as selectable CU models.
+The registry also contains `gpt-5.4-nano`, but it is intentionally marked as not
+supporting Computer Use and therefore is not surfaced as a selectable CU model.
 That distinction matters: being listed in the JSON file is not the same thing as
 being exposed by `/api/models`. The frontend only sees entries that are both
 allowlisted and marked `supports_computer_use: true`.
@@ -344,6 +362,12 @@ allowlisted and marked `supports_computer_use: true`.
 If you change the model set, edit `backend/models/allowed_models.json`. That file is the
 source of truth for what the workbench should expose. The rest of the system is
 designed to follow it.
+
+For exact `gpt-5.5` and `gpt-5.4` selections, the workbench exposes a
+`Reasoning Effort` dropdown with a blank `Default` option plus the official
+model-page values `none`, `low`, `medium`, `high`, and `xhigh`. The default
+option follows the selected model's own docs: `medium` for GPT-5.5 and `none`
+for GPT-5.4.
 
 ## Why the model matrix matters
 
@@ -641,13 +665,13 @@ Here are the most important environment variables to understand first:
 | Variable | Typical value | Why it matters |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | your Anthropic key | Required for Claude sessions |
-| `OPENAI_API_KEY` | your OpenAI key | Required for GPT-5.4 sessions |
+| `OPENAI_API_KEY` | your OpenAI key | Required for GPT-5.5 and GPT-5.4 sessions |
 | `GOOGLE_API_KEY` | your Google AI key | Required for Gemini sessions (preferred name) |
 | `GEMINI_API_KEY` | your Google AI key | Accepted as a fallback alias for the Gemini provider |
 | `HOST` / `PORT` | `127.0.0.1` / `8100` | Backend bind address and port |
 | `CUA_WS_TOKEN` | custom secret | Needed when you intentionally expose `/ws` or `/vnc/websockify` beyond loopback |
 | `SCREEN_WIDTH` / `SCREEN_HEIGHT` | `1440` / `900` | Default virtual desktop size |
-| `OPENAI_REASONING_EFFORT` | `high` | Controls OpenAI reasoning effort for CU tasks |
+| `OPENAI_REASONING_EFFORT` | model default | Overrides OpenAI reasoning effort; GPT-5.5 defaults to `medium`, GPT-5.4 defaults to `none` |
 | `CUA_CLAUDE_CACHING` | `1` or unset | Enables Claude tool-definition prompt caching |
 | `CUA_OPUS47_HIRES` | `1` or unset | Enables Opus 4.7 hi-res behavior |
 | `CUA_GEMINI_THINKING_LEVEL` | `high` | Controls Gemini reasoning depth |
@@ -713,12 +737,19 @@ use tool. When the toggle is off, Claude receives only the computer-use tool.
 ### OpenAI
 
 OpenAI sessions use the Responses API and the built-in `computer` tool shape for
-`gpt-5.4`. The important implementation detail is stateless replay. The adapter
+`gpt-5.5` and `gpt-5.4`. The important implementation detail is stateless replay. The adapter
 does not rely on server-side conversation state through `previous_response_id`.
 Instead it replays sanitized outputs and carries forward encrypted reasoning
 state in the supported form. That is both a correctness choice and a
 data-handling choice. It also means the adapter logic has to be careful about
 exactly which fields are preserved during replay.
+
+For the two OpenAI CU models surfaced in the workbench, the `Reasoning Effort`
+control follows OpenAI's current model pages. GPT-5.5 defaults to `medium` and
+GPT-5.4 defaults to `none`; the UI exposes those values plus `low`, `high`, and
+`xhigh`, and the backend applies the model-specific default whenever the field
+is left blank.
+
 When the workbench's Web Search toggle is enabled, OpenAI sessions advertise
 the official `web_search` tool alongside `computer`, which matches the
 documented combined-tool Responses flow. When the toggle is off, the request
@@ -802,7 +833,7 @@ shapes.
 "Open a browser, navigate to a public site, fill a form, and confirm success."
 
 This exercises navigation, typing, clicking, screenshot refresh, and post-action
-verification. GPT-5.4 is often a strong fit here because its tool batches can
+verification. GPT-5.5 is often a strong fit here because its tool batches can
 reduce the number of turns needed for repetitive browser work.
 
 ### Cross-application desktop task
@@ -957,10 +988,10 @@ running server still needs to reload it to reflect changes.
 ### The model is too slow or too expensive for my task
 
 Start by changing the model, not the entire system. Claude Opus 4.7 is
-excellent but not always necessary. Gemini 3 Flash Preview or GPT-5.4 can be
-much better fits for narrower tasks. When cost becomes an issue, think in terms
-of task shape, screenshot frequency, and session length, not just provider
-branding.
+excellent but not always necessary. Gemini 3 Flash Preview, GPT-5.4, or a
+lower-effort GPT-5.5 run can be much better fits for narrower tasks. When cost
+becomes an issue, think in terms of task shape, screenshot frequency, session
+length, and reasoning effort, not just provider branding.
 
 ### The README gives me the overview, but I need the exact operating details
 
@@ -1011,10 +1042,11 @@ meant to stand on its own for a serious first read.
 
 ### What is the best first model to try?
 
-If you want balance, start with `claude-sonnet-4-6` or `gpt-5.4`. If you want
+If you want balance, start with `claude-sonnet-4-6` or `gpt-5.5`. If you want
 the strongest Anthropic path for harder tasks, use `claude-opus-4-7`. If you
-want a lower-cost Google option, use `gemini-3-flash-preview` — the only
-Gemini SKU on Google's official Computer Use supported-model list.
+want the earlier OpenAI reasoning profile, choose `gpt-5.4`. If you want a
+lower-cost Google option, use `gemini-3-flash-preview` — the only Gemini SKU
+on Google's official Computer Use supported-model list.
 
 ### Can I point this at my code repository and ask it to implement features?
 
@@ -1040,8 +1072,8 @@ are still the best places for exhaustive reference material.
 
 ### What should I do if I want to add or remove a model?
 
-Start with `backend/allowed_models.json`, then update any tests and docs that
-still describe the old state. In this repository, model drift between runtime,
+Start with `backend/models/allowed_models.json`, then update any tests and docs
+that still describe the old state. In this repository, model drift between runtime,
 frontend, tests, and docs is one of the easiest ways to create confusion.
 
 ## Documentation map

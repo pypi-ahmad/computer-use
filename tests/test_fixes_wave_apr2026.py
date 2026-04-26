@@ -1,4 +1,3 @@
-from __future__ import annotations
 """Tests for the April 2026 adapter-alignment wave.
 
 Covers:
@@ -11,8 +10,21 @@ Covers:
   * Fix 5: ``get_claude_scale_factor`` keeps current-tool Claude models
     on the 2576px / ~3.75 MP path and legacy models on the 1568px /
     1.15 MP path.
+
+Phase 4 verification:
+    * the Phase 2 registry-driven Claude tool-routing commitment has
+        shipped; unsupported Anthropic CU model ids must now be declared
+        in the registry or provide explicit tool metadata.
+    * OpenAI no longer carries the GPT-5.5 Pro slug as non-CU metadata; the
+        GPT-5.5 family now rejects unregistered GA slugs through the registry gate.
+    * GPT-5.5 screenshot handling is pinned to the current OpenAI docs:
+        `detail: "original"` up to 10,240,000 pixels / 6000 px, with exact
+        coordinate remapping coverage when downscaling occurs.
+    * GPT-5.5 stateless replay now has runtime regression coverage for
+        preserving assistant `phase` values on outbound replay.
 """
 
+from __future__ import annotations
 
 from unittest.mock import patch
 
@@ -164,7 +176,12 @@ class TestClaudeThinkingMode:
     the fixed-budget ``enabled`` shape."""
 
     @staticmethod
-    async def _capture_thinking(model: str) -> dict:
+    async def _capture_thinking(
+        model: str,
+        *,
+        tool_version: str | None = None,
+        beta_flag: str | None = None,
+    ) -> dict:
         from backend.engine import ClaudeCUClient
 
         captured: dict = {}
@@ -188,7 +205,12 @@ class TestClaudeThinkingMode:
 
         with patch("anthropic.AsyncAnthropic") as AA:
             AA.return_value = FakeClient()
-            client = ClaudeCUClient(api_key="k", model=model)
+            client = ClaudeCUClient(
+                api_key="k",
+                model=model,
+                tool_version=tool_version,
+                beta_flag=beta_flag,
+            )
             async for _ in client.iter_turns(
                 "noop", _FakeExecutor(screenshot=_minimal_png()), turn_limit=1
             ):
@@ -207,7 +229,11 @@ class TestClaudeThinkingMode:
 
     @pytest.mark.asyncio
     async def test_legacy_model_uses_enabled_budget(self):
-        captured = await self._capture_thinking("claude-3-5-sonnet-20241022")
+        captured = await self._capture_thinking(
+            "claude-3-5-sonnet-20241022",
+            tool_version="computer_20250124",
+            beta_flag="computer-use-2025-01-24",
+        )
         assert captured.get("thinking") == {"type": "enabled", "budget_tokens": 4096}
 
 

@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.infra.config import config, get_all_key_statuses, resolve_api_key
+from backend.engine import default_openai_reasoning_effort_for_model as _default_openai_reasoning_effort_for_model
 from backend.engine import validate_builtin_search_config as _validate_builtin_search_config
 from backend.models.schemas import load_allowed_models_json as _load_allowed_models_json
 from backend.infra.observability import install as _install_sid_filter
@@ -1150,18 +1151,19 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
                     f"file_id {fid} is unknown or expired; re-upload it",
                 )
 
-    # Resolve reasoning_effort: request > env var > default "medium".
-    # GPT-5.5 defaults to ``medium`` reasoning effort per the OpenAI
-    # changelog + latest-model guide (checked 2026-04-26). The env var
-    # and per-request override still let operators opt into cheaper or
-    # more exhaustive runs.
+    # Resolve reasoning_effort: request > env var > model-specific default.
+    # Per OpenAI's model pages and latest-model guide (checked 2026-04-27),
+    # GPT-5.4 defaults to ``none`` and GPT-5.5 defaults to ``medium``.
+    # The env var and per-request override still let operators opt into
+    # cheaper or more exhaustive runs.
     # Canonical values per the OpenAI Responses API (2026-04):
     # {"minimal","low","medium","high","xhigh"}. ``none`` is kept as
     # a legacy alias and normalized by ``OpenAICUClient.__init__``.
     _VALID_REASONING_EFFORTS = {"minimal", "low", "medium", "high", "none", "xhigh"}
-    reasoning_effort = (req.reasoning_effort or os.getenv("OPENAI_REASONING_EFFORT") or "medium").lower()
+    default_reasoning_effort = _default_openai_reasoning_effort_for_model(req.model)
+    reasoning_effort = (req.reasoning_effort or os.getenv("OPENAI_REASONING_EFFORT") or default_reasoning_effort).lower()
     if reasoning_effort not in _VALID_REASONING_EFFORTS:
-        reasoning_effort = "medium"
+        reasoning_effort = default_reasoning_effort
 
     try:
         _validate_builtin_search_config(
@@ -1172,6 +1174,7 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
             search_max_uses=req.search_max_uses,
             search_allowed_domains=req.search_allowed_domains,
             search_blocked_domains=req.search_blocked_domains,
+            allowed_callers=req.allowed_callers,
         )
     except ValueError as exc:
         return _error_response(400, str(exc))
@@ -1231,6 +1234,7 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
         search_max_uses=req.search_max_uses,
         search_allowed_domains=req.search_allowed_domains,
         search_blocked_domains=req.search_blocked_domains,
+        allowed_callers=req.allowed_callers,
         attached_files=req.attached_files or [],
         on_log=lambda entry: _schedule_broadcast(
             "log", {"log": entry.model_dump()}
@@ -1264,6 +1268,7 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
             "status": session.status.value,
             "steps": len(session.steps),
             "final_text": session.final_text,
+            "gemini_grounding": session.gemini_grounding,
         })
         _cleanup_session(loop.session_id)
 
@@ -1332,6 +1337,7 @@ async def api_agent_status(session_id: str):
         total_steps=session.max_steps,
         last_action=last_action,
         final_text=session.final_text,
+        gemini_grounding=session.gemini_grounding,
     ).model_dump()
 
 
@@ -1975,6 +1981,8 @@ class AgentFinishedEvent(_WSEventBase):
     session_id: str
     status: str
     steps: int
+    final_text: Optional[str] = None
+    gemini_grounding: Optional[dict[str, Any]] = None
 
 
 class AuthFailedEvent(_WSEventBase):

@@ -56,6 +56,23 @@ jobs:
       - name: Run tests
         run: python -m pytest -p no:warnings --tb=short
 
+  integration-gemini-live-sdk:
+    name: Gemini live SDK integration (Python 3.11)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-cov
+      - name: Run Gemini integration marker
+        run: python -m pytest -p no:warnings --tb=short -o addopts='' -m integration tests/integration/test_gemini_live_sdk.py
+
   security:
     name: Security audit
     runs-on: ubuntu-latest

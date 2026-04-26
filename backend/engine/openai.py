@@ -15,6 +15,7 @@ import time
 from typing import Any, Callable
 
 from backend.infra.config import config as _app_config
+from backend.models.schemas import load_allowed_models_json as _load_allowed_models_json
 from backend.engine import (
     CUActionResult,
     CUTurnRecord,
@@ -26,6 +27,7 @@ from backend.engine import (
     _append_source_footer,
     _build_openai_computer_call_output,
     _sanitize_openai_response_item_for_replay,
+    default_openai_reasoning_effort_for_model,
     validate_builtin_search_config,
     DEFAULT_TURN_LIMIT,
 )
@@ -36,7 +38,26 @@ logger = logging.getLogger(__name__)
 _OPENAI_ORIGINAL_MAX_PIXELS = 10_240_000
 _OPENAI_ORIGINAL_MAX_DIMENSION = 6000
 _OPENAI_GA_COMPUTER_MODEL_PREFIXES = ("gpt-5.4", "gpt-5.5")
-_OPENAI_NON_CU_MODELS = {"gpt-5.5-pro"}
+_OPENAI_REGISTRY_GATED_MODEL_PREFIXES = ("gpt-5.5",)
+_OPENAI_CU_REGISTRY_MODELS = frozenset(
+    str(model.get("model_id"))
+    for model in _load_allowed_models_json()
+    if model.get("provider") == "openai" and model.get("supports_computer_use")
+)
+
+
+def _ensure_openai_ga_model_is_in_registry(model: str) -> None:
+    """Reject GPT-5.5-family GA slugs that are absent from the registry."""
+    if model == "computer-use-preview":
+        return
+    if any(model.startswith(prefix) for prefix in _OPENAI_REGISTRY_GATED_MODEL_PREFIXES):
+        if model in _OPENAI_CU_REGISTRY_MODELS:
+            return
+        allowed = ", ".join(sorted(_OPENAI_CU_REGISTRY_MODELS))
+        raise ValueError(
+            f"OpenAI model {model!r} is not in the computer-use registry "
+            f"(backend/models/allowed_models.json). Supported OpenAI models: {allowed}."
+        )
 
 
 def _prepare_openai_computer_screenshot(
@@ -137,9 +158,11 @@ class OpenAICUClient:
         # https://developers.openai.com/api/docs/changelog
         model: str = "gpt-5.5",
         system_prompt: str | None = None,
-        # GPT-5.5 defaults to ``medium`` reasoning effort; callers can
-        # still opt into ``minimal``/``low``/``high``/``xhigh``.
-        reasoning_effort: str = "medium",
+        # Defaults are model-specific per OpenAI's model pages:
+        # GPT-5.4 defaults to ``none`` and GPT-5.5 defaults to ``medium``.
+        # Callers can still override with ``minimal``/``low``/``medium``/
+        # ``high``/``xhigh``.
+        reasoning_effort: str | None = None,
         # Official OpenAI Responses API web-search tool (April 2026).
         # When ``use_builtin_search`` is True the adapter appends
         # ``{"type": "web_search"}`` to the tools list and the model
@@ -178,19 +201,18 @@ class OpenAICUClient:
         self._client = AsyncOpenAI(**kwargs)
         self._model = model
         self._system_prompt = system_prompt or ""
-        if model in _OPENAI_NON_CU_MODELS:
-            raise ValueError(
-                f"OpenAI model {model!r} is not supported by the computer-use adapter. "
-                "The current OpenAI model page lists Computer use as unsupported for that model; "
-                "use gpt-5.5 for computer use.",
-            )
+        _ensure_openai_ga_model_is_in_registry(model)
+        default_effort = default_openai_reasoning_effort_for_model(model)
+        reasoning_effort = reasoning_effort or default_effort
         # Map legacy aliases (``none``) → canonical, then fall back to
-        # GPT-5.5's default ``medium`` on anything unknown.
+        # the doc-backed model default on anything unknown.
         reasoning_effort = self._LEGACY_EFFORT_ALIASES.get(
             reasoning_effort, reasoning_effort,
         )
         if reasoning_effort not in self.VALID_REASONING_EFFORTS:
-            reasoning_effort = "medium"
+            reasoning_effort = self._LEGACY_EFFORT_ALIASES.get(
+                default_effort, default_effort,
+            )
         self._reasoning_effort = reasoning_effort
         self._current_screenshot_scale = 1.0
         validate_builtin_search_config(
@@ -250,10 +272,7 @@ class OpenAICUClient:
                     "environment": "browser",
                 },
             ]
-        if model in _OPENAI_NON_CU_MODELS:
-            raise ValueError(
-                f"OpenAI model {model!r} does not currently support the built-in computer tool.",
-            )
+        _ensure_openai_ga_model_is_in_registry(model)
         if any(model.startswith(prefix) for prefix in _OPENAI_GA_COMPUTER_MODEL_PREFIXES):
             # Built-in tool — dimensions inferred from screenshot bytes.
             tools: list[dict[str, Any]] = [{"type": "computer"}]

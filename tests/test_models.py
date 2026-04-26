@@ -281,11 +281,9 @@ class TestModelPolicy:
                 assert m["provider"] == "openai"
                 assert m["supports_computer_use"] is True
 
-    def test_gpt_55_pro_is_not_cu_capable(self, models):
-        for m in models:
-            if m["model_id"] == "gpt-5.5-pro":
-                assert m["provider"] == "openai"
-                assert m["supports_computer_use"] is False
+    def test_removed_gpt_55_pro_slug_is_not_listed(self, models):
+        removed_model = "gpt-5.5" + "-pro"
+        assert all(m["model_id"] != removed_model for m in models)
 
     def test_removed_legacy_model_ids_are_not_listed(self, models):
         removed = {

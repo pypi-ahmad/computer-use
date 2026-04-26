@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import logging
 import os
 import time
@@ -31,10 +32,62 @@ from backend.engine import (
     _CONTEXT_PRUNE_KEEP_RECENT,
     _CLAUDE_OPUS_47_MAX_LONG_EDGE,
     _IMAGE_PNG,
+    _lookup_claude_cu_config,
+    _app_config,
 )
 from typing import AsyncIterator
 
 logger = logging.getLogger(__name__)
+
+_ANTHROPIC_WEB_SEARCH_CONSOLE_URL = "https://platform.claude.com/settings/privacy"
+_ANTHROPIC_WEB_SEARCH_PROBE_TTL_SECONDS = 24 * 60 * 60
+_ANTHROPIC_WEB_SEARCH_BASIC_TOOL = "web_search_20250305"
+_ANTHROPIC_WEB_SEARCH_DIRECT_TOOL = "web_search_20260209"
+_ANTHROPIC_ALLOWED_CALLERS_DIRECT = "direct"
+_ANTHROPIC_WEB_SEARCH_PROBE_CACHE: dict[str, tuple[bool, float]] = {}
+_ANTHROPIC_WEB_SEARCH_PROBE_LOCKS: dict[str, asyncio.Lock] = {}
+_ANTHROPIC_WEB_SEARCH_PROBE_LOCKS_GUARD = asyncio.Lock()
+
+
+def _anthropic_web_search_cache_key(api_key: str) -> str:
+    """Hash an API key before using it as an in-process cache key."""
+    return hashlib.sha256(api_key.encode("utf-8", "replace")).hexdigest()
+
+
+def _anthropic_web_search_error_message() -> str:
+    return (
+        "Anthropic web search is not enabled for this organization's API access. "
+        "An organization admin must enable web search in Claude Console before "
+        f"using use_builtin_search with Anthropic models: {_ANTHROPIC_WEB_SEARCH_CONSOLE_URL}"
+    )
+
+
+def _is_anthropic_web_search_enablement_error(exc: Exception) -> bool:
+    """Return True when *exc* looks like Claude Console web-search disablement."""
+    msg = str(exc or "").lower()
+    if "web search" not in msg:
+        return False
+    return any(
+        token in msg for token in (
+            "not enabled",
+            "enable web search",
+            "organization",
+            "organisation",
+            "admin",
+            "claude console",
+            "settings/privacy",
+            "privacy settings",
+        )
+    )
+
+
+async def _anthropic_web_search_probe_lock(key: str) -> asyncio.Lock:
+    async with _ANTHROPIC_WEB_SEARCH_PROBE_LOCKS_GUARD:
+        lock = _ANTHROPIC_WEB_SEARCH_PROBE_LOCKS.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _ANTHROPIC_WEB_SEARCH_PROBE_LOCKS[key] = lock
+        return lock
 
 
 def _extract_claude_sources(content_blocks: list[Any]) -> list[tuple[str, str]]:
@@ -87,17 +140,18 @@ class ClaudeCUClient:
     """Native Claude computer-use tool protocol.
 
     API contract (as of 2026-04):
-    - Auto-detects tool version from model name (overridable):
-      * Claude Opus 4.7 / Opus 4.6 / Sonnet 4.6 →
-        ``computer_20251124`` with beta ``computer-use-2025-11-24``.
-        Coordinates are 1:1 with the reported display pixels
-        (no scale-factor math at typical resolutions) and extended
-        thinking only accepts ``{"type": "adaptive"}``. Sampling
-        params (``temperature``/``top_p``/``top_k``) are rejected by
-        the API and are not sent.
-      * All other CU models → ``computer_20250124`` with beta
-        ``computer-use-2025-01-24`` and the legacy 1568 px /
-        scale-factor screenshot path.
+        - Resolves tool version from registry metadata in
+            ``backend/models/allowed_models.json`` unless explicit
+            ``tool_version`` / ``beta_flag`` overrides are supplied.
+        - Claude Opus 4.7 / Sonnet 4.6 use ``computer_20251124`` with beta
+            ``computer-use-2025-11-24``. Coordinates are 1:1 with the
+            reported display pixels (no scale-factor math at typical
+            resolutions) and extended thinking only accepts
+            ``{"type": "adaptive"}``. Sampling params
+            (``temperature``/``top_p``/``top_k``) are rejected by the API and
+            are not sent.
+        - Unsupported / unregistered Anthropic CU models raise an explicit
+            configuration error instead of guessing.
     - Uses ``client.beta.messages.create()`` (beta endpoint required).
     - Sends screenshots as base64 in ``tool_result`` content.
     - ``display_number`` is intentionally omitted.
@@ -109,13 +163,6 @@ class ClaudeCUClient:
       ``output_config.effort`` / ``output_config.task_budget``) are
       not wired up yet. See Anthropic computer-use docs.
     """
-
-    # Models that require the newer computer_20251124 tool version.
-    _NEW_TOOL_MODELS = (
-        "claude-opus-4-7", "claude-opus-4.7",
-        "claude-sonnet-4-6", "claude-sonnet-4.6",
-        "claude-opus-4-6", "claude-opus-4.6",
-    )
 
     # One-shot flag so we only log "caching enabled" once per process.
     _caching_logged: bool = False
@@ -131,6 +178,7 @@ class ClaudeCUClient:
         search_max_uses: int | None = None,
         search_allowed_domains: list[str] | None = None,
         search_blocked_domains: list[str] | None = None,
+        allowed_callers: list[str] | None = None,
         attached_file_ids: list[str] | None = None,
     ):
         try:
@@ -151,17 +199,27 @@ class ClaudeCUClient:
         self._model = model
         self._system_prompt = system_prompt or ""
 
-        # Use explicit values from allowed_models.json if provided,
-        # otherwise auto-detect from model name (backwards compatibility).
+        if bool(tool_version) != bool(beta_flag):
+            raise ValueError(
+                "Anthropic computer-use overrides must provide both tool_version and beta_flag."
+            )
+
+        # Use explicit overrides when provided. Otherwise require a
+        # registry entry so future / retired models cannot silently pick
+        # a guessed tool version from their name.
         if tool_version and beta_flag:
             self._tool_version = tool_version
             self._beta_flag = beta_flag
-        elif any(tag in model for tag in self._NEW_TOOL_MODELS):
-            self._tool_version = "computer_20251124"
-            self._beta_flag = "computer-use-2025-11-24"
         else:
-            self._tool_version = "computer_20250124"
-            self._beta_flag = "computer-use-2025-01-24"
+            resolved_tool_version, resolved_beta_flag = _lookup_claude_cu_config(model)
+            if not resolved_tool_version or not resolved_beta_flag:
+                raise ValueError(
+                    f"Anthropic computer-use model '{model}' is not in registry "
+                    "(backend/models/allowed_models.json). Add cu_tool_version/cu_betas metadata "
+                    "or pass explicit tool_version and beta_flag."
+                )
+            self._tool_version = resolved_tool_version
+            self._beta_flag = resolved_beta_flag
 
         validate_builtin_search_config(
             provider="claude",
@@ -170,10 +228,14 @@ class ClaudeCUClient:
             search_max_uses=search_max_uses,
             search_allowed_domains=search_allowed_domains,
             search_blocked_domains=search_blocked_domains,
+            allowed_callers=allowed_callers,
         )
 
         # Official Anthropic web_search server tool (April 2026:
-        # tool type ``web_search_20250305``, name ``web_search``).
+        # tool type ``web_search_20250305`` by default. When
+        # ``allowed_callers`` is supplied, switch to the documented ZDR
+        # workaround shape for ``web_search_20260209`` with dynamic
+        # filtering disabled.
         # When enabled the adapter advertises it alongside the
         # computer-use tool and the model invokes it server-side
         # (no client-side execution). Domain-filter validation happens
@@ -182,6 +244,8 @@ class ClaudeCUClient:
         self._search_max_uses = int(search_max_uses) if search_max_uses else 5
         self._search_allowed_domains = list(search_allowed_domains) if search_allowed_domains else None
         self._search_blocked_domains = list(search_blocked_domains) if search_blocked_domains else None
+        self._allowed_callers = list(allowed_callers) if allowed_callers is not None else None
+        self._warn_on_unknown_allowed_callers()
 
         # Anthropic Files API integration. Per the official Computer
         # Use docs there is no sibling ``file_search`` tool on Claude
@@ -208,6 +272,78 @@ class ClaudeCUClient:
         self._attached_file_ids = list(attached_file_ids or [])
         self._anthropic_file_cache: dict[str, str] = {}
         self._inline_text_cache: dict[str, tuple[str, str]] = {}
+
+    async def _probe_anthropic_web_search_enablement(self) -> None:
+        """Send a minimal Messages API request with web_search enabled.
+
+        Anthropic's docs require org-level enablement in Claude Console.
+        A successful response means the API key is allowed to attach the
+        web-search tool; a provider-side disablement error is rewritten
+        into an actionable local error.
+        """
+        await self._client.messages.create(
+            model=self._model,
+            max_tokens=16,
+            messages=[{"role": "user", "content": "Reply with the single word ok."}],
+            tools=[self._build_web_search_tool(max_uses=1)],
+        )
+
+    async def _ensure_anthropic_web_search_enabled(
+        self,
+        on_log: Callable[[str, str], None] | None = None,
+    ) -> None:
+        """Probe Claude web-search availability once per key per TTL window."""
+        if not self._use_builtin_search:
+            return
+
+        cache_key = _anthropic_web_search_cache_key(self._api_key)
+        now = time.monotonic()
+
+        if (
+            _app_config.anthropic_web_search_enabled
+            or os.getenv("CUA_ANTHROPIC_WEB_SEARCH_ENABLED", "").strip() == "1"
+        ):
+            _ANTHROPIC_WEB_SEARCH_PROBE_CACHE[cache_key] = (
+                True,
+                now + _ANTHROPIC_WEB_SEARCH_PROBE_TTL_SECONDS,
+            )
+            if on_log:
+                on_log(
+                    "info",
+                    "Anthropic web search probe skipped due to CUA_ANTHROPIC_WEB_SEARCH_ENABLED=1 override.",
+                )
+            return
+
+        cached = _ANTHROPIC_WEB_SEARCH_PROBE_CACHE.get(cache_key)
+        if cached and cached[1] > now:
+            if cached[0]:
+                return
+            raise ValueError(_anthropic_web_search_error_message())
+
+        lock = await _anthropic_web_search_probe_lock(cache_key)
+        async with lock:
+            now = time.monotonic()
+            cached = _ANTHROPIC_WEB_SEARCH_PROBE_CACHE.get(cache_key)
+            if cached and cached[1] > now:
+                if cached[0]:
+                    return
+                raise ValueError(_anthropic_web_search_error_message())
+
+            try:
+                await self._probe_anthropic_web_search_enablement()
+            except Exception as exc:
+                if _is_anthropic_web_search_enablement_error(exc):
+                    _ANTHROPIC_WEB_SEARCH_PROBE_CACHE[cache_key] = (
+                        False,
+                        now + _ANTHROPIC_WEB_SEARCH_PROBE_TTL_SECONDS,
+                    )
+                    raise ValueError(_anthropic_web_search_error_message()) from exc
+                raise
+
+            _ANTHROPIC_WEB_SEARCH_PROBE_CACHE[cache_key] = (
+                True,
+                now + _ANTHROPIC_WEB_SEARCH_PROBE_TTL_SECONDS,
+            )
 
     async def _prepare_attached_files(
         self,
@@ -305,6 +441,44 @@ class ClaudeCUClient:
             await asyncio.to_thread(fh.close)
         return result.id
 
+    def _warn_on_unknown_allowed_callers(self) -> None:
+        """Warn when callers request an undocumented allowed_callers value."""
+        if self._allowed_callers is None:
+            return
+        unknown = [value for value in self._allowed_callers if value != _ANTHROPIC_ALLOWED_CALLERS_DIRECT]
+        if unknown:
+            logger.warning(
+                "Anthropic web search allowed_callers contains undocumented values %s; "
+                "official docs currently show only %r.",
+                unknown,
+                _ANTHROPIC_ALLOWED_CALLERS_DIRECT,
+            )
+
+    def _build_web_search_tool(self, *, max_uses: int | None = None) -> dict[str, Any]:
+        """Build the Anthropic web_search server-tool definition."""
+        tool_type = (
+            _ANTHROPIC_WEB_SEARCH_DIRECT_TOOL
+            if self._allowed_callers is not None
+            else _ANTHROPIC_WEB_SEARCH_BASIC_TOOL
+        )
+        ws_tool: dict[str, Any] = {
+            "type": tool_type,
+            "name": "web_search",
+            "max_uses": self._search_max_uses if max_uses is None else max_uses,
+        }
+        if self._search_allowed_domains and self._search_blocked_domains:
+            raise ValueError(
+                "Anthropic web search accepts either search_allowed_domains "
+                "or search_blocked_domains, not both.",
+            )
+        if self._search_allowed_domains:
+            ws_tool["allowed_domains"] = self._search_allowed_domains
+        if self._search_blocked_domains:
+            ws_tool["blocked_domains"] = self._search_blocked_domains
+        if self._allowed_callers is not None:
+            ws_tool["allowed_callers"] = list(self._allowed_callers)
+        return ws_tool
+
     def _build_tools(self, sw: int, sh: int) -> list[dict]:
         """Build the Claude computer-use tool definition with display dimensions."""
         tool: dict[str, Any] = {
@@ -333,21 +507,7 @@ class ClaudeCUClient:
                 ClaudeCUClient._caching_logged = True
         tools: list[dict[str, Any]] = [tool]
         if self._use_builtin_search:
-            ws_tool: dict[str, Any] = {
-                "type": "web_search_20250305",
-                "name": "web_search",
-                "max_uses": self._search_max_uses,
-            }
-            if self._search_allowed_domains and self._search_blocked_domains:
-                raise ValueError(
-                    "Anthropic web search accepts either search_allowed_domains "
-                    "or search_blocked_domains, not both.",
-                )
-            if self._search_allowed_domains:
-                ws_tool["allowed_domains"] = self._search_allowed_domains
-            if self._search_blocked_domains:
-                ws_tool["blocked_domains"] = self._search_blocked_domains
-            tools.append(ws_tool)
+            tools.append(self._build_web_search_tool())
         return tools
 
     async def iter_turns(
@@ -400,6 +560,8 @@ class ClaudeCUClient:
         scaled_h = int(executor.screen_height * scale)
         if scale < 1.0 and on_log:
             on_log("info", f"Claude screenshot scale={scale:.3f} → {scaled_w}x{scaled_h}")
+
+        await self._ensure_anthropic_web_search_enabled(on_log)
 
         tools = self._build_tools(scaled_w, scaled_h)
 

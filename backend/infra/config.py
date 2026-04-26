@@ -59,10 +59,9 @@ class Config:
     # any non-local setup (watchfiles fires on disk changes). Set
     # ``CUA_RELOAD=1`` explicitly if you want reload.
     reload: bool = False
-    # Anthropic web search requires an organization admin to enable the
-    # feature in Claude Console before requests can succeed. Keep the
-    # local gate off by default so deployments must acknowledge that
-    # provider-side prerequisite explicitly.
+    # Optional operator override for Anthropic web-search enablement.
+    # When True, skip the first-use org-level probe and assume an admin
+    # has already enabled the feature in Claude Console.
     anthropic_web_search_enabled: bool = False
 
     # WebSocket
