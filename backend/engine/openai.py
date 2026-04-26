@@ -1,10 +1,10 @@
+from __future__ import annotations
 """OpenAI Computer Use client — split out of ``backend.engine`` (Q2).
 
 The class body lives here; ``backend.engine`` re-exports it so imports
 like ``from backend.engine import OpenAICUClient`` keep working.
 """
 
-from __future__ import annotations
 
 import asyncio
 import base64
@@ -13,7 +13,7 @@ import os
 import time
 from typing import Any, Callable
 
-from backend.config import config as _app_config
+from backend.infra.config import config as _app_config
 from backend.engine import (
     CUActionResult,
     CUTurnRecord,
@@ -22,12 +22,40 @@ from backend.engine import (
     _invoke_safety,
     _to_plain_dict,
     _extract_openai_output_text,
+    _append_source_footer,
     _build_openai_computer_call_output,
     _sanitize_openai_response_item_for_replay,
     DEFAULT_TURN_LIMIT,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_openai_sources(output_items: list[Any]) -> list[tuple[str, str]]:
+    """Collect cited URLs from OpenAI Responses output items."""
+    sources: list[tuple[str, str]] = []
+    for item in output_items:
+        item_dict = _to_plain_dict(item)
+        if item_dict.get("type") == "message":
+            for part in item_dict.get("content", []) or []:
+                if not isinstance(part, dict):
+                    continue
+                for ann in part.get("annotations", []) or []:
+                    if not isinstance(ann, dict) or ann.get("type") != "url_citation":
+                        continue
+                    url = ann.get("url")
+                    if url:
+                        sources.append((ann.get("title") or url, url))
+        elif item_dict.get("type") == "web_search_call":
+            action = item_dict.get("action") or {}
+            if isinstance(action, dict):
+                for src in action.get("sources", []) or []:
+                    if not isinstance(src, dict):
+                        continue
+                    url = src.get("url")
+                    if url:
+                        sources.append((src.get("title") or url, url))
+    return sources
 
 class OpenAICUClient:
     """OpenAI Responses API computer-use client.
@@ -217,7 +245,7 @@ class OpenAICUClient:
         """
         if not self._attached_file_ids or self._vector_store_id is not None:
             return
-        from backend.file_store import store as _file_store
+        from backend.infra.storage import store as _file_store
         recs = await _file_store.get_many(self._attached_file_ids)
         if not recs:
             if on_log:
@@ -332,6 +360,8 @@ class OpenAICUClient:
         # ZDR-safe: never use previous_response_id; always send full context
         final_text = ""
         _turn_start: float | None = None
+        saw_computer_action = False
+        nudged_for_computer_use = False
 
         for turn in range(turn_limit):
             if _turn_start is not None and on_log:
@@ -369,12 +399,49 @@ class OpenAICUClient:
             ]
 
             if not computer_calls:
-                final_text = turn_text or "OpenAI completed without a final message."
+                if (self._use_builtin_search or self._vector_store_id is not None) and not saw_computer_action and not nudged_for_computer_use:
+                    if on_log:
+                        on_log(
+                            "info",
+                            "OpenAI CU: retrieval-only turn before any computer action; nudging the model to continue with the computer tool.",
+                        )
+                    refreshed_screenshot = await executor.capture_screenshot()
+                    next_input = [
+                        _sanitize_openai_response_item_for_replay(item)
+                        for item in output_items
+                    ]
+                    next_input.append({
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": (
+                                    "Use any retrieved search/file context to continue, but do not stop yet. "
+                                    "This app's purpose is computer use: the task is not complete until you perform "
+                                    "the requested action with the computer tool on the current screen. "
+                                    "Continue with computer actions now."
+                                ),
+                            },
+                            {
+                                "type": "input_image",
+                                "image_url": f"data:image/png;base64,{base64.standard_b64encode(refreshed_screenshot).decode()}",
+                                "detail": "original",
+                            },
+                        ],
+                    })
+                    nudged_for_computer_use = True
+                    continue
+                final_text = _append_source_footer(
+                    turn_text or "OpenAI completed without a final message.",
+                    _extract_openai_sources(output_items),
+                )
                 if on_log:
                     on_log("info", f"OpenAI CU completed: {final_text[:200]}")
                 if on_turn:
                     on_turn(CUTurnRecord(turn=turn + 1, model_text=turn_text, actions=[]))
                 break
+
+            saw_computer_action = True
 
             tool_outputs: list[dict[str, Any]] = []
             results: list[CUActionResult] = []

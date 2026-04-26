@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Cross-module registry for the CU engine's safety-confirmation handshake.
 
 The native Computer Use engine surfaces ``require_confirmation`` prompts
@@ -7,7 +8,6 @@ Putting the shared state here avoids a backward import from
 ``backend.agent.loop`` into ``backend.server``.
 """
 
-from __future__ import annotations
 
 import asyncio
 

@@ -1,3 +1,66 @@
+from __future__ import annotations
+# === merged from backend/parity_check.py ===
+"""Parity check utility to ensure alignment between ActionType, engine_capabilities.json, and prompt action lists."""
+
+import logging
+from typing import Set
+
+from backend.models.schemas import ActionType
+from backend.models.registry import EngineCapabilities
+
+logger = logging.getLogger(__name__)
+
+
+def validate_tool_parity() -> bool:
+    """
+    Validate that:
+    1. All engine actions in engine_capabilities.json exist in ActionType.
+    2. Prompt action lists align with the engine capability schema.
+    """
+
+    success = True
+    action_type_values: Set[str] = {a.value for a in ActionType}
+
+    # 1. Engine capability schema vs ActionType
+    try:
+        caps = EngineCapabilities()
+        for engine_name in caps.engine_names:
+            engine_actions = caps.get_engine_actions(engine_name)
+            unknown = engine_actions - action_type_values
+            if unknown:
+                logger.warning(
+                    "SCHEMA WARNING: engine_capabilities.json '%s' has actions "
+                    "not in ActionType enum: %s", engine_name, sorted(unknown),
+                )
+                success = False
+        logger.info(
+            "SCHEMA PARITY: Checked %d engines in engine_capabilities.json",
+            len(caps.engine_names),
+        )
+    except Exception as e:
+        logger.warning("Engine capability schema parity check failed: %s", e)
+        success = False
+
+    # 2. Prompt action drift detection
+    try:
+        from backend.agent.prompts import validate_prompt_actions
+        prompt_warnings = validate_prompt_actions()
+        if prompt_warnings:
+            for w in prompt_warnings:
+                logger.warning("PROMPT DRIFT: %s", w)
+        else:
+            logger.info("PROMPT PARITY: All prompt action lists align with schema.")
+    except Exception as e:
+        logger.warning("Prompt parity check failed: %s", e)
+
+    return success
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    validate_tool_parity()
+
+# === merged from backend/certifier.py ===
 """Engine Certification Framework.
 
 Validates every engine and every tool declared in ``engine_capabilities.json``
@@ -7,18 +70,16 @@ suitable for CI gating and pre-deployment checks.
 Usage::
 
     # Programmatic
-    from backend.certifier import EngineCertifier
+    from backend.models.validation import EngineCertifier
     certifier = EngineCertifier()
     report = certifier.run_full_certification(deep=False)
 
     # CLI
-    python -m backend.certifier --deep
+    python -m backend.models.validation --deep
 """
 
-from __future__ import annotations
 
 import json
-import logging
 import os
 import platform
 import shutil
@@ -27,9 +88,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Set
 
-from backend.engine_capabilities import get_default_schema_path
+from backend.models.registry import get_default_schema_path
 
-logger = logging.getLogger(__name__)
 
 # Reuse the live capability loader's path discovery so the validator and
 # runtime always point at the same bundled schema file.
@@ -406,7 +466,7 @@ def _print_table(report: CertificationReport) -> None:
 
 
 def main() -> None:
-    """CLI entry point for ``python -m backend.certifier``."""
+    """CLI entry point for ``python -m backend.models.validation``."""
     import argparse
 
     parser = argparse.ArgumentParser(
@@ -441,3 +501,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

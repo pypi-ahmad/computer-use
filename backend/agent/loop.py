@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Agent loop — the core orchestrator for the Computer Use engine.
 
 Delegates to the native CU protocol for the perceive → act → screenshot
@@ -5,13 +6,12 @@ cycle. Manages session lifecycle and callbacks for the desktop-native
 runtime path.
 """
 
-from __future__ import annotations
 
 import asyncio
 import hashlib
 import logging
 import uuid
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 # AI6: reuse the shared secret-scrubber from backend.engine so the
 # patterns and redaction format stay consistent between what flows
@@ -19,8 +19,8 @@ from typing import Callable, Optional
 # LangGraph checkpoint + broadcasts over the WebSocket.
 from backend.engine import scrub_secrets as _scrub_secrets
 
-from backend.config import config
-from backend.models import (
+from backend.infra.config import config
+from backend.models.schemas import (
     ActionType,
     AgentAction,
     AgentSession,
@@ -29,8 +29,10 @@ from backend.models import (
     StepRecord,
     StructuredError,
 )
-from backend.agent.screenshot import check_service_health
-from backend.logging_ctx import session_id_var
+from backend.infra.observability import session_id_var
+
+if TYPE_CHECKING:
+    from backend.agent.graph import NodeBundle
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +65,6 @@ class AgentLoop:
         api_key: str,
         model: str | None = None,
         max_steps: int | None = None,
-        mode: str = "desktop",
         engine: str = "computer_use",
         provider: str = "google",
         execution_target: str = "docker",
@@ -87,7 +88,6 @@ class AgentLoop:
         )
         self._api_key = api_key
         self._engine = engine
-        self._mode = mode
         self._provider = provider
         self._execution_target = execution_target
         self._reasoning_effort = reasoning_effort
@@ -177,12 +177,12 @@ class AgentLoop:
         self._emit_log(
             "info",
             f"Model: {self.session.model} | Max steps: {self.session.max_steps} | "
-            f"Mode: {self._mode} | Engine: {self._engine} | "
+            f"Engine: {self._engine} | "
             f"Provider: {self._provider} | Target: {self._execution_target}",
         )
 
         from backend.agent.graph import build_agent_graph
-        from backend import tracing
+        from backend.infra import observability as tracing
 
         bundle = self._build_graph_bundle()
         # OBS: wrap the bundle so every graph-edge event lands in the
@@ -190,7 +190,7 @@ class AgentLoop:
         # original callbacks still fire, so existing logging and WS
         # broadcasts are unchanged.
         tracing.start_session(self.session.session_id, task=self.session.task)
-        bundle = tracing.install(bundle, self.session.session_id)
+        bundle = tracing.install_bundle(bundle, self.session.session_id)
         graph = build_agent_graph(bundle)
 
         _sid_token = session_id_var.set(self.session.session_id)
@@ -216,17 +216,23 @@ class AgentLoop:
                     f"Graph run ended in error: {final_state.get('error', '(unknown)')}",
                 )
                 self.session.status = SessionStatus.ERROR
+                self.session.final_text = final_state.get("final_text") or final_state.get("error")
             elif self._stop_requested:
                 self.session.status = SessionStatus.STOPPED
+                if isinstance(final_state, dict):
+                    self.session.final_text = final_state.get("final_text") or self.session.final_text
             else:
                 # Only flip to COMPLETED if _run_computer_use_engine
                 # hasn't already set a terminal status (e.g. ERROR from
                 # a provider-level failure surfaced via RunFailed).
                 if self.session.status == SessionStatus.RUNNING:
                     self.session.status = SessionStatus.COMPLETED
+                if isinstance(final_state, dict):
+                    self.session.final_text = final_state.get("final_text") or self.session.final_text
         except Exception as exc:
             self._emit_log("error", f"Graph invocation failed: {exc}")
             self.session.status = SessionStatus.ERROR
+            self.session.final_text = str(exc)
         finally:
             self._run_task = None
             # Always drop safety-registry state for this session.
@@ -314,20 +320,16 @@ class AgentLoop:
             if cu_provider is None:
                 raise ValueError(f"Unsupported CU provider: {self._provider}")
             system_instruction = get_system_prompt(
-                "computer_use", self._mode,
+                "computer_use",
                 provider=self._provider,
                 model=self.session.model,
             )
-            # Browser mode hints Gemini's CU tool with ENVIRONMENT_BROWSER
-            # per https://ai.google.dev/gemini-api/docs/computer-use.
-            # Anthropic / OpenAI carry the same desktop-style ``computer``
-            # tool in either mode (their docs do not expose an env
-            # parameter); the prompt template carries the browser focus.
-            cu_env = (
-                Environment.BROWSER
-                if self._mode == "browser" and cu_provider == Provider.GEMINI
-                else Environment.DESKTOP
-            )
+            # Unified Computer Use surface: a single X11/Chromium-equipped
+            # sandbox. The provider's CU tool decides whether to drive a
+            # desktop application or Chromium itself; Gemini always sees
+            # ENVIRONMENT_DESKTOP per
+            # https://ai.google.dev/gemini-api/docs/computer-use.
+            cu_env = Environment.DESKTOP
             engine = ComputerUseEngine(
                 provider=cu_provider,
                 api_key=self._api_key,
@@ -488,17 +490,12 @@ class AgentLoop:
             self.session.status = SessionStatus.ERROR
             return self.session
 
-        # See ``_start_iter`` — Gemini gets ENVIRONMENT_BROWSER hint when
-        # the user picks browser mode; the other two providers ride on
-        # the prompt template since their CU tools have no env param.
-        cu_env = (
-            Environment.BROWSER
-            if self._mode == "browser" and cu_provider == Provider.GEMINI
-            else Environment.DESKTOP
-        )
+        # Unified Computer Use surface — always desktop X11; Chromium is
+        # available inside the sandbox for the model to drive directly.
+        cu_env = Environment.DESKTOP
 
         system_instruction = get_system_prompt(
-            "computer_use", self._mode,
+            "computer_use",
             provider=self._provider,
             model=self.session.model,
         )
@@ -681,3 +678,136 @@ class AgentLoop:
             except Exception:
                 logger.warning("Callback %r raised an exception", cb, exc_info=True)
 
+
+# === merged from backend/agent/screenshot.py ===
+"""Screenshot capture via the internal agent service.
+
+Calls the HTTP API exposed by the agent service running inside the
+container. The supported runtime path is desktop capture via scrot.
+"""
+
+
+import base64
+import os
+
+import httpx
+
+from backend.infra.config import config
+
+
+# Reusable async client
+_http_client: httpx.AsyncClient | None = None
+
+
+def _auth_headers() -> dict[str, str]:
+    """Return the shared-secret header for authenticated agent_service calls."""
+    token = os.environ.get("AGENT_SERVICE_TOKEN", "").strip()
+    return {"X-Agent-Token": token} if token else {}
+
+
+def _get_client() -> httpx.AsyncClient:
+    """Return or create the module-level reusable httpx client."""
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(timeout=15.0)
+    return _http_client
+
+
+async def capture_screenshot(mode: str = "desktop") -> str:
+    """Capture a PNG screenshot and return base64 string.
+
+    The screenshot comes from the in-container agent service.
+
+    Args:
+        mode: 'desktop'. Browser mode is no longer supported.
+
+    Returns:
+        Base64-encoded PNG string.
+    """
+    # â”€â”€ Default: screenshot via agent_service â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    url = f"{config.agent_service_url}/screenshot?mode={mode}"
+    client = _get_client()
+
+    try:
+        resp = await client.get(url, headers=_auth_headers())
+        # Surface auth failures immediately with a well-formed
+        # HTTPStatusError (C10). ``raise_for_status`` requires
+        # ``Response._request`` to be set; fabricate an error here if
+        # the response was constructed without one (common in tests).
+        if resp.status_code in (401, 403):
+            raise httpx.HTTPStatusError(
+                f"agent_service returned {resp.status_code}",
+                request=getattr(resp, "_request", None) or httpx.Request("GET", url),
+                response=resp,
+            )
+        resp.raise_for_status()
+        data = resp.json()
+
+        if "error" in data:
+            raise RuntimeError(data["error"])
+
+        b64 = data["screenshot"]
+        method = data.get("method", "unknown")
+        logger.debug("Screenshot captured via %s (%d chars)", method, len(b64))
+        return b64
+
+    except (
+        httpx.ConnectError,
+        httpx.TimeoutException,
+        httpx.HTTPStatusError,
+        RuntimeError,
+    ) as e:
+        # C10: fall back to ``docker exec`` not only for network-level
+        # failures but also when the service returned 5xx or an
+        # ``{"error": ...}`` payload. Auth failures (401/403) are
+        # re-raised so the caller can surface a clear message to the UI
+        # rather than silently masking a token mismatch.
+        if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
+            if e.response.status_code in (401, 403):
+                raise
+        logger.warning("Agent service screenshot failed, falling back to docker exec: %s", e)
+        return await _fallback_docker_screenshot()
+
+
+async def _fallback_docker_screenshot() -> str:
+    """Fallback: grab screenshot via docker exec + scrot."""
+    name = config.container_name
+
+    proc = await asyncio.create_subprocess_exec(
+        "docker", "exec", name, "scrot", "-z", "-o", "/tmp/screenshot.png",
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await proc.communicate()
+
+    if proc.returncode != 0:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "exec", name, "import", "-window", "root", "/tmp/screenshot.png",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            raise RuntimeError(f"Screenshot capture failed: {stderr.decode().strip()}")
+
+    proc_read = await asyncio.create_subprocess_exec(
+        "docker", "exec", name, "cat", "/tmp/screenshot.png",
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc_read.communicate()
+
+    if proc_read.returncode != 0 or not stdout:
+        raise RuntimeError(f"Failed to read screenshot: {stderr.decode().strip()}")
+
+    b64 = base64.b64encode(stdout).decode("ascii")
+    logger.info("Screenshot via fallback: %d bytes", len(stdout))
+    return b64
+
+
+async def check_service_health() -> bool:
+    """Check if the internal agent service is responsive."""
+    url = f"{config.agent_service_url}/health"
+    client = _get_client()
+    try:
+        resp = await client.get(url, timeout=3.0)
+        return resp.status_code == 200
+    except Exception:
+        return False
