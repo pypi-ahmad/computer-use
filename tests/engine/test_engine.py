@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import asyncio
 import io
-import types
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -89,7 +88,7 @@ class TestComputerUseEngine:
                 provider=Provider.OPENAI,
                 api_key="test-key",
             )
-        assert engine._client._model == "gpt-5.4"
+        assert engine._client._model == "gpt-5.5"
 
     def test_unified_surface_always_uses_desktop_executor(self):
         """Desktop and Browser are unified \u2014 every session uses the\n        xdotool DesktopExecutor regardless of the legacy ``environment``\n        argument; the model decides whether to drive desktop apps or\n        Chromium itself."""
@@ -496,7 +495,8 @@ class TestSearchEnabledRequiresComputerAction:
                 content=[SimpleNamespace(type="text", text="Done")],
             )
 
-            with patch("anthropic.AsyncAnthropic") as mock_client:
+            with patch("anthropic.AsyncAnthropic") as mock_client, \
+                 patch("backend.engine._app_config.anthropic_web_search_enabled", True):
                 create = AsyncMock(side_effect=[first_response, second_response, third_response])
                 mock_client.return_value.beta.messages.create = create
                 from backend.engine import ClaudeCUClient
@@ -576,30 +576,33 @@ class TestSearchEnabledRequiresComputerAction:
                 ]
             )
 
-            with patch("google.genai.Client"):
+            with patch("google.genai.Client"), \
+                 patch("backend.engine._get_gemini_builtin_search_sdk_error", return_value=None), \
+                 patch("backend.engine.gemini._get_gemini_builtin_search_sdk_error", return_value=None):
                 from backend.engine import GeminiCUClient
                 client = GeminiCUClient(api_key="k", use_builtin_search=True)
-            client._client.aio.models.generate_content = AsyncMock(
-                side_effect=[first_response, second_response, third_response]
-            )
+                client._build_config = lambda: SimpleNamespace()
+                client._client.aio.models.generate_content = AsyncMock(
+                    side_effect=[first_response, second_response, third_response]
+                )
 
-            executor = FakeExecutor()
-            events = []
-            async for event in client.iter_turns("Learn first, then create the Projects folder", executor):
-                events.append(event)
+                executor = FakeExecutor()
+                events = []
+                async for event in client.iter_turns("Learn first, then create the Projects folder", executor):
+                    events.append(event)
 
-            assert executor.calls == [("double_click", {"x": 120, "y": 220})]
-            assert isinstance(events[-1], RunCompleted)
-            assert events[-1].final_text == "Done"
+                assert executor.calls == [("double_click", {"x": 120, "y": 220})]
+                assert isinstance(events[-1], RunCompleted)
+                assert events[-1].final_text == "Done"
 
-            second_call = client._client.aio.models.generate_content.call_args_list[1].kwargs
-            assert any(
-                hasattr(content, "parts")
-                and content.parts
-                and getattr(content.parts[0], "text", "")
-                and "not complete until you perform the requested action with the computer_use tool" in content.parts[0].text
-                for content in second_call["contents"]
-            )
+                second_call = client._client.aio.models.generate_content.call_args_list[1].kwargs
+                assert any(
+                    hasattr(content, "parts")
+                    and content.parts
+                    and getattr(content.parts[0], "text", "")
+                    and "not complete until you perform the requested action with the computer_use tool" in content.parts[0].text
+                    for content in second_call["contents"]
+                )
 
         asyncio.run(_go())
 
@@ -607,52 +610,45 @@ class TestSearchEnabledRequiresComputerAction:
 class TestOpenAIReasoningEffort:
     """Regression guards for the April 2026 OpenAI reasoning-effort enum.
 
-    The canonical values are ``{minimal, low, medium, high}``. The CU
-    floor is ``high``. Legacy aliases (``none``, ``xhigh``) are mapped
-    on input so the live API never sees a value it would 400 on.
+    GPT-5.5 defaults to ``medium`` and accepts ``xhigh`` directly.
+    ``none`` remains a legacy alias for ``minimal``.
     """
 
-    def test_default_effort_is_high(self):
+    def test_default_effort_is_medium(self):
         with patch("openai.AsyncOpenAI"):
-            client = OpenAICUClient(api_key="test-key", model="gpt-5.4")
-        assert client._reasoning_effort == "high", (
-            "CU default must be 'high' — the April 2026 OpenAI CU guide "
-            "lists high as the floor for agentic work."
-        )
+            client = OpenAICUClient(api_key="test-key", model="gpt-5.5")
+        assert client._reasoning_effort == "medium"
 
     def test_legacy_none_maps_to_minimal(self):
         with patch("openai.AsyncOpenAI"):
             client = OpenAICUClient(
-                api_key="test-key", model="gpt-5.4", reasoning_effort="none",
+                api_key="test-key", model="gpt-5.5", reasoning_effort="none",
             )
         assert client._reasoning_effort == "minimal", (
             "Legacy 'none' must be mapped to canonical 'minimal' — "
-            "the live OpenAI API rejects 'none' with HTTP 400."
+            "the adapter keeps it only for wire compatibility."
         )
 
-    def test_legacy_xhigh_maps_to_high(self):
+    def test_xhigh_is_accepted(self):
         with patch("openai.AsyncOpenAI"):
             client = OpenAICUClient(
-                api_key="test-key", model="gpt-5.4", reasoning_effort="xhigh",
+                api_key="test-key", model="gpt-5.5", reasoning_effort="xhigh",
             )
-        assert client._reasoning_effort == "high"
+        assert client._reasoning_effort == "xhigh"
 
     def test_minimal_is_accepted(self):
         with patch("openai.AsyncOpenAI"):
             client = OpenAICUClient(
-                api_key="test-key", model="gpt-5.4", reasoning_effort="minimal",
+                api_key="test-key", model="gpt-5.5", reasoning_effort="minimal",
             )
         assert client._reasoning_effort == "minimal"
 
-    def test_unknown_coerces_to_high(self):
+    def test_unknown_coerces_to_medium(self):
         with patch("openai.AsyncOpenAI"):
             client = OpenAICUClient(
-                api_key="test-key", model="gpt-5.4", reasoning_effort="garbage",
+                api_key="test-key", model="gpt-5.5", reasoning_effort="garbage",
             )
-        assert client._reasoning_effort == "high", (
-            "Unknown values must coerce to the CU floor, not silently "
-            "demote to 'low' like the pre-April-2026 behaviour did."
-        )
+        assert client._reasoning_effort == "medium"
 
 # === merged from tests/test_coordinate_scaling.py ===
 """Tests for coordinate scaling and denormalization."""
@@ -894,8 +890,8 @@ Covers:
     ``computer_20250124``), adaptive thinking, 1:1 coordinates for
     Opus 4.7 / Sonnet 4.6, legacy scale-factor path for pre-4.5
     models.
-  * OpenAI: ``gpt-5.4`` default with ``reasoning.effort == "high"``
-    floor, ZDR-safe replay (no ``previous_response_id``), and
+    * OpenAI: ``gpt-5.5`` default with ``reasoning.effort == "medium"``,
+        ZDR-safe replay (no ``previous_response_id``), and
     ``include=["reasoning.encrypted_content"]``.
   * Gemini: ``require_confirmation`` routing via the shared
     ``on_safety`` interrupt.
@@ -1032,25 +1028,31 @@ class TestClaudeThinkingMode:
 
 
 class TestOpenAIReasoningEffort:
-    """CU floor is ``high``; construction without explicit effort → high."""
+    """GPT-5.5 defaults to ``medium`` and accepts ``xhigh``."""
 
-    def test_default_reasoning_effort_is_high(self):
+    def test_default_reasoning_effort_is_medium(self):
         from backend.engine import OpenAICUClient
         with patch("openai.AsyncOpenAI"):
-            c = OpenAICUClient(api_key="k", model="gpt-5.4")
-        assert c._reasoning_effort == "high"
+            c = OpenAICUClient(api_key="k", model="gpt-5.5")
+        assert c._reasoning_effort == "medium"
 
-    def test_invalid_effort_falls_back_to_high(self):
+    def test_invalid_effort_falls_back_to_medium(self):
         from backend.engine import OpenAICUClient
         with patch("openai.AsyncOpenAI"):
-            c = OpenAICUClient(api_key="k", model="gpt-5.4", reasoning_effort="bogus")
-        assert c._reasoning_effort == "high"
+            c = OpenAICUClient(api_key="k", model="gpt-5.5", reasoning_effort="bogus")
+        assert c._reasoning_effort == "medium"
 
-    def test_facade_default_passes_high(self):
+    def test_xhigh_is_preserved(self):
+        from backend.engine import OpenAICUClient
+        with patch("openai.AsyncOpenAI"):
+            c = OpenAICUClient(api_key="k", model="gpt-5.5", reasoning_effort="xhigh")
+        assert c._reasoning_effort == "xhigh"
+
+    def test_facade_default_passes_medium(self):
         from backend.engine import ComputerUseEngine, Provider
         with patch("openai.AsyncOpenAI"):
-            eng = ComputerUseEngine(provider=Provider.OPENAI, api_key="k", model="gpt-5.4")
-        assert eng._client._reasoning_effort == "high"
+            eng = ComputerUseEngine(provider=Provider.OPENAI, api_key="k", model="gpt-5.5")
+        assert eng._client._reasoning_effort == "medium"
 
 
 class TestOpenAIZDRReplay:
@@ -1093,16 +1095,65 @@ class TestOpenAIZDRReplay:
 
         with patch("openai.AsyncOpenAI") as AA:
             AA.return_value = FakeClient()
-            client = OpenAICUClient(api_key="k", model="gpt-5.4")
+            client = OpenAICUClient(api_key="k", model="gpt-5.5")
 
         await client.run_loop("noop", FakeExecutor(), turn_limit=1)
 
         assert captured_requests, "OpenAI responses.create was never called"
         req = captured_requests[0]
         assert req["include"] == ["reasoning.encrypted_content"]
-        assert req["reasoning"] == {"effort": "high"}
+        assert req["reasoning"] == {"effort": "medium"}
         assert req["store"] is False
         assert "previous_response_id" not in req
+
+    @pytest.mark.asyncio
+    async def test_search_enabled_requests_web_search_sources(self):
+        from backend.engine import OpenAICUClient
+
+        captured_requests: list[dict] = []
+
+        async def fake_create(**kwargs):
+            captured_requests.append(kwargs)
+            return SimpleNamespace(
+                output=[],
+                output_text="done",
+                error=None,
+            )
+
+        class FakeResponses:
+            create = staticmethod(fake_create)
+
+        class FakeClient:
+            responses = FakeResponses()
+
+        class FakeExecutor:
+            screen_width = 1280
+            screen_height = 800
+
+            async def capture_screenshot(self):
+                return b"x" * 512
+
+            async def execute(self, name, args):
+                return CUActionResult(name=name)
+
+            def get_current_url(self):
+                return ""
+
+        with patch("openai.AsyncOpenAI") as AA:
+            AA.return_value = FakeClient()
+            client = OpenAICUClient(
+                api_key="k",
+                model="gpt-5.4",
+                use_builtin_search=True,
+            )
+
+        await client.run_loop("noop", FakeExecutor(), turn_limit=1)
+
+        req = captured_requests[0]
+        assert req["include"] == [
+            "reasoning.encrypted_content",
+            "web_search_call.action.sources",
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -1357,7 +1408,7 @@ class TestOpenAIWebSearch:
     def _make(self, **kwargs):
         from backend.engine import OpenAICUClient
         with patch("openai.AsyncOpenAI"):
-            return OpenAICUClient(api_key="k", model=kwargs.pop("model", "gpt-5.4"), **kwargs)
+            return OpenAICUClient(api_key="k", model=kwargs.pop("model", "gpt-5.5"), **kwargs)
 
     def test_disabled_emits_only_computer_tool(self):
         client = self._make(use_builtin_search=False)
@@ -1381,12 +1432,22 @@ class TestOpenAIWebSearch:
         assert ws["filters"]["allowed_domains"] == ["example.com"]
         assert ws["filters"]["blocked_domains"] == ["bad.test"]
 
-    def test_nano_with_search_skips_tool_and_logs(self):
-        client = self._make(model="gpt-5.4-nano", use_builtin_search=True)
-        logs: list[tuple[str, str]] = []
-        tools = client._build_tools(1440, 900, on_log=lambda lvl, msg: logs.append((lvl, msg)))
-        assert all(t.get("type") != "web_search" for t in tools)
-        assert any("web_search" in m for _, m in logs)
+    def test_preview_model_with_search_raises_explicit_error(self):
+        client = self._make(model="computer-use-preview", use_builtin_search=True)
+        with pytest.raises(ValueError, match="computer-use-preview"):
+            client._build_tools(1440, 900)
+
+    def test_gpt55_pro_is_rejected_for_computer_use(self):
+        with pytest.raises(ValueError, match="gpt-5.5-pro"):
+            self._make(model="gpt-5.5-pro")
+
+    def test_minimal_reasoning_with_search_raises_explicit_error(self):
+        with pytest.raises(ValueError, match="minimal reasoning"):
+            self._make(
+                model="gpt-5.5",
+                use_builtin_search=True,
+                reasoning_effort="minimal",
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -1399,7 +1460,9 @@ class TestClaudeWebSearch:
 
     def _make(self, **kwargs):
         from backend.engine import ClaudeCUClient
-        with patch("anthropic.AsyncAnthropic"):
+        import backend.engine as engine_mod
+        with patch.object(engine_mod._app_config, "anthropic_web_search_enabled", True), \
+             patch("anthropic.AsyncAnthropic"):
             return ClaudeCUClient(api_key="k", model=kwargs.pop("model", "claude-sonnet-4-6"), **kwargs)
 
     def test_disabled_emits_only_computer_tool(self):
@@ -1437,6 +1500,27 @@ class TestClaudeWebSearch:
         assert ws["blocked_domains"] == ["bad.test"]
         assert "allowed_domains" not in ws
 
+    def test_both_domain_lists_raise_explicit_error(self):
+        with pytest.raises(ValueError, match="either search_allowed_domains or search_blocked_domains"):
+            self._make(
+                use_builtin_search=True,
+                search_allowed_domains=["docs.python.org"],
+                search_blocked_domains=["bad.test"],
+            )
+
+    def test_console_enablement_ack_required(self):
+        from backend.engine import ClaudeCUClient
+        import backend.engine as engine_mod
+
+        with patch.object(engine_mod._app_config, "anthropic_web_search_enabled", False), \
+             patch("anthropic.AsyncAnthropic"):
+            with pytest.raises(ValueError, match="CUA_ANTHROPIC_WEB_SEARCH_ENABLED=1"):
+                ClaudeCUClient(
+                    api_key="k",
+                    model="claude-sonnet-4-6",
+                    use_builtin_search=True,
+                )
+
 
 # ---------------------------------------------------------------------------
 # Gemini
@@ -1459,18 +1543,106 @@ class TestGeminiGoogleSearch:
         assert config.tools[0].computer_use is not None
 
     def test_enabled_appends_google_search_tool(self):
-        client = self._make(use_builtin_search=True)
-        config = client._build_config()
+        try:
+            client = self._make(use_builtin_search=True)
+            config = client._build_config()
+        except ValueError as exc:
+            assert "include_server_side_tool_invocations" in str(exc)
+            return
         # Two tools, one of which has google_search set
         assert len(config.tools) == 2
         has_search = any(getattr(t, "google_search", None) is not None for t in config.tools)
         assert has_search, "google_search tool not present"
 
     def test_enabled_sets_include_server_side_tool_invocations(self):
-        client = self._make(use_builtin_search=True)
-        config = client._build_config()
+        try:
+            client = self._make(use_builtin_search=True)
+            config = client._build_config()
+        except ValueError as exc:
+            assert "include_server_side_tool_invocations" in str(exc)
+            return
         # The flag is required for combined tool execution per Gemini docs.
         # If the SDK supports the field, it must be True.
         if hasattr(config, "include_server_side_tool_invocations"):
             assert config.include_server_side_tool_invocations is True
+
+    def test_enabled_pins_validated_function_calling_mode(self):
+        client = self._make(use_builtin_search=False)
+
+        class _FakeComputerUse:
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
+
+        class _FakeTool:
+            def __init__(self, **kwargs):
+                self.computer_use = kwargs.get("computer_use")
+                self.google_search = kwargs.get("google_search")
+
+        class _FakeThinkingConfig:
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
+
+        class _FakeFunctionCallingConfig:
+            def __init__(self, **kwargs):
+                self.mode = kwargs.get("mode")
+
+        class _FakeToolConfig:
+            def __init__(self, **kwargs):
+                self.function_calling_config = kwargs.get("function_calling_config")
+
+        class _FakeGenerateContentConfig:
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
+
+            def model_dump(self, mode="json", exclude_none=True):
+                return {
+                    "include_server_side_tool_invocations": getattr(
+                        self, "include_server_side_tool_invocations", None,
+                    ),
+                    "tool_config": {
+                        "function_calling_config": {
+                            "mode": self.tool_config.function_calling_config.mode,
+                        },
+                    },
+                }
+
+        fake_types = SimpleNamespace(
+            Tool=_FakeTool,
+            ComputerUse=_FakeComputerUse,
+            ThinkingConfig=_FakeThinkingConfig,
+            ToolConfig=_FakeToolConfig,
+            FunctionCallingConfig=_FakeFunctionCallingConfig,
+            FunctionCallingConfigMode=SimpleNamespace(VALIDATED="VALIDATED"),
+            GoogleSearch=lambda: SimpleNamespace(),
+            Environment=SimpleNamespace(
+                ENVIRONMENT_BROWSER="browser",
+                ENVIRONMENT_DESKTOP="desktop",
+            ),
+            GenerateContentConfig=_FakeGenerateContentConfig,
+        )
+
+        client._types = fake_types
+        client._genai = SimpleNamespace(types=fake_types)
+        client._use_builtin_search = True
+
+        with patch("backend.engine.gemini._get_gemini_builtin_search_sdk_error", return_value=None):
+            config = client._build_config()
+
+        body = config.model_dump(mode="json", exclude_none=True)
+        assert body["include_server_side_tool_invocations"] is True
+        assert body["tool_config"]["function_calling_config"]["mode"] == "VALIDATED"
+
+    def test_non_gemini3_combo_raises_explicit_error(self):
+        with pytest.raises(ValueError, match="Gemini 3"):
+            self._make(
+                model="gemini-2.5-computer-use-preview-10-2025",
+                use_builtin_search=True,
+            )
+
+    def test_search_options_raise_for_google_search(self):
+        with pytest.raises(ValueError, match="does not support search_max_uses or domain filters"):
+            self._make(
+                use_builtin_search=True,
+                search_max_uses=3,
+            )
 

@@ -30,6 +30,20 @@
     },
     {
       "provider": "openai",
+      "model_id": "gpt-5.5",
+      "display_name": "GPT-5.5",
+      "supports_computer_use": true,
+      "notes": "OpenAI Responses API GA computer and web_search tools. Default OpenAI Computer Use model as of 2026-04-26."
+    },
+    {
+      "provider": "openai",
+      "model_id": "gpt-5.5-pro",
+      "display_name": "GPT-5.5 Pro",
+      "supports_computer_use": false,
+      "notes": "Responses API and Batch model with web search support, but the current OpenAI model page lists Computer use as not supported."
+    },
+    {
+      "provider": "openai",
       "model_id": "gpt-5.4",
       "display_name": "GPT-5.4",
       "supports_computer_use": true,

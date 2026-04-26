@@ -1,4 +1,3 @@
-from __future__ import annotations
 """Internal agent service — runs INSIDE the Docker container.
 
 Provides a lightweight HTTP API for desktop automation using xdotool and
@@ -6,6 +5,7 @@ scrot. Applications run inside the X11 desktop and are controlled through
 desktop input events only.
 """
 
+from __future__ import annotations
 
 import base64
 import json
@@ -28,10 +28,10 @@ logging.basicConfig(
 logger = logging.getLogger("agent_service")
 
 try:
-    from backend.models.registry import resolve_action
+    from backend.action_aliases import resolve_action
 except ImportError:
     # Fallback if backend not available (e.g. local dev outside docker)
-    logger.warning("backend.models.registry not found, alias resolution disabled")
+    logger.warning("backend.action_aliases not found, alias resolution disabled")
 
     def resolve_action(a):
         """Identity fallback when backend.tools is unavailable."""
@@ -1078,80 +1078,6 @@ def _xdo_focus_click(identifier: str, x: int, y: int) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 #  Shared helpers
 # ══════════════════════════════════════════════════════════════════════════════
-
-# ── wmctrl-based window management (DISPLAY-independent layer) ────────────────
-
-def _wmctrl_focus_window(identifier: str) -> dict:
-    """Focus a window by partial title match using wmctrl (no xdotool)."""
-    result = subprocess.run(
-        ["wmctrl", "-a", identifier],
-        capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
-    )
-    if result.returncode == 0:
-        return {"success": True, "message": f"Focused window: {identifier}"}
-    return {"success": False, "message": f"Window not found: {identifier} — {result.stderr.strip()}"}
-
-
-def _wmctrl_search_window(identifier: str) -> dict:
-    """Search for windows by title via wmctrl -l."""
-    result = subprocess.run(
-        ["wmctrl", "-l"],
-        capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
-    )
-    if result.returncode != 0:
-        return {"success": False, "message": f"wmctrl list failed: {result.stderr.strip()}"}
-    matches = [line for line in result.stdout.splitlines() if identifier.lower() in line.lower()]
-    if matches:
-        return {"success": True, "message": f"Found {len(matches)} window(s) matching '{identifier}': {'; '.join(matches[:5])}"}
-    return {"success": False, "message": f"No windows matching: {identifier}"}
-
-
-def _wmctrl_minimize_window(identifier: str) -> dict:
-    """Minimize a window by title using wmctrl."""
-    # wmctrl doesn't have a direct minimize; use -b add,hidden
-    result = subprocess.run(
-        ["wmctrl", "-r", identifier, "-b", "add,hidden"],
-        capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
-    )
-    if result.returncode == 0:
-        return {"success": True, "message": f"Minimized window: {identifier}"}
-    return {"success": False, "message": f"Failed to minimize: {identifier} — {result.stderr.strip()}"}
-
-
-def _wmctrl_maximize_window(identifier: str) -> dict:
-    """Maximize a window by title using wmctrl."""
-    result = subprocess.run(
-        ["wmctrl", "-r", identifier, "-b", "add,maximized_vert,maximized_horz"],
-        capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
-    )
-    if result.returncode == 0:
-        return {"success": True, "message": f"Maximized window: {identifier}"}
-    return {"success": False, "message": f"Failed to maximize: {identifier} — {result.stderr.strip()}"}
-
-
-def _wmctrl_move_window(identifier: str, x: int, y: int) -> dict:
-    """Move a window to (x,y) using wmctrl."""
-    # wmctrl -r <name> -e <gravity>,<x>,<y>,<w>,<h>  (-1 = unchanged)
-    result = subprocess.run(
-        ["wmctrl", "-r", identifier, "-e", f"0,{x},{y},-1,-1"],
-        capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
-    )
-    if result.returncode == 0:
-        return {"success": True, "message": f"Moved window {identifier} to ({x},{y})"}
-    return {"success": False, "message": f"Failed to move: {identifier} — {result.stderr.strip()}"}
-
-
-def _wmctrl_resize_window(identifier: str, w: int, h: int) -> dict:
-    """Resize a window using wmctrl."""
-    result = subprocess.run(
-        ["wmctrl", "-r", identifier, "-e", f"0,-1,-1,{w},{h}"],
-        capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
-    )
-    if result.returncode == 0:
-        return {"success": True, "message": f"Resized window {identifier} to {w}x{h}"}
-    return {"success": False, "message": f"Failed to resize: {identifier} — {result.stderr.strip()}"}
-
-
 
 _KEY_MAP_XDO = {
     "enter": "Return", "return": "Return",

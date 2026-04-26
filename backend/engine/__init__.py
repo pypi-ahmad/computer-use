@@ -1,4 +1,3 @@
-from __future__ import annotations
 """Unified Computer Use engine — native CU protocol for supported providers.
 
 Replaces ad-hoc text-parsing of model responses with the structured
@@ -25,9 +24,11 @@ Usage::
     result = await engine.execute_task("Search for ...")
 """
 
+from __future__ import annotations
 
 import asyncio
 import base64
+import inspect
 import io
 import logging
 import math
@@ -451,6 +452,146 @@ class Environment(str, Enum):
 
     BROWSER = "browser"
     DESKTOP = "desktop"
+
+
+def _normalize_search_provider(provider: Provider | str) -> str:
+    """Normalize server and engine provider names for search validation."""
+    raw = provider.value if isinstance(provider, Provider) else str(provider)
+    normalized = {
+        "google": "gemini",
+        "gemini": "gemini",
+        "anthropic": "claude",
+        "claude": "claude",
+        "openai": "openai",
+    }.get(raw.strip().lower())
+    if normalized is None:
+        raise ValueError(f"Unsupported provider for built-in search validation: {raw!r}")
+    return normalized
+
+
+def _get_gemini_builtin_search_sdk_error() -> str | None:
+    """Return a compatibility error when Gemini combo tooling is unavailable."""
+    try:
+        from google.genai import types as genai_types
+    except Exception:
+        return "Gemini google_search + computer_use requires the google-genai SDK to be installed."
+
+    if getattr(genai_types, "GoogleSearch", None) is None:
+        return (
+            "Gemini google_search was requested but the installed google-genai "
+            "SDK does not expose GoogleSearch."
+        )
+
+    try:
+        params = inspect.signature(genai_types.GenerateContentConfig).parameters
+    except (TypeError, ValueError):
+        params = {}
+    if "include_server_side_tool_invocations" not in params:
+        return (
+            "Gemini google_search + computer_use requires "
+            "include_server_side_tool_invocations=True and "
+            "tool_config.function_calling_config.mode=VALIDATED, but the "
+            "installed google-genai SDK does not expose "
+            "include_server_side_tool_invocations."
+        )
+
+    if "tool_config" not in params:
+        return (
+            "Gemini google_search + computer_use requires "
+            "include_server_side_tool_invocations=True and "
+            "tool_config.function_calling_config.mode=VALIDATED, but the "
+            "installed google-genai SDK does not expose tool_config on "
+            "GenerateContentConfig."
+        )
+
+    if getattr(genai_types, "ToolConfig", None) is None:
+        return (
+            "Gemini google_search + computer_use requires "
+            "include_server_side_tool_invocations=True and "
+            "tool_config.function_calling_config.mode=VALIDATED, but the "
+            "installed google-genai SDK does not expose ToolConfig."
+        )
+
+    if getattr(genai_types, "FunctionCallingConfig", None) is None:
+        return (
+            "Gemini google_search + computer_use requires "
+            "include_server_side_tool_invocations=True and "
+            "tool_config.function_calling_config.mode=VALIDATED, but the "
+            "installed google-genai SDK does not expose FunctionCallingConfig."
+        )
+
+    _mode_enum = getattr(genai_types, "FunctionCallingConfigMode", None)
+    if _mode_enum is None or getattr(_mode_enum, "VALIDATED", None) is None:
+        return (
+            "Gemini google_search + computer_use requires "
+            "include_server_side_tool_invocations=True and "
+            "tool_config.function_calling_config.mode=VALIDATED, but the "
+            "installed google-genai SDK does not expose "
+            "FunctionCallingConfigMode.VALIDATED."
+        )
+    return None
+
+
+def validate_builtin_search_config(
+    *,
+    provider: Provider | str,
+    model: str,
+    use_builtin_search: bool,
+    reasoning_effort: str | None = None,
+    search_max_uses: int | None = None,
+    search_allowed_domains: list[str] | None = None,
+    search_blocked_domains: list[str] | None = None,
+) -> None:
+    """Validate provider-native search settings before any API call is built."""
+    has_domain_filters = bool(search_allowed_domains) or bool(search_blocked_domains)
+    if not use_builtin_search:
+        if search_max_uses is not None or has_domain_filters:
+            raise ValueError("Search options require use_builtin_search=true.")
+        return
+
+    provider_key = _normalize_search_provider(provider)
+
+    if provider_key == "claude":
+        if not _app_config.anthropic_web_search_enabled:
+            raise ValueError(
+                "Anthropic web search must be enabled by your organization's admin in Claude Console. "
+                "After enabling it, set CUA_ANTHROPIC_WEB_SEARCH_ENABLED=1 to acknowledge that "
+                "prerequisite before using use_builtin_search with Anthropic models."
+            )
+        if search_allowed_domains and search_blocked_domains:
+            raise ValueError(
+                "Anthropic web search accepts either search_allowed_domains or "
+                "search_blocked_domains, not both.",
+            )
+        return
+
+    if provider_key == "gemini":
+        if not model.startswith("gemini-3"):
+            raise ValueError(
+                "Gemini combined computer_use + google_search is documented only "
+                "for Gemini 3 models.",
+            )
+        if search_max_uses is not None or has_domain_filters:
+            raise ValueError(
+                "Gemini google_search does not support search_max_uses or domain "
+                "filters in the fetched API docs.",
+            )
+        sdk_error = _get_gemini_builtin_search_sdk_error()
+        if sdk_error:
+            raise ValueError(sdk_error)
+        return
+
+    if provider_key == "openai":
+        openai_effort = (reasoning_effort or "").lower()
+        if openai_effort == "none":
+            openai_effort = "minimal"
+        if search_max_uses is not None:
+            raise ValueError("OpenAI web_search does not support search_max_uses.")
+        if model.startswith("gpt-5") and openai_effort == "minimal":
+            raise ValueError(
+                "OpenAI web_search is not supported with gpt-5 models at minimal reasoning.",
+            )
+        return
 
 
 class SafetyDecision(str, Enum):
@@ -1290,9 +1431,9 @@ class ComputerUseEngine:
         elif provider == Provider.OPENAI:
             self._client = OpenAICUClient(
                 api_key=api_key,
-                model=model or "gpt-5.4",
+                model=model or "gpt-5.5",
                 system_prompt=system_instruction,
-                reasoning_effort=reasoning_effort or "high",
+                reasoning_effort=reasoning_effort or "medium",
                 **search_kwargs,
                 **file_kwargs,
             )
