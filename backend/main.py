@@ -6,8 +6,8 @@ import sys
 
 import uvicorn
 
-from backend.config import config
-from backend.logging_ctx import configure_logging
+from backend.infra.config import config
+from backend.infra.observability import configure_logging
 
 # Install structured logging before the first ``logger.*`` call so the
 # bind-guardrail ERROR lines (which fire before uvicorn.run) come out
