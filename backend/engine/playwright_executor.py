@@ -1,4 +1,5 @@
-"""Playwright-backed action executor for Gemini browser-mode sessions.
+from __future__ import annotations
+"""Playwright-backed action executor for browser-mode sessions.
 
 The Google Gemini Computer Use docs (https://ai.google.dev/gemini-api/docs/computer-use)
 use Playwright as the client-side action handler in their reference
@@ -19,7 +20,6 @@ the existing noVNC viewer; only Playwright's wire protocol crosses
 the container boundary.
 """
 
-from __future__ import annotations
 
 import asyncio
 import logging
@@ -38,21 +38,44 @@ _DEFAULT_CDP_ENDPOINT = "http://127.0.0.1:9223"
 
 def _cdp_endpoint() -> str:
     """Return the CDP endpoint the executor should connect to."""
-    return os.environ.get("CUA_GEMINI_CDP_ENDPOINT", _DEFAULT_CDP_ENDPOINT)
+    return (
+        os.environ.get("CUA_BROWSER_CDP_ENDPOINT")
+        or os.environ.get("CUA_GEMINI_CDP_ENDPOINT")
+        or _DEFAULT_CDP_ENDPOINT
+    )
 
 
-class GeminiPlaywrightExecutor:
+def browser_playwright_enabled() -> bool:
+    """Return True when browser-mode sessions should use Playwright.
+
+    ``CUA_BROWSER_USE_PLAYWRIGHT=0`` is the shared opt-out. The legacy
+    ``CUA_GEMINI_USE_PLAYWRIGHT=0`` flag remains supported when the
+    shared flag is unset.
+    """
+    flag = os.environ.get("CUA_BROWSER_USE_PLAYWRIGHT")
+    if flag is None:
+        flag = os.environ.get("CUA_GEMINI_USE_PLAYWRIGHT")
+    if flag is not None and flag.strip() == "0":
+        return False
+    try:
+        import playwright  # noqa: F401
+    except ImportError:
+        logger.error(
+            "Browser mode requested the Playwright Chromium layer but the "
+            "`playwright` package is not installed in the backend venv. "
+            "Install via `pip install -r requirements.txt`. Falling back "
+            "to the desktop xdotool path for this session."
+        )
+        return False
+    return True
+
+
+class ChromiumPlaywrightExecutor:
     """``ActionExecutor`` that drives the sandbox Chromium via CDP.
 
-    Supports the Gemini browser-mode UI actions documented at
-    https://ai.google.dev/gemini-api/docs/computer-use#supported-ui-actions
-    : ``open_web_browser``, ``wait_5_seconds``, ``go_back``,
-    ``go_forward``, ``search``, ``navigate``, ``click_at``,
-    ``hover_at``, ``type_text_at``, ``key_combination``,
-    ``scroll_document``, ``scroll_at``, and ``drag_and_drop``.
-    Coordinate args use Gemini's 0–999 normalized grid and are
-    denormalised against the configured ``screen_width`` /
-    ``screen_height`` per the docs example.
+    This is the provider-neutral Chromium browser layer used by browser-mode
+    sessions. Gemini uses normalized coordinates; Anthropic and OpenAI use
+    pixel coordinates.
     """
 
     def __init__(
@@ -60,10 +83,12 @@ class GeminiPlaywrightExecutor:
         screen_width: int,
         screen_height: int,
         cdp_endpoint: str | None = None,
+        normalize_coords: bool = False,
     ) -> None:
         self.screen_width = screen_width
         self.screen_height = screen_height
         self._cdp_endpoint = cdp_endpoint or _cdp_endpoint()
+        self._normalize_coords = normalize_coords
         self._pw: Any = None
         self._browser: Any = None
         self._context: Any = None
@@ -136,8 +161,10 @@ class GeminiPlaywrightExecutor:
     # ── ActionExecutor protocol ──────────────────────────────────────
 
     def _px(self, x: int, y: int) -> tuple[float, float]:
-        """Denormalise Gemini 0-999 coords to viewport pixels."""
-        return (x / 1000 * self.screen_width, y / 1000 * self.screen_height)
+        """Map model coordinates to viewport pixels."""
+        if self._normalize_coords:
+            return (x / 1000 * self.screen_width, y / 1000 * self.screen_height)
+        return float(x), float(y)
 
     async def capture_screenshot(self) -> bytes:
         await self._ensure_started()
@@ -154,12 +181,16 @@ class GeminiPlaywrightExecutor:
     async def execute(self, name: str, args: dict[str, Any]) -> CUActionResult:
         await self._ensure_started()
         try:
-            await self._dispatch(name, args)
-            try:
-                await self._page.wait_for_load_state(timeout=5000)
-            except Exception:
-                pass
-            return CUActionResult(name=name, success=True)
+            extra = await self._dispatch(name, args) or {}
+            if name not in {
+                "hover_at", "move", "scroll_document", "scroll_at",
+                "left_mouse_down", "left_mouse_up", "hold_key", "zoom",
+            }:
+                try:
+                    await self._page.wait_for_load_state(timeout=5000)
+                except Exception:
+                    pass
+            return CUActionResult(name=name, success=True, extra=extra)
         except _UnimplementedAction as exc:
             return CUActionResult(name=name, success=False, error=str(exc))
         except Exception as exc:
@@ -167,33 +198,53 @@ class GeminiPlaywrightExecutor:
                          name, type(exc).__name__, exc)
             return CUActionResult(name=name, success=False, error=str(exc))
 
-    async def _dispatch(self, name: str, args: dict[str, Any]) -> None:
+    async def _dispatch(self, name: str, args: dict[str, Any]) -> dict[str, Any] | None:
         page = self._page
         if name == "open_web_browser":
-            return  # browser is already open in the sandbox
+            return {}
         if name == "wait_5_seconds":
             await asyncio.sleep(5)
-            return
+            return {"duration_seconds": 5}
         if name == "go_back":
             await page.go_back()
-            return
+            return {}
         if name == "go_forward":
             await page.go_forward()
-            return
+            return {}
         if name == "search":
             await page.goto("https://www.google.com")
-            return
+            return {"url": page.url}
         if name == "navigate":
             await page.goto(args["url"])
-            return
+            return {"url": args["url"]}
         if name == "click_at":
             x, y = self._px(args["x"], args["y"])
             await page.mouse.click(x, y)
-            return
+            return {"pixel_x": x, "pixel_y": y}
+        if name == "double_click":
+            x, y = self._px(args["x"], args["y"])
+            await page.mouse.dblclick(x, y)
+            return {"pixel_x": x, "pixel_y": y}
+        if name == "right_click":
+            x, y = self._px(args["x"], args["y"])
+            await page.mouse.click(x, y, button="right")
+            return {"pixel_x": x, "pixel_y": y}
+        if name == "middle_click":
+            x, y = self._px(args["x"], args["y"])
+            await page.mouse.click(x, y, button="middle")
+            return {"pixel_x": x, "pixel_y": y}
+        if name == "triple_click":
+            x, y = self._px(args["x"], args["y"])
+            await page.mouse.click(x, y, click_count=3)
+            return {"pixel_x": x, "pixel_y": y}
         if name == "hover_at":
             x, y = self._px(args["x"], args["y"])
             await page.mouse.move(x, y)
-            return
+            return {"pixel_x": x, "pixel_y": y}
+        if name == "move":
+            x, y = self._px(args["x"], args["y"])
+            await page.mouse.move(x, y)
+            return {"pixel_x": x, "pixel_y": y}
         if name == "type_text_at":
             x, y = self._px(args["x"], args["y"])
             await page.mouse.click(x, y)
@@ -203,21 +254,36 @@ class GeminiPlaywrightExecutor:
             await page.keyboard.type(args.get("text", ""))
             if args.get("press_enter", True):
                 await page.keyboard.press("Enter")
-            return
+            return {"pixel_x": x, "pixel_y": y, "text": args.get("text", "")}
+        if name == "type_at_cursor":
+            await page.keyboard.type(args.get("text", ""))
+            if args.get("press_enter", False):
+                await page.keyboard.press("Enter")
+            return {"text": args.get("text", "")}
         if name == "key_combination":
             await page.keyboard.press(_normalize_keys(args["keys"]))
-            return
+            return {"keys": args["keys"]}
         if name == "scroll_document":
             dx, dy = _scroll_delta(args.get("direction", "down"), 800)
             await page.mouse.wheel(dx, dy)
-            return
+            return {"direction": args.get("direction", "down")}
         if name == "scroll_at":
-            x, y = self._px(args["x"], args["y"])
+            raw_x = args.get("x")
+            raw_y = args.get("y")
+            if raw_x is not None and raw_y is not None:
+                x, y = self._px(raw_x, raw_y)
+                await page.mouse.move(x, y)
             magnitude = int(args.get("magnitude", 800))
             dx, dy = _scroll_delta(args.get("direction", "down"), magnitude)
-            await page.mouse.move(x, y)
             await page.mouse.wheel(dx, dy)
-            return
+            extra = {
+                "direction": args.get("direction", "down"),
+                "magnitude": magnitude,
+            }
+            if raw_x is not None and raw_y is not None:
+                extra["pixel_x"] = x
+                extra["pixel_y"] = y
+            return extra
         if name == "drag_and_drop":
             x1, y1 = self._px(args["x"], args["y"])
             x2, y2 = self._px(args["destination_x"], args["destination_y"])
@@ -225,7 +291,33 @@ class GeminiPlaywrightExecutor:
             await page.mouse.down()
             await page.mouse.move(x2, y2)
             await page.mouse.up()
-            return
+            return {"from": (x1, y1), "to": (x2, y2)}
+        if name == "left_mouse_down":
+            await page.mouse.down()
+            return {}
+        if name == "left_mouse_up":
+            await page.mouse.up()
+            return {}
+        if name == "hold_key":
+            key = _normalize_keys(str(args.get("key", "")))
+            duration = max(0.0, min(float(args.get("duration", 1)), 10.0))
+            await page.keyboard.down(key)
+            await asyncio.sleep(duration)
+            await page.keyboard.up(key)
+            return {"key": args.get("key", ""), "duration": duration}
+        if name == "zoom":
+            region = args.get("region") or []
+            if len(region) != 4:
+                raise _UnimplementedAction("zoom requires region=[x1, y1, x2, y2]")
+            x1, y1, x2, y2 = [int(value) for value in region]
+            clip = {
+                "x": float(x1),
+                "y": float(y1),
+                "width": float(max(1, x2 - x1)),
+                "height": float(max(1, y2 - y1)),
+            }
+            image_bytes = await page.screenshot(type="png", clip=clip)
+            return {"region": [x1, y1, x2, y2], "image_bytes": image_bytes}
         raise _UnimplementedAction(f"Unimplemented playwright action: {name}")
 
 
@@ -257,3 +349,6 @@ def _normalize_keys(keys: str) -> str:
     for part in parts:
         out.append(part.capitalize() if part.lower() in mods else part)
     return "+".join(out)
+
+
+GeminiPlaywrightExecutor = ChromiumPlaywrightExecutor

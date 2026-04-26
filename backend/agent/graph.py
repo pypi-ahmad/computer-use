@@ -1,3 +1,4 @@
+from __future__ import annotations
 """LangGraph state machine for the Computer Use agent loop (PR 7).
 
 The orchestration is a six-node ``StateGraph`` over :class:`AgentGraphState`
@@ -28,7 +29,6 @@ OpenAI still uses the legacy ``run_loop`` shim and yields a terminal
 event stream through the adapter.
 """
 
-from __future__ import annotations
 
 import logging
 from contextlib import AsyncExitStack
@@ -387,7 +387,7 @@ def _make_approval_interrupt(bundle: NodeBundle):
         # Kept best-effort so a tracing-module import error cannot break
         # the graph's approval handshake.
         try:
-            from backend import tracing
+            from backend.infra import observability as tracing
             tracing.record(
                 sid, tracing.STAGE_APPROVAL, tracing.EVT_APPROVAL_RESOLVED,
                 {"decision": decision, "explanation": explanation},
@@ -441,7 +441,7 @@ def _make_recover_or_retry(bundle: NodeBundle):
         count = int(state.get("retry_count", 0)) + 1
         # OBS: record the retry decision in the session trace.
         try:
-            from backend import tracing
+            from backend.infra import observability as tracing
             tracing.record(
                 str(state.get("session_id", "")),
                 tracing.STAGE_RETRY, tracing.EVT_RETRY,

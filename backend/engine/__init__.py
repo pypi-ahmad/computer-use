@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Unified Computer Use engine — native CU protocol for supported providers.
 
 Replaces ad-hoc text-parsing of model responses with the structured
@@ -24,7 +25,6 @@ Usage::
     result = await engine.execute_task("Search for ...")
 """
 
-from __future__ import annotations
 
 import asyncio
 import base64
@@ -38,8 +38,8 @@ from typing import Any, Callable, Protocol
 
 import httpx
 
-from backend.config import config as _app_config
-from backend._models_loader import load_allowed_models_json as _load_allowed_models_json
+from backend.infra.config import config as _app_config
+from backend.models.schemas import load_allowed_models_json as _load_allowed_models_json
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +106,26 @@ def _extract_openai_output_text(output_items: list[Any]) -> str:
             if text:
                 text_parts.append(str(text).strip())
     return "\n\n".join(part for part in text_parts if part)
+
+
+def _append_source_footer(text: str, sources: list[tuple[str, str]]) -> str:
+    """Append a compact source list when provider search returned URLs."""
+    seen: set[str] = set()
+    deduped: list[tuple[str, str]] = []
+    for title, url in sources:
+        clean_url = str(url or "").strip()
+        if not clean_url or clean_url in seen:
+            continue
+        seen.add(clean_url)
+        clean_title = str(title or clean_url).strip() or clean_url
+        deduped.append((clean_title, clean_url))
+    if not deduped:
+        return text
+    footer = "\n".join(f"- {title}: {url}" for title, url in deduped)
+    base = text.strip() if text else ""
+    if base:
+        return f"{base}\n\nSources:\n{footer}"
+    return f"Sources:\n{footer}"
 
 
 def _build_openai_computer_call_output(
@@ -1282,40 +1302,13 @@ class ComputerUseEngine:
     def _build_executor(self, page: Any = None) -> ActionExecutor:
         """Build the action executor for this session.
 
-        Default path: the unified xdotool ``DesktopExecutor`` against
-        the Docker sandbox.  Both DESKTOP and BROWSER environments
-        share that harness — Chromium runs as a normal X11
-        application on the same desktop, so screenshots and click
-        coordinates work the same way in either mode.
-
-        Gemini browser-mode opt-in: per Google's official Computer
-        Use docs (https://ai.google.dev/gemini-api/docs/computer-use),
-        the recommended client-side action handler is Playwright.
-        When the operator sets ``CUA_GEMINI_USE_PLAYWRIGHT=1`` and
-        ``playwright`` is importable, route Gemini browser sessions
-        through ``GeminiPlaywrightExecutor`` which drives a
-        Chromium ``page`` via ``page.mouse``, ``page.keyboard``,
-        ``page.goto``, and ``page.screenshot()`` exactly as shown
-        in the docs sample. The flag is off by default so the
-        default image stays lean (~500 MB Playwright bundle).
+        Unified Computer Use surface: a single X11 sandbox where
+        Chromium is pre-installed. The provider's CU tool decides
+        whether to drive desktop applications or Chromium itself, so
+        we always return the xdotool-backed ``DesktopExecutor``.
         """
         # Gemini uses normalized 0-999 coords; Claude/OpenAI use real pixels
         normalize = self.provider == Provider.GEMINI
-
-        if (
-            self.provider == Provider.GEMINI
-            and self.environment == Environment.BROWSER
-        ):
-            from backend.engine.gemini import _gemini_playwright_enabled
-            if _gemini_playwright_enabled():
-                from backend.engine.playwright_executor import (
-                    GeminiPlaywrightExecutor,
-                )
-                return GeminiPlaywrightExecutor(
-                    screen_width=self.screen_width,
-                    screen_height=self.screen_height,
-                )
-
         return DesktopExecutor(
             screen_width=self.screen_width,
             screen_height=self.screen_height,
