@@ -60,12 +60,12 @@ flowchart TB
    `frontend/src/hooks/useSessionController.js`.
 2. The frontend keeps `/ws` open via
    `frontend/src/hooks/useWebSocket.js`. If the user switches to the
-   interactive desktop, `frontend/src/components/ScreenView.jsx` loads
+   interactive desktop, `frontend/src/components.jsx` loads
    `/vnc/vnc.html` and points its `path=` query at `/vnc/websockify`.
 3. `POST /api/agent/start` in `backend/server.py` validates the request,
    checks origin policy, resolves the API key, enforces the allowlisted
-   model registry from `backend/allowed_models.json`, and calls
-   `backend/docker_manager.py::start_container()`.
+   model registry from `backend/models/allowed_models.json`, and calls
+   `backend/infra/docker.py::start_container()`.
 4. The backend waits for `docker/agent_service.py` to answer `/health`,
    then creates an `AgentLoop` from `backend/agent/loop.py`. The loop
    builds a LangGraph `NodeBundle`, wraps it with tracing, and compiles
@@ -154,9 +154,15 @@ the event stream by `iter_turns_via_run_loop()`.
 `ComputerUseEngine` chooses a provider client, builds a
 `DesktopExecutor`, and offers two public execution styles:
 `execute_task()` for the legacy callback path and `iter_turns()` for the
-LangGraph driver. `backend/allowed_models.json`, loaded through
-`backend/_models_loader.py`, is the single source of truth for exposed
+LangGraph driver. `backend/models/allowed_models.json`, loaded through
+`backend/models/schemas.py`, is the single source of truth for exposed
 model ids and CU capability flags.
+
+At the product layer, web search is optional and controlled by the workbench's
+toggle button. `ComputerUseEngine` therefore accepts `use_builtin_search` as a
+plain availability flag: when false, the provider adapter emits only the
+computer-use tool; when true, it adds the provider-native search tool without
+flattening vendor-specific request shapes into one synthetic abstraction.
 
 The shared helpers in `backend/engine/__init__.py` are also part of that
 contract. `_call_with_retry()`, `scrub_secrets()`, `_is_opus_47()`,
@@ -167,7 +173,7 @@ the OpenAI replay helpers affect more than one provider at once.
 
 `backend/engine/claude.py` implements `ClaudeCUClient` on top of
 `anthropic.AsyncAnthropic.beta.messages.create()`. Tool version and beta
-header are resolved from `backend/allowed_models.json` when possible,
+header are resolved from `backend/models/allowed_models.json` when possible,
 then auto-detected from the model id as a fallback. In current code,
 Claude Opus 4.7, Claude Opus 4.6, and Claude Sonnet 4.6 all run on the
 `computer_20251124` path with beta header
@@ -183,9 +189,12 @@ Claude never yields `SafetyRequired`; refusal is server-side through
 `stop_reason == "refusal"`. `CUA_CLAUDE_CACHING=1` adds
 `cache_control: {"type": "ephemeral"}` and `_prune_claude_context()`
 removes old image payloads.
+When `use_builtin_search` is true, the adapter also advertises Anthropic's
+official `web_search_20250305` server tool in the same `tools` array as the
+computer-use tool. When false, it emits only the computer-use tool.
 
 When `attached_file_ids` is non-empty, `ClaudeCUClient` resolves the
-local `f_...` ids against `backend.file_store`, adds the
+local `f_...` ids against `backend.infra.storage`, adds the
 `files-api-2025-04-14` beta, uploads `.pdf` / `.txt` files through
 `client.beta.files.upload()`, and emits `document` content blocks with
 the returned `file_...` ids. `.md` and `.docx` are not legal Claude
@@ -200,6 +209,9 @@ re-upload or re-extract the same material.
 Responses API. For `gpt-5.4` it emits the built-in short-form
 `{"type": "computer"}` tool; the old `computer-use-preview` branch is
 still present only as compatibility code.
+When `use_builtin_search` is true, `OpenAICUClient` also attaches the official
+Responses `web_search` tool alongside `computer`, which is the documented
+OpenAI combined-tool path for live web context plus UI action execution.
 
 The core invariant is stateless, ZDR-safe replay. The adapter sets
 `include=["reasoning.encrypted_content"]`, `store=False`,
@@ -223,6 +235,10 @@ natural fit for the graph because it already yields a native
 `agen.asend(bool)`. The adapter sends the initial screenshot as inline
 PNG bytes, then on each tool turn returns `FunctionResponse` parts that
 embed the next screenshot directly.
+When `use_builtin_search` is true, `GeminiCUClient` also attaches
+`Tool(google_search=GoogleSearch())` alongside `computer_use` and sets
+`include_server_side_tool_invocations=True`, which is required for Google's
+documented combined-tool path.
 
 Gemini coordinates are normalized on a 0-999 grid. `DesktopExecutor`
 denormalizes them before the action reaches `docker/agent_service.py`.
@@ -253,11 +269,11 @@ not attach `Tool(file_search=...)` to the same Computer Use call.
 Instead `_run_file_search_pre_step()` performs a one-shot
 File-Search-only `generate_content()` call, captures the grounded text
 and citations, and prepends that context to the first Computer Use user
-turn. This keeps the loop doc-compliant while still allowing
-`google_search` during later Computer Use turns.
+turn. This keeps the loop doc-compliant while preserving the optional
+`google_search` tool during later Computer Use turns when the toggle is on.
 
 `gemini-3.1-pro-preview` and every other non-Flash Gemini id have been
-removed from `backend/allowed_models.json`. Google's official Computer
+removed from `backend/models/allowed_models.json`. Google's official Computer
 Use docs list only `gemini-3-flash-preview` (and the legacy
 `gemini-2.5-computer-use-preview-10-2025`); the repo standardises on
 Flash as the single Gemini CU SKU. See [CHANGELOG.md](CHANGELOG.md).
@@ -304,7 +320,7 @@ finalization.
 ### 6.1 Isolation posture
 
 The sandbox image is defined in `docker/Dockerfile` and launched from
-`backend/docker_manager.py`. It runs as user `agent` (UID 1000), with
+`backend/infra/docker.py`. It runs as user `agent` (UID 1000), with
 loopback-only port mappings for 5900, 6080, and 9222, plus
 `no-new-privileges`, memory/CPU limits, and no host mounts. The host
 generates `AGENT_SERVICE_TOKEN` if needed and passes it through a
@@ -324,11 +340,11 @@ Every desktop action goes through `DesktopExecutor` in
 `POST /action` requests against `docker/agent_service.py`.
 
 Inside the container, `AgentHandler.do_POST()` resolves aliases through
-`backend.action_aliases.resolve_action()` and rejects anything not in the
+`backend.models.registry.resolve_action()` and rejects anything not in the
 always-on `_ENGINE_ACTIONS` set unless `CUA_ENABLE_LEGACY_ACTIONS=1` is
 set. Additional guards limit keyboard tokens, block dangerous shell
 patterns on the legacy `run_command` path, and keep upload helpers
-inside approved prefixes. `backend/certifier.py` is not a runtime gate;
+inside approved prefixes. `backend/models/validation.py` is not a runtime gate;
 it is an offline validator.
 
 ### 6.3 Screenshot publishing
@@ -360,7 +376,7 @@ stack.
 
 ## 7. Observability and tracing
 
-`backend/tracing.py` records every session as an in-memory event stream
+`backend/infra/observability.py` records every session as an in-memory event stream
 and flushes it to `$CUA_TRACE_DIR/<session_id>.json` on terminal states.
 Tracing is additive: it wraps the `NodeBundle` and provider iterator.
 
@@ -372,8 +388,8 @@ status, and no tool batch while approval is pending.
 
 `evals/_harness.py` builds on that trace model by running fake iterators
 through the real graph and approval path. The same module exposes
-`python -m backend.tracing dump <session_id>` and
-`python -m backend.tracing list`.
+`python -m backend.infra.observability dump <session_id>` and
+`python -m backend.infra.observability list`.
 
 ## 8. Configuration surface
 
@@ -383,12 +399,12 @@ that reads them.
 ### 8.1 Credentials and auth
 
 - `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and `GOOGLE_API_KEY`
-  (strings, no defaults) are resolved in `backend/config.py`.
+  (strings, no defaults) are resolved in `backend/infra/config.py`.
   `GEMINI_API_KEY` is honored as a fallback alias for the Gemini
   provider when `GOOGLE_API_KEY` is unset.
 - `VITE_WS_TOKEN` (string, build-time frontend env, no default) is read
   in `frontend/src/hooks/useWebSocket.js` and
-  `frontend/src/components/ScreenView.jsx`; it must match
+  `frontend/src/components.jsx`; it must match
   `CUA_WS_TOKEN` when WebSocket auth is enabled.
 - `CUA_WS_TOKEN` (string, default empty) is read in `backend/server.py`
   and guarded again in `backend/main.py`.
@@ -398,10 +414,10 @@ that reads them.
 
 ### 8.2 Backend server and persistence
 
-- `HOST` and `PORT` (string/int, defaults `127.0.0.1` and `8000`) are
-  read in `backend/config.py` and enforced in `backend/main.py`.
+- `HOST` and `PORT` (string/int, defaults `127.0.0.1` and `8100`) are
+  read in `backend/infra/config.py` and enforced in `backend/main.py`.
 - `DEBUG`, `LOG_LEVEL`, and `LOG_FORMAT` control backend logging and are
-  read in `backend/config.py` and `backend/logging_ctx.py`.
+  read in `backend/infra/config.py` and `backend/infra/observability.py`.
 - `CUA_RELOAD` (bool, default false) controls hot reload.
 - `CORS_ORIGINS` and `CUA_ALLOWED_HOSTS` are parsed in
   `backend/server.py` for origin and `Host` validation.
@@ -414,7 +430,7 @@ that reads them.
 - `CUA_SESSIONS_MAX_THREADS` (int, default 1000 with floor 50) is read
   in `backend/server.py`.
 - `CUA_TRACE_DIR` (path string, default
-  `~/.computer-use/traces/`) is read in `backend/tracing.py`.
+  `~/.computer-use/traces/`) is read in `backend/infra/observability.py`.
 - `CUA_TEST_MODE` enables test-only behavior in `backend/server.py`.
 - `CUA_DEBUG_TB` re-enables executor tracebacks in
   `backend/engine/__init__.py`.
@@ -424,29 +440,29 @@ that reads them.
 - `GEMINI_MODEL` (string, default `gemini-3-flash-preview`) supplies the
   default model when the request does not specify one.
 - `CONTAINER_NAME` (string, default `cua-environment`) is read in
-  `backend/config.py` and used by `backend/docker_manager.py`.
+  `backend/infra/config.py` and used by `backend/infra/docker.py`.
 - `AGENT_SERVICE_HOST` and `AGENT_SERVICE_PORT` (default `127.0.0.1` and
-  `9222`) are read in `backend/config.py`; the same port is also read in
+  `9222`) are read in `backend/infra/config.py`; the same port is also read in
   `docker/agent_service.py`.
 - `AGENT_MODE` (string, default `desktop`) is read in
-  `backend/config.py` and `docker/agent_service.py`.
+  `backend/infra/config.py` and `docker/agent_service.py`.
 - `SCREEN_WIDTH` and `SCREEN_HEIGHT` (ints, defaults `1440` and `900`)
-  are read in `backend/config.py`, passed to Docker, and read again by
+  are read in `backend/infra/config.py`, passed to Docker, and read again by
   `docker/entrypoint.sh` and `docker/agent_service.py`.
 - `MAX_STEPS` (int, default 50, clamped to 200) and `STEP_TIMEOUT`
-  (float, default 30.0) are read in `backend/config.py`.
+  (float, default 30.0) are read in `backend/infra/config.py`.
 - `CUA_WS_SCREENSHOT_INTERVAL` (float, default 1.5) and
   `CUA_WS_SCREENSHOT_SUSPEND_WHEN_IDLE` (bool, default true) are read in
-  `backend/config.py`.
+  `backend/infra/config.py`.
 - `CUA_UI_SETTLE_DELAY`, `CUA_SCREENSHOT_SETTLE_DELAY`, and
   `CUA_POST_ACTION_SCREENSHOT_DELAY` shape post-action pacing in
   `DesktopExecutor`.
 - `CUA_CONTAINER_READY_TIMEOUT`, `CUA_CONTAINER_READY_POLL_BASE`, and
-  `CUA_CONTAINER_READY_POLL_CAP` are read in `backend/config.py` and used
-  by `backend/docker_manager.py::_wait_for_service()`.
+  `CUA_CONTAINER_READY_POLL_CAP` are read in `backend/infra/config.py` and used
+  by `backend/infra/docker.py::_wait_for_service()`.
 - `AGENT_SERVICE_TOKEN` is usually generated by
-  `backend/docker_manager.py::_ensure_agent_token()` and then read by
-  `backend/agent/screenshot.py`, `backend/engine/__init__.py`,
+  `backend/infra/docker.py::_ensure_agent_token()` and then read by
+  `backend/agent/loop.py`, `backend/engine/__init__.py`,
   `backend/server.py`, and `docker/agent_service.py`.
 
 ### 8.4 Provider-specific knobs
@@ -471,7 +487,7 @@ that reads them.
   `CUA_WINDOW_X`, `CUA_WINDOW_Y`, `CUA_WINDOW_W`, and `CUA_WINDOW_H` are
   read in `docker/agent_service.py`.
 - `DISPLAY` is set in `docker/entrypoint.sh`, checked by
-  `backend/certifier.py`, and passed through by `docker/agent_service.py`.
+  `backend/models/validation.py`, and passed through by `docker/agent_service.py`.
 
 ## 9. Testing strategy
 
@@ -483,7 +499,7 @@ dedicated JS test runner.
 
 Run `python -m pytest -p no:warnings --tb=short` for the main suite,
 `pytest evals/` for replay evals, `ruff check .` and `mypy backend` for
-static checks, and `python -m backend.certifier --deep` when changing the
+static checks, and `python -m backend.models.validation --deep` when changing the
 action surface. CI runs backend tests on Python 3.11 and 3.13, frontend
 build on Node 20, and a security job with `pip-audit`, Trivy, and
 Hadolint. Ruff and mypy are advisory in CI, `pytest-cov` is installed but
@@ -516,11 +532,11 @@ invocation because `pyproject.toml` pins `testpaths = ["tests"]`.
 6. **Gemini is restricted to `gemini-3-flash-preview`.**
    All other Gemini ids (including `gemini-3.1-pro-preview` and
    `gemini-2.5-computer-use-preview-10-2025`) have been removed from
-   `backend/allowed_models.json` to match Google's official Computer
+   `backend/models/allowed_models.json` to match Google's official Computer
    Use supported-model list and avoid `400 INVALID_ARGUMENT: Computer
    Use is not enabled` errors. See [CHANGELOG.md](CHANGELOG.md).
 7. **Host-to-container auth uses a generated token, not a plain `-e`
-   flag.** `backend/docker_manager.py` writes `AGENT_SERVICE_TOKEN` to a
+   flag.** `backend/infra/docker.py` writes `AGENT_SERVICE_TOKEN` to a
    temporary env-file and unlinks it after `docker run`, reducing leakage
    through `docker inspect`. See the token-env-file hardening commit in
    repo history.
@@ -529,11 +545,11 @@ invocation because `pyproject.toml` pins `testpaths = ["tests"]`.
 
 ### 11.1 Add a new provider adapter
 
-- Add the model ids and CU support flags to `backend/allowed_models.json`.
+- Add the model ids and CU support flags to `backend/models/allowed_models.json`.
 - Create a provider client under `backend/engine/` and expose it through
   `backend/engine/__init__.py::ComputerUseEngine`.
 - Add or adjust the system prompt in `backend/agent/prompts.py`.
-- Add provider tests following `tests/test_adapters_april2026.py` and the
+- Add provider tests following `tests/engine/test_engine.py` and the
   existing sandbox/provider-specific files.
 
 ### 11.2 Add a new sandbox action
@@ -543,10 +559,10 @@ invocation because `pyproject.toml` pins `testpaths = ["tests"]`.
 - Update `docker/agent_service.py` in `_ENGINE_ACTIONS`, the dispatcher,
   and the concrete helper implementation.
 - If the action should appear in prompt/schema parity checks, update
-  `backend/engine_capabilities.json`, `backend/models.py`, and
+  `backend/models/engine_capabilities.json`, `backend/models/schemas.py`, and
   `backend/agent/prompts.py`.
-- Add tests in `tests/test_agent_service_action_gate.py`,
-  `tests/test_docker_cmd_policy.py`, or the closest action-specific file.
+- Add tests in `tests/docker/test_agent_service.py`,
+  `tests/docker/test_agent_service.py`, or the closest action-specific file.
 
 ### 11.3 Add or change a LangGraph node
 
@@ -554,8 +570,8 @@ invocation because `pyproject.toml` pins `testpaths = ["tests"]`.
   together.
 - If the node needs new I/O, extend `NodeBundle` and then update
   `backend/agent/loop.py::_build_graph_bundle()`.
-- Add routing tests in `tests/test_agent_graph_nodes.py` and any safety
-  interaction tests in `tests/test_agent_graph_safety.py`.
+- Add routing tests in `tests/agent/test_graph.py` and any safety
+  interaction tests in `tests/agent/test_graph.py`.
 
 ### 11.4 Add a new invariant eval
 
@@ -567,7 +583,7 @@ invocation because `pyproject.toml` pins `testpaths = ["tests"]`.
 
 ### 11.5 Update a provider tool version
 
-- Change the canonical metadata first in `backend/allowed_models.json`.
+- Change the canonical metadata first in `backend/models/allowed_models.json`.
 - Update the provider client comments and request builder in
   `backend/engine/claude.py`, `backend/engine/openai.py`, or
   `backend/engine/gemini.py`.
@@ -608,7 +624,7 @@ invocation because `pyproject.toml` pins `testpaths = ["tests"]`.
 - **Session snapshot**: The screenshot-free session state persisted in
   the LangGraph SQLite checkpoint store.
 - **Trace**: The redacted append-only JSON sidecar written by
-  `backend/tracing.py`.
+  `backend/infra/observability.py`.
 
 ## 14. References
 
