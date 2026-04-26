@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Focused integration tests for the highest-risk hot paths.
 
 These complement the unit tests by exercising end-to-end glue that
@@ -16,7 +17,6 @@ Hard rules: deterministic, no network, no real container, no real LLM
 call, no test-harness changes, no new conftest plumbing.
 """
 
-from __future__ import annotations
 
 import base64
 import time
@@ -45,7 +45,7 @@ class TestAgentStartFinishIntegration:
 
     def test_start_then_run_completes_and_broadcasts_finished(self):
         from backend import server
-        from backend.models import AgentSession, SessionStatus
+        from backend.models.schemas import AgentSession, SessionStatus
 
         # Build a fake session that the loop "completes" with one step.
         finished_session = AgentSession(

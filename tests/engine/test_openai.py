@@ -1,3 +1,5 @@
+from __future__ import annotations
+# === merged from tests/test_sandbox_gpt54.py ===
 """Prompt S3 — OpenAI GPT-5.4 sandbox alignment regression tests.
 
 Pins the OpenAI Computer Use guide requirements onto the shared
@@ -12,7 +14,6 @@ sandbox + adapter:
   ``detail: "original"`` \u2014 never ``"high"`` or ``"low"``.
 """
 
-from __future__ import annotations
 
 import base64
 from pathlib import Path
@@ -112,7 +113,7 @@ class TestBrowserSecurityPosture:
         from pathlib import Path
         spec = importlib.util.spec_from_file_location(
             "_gpt54_agent_service_check",
-            Path(__file__).resolve().parents[1] / "docker" / "agent_service.py",
+            Path(__file__).resolve().parents[2] / "docker" / "agent_service.py",
         )
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
@@ -135,7 +136,7 @@ class TestBrowserSecurityPosture:
         from pathlib import Path
         spec = importlib.util.spec_from_file_location(
             "_gpt54_agent_service_env_check",
-            Path(__file__).resolve().parents[1] / "docker" / "agent_service.py",
+            Path(__file__).resolve().parents[2] / "docker" / "agent_service.py",
         )
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
@@ -163,7 +164,7 @@ class TestBrowserSecurityPosture:
         this test with an explicit justification."""
         from pathlib import Path
         text = (
-            Path(__file__).resolve().parents[1] / "docker" / "agent_service.py"
+            Path(__file__).resolve().parents[2] / "docker" / "agent_service.py"
         ).read_text(encoding="utf-8")
         # The forbidden pattern is ``env={**os.environ`` specifically on
         # the browser-launch Popen call. Allow it elsewhere (e.g. inside
@@ -177,3 +178,4 @@ class TestBrowserSecurityPosture:
             "Browser subprocess must use _browser_minimal_env() "
             "(OpenAI CU guide: do not leak host env to the renderer)."
         )
+
