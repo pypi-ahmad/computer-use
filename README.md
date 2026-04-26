@@ -195,7 +195,7 @@ project:
 - Session orchestration is modeled as a LangGraph state machine.
 - Anthropic, OpenAI, and Google adapters keep vendor-specific behavior rather
   than pretending all providers are identical.
-- The model list is controlled by `backend/allowed_models.json`.
+- The model list is controlled by `backend/models/allowed_models.json`.
 - The backend binds to loopback by default.
 - Safety prompts are surfaced to the operator instead of silently accepted.
 - Session state is traceable, and paused sessions can resume after a backend
@@ -313,7 +313,7 @@ the run understandable enough that you can trust, debug, and improve it.
 ## Supported models
 
 At the time of writing, the workbench exposes the current computer-use-capable
-model set through `backend/allowed_models.json`. The backend uses that file at
+model set through `backend/models/allowed_models.json`. The backend uses that file at
 runtime, and the frontend consumes the resulting `/api/models` response.
 
 The current selectable CU-capable models are:
@@ -331,7 +331,7 @@ That distinction matters: being listed in the JSON file is not the same thing as
 being exposed by `/api/models`. The frontend only sees entries that are both
 allowlisted and marked `supports_computer_use: true`.
 
-If you change the model set, edit `backend/allowed_models.json`. That file is the
+If you change the model set, edit `backend/models/allowed_models.json`. That file is the
 source of truth for what the workbench should expose. The rest of the system is
 designed to follow it.
 
@@ -487,7 +487,7 @@ Copy-Item .env.example .env              # only needed if .env doesn't exist
 # Edit .env and set ANTHROPIC_API_KEY / OPENAI_API_KEY / GOOGLE_API_KEY for
 # whichever provider(s) you intend to use. The backend reads them on start.
 
-python -m backend.main                   # serves http://localhost:8000
+python -m backend.main                   # serves http://localhost:8100
 ```
 
 ```powershell
@@ -498,7 +498,7 @@ npm run dev                              # serves http://localhost:3000
 ```
 
 Open `http://localhost:3000` in your browser. The frontend will connect to the
-backend on `8000` and the backend will connect to the sandbox container on
+backend on `8100` and the backend will connect to the sandbox container on
 `9222` (agent service) and `9223` (Chrome DevTools Protocol, used by the
 Gemini Playwright path).
 
@@ -634,7 +634,7 @@ Here are the most important environment variables to understand first:
 | `OPENAI_API_KEY` | your OpenAI key | Required for GPT-5.4 sessions |
 | `GOOGLE_API_KEY` | your Google AI key | Required for Gemini sessions (preferred name) |
 | `GEMINI_API_KEY` | your Google AI key | Accepted as a fallback alias for the Gemini provider |
-| `HOST` / `PORT` | `127.0.0.1` / `8000` | Backend bind address and port |
+| `HOST` / `PORT` | `127.0.0.1` / `8100` | Backend bind address and port |
 | `CUA_WS_TOKEN` | custom secret | Needed when you intentionally expose `/ws` or `/vnc/websockify` beyond loopback |
 | `SCREEN_WIDTH` / `SCREEN_HEIGHT` | `1440` / `900` | Default virtual desktop size |
 | `OPENAI_REASONING_EFFORT` | `high` | Controls OpenAI reasoning effort for CU tasks |
@@ -696,6 +696,9 @@ differently from the older Claude compatibility path that many early examples on
 the Internet still reference. In this repository, Opus 4.7 and Sonnet 4.6 are
 the active Anthropic models. Opus 4.7 is the premium option for harder planning,
 denser UIs, and longer-horizon tasks.
+When the workbench's Web Search toggle is enabled, Anthropic sessions also
+attach the official `web_search_20250305` server tool alongside the computer-
+use tool. When the toggle is off, Claude receives only the computer-use tool.
 
 ### OpenAI
 
@@ -706,6 +709,10 @@ Instead it replays sanitized outputs and carries forward encrypted reasoning
 state in the supported form. That is both a correctness choice and a
 data-handling choice. It also means the adapter logic has to be careful about
 exactly which fields are preserved during replay.
+When the workbench's Web Search toggle is enabled, OpenAI sessions advertise
+the official `web_search` tool alongside `computer`, which matches the
+documented combined-tool Responses flow. When the toggle is off, the request
+uses only `computer`.
 
 ### Google
 
@@ -718,19 +725,25 @@ Playwright-over-CDP path against the in-container Chrome session, with
 `CUA_GEMINI_USE_PLAYWRIGHT=0` falling back to the xdotool path. The repo
 standardizes on `gemini-3-flash-preview`, the only Gemini SKU on Google's
 current Computer Use supported-model list that this project ships against.
+When the workbench's Web Search toggle is enabled, Gemini sessions attach
+`google_search` alongside `computer_use` and set
+`include_server_side_tool_invocations=True`, following Google's documented
+combined-tool configuration. When the toggle is off, Gemini receives only the
+Computer Use tool.
 
 ### Document attachments
 
-The backend now supports provider-native document grounding through
-`POST /api/files/upload` plus `attached_files` on `POST /api/agent/start`, but
-the current React workbench still does not expose a file uploader. OpenAI turns
-those server-side file ids into a vector store and attaches the `file_search`
-tool. Gemini uploads into a File Search store, runs a one-shot file-search-only
-RAG pre-step because Google's docs forbid combining File Search with other
-tools in the same call, then injects the grounded text into the Computer Use
-loop. Anthropic uses the official Files API: `.pdf` and `.txt` become
-`document` blocks, while `.md` and `.docx` are extracted to plain text because
-Claude document blocks only support PDF and `text/plain`.
+The backend and React workbench both support provider-native document
+grounding. The sidebar uploader posts to `POST /api/files/upload`, stores the
+returned ids in `attached_files`, and forwards them on
+`POST /api/agent/start`. Direct API callers can use the same flow manually.
+OpenAI turns those server-side file ids into a vector store and attaches the
+`file_search` tool. Gemini uploads into a File Search store, runs a one-shot
+file-search-only RAG pre-step because Google's docs forbid combining File
+Search with other tools in the same call, then injects the grounded text into
+the Computer Use loop. Anthropic uses the official Files API: `.pdf` and
+`.txt` become `document` blocks, while `.md` and `.docx` are extracted to
+plain text because Claude document blocks only support PDF and `text/plain`.
 
 ## Frontend experience
 
@@ -865,8 +878,8 @@ Typical commands:
 pytest -q
 pytest --collect-only
 ruff check backend tests evals docker
-python -m backend.certifier --json
-python -m backend.tracing list
+python -m backend.models.validation --json
+python -m backend.infra.observability list
 ```
 
 The suite is intentionally not ornamental. Many of the tests exist because the
@@ -1017,7 +1030,7 @@ are still the best places for exhaustive reference material.
 
 ### What should I do if I want to add or remove a model?
 
-Start with `backend/allowed_models.json`, then update any tests and docs that
+Start with `backend/models/allowed_models.json`, then update any tests and docs that
 still describe the old state. In this repository, model drift between runtime,
 frontend, tests, and docs is one of the easiest ways to create confusion.
 

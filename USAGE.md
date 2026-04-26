@@ -48,7 +48,7 @@ layer. Desktop actions run inside the sandbox container, not on the host.
   - Anthropic: <https://console.anthropic.com/settings/keys>
   - OpenAI: <https://platform.openai.com/api-keys>
   - Google AI: <https://aistudio.google.com/apikey>
-- **Free loopback ports.** Defaults: `3000` (frontend), `8000` (backend), `6080` (noVNC),
+- **Free loopback ports.** Defaults: `3000` (frontend), `8100` (backend), `6080` (noVNC),
   `5900` (VNC), `9222` (agent service).
 - **Several GB of free disk space** for the sandbox image and browsers.
 
@@ -158,7 +158,7 @@ cd a:\computer-use
 # intend to use.
 Copy-Item .env.example .env           # only if .env does not exist yet
 
-python -m backend.main                # serves http://localhost:8000
+python -m backend.main                # serves http://localhost:8100
 ```
 
 ```powershell
@@ -168,7 +168,7 @@ npm install                           # first run, or after deps change
 npm run dev                           # serves http://localhost:3000
 ```
 
-Open <http://localhost:3000>. The frontend talks to the backend on `8000`,
+Open <http://localhost:3000>. The frontend talks to the backend on `8100`,
 the backend talks to the sandbox on `9222` (agent service) and `9223`
 (Chrome DevTools Protocol used by the Gemini Playwright path).
 
@@ -217,7 +217,7 @@ A session is one agent run, end-to-end: model selection → task entry → conta
 
 1. **Open the workbench.** With `python -m backend.main` running and `npm run dev` serving the Vite frontend, point a browser at `http://127.0.0.1:3000`. The top strip shows the environment state (`Not Started` → `Starting` → `Environment Ready`) and the WebSocket connection indicator (`Reconnecting…` flips off once the `/ws` upgrade succeeds).
 
-2. **Configure a provider.** Pick Google / Anthropic / OpenAI. The model dropdown populates from `GET /api/models`, which reads [backend/allowed_models.json](backend/allowed_models.json) and filters to entries with `supports_computer_use: true`. If your API key is in `.env` or a system env var, the workbench offers it as a "Config File ✓" / "Pre-configured ✓" button with a masked preview; otherwise enter it in the password field and it will be used per-request only (never persisted).
+2. **Configure a provider.** Pick Google / Anthropic / OpenAI. The model dropdown populates from `GET /api/models`, which reads [backend/models/allowed_models.json](backend/models/allowed_models.json) and filters to entries with `supports_computer_use: true`. If your API key is in `.env` or a system env var, the workbench offers it as a "Config File ✓" / "Pre-configured ✓" button with a masked preview; otherwise enter it in the password field and it will be used per-request only (never persisted).
 
 3. **Describe the task.** Write a literal description of what you want done, not a chain-of-thought. The system prompt already covers "act only on what was asked" — over-specifying tends to make the model narrate instead of act. For Opus 4.7 specifically, the prompt has been stripped of self-verification scaffolding per Anthropic's migration guide; keep your task prompt similarly direct.
 
@@ -241,11 +241,16 @@ The frontend cost badge uses current list prices from the official provider pric
 | **GPT-5.4** | Built-in `computer` tool on the Responses API, ZDR-safe | Uses stateless replay with `reasoning.encrypted_content` + `store=false` instead of `previous_response_id`. CU floor is `reasoning.effort="high"`. `detail: "original"` is hard-coded on every `computer_call_output` per the OpenAI guide. Prompts > 272k tokens hit the 2× input / 1.5× output overage multiplier — prune session history before it grows past that. |
 | **Gemini 3 Flash Preview** | Browser-centric tasks, price-sensitive workflows, Google-reference parity | Built-in CU; no separate model id required. Normalized 0–999 coordinates denormalised to pixels by `DesktopExecutor._px`. Browser-mode sessions default to the Playwright-over-CDP path against the in-container Chrome session; set `CUA_GEMINI_USE_PLAYWRIGHT=0` to fall back to xdotool. When attached files are provided through the API, Gemini File Search runs in a separate pre-step because Google's docs do not allow `file_search` to share a call with other tools. |
 
-The model picker is driven directly from [backend/allowed_models.json](backend/allowed_models.json). If a model ID is not listed there, it is not selectable for new sessions.
+The model picker is driven directly from [backend/models/allowed_models.json](backend/models/allowed_models.json). If a model ID is not listed there, it is not selectable for new sessions.
 
 ### Web search (official provider tools)
 
-The workbench's **Advanced Settings → Enable web search** toggle attaches each provider's first-party search tool to the model call. The model decides per turn whether to invoke it; the toggle only controls availability. Off by default per provider docs.
+The workbench exposes a **Web Search** toggle button. When ON, the request
+advertises each provider's first-party search tool alongside Computer Use. When
+OFF, the request advertises only Computer Use. This matches the official tool
+contracts documented by OpenAI, Anthropic, and Google: search is enabled by
+including the provider-native search tool in the request, and disabled by
+omitting it.
 
 | Provider | Tool emitted | Notes |
 |---|---|---|
@@ -257,7 +262,7 @@ API contract — `POST /api/agent/start` accepts:
 
 ```jsonc
 {
-  "use_builtin_search": false,                  // default off
+  "use_builtin_search": false,                  // default off; set true to advertise the provider-native search tool
   "search_max_uses": 5,                         // 1..20, Anthropic only
   "search_allowed_domains": ["example.com"],   // OpenAI + Anthropic
   "search_blocked_domains": ["bad.test"]       // OpenAI + Anthropic
@@ -266,17 +271,19 @@ API contract — `POST /api/agent/start` accepts:
 
 ## Document attachments
 
-The backend already supports provider-native document grounding, but the current
-React workbench does not yet expose a file uploader. Today this section applies
-to direct API callers or custom clients.
+The React workbench now exposes document attachments in the control panel, and
+the same upload/start endpoints remain available to direct API callers or
+custom clients.
 
-1. Upload a file with `POST /api/files/upload` as multipart form data with a
-   single `file` field.
-2. Take the returned `file_id` and include it in `attached_files` on
-   `POST /api/agent/start`.
+1. In the workbench, upload files from the attachments section before starting
+  the run; the UI stores the returned ids and forwards them automatically.
+2. For direct API use, upload a file with `POST /api/files/upload` as multipart
+  form data with a single `file` field.
+3. Take the returned `file_id` and include it in `attached_files` on
+  `POST /api/agent/start`.
 
 ```bash
-curl -F "file=@notes.pdf" http://127.0.0.1:8000/api/files/upload
+curl -F "file=@notes.pdf" http://127.0.0.1:8100/api/files/upload
 ```
 
 ```jsonc
@@ -299,7 +306,7 @@ Current upload contract:
 Provider behavior differs on purpose:
 
 - OpenAI creates a vector store and attaches the Responses `file_search` tool.
-- Gemini creates a File Search store, runs a one-shot file-search-only RAG pre-step because Google's docs say File Search cannot be combined with other tools, then injects the grounded text/citations into the first Computer Use turn. `google_search` can still be enabled for later turns.
+- Gemini creates a File Search store, runs a one-shot file-search-only RAG pre-step because Google's docs say File Search cannot be combined with other tools, then injects the grounded text/citations into the first Computer Use turn. If the Web Search toggle is ON, `google_search` remains available during later Computer Use turns.
 - Anthropic uses the official Files API. `.pdf` and `.txt` are uploaded and referenced as `document` blocks; `.md` and `.docx` are extracted to plain text and inlined because Claude document blocks only accept PDF and `text/plain`.
 
 ## Configuration reference
@@ -310,10 +317,10 @@ Every environment variable the backend reads, grouped by concern. "Where read" n
 
 | Variable | Required | Default | Purpose | Where read |
 |---|---|---|---|---|
-| `ANTHROPIC_API_KEY` | when using Claude | – | Anthropic Messages API key | `backend/config.py` |
-| `OPENAI_API_KEY` | when using OpenAI | – | OpenAI Responses API key | `backend/config.py` |
-| `GOOGLE_API_KEY` | when using Gemini | – | Google Generative AI API key (preferred) | `backend/config.py` |
-| `GEMINI_API_KEY` | when using Gemini | – | Alias accepted as fallback when `GOOGLE_API_KEY` is unset | `backend/config.py` |
+| `ANTHROPIC_API_KEY` | when using Claude | – | Anthropic Messages API key | `backend/infra/config.py` |
+| `OPENAI_API_KEY` | when using OpenAI | – | OpenAI Responses API key | `backend/infra/config.py` |
+| `GOOGLE_API_KEY` | when using Gemini | – | Google Generative AI API key (preferred) | `backend/infra/config.py` |
+| `GEMINI_API_KEY` | when using Gemini | – | Alias accepted as fallback when `GOOGLE_API_KEY` is unset | `backend/infra/config.py` |
 
 Keys resolve in priority order: UI input > `.env` > system env. Keys entered in the UI are sent per-request over loopback only and never written to disk or `localStorage`.
 
@@ -321,9 +328,9 @@ Keys resolve in priority order: UI input > `.env` > system env. Keys entered in 
 
 | Variable | Required | Default | Purpose | Where read |
 |---|---|---|---|---|
-| `HOST` | no | `127.0.0.1` | FastAPI bind host | `backend/config.py`, `backend/main.py` |
-| `PORT` | no | `8000` | FastAPI bind port | `backend/config.py`, `backend/main.py` |
-| `DEBUG` | no | `false` | Verbose logging + full tracebacks | `backend/config.py` |
+| `HOST` | no | `127.0.0.1` | FastAPI bind host | `backend/infra/config.py`, `backend/main.py` |
+| `PORT` | no | `8100` | FastAPI bind port | `backend/infra/config.py`, `backend/main.py` |
+| `DEBUG` | no | `false` | Verbose logging + full tracebacks | `backend/infra/config.py` |
 | `CUA_RELOAD` | no | `false` | uvicorn `--reload`. Off by default; turning it on in non-dev is a footgun | `backend/main.py` |
 | `CUA_WS_TOKEN` | required for non-loopback bind | unset | Shared secret; clients pass `?token=<value>` on `/ws` and `/vnc/websockify` | `backend/server.py` |
 | `CUA_ALLOWED_HOSTS` | no | loopback + configured CORS | Comma-separated `Host`-header allowlist | `backend/server.py` |
@@ -338,10 +345,10 @@ Keys resolve in priority order: UI input > `.env` > system env. Keys entered in 
 | `SCREEN_WIDTH` / `SCREEN_HEIGHT` | no | `1440` / `900` | Xvfb display dimensions | `docker/entrypoint.sh`, `docker/agent_service.py` |
 | `WIDTH` / `HEIGHT` | no | same | Anthropic-compatible aliases | `docker/Dockerfile` |
 | `DISPLAY` | no | `:99` | X11 display number | `docker/entrypoint.sh` |
-| `AGENT_SERVICE_HOST` / `AGENT_SERVICE_PORT` | no | `127.0.0.1` / `9222` | In-container HTTP API address | `backend/config.py`, `docker/agent_service.py` |
-| `AGENT_SERVICE_TOKEN` | auto-generated | random per-session | Shared secret between host and container's agent service | `backend/docker_manager.py` |
-| `AGENT_MODE` | no | `desktop` | Execution mode selector | `backend/config.py` |
-| `CONTAINER_NAME` | no | `cua-environment` | Docker container name | `backend/config.py` |
+| `AGENT_SERVICE_HOST` / `AGENT_SERVICE_PORT` | no | `127.0.0.1` / `9222` | In-container HTTP API address | `backend/infra/config.py`, `docker/agent_service.py` |
+| `AGENT_SERVICE_TOKEN` | auto-generated | random per-session | Shared secret between host and container's agent service | `backend/infra/docker.py` |
+| `AGENT_MODE` | no | `desktop` | Execution mode selector | `backend/infra/config.py` |
+| `CONTAINER_NAME` | no | `cua-environment` | Docker container name | `backend/infra/config.py` |
 | `CUA_WINDOW_X` / `Y` / `W` / `H` | no | – | Optional window normaliser geometry | `docker/agent_service.py` |
 | `CUA_ENABLE_LEGACY_ACTIONS` | no | `0` | Re-enables removed actions (`run_command`, window mgmt, etc.). Off by default | `docker/agent_service.py` |
 
@@ -357,13 +364,13 @@ Keys resolve in priority order: UI input > `.env` > system env. Keys entered in 
 | `CUA_GEMINI_THINKING_LEVEL` | no | `high` | `minimal` / `low` / `medium` / `high` | `backend/engine/gemini.py` |
 | `CUA_GEMINI_RELAX_SAFETY` | no | unset | When `1`: apply `BLOCK_ONLY_HIGH` thresholds; default is Google's own "Off" for Gemini 3 | `backend/engine/gemini.py` |
 | `CUA_GEMINI_USE_PLAYWRIGHT` | no | `1` (default) | When unset or `1`: Gemini browser-mode sessions drive the in-container Chromium via Playwright `connect_over_cdp` against the sandbox's CDP endpoint (`127.0.0.1:9223`, exposed by `docker/entrypoint.sh`). Set to `0` to fall back to the xdotool path | `backend/engine/gemini.py` |
-| `GEMINI_MODEL` | no | `gemini-3-flash-preview` | Default model id when none is passed | `backend/config.py` |
+| `GEMINI_MODEL` | no | `gemini-3-flash-preview` | Default model id when none is passed | `backend/infra/config.py` |
 
 ### Observability + development
 
 | Variable | Required | Default | Purpose | Where read |
 |---|---|---|---|---|
-| `CUA_TRACE_DIR` | no | `~/.computer-use/traces/` | On-disk trace JSON files | `backend/tracing.py` |
+| `CUA_TRACE_DIR` | no | `~/.computer-use/traces/` | On-disk trace JSON files | `backend/infra/observability.py` |
 | `CUA_DEBUG_TB` | no | unset | When `1`: include full tracebacks in executor error logs | `backend/engine/__init__.py` |
 | `CUA_TEST_MODE` | no | unset | Test-harness-only switches | `backend/server.py` |
 | `CUA_SESSIONS_DB` | no | – | Override LangGraph SQLite checkpoint path | `backend/server.py` |
@@ -423,13 +430,13 @@ Every session produces both a **LangGraph checkpoint** (per-node state, enables 
 - **After the run.** Traces land at `$CUA_TRACE_DIR/<session_id>.json` (default `~/.computer-use/traces/`). Inspect with:
 
   ```bash
-  python -m backend.tracing list
-  python -m backend.tracing dump <session_id>
+  python -m backend.infra.observability list
+  python -m backend.infra.observability dump <session_id>
 
   ```
 
   Screenshots in the persisted trace are redacted to `{"sha256": <hex>, "len": <int>}` — the bytes stay on disk only if you asked for them. Free-text fields pass through the same `scrub_secrets` regex that redacts logs.
-- **Restart-resume.** If the backend is killed while a session is paused on `approval_interrupt`, the LangGraph SQLite checkpointer preserves `pending_approval` and the exact graph state. Posting to `/api/agent/safety-confirm` after restart resumes via `graph.ainvoke(Command(resume=decision), config)`. Test coverage: `tests/test_agent_graph_nodes.py::TestApprovalInterruptResume::test_pause_and_resume_across_fresh_runtime`.
+- **Restart-resume.** If the backend is killed while a session is paused on `approval_interrupt`, the LangGraph SQLite checkpointer preserves `pending_approval` and the exact graph state. Posting to `/api/agent/safety-confirm` after restart resumes via `graph.ainvoke(Command(resume=decision), config)`. Test coverage: `tests/agent/test_graph.py::TestApprovalInterruptResume::test_pause_and_resume_across_fresh_runtime`.
 
 ## Troubleshooting
 
@@ -454,19 +461,19 @@ No. It is a local research workbench. The REST surface is unauthenticated; the d
 Up to 3, hard-capped by `_MAX_CONCURRENT_SESSIONS` in `backend/server.py`. The 4th returns HTTP 429. Each session gets its own LangGraph checkpoint thread.
 
 **Does it support custom models?**
-Only model IDs in [backend/allowed_models.json](backend/allowed_models.json) are accepted. Add an entry with `supports_computer_use: true` and, for Anthropic, the correct `cu_tool_version` + `cu_betas`.
+Only model IDs in [backend/models/allowed_models.json](backend/models/allowed_models.json) are accepted. Add an entry with `supports_computer_use: true` and, for Anthropic, the correct `cu_tool_version` + `cu_betas`.
 
 **Does it solve CAPTCHAs?**
 No. The system prompt explicitly forbids it, and Anthropic / OpenAI / Google's prompt-injection classifiers trigger `require_confirmation` on CAPTCHA-like prompts. A human must confirm.
 
 **How do I capture a session for a bug report?**
-Export the trace: `python -m backend.tracing dump <session_id> > session.json`. Export the Timeline + Logs from the workbench (Export JSON/HTML buttons). Include the `agent_finished` event data, the model ID, the env vars in use, and the container status at the time of failure.
+Export the trace: `python -m backend.infra.observability dump <session_id> > session.json`. Export the Timeline + Logs from the workbench (Export JSON/HTML buttons). Include the `agent_finished` event data, the model ID, the env vars in use, and the container status at the time of failure.
 
 **Does it work without Docker?**
 No. The sandbox is load-bearing for isolation. The `AGENT_SERVICE_TOKEN` handshake, the `no-new-privileges` flag, the dropped Linux capabilities, the Chrome profile hardening, and the browser subprocess's minimal env all assume a container boundary.
 
 **Why is Gemini 3.1 Pro Preview excluded?**
-Google has not enabled Computer Use on that model. The repo exposes only `gemini-3-flash-preview` for Gemini Computer Use; all other Gemini ids have been removed from `backend/allowed_models.json`. See [CHANGELOG.md](CHANGELOG.md).
+Google has not enabled Computer Use on that model. The repo exposes only `gemini-3-flash-preview` for Gemini Computer Use; all other Gemini ids have been removed from `backend/models/allowed_models.json`. See [CHANGELOG.md](CHANGELOG.md).
 
 ## See also
 
@@ -479,5 +486,5 @@ Google has not enabled Computer Use on that model. The repo exposes only `gemini
 
 File bug reports and usage questions at <https://github.com/pypi-ahmad/computer-use/issues>.
 Include: model ID, provider, session ID, whether on noVNC or Screenshot mode, a trace dump
-from `python -m backend.tracing dump <session_id>`, and `docker logs cua-environment` if
+from `python -m backend.infra.observability dump <session_id>`, and `docker logs cua-environment` if
 the sandbox was involved.
