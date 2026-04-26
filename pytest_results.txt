@@ -1,0 +1,295 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.0.3, pluggy-1.6.0
+rootdir: A:\computer-use
+configfile: pyproject.toml
+plugins: anyio-4.13.0, langsmith-0.7.35, asyncio-1.3.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 3 items
+
+tests\test_audit_fixes.py FF                                             [ 66%]
+tests\engine\test_engine.py F                                            [100%]
+
+================================== FAILURES ===================================
+_________________ TestScreenshotFallback.test_5xx_falls_back __________________
+
+self = <tests.test_audit_fixes.TestScreenshotFallback object at 0x000002376E8C8CD0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002376E9DFBB0>
+
+    @pytest.mark.asyncio
+    async def test_5xx_falls_back(self, monkeypatch):
+        from backend.agent import loop as ss
+    
+        called = {}
+    
+        async def fake_fallback():
+            called["fallback"] = True
+            return "ZmFsbGJhY2s="  # base64 for "fallback"
+    
+        resp = self._response(500, {"error": "boom"})
+    
+        class _FakeClient:
+            async def get(self, *_a, **_kw):
+                return resp
+    
+            async def aclose(self):
+                pass
+    
+            @property
+            def is_closed(self):
+                return False
+    
+        monkeypatch.setattr(ss, "_get_client", lambda: _FakeClient())
+        monkeypatch.setattr(ss, "_fallback_docker_screenshot", fake_fallback)
+        b64 = await ss.capture_screenshot()
+>       assert called.get("fallback") is True
+E       AssertionError: assert None is True
+E        +  where None = <built-in method get of dict object at 0x000002376FC7F080>('fallback')
+E        +    where <built-in method get of dict object at 0x000002376FC7F080> = {}.get
+
+tests\test_audit_fixes.py:388: AssertionError
+_________________ TestScreenshotFallback.test_401_propagates __________________
+
+self = <tests.test_audit_fixes.TestScreenshotFallback object at 0x000002376E8C8F50>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002376FD4A330>
+
+    @pytest.mark.asyncio
+    async def test_401_propagates(self, monkeypatch):
+        from backend.agent import loop as ss
+    
+        resp = self._response(401, {"error": "unauthorized"})
+    
+        class _FakeClient:
+            async def get(self, *_a, **_kw):
+                return resp
+    
+            async def aclose(self):
+                pass
+    
+            @property
+            def is_closed(self):
+                return False
+    
+        monkeypatch.setattr(ss, "_get_client", lambda: _FakeClient())
+>       with pytest.raises(httpx.HTTPStatusError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'httpx.HTTPStatusError'>
+
+tests\test_audit_fixes.py:409: Failed
+_ TestSearchEnabledRequiresComputerAction.test_gemini_iter_turns_nudges_after_retrieval_only_turn _
+
+self = <tests.engine.test_engine.TestSearchEnabledRequiresComputerAction object at 0x000002376F927D90>
+
+    def test_gemini_iter_turns_nudges_after_retrieval_only_turn(self):
+        async def _go():
+            screenshot_bytes = _png_bytes()
+    
+            class FakeExecutor:
+                screen_width = 1440
+                screen_height = 900
+    
+                def __init__(self):
+                    self.calls: list[tuple[str, dict]] = []
+    
+                async def capture_screenshot(self):
+                    return screenshot_bytes
+    
+                async def execute(self, action, payload):
+                    self.calls.append((action, payload))
+                    return CUActionResult(name=action, extra=payload)
+    
+                def get_current_url(self):
+                    return None
+    
+            first_response = SimpleNamespace(
+                candidates=[
+                    SimpleNamespace(
+                        content=SimpleNamespace(
+                            parts=[SimpleNamespace(function_call=None, text="I found instructions online.")]
+                        )
+                    )
+                ]
+            )
+            second_response = SimpleNamespace(
+                candidates=[
+                    SimpleNamespace(
+                        content=SimpleNamespace(
+                            parts=[SimpleNamespace(function_call=SimpleNamespace(name="double_click", args={"x": 120, "y": 220}), text=None)]
+                        )
+                    )
+                ]
+            )
+            third_response = SimpleNamespace(
+                candidates=[
+                    SimpleNamespace(
+                        content=SimpleNamespace(
+                            parts=[SimpleNamespace(function_call=None, text="Done")]
+                        )
+                    )
+                ]
+            )
+    
+            with patch("google.genai.Client"), \
+                 patch("backend.engine._get_gemini_builtin_search_sdk_error", return_value=None):
+                from backend.engine import GeminiCUClient
+                client = GeminiCUClient(api_key="k", use_builtin_search=True)
+            client._client.aio.models.generate_content = AsyncMock(
+                side_effect=[first_response, second_response, third_response]
+            )
+    
+            executor = FakeExecutor()
+            events = []
+            async for event in client.iter_turns("Learn first, then create the Projects folder", executor):
+                events.append(event)
+    
+            assert executor.calls == [("double_click", {"x": 120, "y": 220})]
+            assert isinstance(events[-1], RunCompleted)
+            assert events[-1].final_text == "Done"
+    
+            second_call = client._client.aio.models.generate_content.call_args_list[1].kwargs
+            assert any(
+                hasattr(content, "parts")
+                and content.parts
+                and getattr(content.parts[0], "text", "")
+                and "not complete until you perform the requested action with the computer_use tool" in content.parts[0].text
+                for content in second_call["contents"]
+            )
+    
+>       asyncio.run(_go())
+
+tests\engine\test_engine.py:605: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+C:\Users\ahmad\AppData\Local\Programs\Python\Python314\Lib\asyncio\runners.py:204: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+C:\Users\ahmad\AppData\Local\Programs\Python\Python314\Lib\asyncio\runners.py:127: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\ahmad\AppData\Local\Programs\Python\Python314\Lib\asyncio\base_events.py:719: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests\engine\test_engine.py:589: in _go
+    async for event in client.iter_turns("Learn first, then create the Projects folder", executor):
+backend\engine\gemini.py:669: in iter_turns
+    ev = await inner.asend(sent)
+         ^^^^^^^^^^^^^^^^^^^^^^^
+backend\engine\gemini.py:694: in _iter_turns_core
+    config = self._build_config()
+             ^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <backend.engine.gemini.GeminiCUClient object at 0x00000237728A3CB0>
+
+    def _build_config(self) -> Any:
+        """Build the GenerateContentConfig with CU tools, safety, and thinking settings."""
+        types = self._types
+        tools = [
+            types.Tool(
+                computer_use=types.ComputerUse(
+                    environment=self._get_env_enum(),
+                    excluded_predefined_functions=self._excluded,
+                )
+            )
+        ]
+        if self._use_builtin_search:
+            # Official Gemini grounding tool. Constructor signature:
+            # ``Tool(google_search=GoogleSearch())``. The model decides
+            # per turn whether to invoke search; results are surfaced
+            # via ``groundingMetadata`` on the candidate.
+            #
+            # Note: ``file_search`` is intentionally NOT attached to
+            # this CU-time config. It is consumed via a RAG pre-step
+            # (see ``_run_file_search_pre_step``) because the docs
+            # forbid combining file_search with other tools.
+            _GoogleSearch = getattr(types, "GoogleSearch", None)
+            if _GoogleSearch is None:
+                raise ValueError(
+                    "Gemini google_search was requested but the installed "
+                    "google-genai SDK does not expose GoogleSearch.",
+                )
+            tools.append(types.Tool(google_search=_GoogleSearch()))
+    
+        # Safety-threshold relaxation is opt-in.  Per Google's
+        # safety-settings docs (2026-04), the default block threshold
+        # on Gemini 2.5 / 3 models is already "Off" when the client
+        # omits ``safety_settings``, so any additional relaxation
+        # should be an explicit operator choice rather than an
+        # implicit default.  Set ``CUA_GEMINI_RELAX_SAFETY=1`` to
+        # attach BLOCK_ONLY_HIGH across the four HarmCategory buckets.
+        # The ToS-mandated ``require_confirmation`` +
+        # ``safety_acknowledgement`` handshake is unaffected either
+        # way and remains the authoritative safety gate.
+        safety_settings: list[Any] = []
+        if os.environ.get("CUA_GEMINI_RELAX_SAFETY") == "1":
+            if not GeminiCUClient._relax_logged:
+                logger.info(
+                    "Gemini CU safety relaxation enabled "
+                    "(CUA_GEMINI_RELAX_SAFETY=1); attaching "
+                    "BLOCK_ONLY_HIGH thresholds across HarmCategory "
+                    "buckets.  ToS handshake unaffected.",
+                )
+                GeminiCUClient._relax_logged = True
+            _HarmCategory = getattr(types, "HarmCategory", None)
+            _SafetySetting = getattr(types, "SafetySetting", None)
+            _HarmBlockThreshold = getattr(types, "HarmBlockThreshold", None)
+            if _HarmCategory and _SafetySetting and _HarmBlockThreshold:
+                block_level = getattr(_HarmBlockThreshold, "BLOCK_ONLY_HIGH", None)
+                if block_level is not None:
+                    for cat_name in (
+                        "HARM_CATEGORY_HARASSMENT",
+                        "HARM_CATEGORY_HATE_SPEECH",
+                        "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                        "HARM_CATEGORY_DANGEROUS_CONTENT",
+                    ):
+                        cat = getattr(_HarmCategory, cat_name, None)
+                        if cat is not None:
+                            safety_settings.append(
+                                _SafetySetting(category=cat, threshold=block_level)
+                            )
+        elif not GeminiCUClient._default_logged:
+            logger.warning(
+                "Gemini CU using Google's default safety thresholds "
+                "(Off for Gemini 2.5/3 per docs).  Set "
+                "CUA_GEMINI_RELAX_SAFETY=1 to restore the previous "
+                "BLOCK_ONLY_HIGH behaviour.",
+            )
+            GeminiCUClient._default_logged = True
+    
+        # Use thinking_level (recommended for Gemini 3) instead of
+        # legacy include_thoughts / budget_tokens.
+        _ThinkingConfig = types.ThinkingConfig
+        _thinking_kwargs: dict[str, Any] = {}
+        # AI-3: thinking level was resolved once in __init__.
+        # Prefer thinking_level=<level> if the SDK supports it
+        import inspect as _inspect
+        _tc_params = _inspect.signature(_ThinkingConfig).parameters
+        if "thinking_level" in _tc_params:
+            _thinking_kwargs["thinking_level"] = self._thinking_level
+        else:
+            # Fallback for older SDK versions
+            _thinking_kwargs["include_thoughts"] = True
+    
+        kwargs: dict[str, Any] = {
+            "tools": tools,
+            "thinking_config": _ThinkingConfig(**_thinking_kwargs),
+        }
+        if self._use_builtin_search:
+            sdk_error = _get_gemini_builtin_search_sdk_error()
+            if sdk_error:
+>               raise ValueError(sdk_error)
+E               ValueError: Gemini google_search + computer_use requires include_server_side_tool_invocations=True, but the installed google-genai SDK does not expose that field.
+
+backend\engine\gemini.py:408: ValueError
+------------------------------ Captured log call ------------------------------
+WARNING  backend.engine.gemini:gemini.py:305 ENVIRONMENT_DESKTOP not available in google-genai SDK; falling back to ENVIRONMENT_BROWSER. Desktop xdotool actions will still execute via DesktopExecutor.
+WARNING  backend.engine.gemini:gemini.py:379 Gemini CU using Google's default safety thresholds (Off for Gemini 2.5/3 per docs).  Set CUA_GEMINI_RELAX_SAFETY=1 to restore the previous BLOCK_ONLY_HIGH behaviour.
+============================== warnings summary ===============================
+tests/engine/test_engine.py::TestSearchEnabledRequiresComputerAction::test_gemini_iter_turns_nudges_after_retrieval_only_turn
+  C:\Users\ahmad\AppData\Local\Programs\Python\Python314\Lib\site-packages\google\genai\types.py:43: DeprecationWarning: '_UnionGenericAlias' is deprecated and slated for removal in Python 3.17
+    VersionedUnionType = Union[builtin_types.UnionType, _UnionGenericAlias]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_audit_fixes.py::TestScreenshotFallback::test_5xx_falls_back
+FAILED tests/test_audit_fixes.py::TestScreenshotFallback::test_401_propagates
+FAILED tests/engine/test_engine.py::TestSearchEnabledRequiresComputerAction::test_gemini_iter_turns_nudges_after_retrieval_only_turn
+======================== 3 failed, 1 warning in 3.66s =========================
