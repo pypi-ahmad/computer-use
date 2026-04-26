@@ -20,7 +20,7 @@ from backend.agent.graph import (
     init_runtime,
     shutdown_runtime,
 )
-from backend import tracing
+from backend.infra import observability as tracing
 
 
 async def run_graph_with_decision(
@@ -77,7 +77,7 @@ async def run_graph_with_decision(
             start_iter=_start_iter,
             build_snapshot=lambda: {"eval": True},
         )
-        bundle = tracing.install(bundle, session_id)
+        bundle = tracing.install_bundle(bundle, session_id)
         _register_iterator(
             session_id, tracing.wrap_iterator(iterator, session_id),
         )
