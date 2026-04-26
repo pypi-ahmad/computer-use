@@ -25,8 +25,8 @@ All notable changes to this project will be documented in this file.
 
 ### Removed
 
-- Drop `gemini-3.1-pro-preview` from `backend/allowed_models.json`,
-  `frontend/src/utils/pricing.js`, `frontend/src/pages/workbench/constants.js`,
+- Drop `gemini-3.1-pro-preview` from `backend/models/allowed_models.json`,
+  `frontend/src/utils.js`, `frontend/src/pages/workbench/ControlPanel.jsx`,
   and all docs. The repo now exposes a single Gemini SKU,
   `gemini-3-flash-preview`, matching the only Gemini id on Google's
   official Computer Use supported-model list that this project
