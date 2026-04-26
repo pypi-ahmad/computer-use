@@ -13,6 +13,7 @@ import os
 import time
 from typing import Any, AsyncIterator, Callable
 
+from backend.engine.grounding import _extract_gemini_grounding_payload
 from backend.engine import (
     CUActionResult,
     CUTurnRecord,
@@ -26,33 +27,13 @@ from backend.engine import (
     TurnEvent,
     _call_with_retry,
     _invoke_safety,
-    _append_source_footer,
     _get_gemini_builtin_search_sdk_error,
     validate_builtin_search_config,
     DEFAULT_TURN_LIMIT,
-    _CONTEXT_PRUNE_KEEP_RECENT,
     _IMAGE_PNG,
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _extract_gemini_sources(response: Any) -> list[tuple[str, str]]:
-    """Collect grounded web sources from Gemini response metadata."""
-    sources: list[tuple[str, str]] = []
-    candidates = getattr(response, "candidates", None) or []
-    if not candidates:
-        return sources
-    gm = getattr(candidates[0], "grounding_metadata", None)
-    chunks = getattr(gm, "grounding_chunks", None) or []
-    for chunk in chunks:
-        web = getattr(chunk, "web", None)
-        if web is None:
-            continue
-        url = getattr(web, "uri", None)
-        if url:
-            sources.append((getattr(web, "title", None) or url, url))
-    return sources
 
 
 # ---------------------------------------------------------------------------
@@ -60,39 +41,40 @@ def _extract_gemini_sources(response: Any) -> list[tuple[str, str]]:
 # ---------------------------------------------------------------------------
 
 
-def _prune_gemini_context(
-    contents: list, types: Any, keep_recent: int,
-) -> None:
-    """Replace inline screenshot data in old turns with a text placeholder.
+def _prune_gemini_context(contents: list[Any], max_history_turns: int) -> None:
+    """Drop old Gemini history turns atomically while keeping kept turns intact.
 
-    Preserves the first message (goal + initial screenshot) and the last
-    *keep_recent* Content entries.  Everything in between has its
-    ``FunctionResponseBlob`` data stripped and image ``Part`` objects
-    replaced with a text marker.
+    Gemini tool-combination docs require returning all parts, including
+    all fields they contain, on each turn:
+    https://ai.google.dev/gemini-api/docs/tool-combination
+
+    To preserve ``toolCall``, ``toolResponse``, ``functionCall``,
+    ``functionResponse``, ``thoughtSignature``, ``id``, and ``tool_type``
+    inside any retained turn, pruning drops entire older turns instead of
+    rewriting individual parts. The most recent assistant turn is always
+    preserved in full because its ``thoughtSignature`` is what the next
+    prediction binds to. Callers running long sessions should tune
+    ``max_history_turns`` upward and observe the latency/quality tradeoff.
     """
-    if len(contents) <= keep_recent + 1:
+    if len(contents) <= max_history_turns:
         return
-    prune_end = len(contents) - keep_recent
-    for idx in range(1, prune_end):
-        content = contents[idx]
-        if not hasattr(content, "parts") or not content.parts:
-            continue
-        new_parts = []
-        pruned = False
-        for part in content.parts:
-            # Strip inline_data from FunctionResponsePart
-            fr = getattr(part, "function_response", None)
-            if fr is not None and hasattr(fr, "parts") and fr.parts:
-                fr.parts.clear()
-                pruned = True
-            # Strip standalone image parts (from_bytes)
-            if getattr(part, "inline_data", None) is not None:
-                new_parts.append(types.Part(text="[screenshot omitted]"))
-                pruned = True
-            else:
-                new_parts.append(part)
-        if pruned:
-            content.parts[:] = new_parts
+
+    keep_from = max(0, len(contents) - max_history_turns)
+    keep_indexes: set[int] = set(range(keep_from, len(contents)))
+
+    for idx in range(len(contents) - 1, -1, -1):
+        if getattr(contents[idx], "role", None) == "model":
+            keep_indexes.add(idx)
+            break
+
+    if len(keep_indexes) == len(contents):
+        return
+
+    contents[:] = [
+        content
+        for idx, content in enumerate(contents)
+        if idx in keep_indexes
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -190,6 +172,13 @@ class GeminiCUClient:
     - Sends screenshots inline in ``FunctionResponse`` parts
     - Handles ``safety_decision`` → ``require_confirmation``
     - Supports both ``ENVIRONMENT_BROWSER`` and ``ENVIRONMENT_DESKTOP``
+
+    History pruning keeps at most ``max_history_turns`` content turns plus
+    the most recent assistant turn, and it never strips parts within a kept
+    turn. This follows the Gemini tool-combination docs:
+    https://ai.google.dev/gemini-api/docs/tool-combination
+    Increase ``max_history_turns`` for long sessions and monitor the
+    latency/quality tradeoff.
     """
 
     # One-shot log guards so operators see the safety-threshold choice
@@ -200,6 +189,7 @@ class GeminiCUClient:
     def __init__(
         self,
         api_key: str,
+        # Lifecycle watchdog/checklist: see .github/workflows/gemini-changelog-watchdog.yml and docs/gemini-successor-evaluation.md before changing this model.
         model: str = "gemini-3-flash-preview",
         environment: Environment = Environment.DESKTOP,
         excluded_actions: list[str] | None = None,
@@ -208,6 +198,11 @@ class GeminiCUClient:
         search_max_uses: int | None = None,
         search_allowed_domains: list[str] | None = None,
         search_blocked_domains: list[str] | None = None,
+        # Bound replay depth without stripping any fields from retained turns.
+        # Gemini tool-combination docs require replaying all parts/fields
+        # intact on each kept turn:
+        # https://ai.google.dev/gemini-api/docs/tool-combination
+        max_history_turns: int = 10,
         # File Search activation per April 2026 docs:
         # https://ai.google.dev/gemini-api/docs/file-search
         # When ``attached_file_ids`` is non-empty, the adapter creates
@@ -232,6 +227,10 @@ class GeminiCUClient:
         self._environment = environment
         self._excluded = excluded_actions or []
         self._system_instruction = system_instruction
+        max_history_turns = int(max_history_turns)
+        if max_history_turns < 1:
+            raise ValueError("Gemini max_history_turns must be >= 1.")
+        self._max_history_turns = max_history_turns
         validate_builtin_search_config(
             provider="gemini",
             model=model,
@@ -273,6 +272,7 @@ class GeminiCUClient:
         self._attached_file_ids: list[str] = list(attached_file_ids or [])
         self._file_search_store_name: str | None = None
         self._file_search_grounded_context: str | None = None
+        self._last_completion_payload: dict[str, Any] | None = None
 
     async def _generate(self, *, contents: list, config: Any) -> Any:
         """Invoke Gemini generate_content via the native async SDK path.
@@ -730,10 +730,10 @@ class GeminiCUClient:
             if on_log:
                 on_log("info", f"Gemini CU turn {turn + 1}/{turn_limit}")
 
-            # Prune old screenshots to prevent unbounded context growth.
-            # Keep the first message (goal + initial screenshot) and
-            # the most recent _CONTEXT_PRUNE_KEEP_RECENT turns intact.
-            _prune_gemini_context(contents, types, _CONTEXT_PRUNE_KEEP_RECENT)
+            # Bound context growth without stripping fields from any retained
+            # turn. Gemini tool-combination replay expects each kept turn to
+            # remain whole.
+            _prune_gemini_context(contents, self._max_history_turns)
 
             try:
                 response = await _call_with_retry(
@@ -845,10 +845,12 @@ class GeminiCUClient:
                     )
                     nudged_for_computer_use = True
                     continue
-                final_text = _append_source_footer(
-                    turn_text,
-                    _extract_gemini_sources(response),
+                grounding_payload = _extract_gemini_grounding_payload(response)
+                self._last_completion_payload = (
+                    {"gemini_grounding": grounding_payload}
+                    if grounding_payload else None
                 )
+                final_text = turn_text
                 if on_log:
                     on_log("info", f"Gemini CU completed: {final_text[:200]}")
                 yield RunCompleted(final_text=final_text)
@@ -987,6 +989,7 @@ class GeminiCUClient:
         on_log: Callable[[str, str], None] | None = None,
     ) -> str:
         """Drive the native iterator while preserving the legacy callback API."""
+        self._last_completion_payload = None
         final_text = ""
         pending_turn_text = ""
         pending_event: TurnEvent | None = None

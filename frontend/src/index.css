@@ -262,6 +262,80 @@ html, body {
   white-space: pre-wrap;
 }
 
+.completion-result-grounded {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.completion-grounded-text {
+  white-space: pre-wrap;
+}
+
+.completion-citations {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 4px;
+  vertical-align: super;
+}
+
+.completion-citation-link {
+  color: inherit;
+  text-decoration: underline;
+  font-size: 0.78rem;
+}
+
+.completion-grounding-card,
+.completion-grounding-meta {
+  width: 100%;
+  border: 1px solid currentColor;
+  border-color: color-mix(in srgb, currentColor 24%, transparent);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.completion-grounding-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.completion-grounding-frame {
+  width: 100%;
+  min-height: 160px;
+  border: 0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.completion-grounding-pills,
+.completion-grounding-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.completion-grounding-pill,
+.completion-grounding-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  font-size: 0.82rem;
+  text-decoration: none;
+}
+
+.completion-grounding-source {
+  text-decoration: underline;
+}
+
 .completion-icon {
   font-size: 16px;
   font-weight: 700;
