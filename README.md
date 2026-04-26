@@ -7,6 +7,15 @@ computer-use agents on a controlled Ubuntu desktop.
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
 [![Last commit](https://img.shields.io/github/last-commit/pypi-ahmad/computer-use)](https://github.com/pypi-ahmad/computer-use/commits)
 
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB)](https://react.dev/)
+[![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white)](https://vite.dev/)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
+[![Playwright](https://img.shields.io/badge/Playwright-2EAD33?logo=playwright&logoColor=white)](https://playwright.dev/)
+[![Anthropic](https://img.shields.io/badge/Anthropic-191919?logo=anthropic&logoColor=white)](https://www.anthropic.com/)
+[![OpenAI](https://img.shields.io/badge/OpenAI-412991?logo=openai&logoColor=white)](https://openai.com/)
+[![Google Gemini](https://img.shields.io/badge/Google%20Gemini-4285F4?logo=googlegemini&logoColor=white)](https://deepmind.google/technologies/gemini/)
+
 Repository URL: https://github.com/pypi-ahmad/computer-use.git
 
 `computer-use` is a local, single-user research workbench that lets you run
@@ -322,11 +331,12 @@ The current selectable CU-capable models are:
 |---|---|---|---|
 | Anthropic | `claude-opus-4-7` | `computer_20251124` | Highest-capability Anthropic path, strongest option for long-horizon or dense reasoning tasks. |
 | Anthropic | `claude-sonnet-4-6` | `computer_20251124` | Balanced default for many desktop tasks. |
-| OpenAI | `gpt-5.4` | built-in `computer` tool | Uses the Responses API with stateless replay and `detail: "original"` screenshot outputs. |
+| OpenAI | `gpt-5.5` | built-in `computer` tool | Default OpenAI CU model. Uses the Responses API with stateless replay, `phase` preservation, and `detail: "original"` screenshot outputs. |
+| OpenAI | `gpt-5.4` | built-in `computer` tool | Still supported for CU workloads that need the prior GPT-5.4 behavior. |
 | Google | `gemini-3-flash-preview` | `types.Tool(computer_use=...)` | Sole Gemini Computer Use SKU per Google's official docs. |
 
-The registry also contains `gpt-5.4-nano`, but it is intentionally marked as not
-supporting Computer Use and therefore is not surfaced as a selectable CU model.
+The registry also contains `gpt-5.5-pro` and `gpt-5.4-nano`, but they are intentionally marked as not
+supporting Computer Use and therefore are not surfaced as selectable CU models.
 That distinction matters: being listed in the JSON file is not the same thing as
 being exposed by `/api/models`. The frontend only sees entries that are both
 allowlisted and marked `supports_computer_use: true`.
@@ -1030,7 +1040,7 @@ are still the best places for exhaustive reference material.
 
 ### What should I do if I want to add or remove a model?
 
-Start with `backend/models/allowed_models.json`, then update any tests and docs that
+Start with `backend/allowed_models.json`, then update any tests and docs that
 still describe the old state. In this repository, model drift between runtime,
 frontend, tests, and docs is one of the easiest ways to create confusion.
 
