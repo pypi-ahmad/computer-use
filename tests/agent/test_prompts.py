@@ -1,3 +1,4 @@
+# === merged from tests/test_prompts.py ===
 """Tests for system prompt generation and provider separation."""
 
 from __future__ import annotations
@@ -59,3 +60,4 @@ class TestPromptValidation:
     def test_validate_prompt_actions_returns_list(self):
         result = validate_prompt_actions()
         assert isinstance(result, list)
+

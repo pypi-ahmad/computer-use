@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Pytest fixtures and environment setup shared across the test suite.
 
 Setting ``CUA_TEST_MODE=1`` here (before any ``backend.*`` import) lets
@@ -6,7 +7,6 @@ production code keep an opt-in flag for test-only allowances (e.g. the
 permanently widening security defaults.
 """
 
-from __future__ import annotations
 
 import os
 

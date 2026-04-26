@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Follow-up fixes to the April-2026 wave: OpenAI ``gpt-5.4`` tool-shape
 migration + registry correctness.
 
@@ -13,7 +14,6 @@ Covers:
     OpenAI changelog entry).
 """
 
-from __future__ import annotations
 
 import base64
 from types import SimpleNamespace
@@ -365,7 +365,7 @@ class TestPhasePreserved:
 
 class TestRegistryNanoFlag:
     def test_gpt54_nano_not_cu_capable(self):
-        from backend._models_loader import load_allowed_models_json
+        from backend.models.schemas import load_allowed_models_json
 
         models = {m["model_id"]: m for m in load_allowed_models_json()}
         assert "gpt-5.4-nano" in models, "gpt-5.4-nano must be present in the registry"
@@ -375,7 +375,7 @@ class TestRegistryNanoFlag:
 
     def test_gpt54_still_cu_capable(self):
         """Sanity — the main gpt-5.4 entry must remain CU-capable."""
-        from backend._models_loader import load_allowed_models_json
+        from backend.models.schemas import load_allowed_models_json
 
         models = {m["model_id"]: m for m in load_allowed_models_json()}
         assert models["gpt-5.4"]["supports_computer_use"] is True
