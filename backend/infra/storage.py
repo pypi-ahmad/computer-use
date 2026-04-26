@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Server-side file storage for the file_search / RAG flow.
 
 Clients can POST files to ``/api/files/upload`` *before* starting an
@@ -30,7 +31,6 @@ The store lives entirely in memory (metadata) + a temp directory
 crashed frontend can't leak disk forever.
 """
 
-from __future__ import annotations
 
 import asyncio
 import logging

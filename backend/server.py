@@ -19,12 +19,11 @@ from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from backend.config import config, get_all_key_statuses, resolve_api_key
-from backend._models_loader import load_allowed_models_json as _load_allowed_models_json
-from backend.logging_ctx import install as _install_sid_filter
-from backend.ws_schema import validate_outbound as _validate_outbound_event
+from backend.infra.config import config, get_all_key_statuses, resolve_api_key
+from backend.models.schemas import load_allowed_models_json as _load_allowed_models_json
+from backend.infra.observability import install as _install_sid_filter
 from pydantic import BaseModel, ConfigDict, Field
-from backend.models import (
+from backend.models.schemas import (
     AgentAction,
     AgentSession,
     SessionStatus,
@@ -38,8 +37,8 @@ from backend.agent.graph import (
     shutdown_runtime,
 )
 from backend.agent import safety as safety_registry
-from backend.agent.screenshot import capture_screenshot, check_service_health
-from backend.docker_manager import (
+from backend.agent.loop import capture_screenshot, check_service_health
+from backend.infra.docker import (
     _run as _dm_run,
     build_image,
     get_container_status,
@@ -47,7 +46,7 @@ from backend.docker_manager import (
     start_container,
     stop_container,
 )
-from backend.parity_check import validate_tool_parity
+from backend.models.validation import validate_tool_parity
 
 import httpx
 
@@ -145,7 +144,7 @@ async def _lifespan(_app: FastAPI):
 
         # Wipe any uploaded RAG files left over on disk.
         try:
-            from backend.file_store import store as _file_store
+            from backend.infra.storage import store as _file_store
             await _file_store.close()
         except Exception:
             logger.exception("Error closing file_store")
@@ -411,7 +410,7 @@ def _ws_origin_ok(ws: WebSocket) -> bool:
 
     - Browsers always send an Origin header on cross-origin upgrades.
       We enforce the CORS allowlist so a malicious page can't open
-      ``ws://127.0.0.1:8000/ws`` and siphon live screenshots.
+      ``ws://127.0.0.1:8100/ws`` and siphon live screenshots.
     - Non-browser clients (curl, Python websockets) typically omit
       the header; we allow those only from loopback.
     - When ``CUA_WS_TOKEN`` is set the token check is the primary
@@ -766,7 +765,7 @@ async def _broadcast(event: str, data: dict) -> None:
     # in an event payload is surfaced as a WARNING instead of shipping
     # silent garbage to every connected frontend. Still broadcasts on
     # failure — the schema is advisory, not a blocker.
-    err = _validate_outbound_event(event, data)
+    err = validate_outbound(event, data)
     if err:
         logger.warning("WS event %s failed schema validation: %s", event, err)
     msg = json.dumps({"event": event, **data})
@@ -866,7 +865,7 @@ async def ready():
         reasons.append(f"docker daemon probe failed: {type(exc).__name__}: {exc}")
 
     # At least one provider API key configured (env or .env, NOT UI).
-    # Mirrors ``backend.config``'s ``_PROVIDER_KEY_ENV_VARS`` map.
+    # Mirrors ``backend.infra.config``'s ``_PROVIDER_KEY_ENV_VARS`` map.
     key_env_names = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY")
     has_any_key = any(os.environ.get(name, "").strip() for name in key_env_names)
     if not has_any_key:
@@ -1067,7 +1066,7 @@ async def api_upload_file(request: Request):
     except Exception:
         return _error_response(400, "Could not read upload payload")
 
-    from backend.file_store import store as _file_store
+    from backend.infra.storage import store as _file_store
     try:
         rec = await _file_store.add(filename=filename, data=data)
     except ValueError as exc:
@@ -1094,7 +1093,7 @@ async def api_delete_file(file_id: str, request: Request):
     forbidden = _require_origin(request)
     if forbidden is not None:
         return forbidden
-    from backend.file_store import store as _file_store
+    from backend.infra.storage import store as _file_store
     ok = await _file_store.delete(file_id)
     if not ok:
         return _error_response(404, f"file_id not found: {file_id}")
@@ -1117,8 +1116,6 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
     # ── Validate inputs ───────────────────────────────────────────────
     if req.engine != "computer_use":
         return _error_response(400, f"Invalid engine: {req.engine}. Only 'computer_use' is supported.")
-    if req.mode not in ("desktop", "browser"):
-        return _error_response(400, f"Invalid mode: {req.mode}. Must be 'desktop' or 'browser'.")
     if req.execution_target != "docker":
         return _error_response(400, f"Invalid execution_target: {req.execution_target}. Only 'docker' is supported.")
     if req.provider not in _VALID_PROVIDERS:
@@ -1143,7 +1140,7 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
     # Validate attached_files (optional). Activation rule: file_search
     # is only attached when the user explicitly uploads files.
     if req.attached_files:
-        from backend.file_store import store as _file_store
+        from backend.infra.storage import store as _file_store
         seen = set()
         for fid in req.attached_files:
             if not isinstance(fid, str) or not fid.startswith("f_"):
@@ -1213,7 +1210,6 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
         api_key=resolved_key,
         model=req.model,
         max_steps=req.max_steps,
-        mode=req.mode,
         engine=req.engine,
         provider=req.provider,
         execution_target=req.execution_target,
@@ -1254,6 +1250,7 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
             "session_id": loop.session_id,
             "status": session.status.value,
             "steps": len(session.steps),
+            "final_text": session.final_text,
         })
         _cleanup_session(loop.session_id)
 
@@ -1265,7 +1262,6 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
     return {
         "session_id": loop.session_id,
         "status": "running",
-        "mode": req.mode,
         "engine": req.engine,
         "provider": req.provider,
     }
@@ -1322,6 +1318,7 @@ async def api_agent_status(session_id: str):
         current_step=len(session.steps),
         total_steps=session.max_steps,
         last_action=last_action,
+        final_text=session.final_text,
     ).model_dump()
 
 
@@ -1652,7 +1649,7 @@ async def websocket_endpoint(ws: WebSocket):
     # Origin check (C2): browsers send the Origin header on WS upgrades
     # but do NOT enforce CORS for WebSockets — the server must.
     # Without this, any webpage the user visits can open a
-    # ``ws://127.0.0.1:8000/ws`` and read live desktop screenshots.
+    # ``ws://127.0.0.1:8100/ws`` and read live desktop screenshots.
     if not _ws_origin_ok(ws):
         await ws.close(code=4403)
         logger.warning(
@@ -1733,7 +1730,7 @@ async def _screenshot_publisher_loop():
     * Dedup is kept from the old per-client implementation: we only
       fan out a frame whose PNG hash differs from the previous one.
     """
-    from backend.docker_manager import is_container_running
+    from backend.infra.docker import is_container_running
 
     global _screenshot_capture_count, _last_screenshot_frame
     auth_reported = False
@@ -1899,3 +1896,130 @@ def _unsubscribe_screenshots(ws: WebSocket) -> None:
     """
     _detach_screenshot_subscriber(ws)
     _maybe_stop_screenshot_publisher()
+
+# === merged from backend/ws_schema.py ===
+"""Pydantic schema for WebSocket events broadcast to the frontend.
+
+The backend historically broadcast loosely-typed ``{"event": ..., **data}``
+dicts. This module is the single source of truth for the wire format:
+
+* Every outbound event is a subclass of :class:`WSEvent` discriminated
+  by the ``event`` field.
+* :func:`validate_outbound` is called from :func:`backend.server._broadcast`
+  so a typo or schema drift is logged instead of silently shipping bad
+  JSON to every connected client.
+* The matching TypeScript types live in ``frontend/src/types/ws.d.ts``
+  â€” keep them in sync with any change here.
+
+Kept intentionally permissive for forward compat: unknown events fall
+through as :class:`GenericWSEvent` rather than being rejected.
+"""
+
+
+from typing import Any, Literal, Optional, Union
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class _WSEventBase(BaseModel):
+    """Base for strongly-typed outbound events."""
+
+    model_config = ConfigDict(extra="allow")  # forward-compat
+
+
+class ScreenshotEvent(_WSEventBase):
+    """Single screenshot (one-off broadcast for a step-bound frame)."""
+
+    event: Literal["screenshot"] = "screenshot"
+    screenshot: str = Field(description="base64 PNG")
+
+
+class ScreenshotStreamEvent(_WSEventBase):
+    """Continuous-stream screenshot frame sent from :func:`_stream_screenshots`."""
+
+    event: Literal["screenshot_stream"] = "screenshot_stream"
+    screenshot: str
+
+
+class LogEvent(_WSEventBase):
+    """Log line from the agent loop (includes safety_confirmation payloads)."""
+
+    event: Literal["log"] = "log"
+    log: dict[str, Any]
+
+
+class StepEvent(_WSEventBase):
+    """One step record appended to the session timeline."""
+
+    event: Literal["step"] = "step"
+    step: dict[str, Any]
+
+
+class AgentFinishedEvent(_WSEventBase):
+    """Terminal event for a session (status=completed|error|stopped)."""
+
+    event: Literal["agent_finished"] = "agent_finished"
+    session_id: str
+    status: str
+    steps: int
+
+
+class AuthFailedEvent(_WSEventBase):
+    """Agent-service auth failure surfaced to the UI after a container restart."""
+
+    event: Literal["auth_failed"] = "auth_failed"
+    status: int
+    message: str
+
+
+class PongEvent(_WSEventBase):
+    """Heartbeat reply to a client-sent ``ping``."""
+
+    event: Literal["pong"] = "pong"
+
+
+class GenericWSEvent(_WSEventBase):
+    """Forward-compat fallback for events not yet modelled here."""
+
+    event: str
+
+
+WSEvent = Union[
+    ScreenshotEvent,
+    ScreenshotStreamEvent,
+    LogEvent,
+    StepEvent,
+    AgentFinishedEvent,
+    AuthFailedEvent,
+    PongEvent,
+    GenericWSEvent,
+]
+
+
+_TYPED_EVENTS: dict[str, type[_WSEventBase]] = {
+    "screenshot": ScreenshotEvent,
+    "screenshot_stream": ScreenshotStreamEvent,
+    "log": LogEvent,
+    "step": StepEvent,
+    "agent_finished": AgentFinishedEvent,
+    "auth_failed": AuthFailedEvent,
+    "pong": PongEvent,
+}
+
+
+def validate_outbound(event: str, data: dict[str, Any]) -> Optional[str]:
+    """Validate a dict payload against the registered event schema.
+
+    Returns ``None`` if the payload is valid, otherwise a short string
+    describing the first validation error. The caller (broadcast layer)
+    logs this and still ships the payload â€” the intent is an early-
+    warning for schema drift without breaking the user-facing stream.
+    """
+    model = _TYPED_EVENTS.get(event)
+    if model is None:
+        return None  # unknown event â€” allowed for forward compat
+    try:
+        model.model_validate({"event": event, **data})
+    except Exception as exc:  # pydantic.ValidationError or value errors
+        return str(exc).splitlines()[0][:200]
+    return None

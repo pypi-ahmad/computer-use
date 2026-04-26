@@ -1,3 +1,4 @@
+# === merged from backend/models.py ===
 """Pydantic models for agent actions, messages, and API contracts."""
 
 from __future__ import annotations
@@ -104,6 +105,7 @@ class AgentSession(BaseModel):
     steps: list[StepRecord] = Field(default_factory=list)
     max_steps: int = Field(default=50, ge=1, le=200)
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    final_text: Optional[str] = None
 
 
 # ── API request / response ────────────────────────────────────────────────────
@@ -120,20 +122,11 @@ class StartTaskRequest(BaseModel):
     api_key: Optional[str] = Field(default=None, max_length=256)
     model: str = Field(default="gemini-3-flash-preview", max_length=64)
     max_steps: int = Field(default=50, ge=1, le=200)
-    # Automation mode:
-    #   * "desktop"  — full X11 desktop (xdotool harness, all apps).
-    #   * "browser"  — chromium-focused: hints Gemini's Computer Use tool
-    #                  with ``ENVIRONMENT_BROWSER`` per the official docs
-    #                  (https://ai.google.dev/gemini-api/docs/computer-use)
-    #                  and switches the system prompt to browser-only
-    #                  guidance for all three providers. The runtime
-    #                  harness stays the same unified Docker container —
-    #                  Chromium runs as an X11 app and is screenshot via
-    #                  scrot, so the Computer-Use wire contract
-    #                  (Anthropic ``computer_20251124`` / OpenAI
-    #                  ``{"type":"computer"}`` / Gemini ``ComputerUse``)
-    #                  remains identical.
-    mode: str = Field(max_length=20)
+    # Deprecated: Desktop and Browser are now a single unified surface.
+    # The provider's Computer Use tool decides whether to drive a
+    # desktop app or Chromium itself. Field is retained for wire
+    # compatibility with older clients and is ignored.
+    mode: str = Field(default="desktop", max_length=20)
     engine: str = Field(default="computer_use", max_length=20)
     provider: str = Field(max_length=20)
     execution_target: str = Field(default="docker", max_length=20)  # only "docker" is supported
@@ -145,7 +138,8 @@ class StartTaskRequest(BaseModel):
     #   * Anthropic Messages    → ``{"type": "web_search_20250305", ...}``
     #   * Gemini GenerateContent → ``Tool(google_search=GoogleSearch())``
     # The model still decides whether to invoke search per turn; this
-    # flag only controls availability. Off by default per provider docs.
+    # flag only controls availability. Off by default; the frontend
+    # toggle enables the provider-native search tool when requested.
     use_builtin_search: bool = False
     search_max_uses: Optional[int] = Field(default=None, ge=1, le=20)  # Anthropic max_uses cap
     search_allowed_domains: Optional[list[str]] = Field(default=None, max_length=64)
@@ -171,6 +165,7 @@ class TaskStatusResponse(BaseModel):
     current_step: int
     total_steps: int
     last_action: Optional[AgentAction] = None
+    final_text: Optional[str] = None
 
 
 class StructuredError(BaseModel):
@@ -198,3 +193,27 @@ class LogEntry(BaseModel):
     level: str = "info"
     message: str
     data: Optional[dict] = None
+
+# === merged from backend/_models_loader.py ===
+"""Shared loader for the canonical Computer Use model allowlist.
+
+Moved out of ``backend.engine`` so both the engine and the HTTP server
+can import it without duplicating the helper in two modules.
+"""
+
+
+import json
+from pathlib import Path
+
+
+def load_allowed_models_json() -> list[dict]:
+    """Load and return the ``models`` list from ``backend/allowed_models.json``.
+
+    The JSON file is the single source of truth for provider/model ids
+    and their CU capabilities.
+    """
+    fpath = Path(__file__).resolve().parent / "allowed_models.json"
+    with open(fpath, encoding="utf-8") as f:
+        data = json.load(f)
+    return data.get("models", [])
+
