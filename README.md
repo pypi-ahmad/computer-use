@@ -36,6 +36,7 @@ If you want the architecture and code-level contract map, see
 - [Why the model matrix matters](#why-the-model-matrix-matters)
 - [Quickstart](#quickstart)
 - [Windows quickstart](#windows-quickstart)
+- [Rebuilding the sandbox and daily operations](#rebuilding-the-sandbox-and-daily-operations)
 - [What you should expect on first boot](#what-you-should-expect-on-first-boot)
 - [A guided first session](#a-guided-first-session)
 - [Configuration philosophy](#configuration-philosophy)
@@ -428,6 +429,117 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
 The repo is designed to be workable on Windows hosts, but remember that the
 actual desktop the model controls still lives inside Docker. Windows is your
 operator platform, not the execution surface the model sees.
+
+## Rebuilding the sandbox and daily operations
+
+The Quickstart commands assume a fresh repository. In day-to-day use you will
+sometimes pull new commits, switch branches, or hit a stale layer cache. The
+following recipes cover the recurring situations and explain what each command
+actually does, so you do not run a destructive command without understanding it.
+
+### Full clean rebuild from scratch
+
+Use this when you have changed `docker/Dockerfile`, bumped pinned package
+versions, or you suspect a stale layer is masking a fix. It is the safest
+"start over" path because it forces every layer to be re-fetched and rebuilt.
+
+```powershell
+# 1. Stop and remove the running sandbox container plus the project network.
+#    `down` is non-destructive: images, volumes, and the local source tree
+#    are untouched. It only tears down the live container and network.
+docker compose down
+
+# 2. Reclaim disk by removing every image not currently referenced by a
+#    running container. -a includes images without a container reference,
+#    -f skips the interactive confirmation. This is safe for this project
+#    because the image is reproducible from the Dockerfile.
+docker image prune -a -f
+
+# 3. (Optional) Wipe the BuildKit layer cache. Use this only if you suspect
+#    a corrupted cache or want a fully cold build. It will make the next
+#    build noticeably slower because nothing is cached anymore.
+docker builder prune -f
+
+# 4. Build the sandbox image without using any cache. --no-cache forces
+#    every Dockerfile instruction to re-execute; cua-environment is the
+#    service name from docker-compose.yml.
+docker compose build --no-cache cua-environment
+
+# 5. Start the sandbox in detached mode. -d returns control to the shell
+#    immediately; the container keeps running in the background. Logs are
+#    available via `docker logs -f cua-environment`.
+docker compose up -d
+```
+
+### Running the backend and frontend after a rebuild
+
+The Docker container only hosts the sandbox desktop. The FastAPI backend and
+the Vite frontend run on your host machine and must be started separately.
+
+```powershell
+# Backend ─ first terminal
+cd a:\computer-use
+.venv\Scripts\Activate.ps1               # activates the project virtualenv
+
+# Create or refresh your API-key file. The example file ships with the repo;
+# .env is gitignored so your real keys never leave your machine.
+Copy-Item .env.example .env              # only needed if .env doesn't exist
+# Edit .env and set ANTHROPIC_API_KEY / OPENAI_API_KEY / GOOGLE_API_KEY for
+# whichever provider(s) you intend to use. The backend reads them on start.
+
+python -m backend.main                   # serves http://localhost:8000
+```
+
+```powershell
+# Frontend ─ second terminal (leave the backend running in the first one)
+cd a:\computer-use\frontend
+npm install                              # only on first run, or after deps change
+npm run dev                              # serves http://localhost:3000
+```
+
+Open `http://localhost:3000` in your browser. The frontend will connect to the
+backend on `8000` and the backend will connect to the sandbox container on
+`9222` (agent service) and `9223` (Chrome DevTools Protocol, used by the
+Gemini Playwright path).
+
+### Restart after a code change in the sandbox image
+
+When you have only changed Python code under `backend/` or files copied late
+in the Dockerfile (`backend/`, `docker/agent_service.py`, `docker/entrypoint.sh`)
+you do **not** need a full clean rebuild. Cached layers are still valid up to
+the COPY of those files, so a normal up-down cycle picks up your changes:
+
+```powershell
+docker compose down
+docker compose up -d
+```
+
+If you also edited `docker/Dockerfile` or `requirements.txt`, run the full
+clean rebuild above instead.
+
+### "Container name already in use"
+
+When `docker compose up -d` fails with
+
+```text
+Error response from daemon: Conflict. The container name "/cua-environment"
+is already in use by container "<id>".
+```
+
+an old container with the same name still exists outside the current compose
+project (for example, left over from an earlier branch or a different
+`COMPOSE_PROJECT_NAME`). `docker compose down` only removes containers it owns,
+so the orphan must be removed directly:
+
+```powershell
+# -f forces removal even if the container is running. The image and
+# everything else are kept; only the named container is deleted.
+docker rm -f cua-environment
+
+docker compose up -d
+```
+
+After this, the next `docker compose up -d` will create the container cleanly.
 
 ## What you should expect on first boot
 
