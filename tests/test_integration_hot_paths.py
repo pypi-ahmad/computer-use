@@ -231,3 +231,26 @@ class TestOpenAIActionDispatchIntegration:
         executor.execute.assert_awaited_once_with(
             "right_click", {"x": 10, "y": 20},
         )
+
+    @pytest.mark.asyncio
+    async def test_scaled_click_payload_is_mapped_back_to_original_pixels(self):
+        from backend.engine import CUActionResult
+        from backend.engine.openai import OpenAICUClient
+
+        engine = OpenAICUClient.__new__(OpenAICUClient)
+        engine._model = "gpt-5.5"
+        engine._current_screenshot_scale = 0.5
+
+        executor = MagicMock()
+        executor.execute = AsyncMock(
+            return_value=CUActionResult(name="click_at", success=True),
+        )
+
+        click_action = SimpleNamespace(type="click", x=120, y=240, button="left")
+        result = await engine._execute_openai_action(click_action, executor)
+
+        executor.execute.assert_awaited_once_with(
+            "click_at", {"x": 240, "y": 480},
+        )
+        assert result.success is True
+        assert result.name == "click_at"

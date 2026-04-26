@@ -1,10 +1,10 @@
-from __future__ import annotations
 """Claude Computer Use client — split out of ``backend.engine`` (Q2).
 
 The class body lives here; ``backend.engine`` re-exports it so imports
 like ``from backend.engine import ClaudeCUClient`` keep working.
 """
 
+from __future__ import annotations
 
 import asyncio
 import base64
@@ -26,6 +26,7 @@ from backend.engine import (
     get_claude_scale_factor,
     resize_screenshot_for_claude,
     _append_source_footer,
+    validate_builtin_search_config,
     DEFAULT_TURN_LIMIT,
     _CONTEXT_PRUNE_KEEP_RECENT,
     _CLAUDE_OPUS_47_MAX_LONG_EDGE,
@@ -162,14 +163,21 @@ class ClaudeCUClient:
             self._tool_version = "computer_20250124"
             self._beta_flag = "computer-use-2025-01-24"
 
+        validate_builtin_search_config(
+            provider="claude",
+            model=model,
+            use_builtin_search=use_builtin_search,
+            search_max_uses=search_max_uses,
+            search_allowed_domains=search_allowed_domains,
+            search_blocked_domains=search_blocked_domains,
+        )
+
         # Official Anthropic web_search server tool (April 2026:
         # tool type ``web_search_20250305``, name ``web_search``).
         # When enabled the adapter advertises it alongside the
         # computer-use tool and the model invokes it server-side
-        # (no client-side execution). ``allowed_domains`` and
-        # ``blocked_domains`` are mutually exclusive per Anthropic
-        # docs; the adapter prefers ``allowed_domains`` if both
-        # are supplied.
+        # (no client-side execution). Domain-filter validation happens
+        # up front so unsupported combinations fail explicitly.
         self._use_builtin_search = bool(use_builtin_search)
         self._search_max_uses = int(search_max_uses) if search_max_uses else 5
         self._search_allowed_domains = list(search_allowed_domains) if search_allowed_domains else None
@@ -191,7 +199,7 @@ class ClaudeCUClient:
         #     ``text/plain`` only.
         #   * ``.csv``, ``.md``, ``.docx``, ``.xlsx`` must be converted
         #     to plain text and inlined in the message.
-        # The IDs received here are local ``backend.infra.storage`` IDs
+        # The IDs received here are local ``backend.file_store`` IDs
         # (``f_...``); :func:`_prepare_attached_files` resolves them
         # against the store, uploads the document-eligible ones to
         # Anthropic on first use, and pre-extracts the inline-only
@@ -218,7 +226,7 @@ class ClaudeCUClient:
           docs, so the adapter inlines them as plain text in the goal
           message).
 
-        Lookups are resolved against ``backend.infra.storage.store`` and
+        Lookups are resolved against ``backend.file_store.store`` and
         uploads to Anthropic are cached on the client instance so a
         multi-turn run does not re-upload on every call.
         """
@@ -226,8 +234,8 @@ class ClaudeCUClient:
             return [], []
 
         # Local import to avoid circulars and keep optional deps lazy.
-        from backend.infra.storage import store as _file_store
-        from backend.infra.storage import extract_text as _extract_text
+        from backend.file_store import store as _file_store
+        from backend.file_store import extract_text as _extract_text
 
         document_blocks: list[dict[str, Any]] = []
         inline_pairs: list[tuple[str, str]] = []
@@ -330,11 +338,14 @@ class ClaudeCUClient:
                 "name": "web_search",
                 "max_uses": self._search_max_uses,
             }
-            # ``allowed_domains`` and ``blocked_domains`` are mutually
-            # exclusive per Anthropic web-search docs.
+            if self._search_allowed_domains and self._search_blocked_domains:
+                raise ValueError(
+                    "Anthropic web search accepts either search_allowed_domains "
+                    "or search_blocked_domains, not both.",
+                )
             if self._search_allowed_domains:
                 ws_tool["allowed_domains"] = self._search_allowed_domains
-            elif self._search_blocked_domains:
+            if self._search_blocked_domains:
                 ws_tool["blocked_domains"] = self._search_blocked_domains
             tools.append(ws_tool)
         return tools

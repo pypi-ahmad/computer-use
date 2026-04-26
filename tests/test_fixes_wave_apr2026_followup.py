@@ -63,7 +63,7 @@ class TestToolShape:
         assert tool["type"] == "computer_use_preview"
         assert tool["display_width"] == 1440
         assert tool["display_height"] == 900
-        assert tool["environment"] == "linux"
+        assert tool["environment"] == "browser"
 
     def test_unknown_openai_model_warns_and_uses_short_form(self):
         from backend.engine import OpenAICUClient
