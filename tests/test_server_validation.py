@@ -204,21 +204,6 @@ class TestAgentStartValidation:
         assert "use_builtin_search=true" in resp.json().get("error", "")
 
     def test_anthropic_both_domain_lists_rejected(self, client):
-        with patch("backend.engine._app_config.anthropic_web_search_enabled", True):
-            resp = client.post("/api/agent/start", json={
-                "task": "test",
-                "engine": "computer_use",
-                "provider": "anthropic",
-                "model": "claude-sonnet-4-6",
-                "mode": "desktop",
-                "use_builtin_search": True,
-                "search_allowed_domains": ["docs.python.org"],
-                "search_blocked_domains": ["bad.test"],
-            })
-        assert resp.status_code == 400
-        assert "search_allowed_domains or search_blocked_domains" in resp.json().get("error", "")
-
-    def test_anthropic_builtin_search_requires_console_enablement_ack(self, client):
         resp = client.post("/api/agent/start", json={
             "task": "test",
             "engine": "computer_use",
@@ -226,9 +211,78 @@ class TestAgentStartValidation:
             "model": "claude-sonnet-4-6",
             "mode": "desktop",
             "use_builtin_search": True,
+            "search_allowed_domains": ["docs.python.org"],
+            "search_blocked_domains": ["bad.test"],
         })
         assert resp.status_code == 400
-        assert "CUA_ANTHROPIC_WEB_SEARCH_ENABLED=1" in resp.json().get("error", "")
+        assert "search_allowed_domains or search_blocked_domains" in resp.json().get("error", "")
+
+    def test_anthropic_builtin_search_no_longer_requires_ack_env(self, client):
+        from backend.server import _agent_start_limiter
+
+        _agent_start_limiter._calls.clear()
+        fake_loop = SimpleNamespace(session_id="session-anthropic-search-1", run=AsyncMock())
+        fake_task = Mock()
+        fake_task.done.return_value = False
+
+        def fake_create_task(coro):
+            coro.close()
+            return fake_task
+
+        with patch.dict("backend.server._active_tasks", {}, clear=True), \
+             patch.dict("backend.server._active_loops", {}, clear=True), \
+             patch("backend.server.resolve_api_key", return_value=("sk-ant-test-12345678", "ui")), \
+             patch("backend.server.start_container", new_callable=AsyncMock, return_value=True), \
+             patch("backend.server.get_container_state",
+                   return_value={"container": "running", "agent": "ready",
+                                 "last_health_error": None}), \
+             patch("backend.server.AgentLoop", return_value=fake_loop) as mock_agent_loop, \
+             patch("backend.server.asyncio.create_task", side_effect=fake_create_task):
+            resp = client.post("/api/agent/start", json={
+                "task": "test",
+                "engine": "computer_use",
+                "provider": "anthropic",
+                "model": "claude-sonnet-4-6",
+                "mode": "desktop",
+                "use_builtin_search": True,
+            })
+
+        assert resp.status_code == 200
+        assert mock_agent_loop.call_args.kwargs["use_builtin_search"] is True
+
+    def test_anthropic_allowed_callers_passes_through_to_agent_loop(self, client):
+        from backend.server import _agent_start_limiter
+
+        _agent_start_limiter._calls.clear()
+        fake_loop = SimpleNamespace(session_id="session-anthropic-search-2", run=AsyncMock())
+        fake_task = Mock()
+        fake_task.done.return_value = False
+
+        def fake_create_task(coro):
+            coro.close()
+            return fake_task
+
+        with patch.dict("backend.server._active_tasks", {}, clear=True), \
+             patch.dict("backend.server._active_loops", {}, clear=True), \
+             patch("backend.server.resolve_api_key", return_value=("sk-ant-test-12345678", "ui")), \
+             patch("backend.server.start_container", new_callable=AsyncMock, return_value=True), \
+             patch("backend.server.get_container_state",
+                   return_value={"container": "running", "agent": "ready",
+                                 "last_health_error": None}), \
+             patch("backend.server.AgentLoop", return_value=fake_loop) as mock_agent_loop, \
+             patch("backend.server.asyncio.create_task", side_effect=fake_create_task):
+            resp = client.post("/api/agent/start", json={
+                "task": "test",
+                "engine": "computer_use",
+                "provider": "anthropic",
+                "model": "claude-sonnet-4-6",
+                "mode": "desktop",
+                "use_builtin_search": True,
+                "allowed_callers": ["direct"],
+            })
+
+        assert resp.status_code == 200
+        assert mock_agent_loop.call_args.kwargs["allowed_callers"] == ["direct"]
 
     def test_openai_minimal_reasoning_search_rejected(self, client):
         resp = client.post("/api/agent/start", json={
@@ -312,6 +366,68 @@ class TestAgentStartValidation:
         assert mock_agent_loop.call_args.kwargs["provider"] == "openai"
         assert mock_agent_loop.call_args.kwargs["model"] == "gpt-5.5"
         assert mock_agent_loop.call_args.kwargs["api_key"] == "sk-test-openai"
+
+    def test_openai_gpt55_defaults_reasoning_effort_to_medium(self, client):
+        fake_loop = SimpleNamespace(session_id="session-openai-effort-55", run=AsyncMock())
+        fake_task = Mock()
+        fake_task.done.return_value = False
+
+        def fake_create_task(coro):
+            coro.close()
+            return fake_task
+
+        with patch.dict("backend.server._active_tasks", {}, clear=True), \
+             patch.dict("backend.server._active_loops", {}, clear=True), \
+             patch("backend.server.resolve_api_key", return_value=("sk-test-openai", "ui")), \
+             patch("backend.server.start_container", new_callable=AsyncMock, return_value=True), \
+             patch("backend.server.get_container_state",
+                   return_value={"container": "running", "agent": "ready",
+                                 "last_health_error": None}), \
+             patch("backend.server.AgentLoop", return_value=fake_loop) as mock_agent_loop, \
+             patch("backend.server.asyncio.create_task", side_effect=fake_create_task):
+            resp = client.post("/api/agent/start", json={
+                "task": "open a page",
+                "engine": "computer_use",
+                "provider": "openai",
+                "model": "gpt-5.5",
+                "mode": "desktop",
+                "execution_target": "docker",
+                "max_steps": 5,
+            })
+
+        assert resp.status_code == 200
+        assert mock_agent_loop.call_args.kwargs["reasoning_effort"] == "medium"
+
+    def test_openai_gpt54_defaults_reasoning_effort_to_none(self, client):
+        fake_loop = SimpleNamespace(session_id="session-openai-effort-54", run=AsyncMock())
+        fake_task = Mock()
+        fake_task.done.return_value = False
+
+        def fake_create_task(coro):
+            coro.close()
+            return fake_task
+
+        with patch.dict("backend.server._active_tasks", {}, clear=True), \
+             patch.dict("backend.server._active_loops", {}, clear=True), \
+             patch("backend.server.resolve_api_key", return_value=("sk-test-openai", "ui")), \
+             patch("backend.server.start_container", new_callable=AsyncMock, return_value=True), \
+             patch("backend.server.get_container_state",
+                   return_value={"container": "running", "agent": "ready",
+                                 "last_health_error": None}), \
+             patch("backend.server.AgentLoop", return_value=fake_loop) as mock_agent_loop, \
+             patch("backend.server.asyncio.create_task", side_effect=fake_create_task):
+            resp = client.post("/api/agent/start", json={
+                "task": "open a page",
+                "engine": "computer_use",
+                "provider": "openai",
+                "model": "gpt-5.4",
+                "mode": "desktop",
+                "execution_target": "docker",
+                "max_steps": 5,
+            })
+
+        assert resp.status_code == 200
+        assert mock_agent_loop.call_args.kwargs["reasoning_effort"] == "none"
 
     def test_openai_model_list_and_start_path_work_together(self, client):
         openai_model = next(

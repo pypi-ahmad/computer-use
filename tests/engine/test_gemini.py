@@ -7,14 +7,16 @@ Covers:
     ``CUA_GEMINI_RELAX_SAFETY=1``.  Default behaviour delegates to
     Google's published default ("Off" for Gemini 2.5/3 per
     safety-settings docs, 2026-04).  The ToS-mandated
-    ``require_confirmation`` handshake is unaffected either way.
-  * Screenshot pruning retains the goal + last-N turns and strips
-    ``inline_data`` from older turns while keeping the turn sequence
-    intact so thought-signature round-trip isn't broken.
+        ``require_confirmation`` handshake is unaffected either way.
+    * History pruning keeps a configurable recent-turn window, never
+        strips parts within a kept turn, and always preserves the most
+        recent assistant turn intact for thought-signature replay.
   * Default viewport is 1440x900 as recommended by the CU guide.
 """
 
 
+from copy import deepcopy
+from dataclasses import dataclass, field
 from unittest.mock import patch
 
 
@@ -103,106 +105,178 @@ class TestGeminiFlashSafetyGate:
 
 
 # ---------------------------------------------------------------------------
-# Screenshot pruning
+# History pruning
 # ---------------------------------------------------------------------------
 
 
-class TestGeminiFlashScreenshotPruning:
-    def test_gemini_flash_screenshot_pruning(self):
-        """Simulate a 20-turn session.  After pruning:
+@dataclass(eq=True)
+class _FakePart:
+    text: str | None = None
+    inline_data: bytes | None = None
+    function_call: dict | None = None
+    function_response: dict | None = None
+    tool_call: dict | None = None
+    tool_response: dict | None = None
+    thought_signature: str | None = None
+    id: str | None = None
+    tool_type: str | None = None
 
-          * the first Content (goal + initial screenshot) is retained,
-          * the last ``_CONTEXT_PRUNE_KEEP_RECENT`` Contents are
-            retained intact,
-          * older Contents have had their ``inline_data`` stripped /
-            replaced with a placeholder text Part, and
-          * the total number of Contents is unchanged (turn sequence
-            preserved so thought-signature round-trip isn't broken).
-        """
-        from google.genai import types
 
-        from backend.engine import _CONTEXT_PRUNE_KEEP_RECENT
+@dataclass(eq=True)
+class _FakeContent:
+    role: str
+    parts: list[_FakePart] = field(default_factory=list)
+
+
+class TestGeminiHistoryPruning:
+    @staticmethod
+    def _make_turn(turn_number: int, role: str) -> _FakeContent:
+        marker = f"turn-{turn_number}"
+        return _FakeContent(
+            role=role,
+            parts=[
+                _FakePart(text=f"text-{marker}", thought_signature=f"sig-text-{marker}"),
+                _FakePart(
+                    tool_call={"id": f"tool-call-{marker}", "tool_type": "GOOGLE_SEARCH_WEB"},
+                    thought_signature=f"sig-tool-call-{marker}",
+                    id=f"tool-call-{marker}",
+                    tool_type="GOOGLE_SEARCH_WEB",
+                ),
+                _FakePart(
+                    tool_response={
+                        "id": f"tool-response-{marker}",
+                        "tool_type": "GOOGLE_SEARCH_WEB",
+                        "response": {"search_suggestions": [marker]},
+                    },
+                    thought_signature=f"sig-tool-response-{marker}",
+                    id=f"tool-response-{marker}",
+                    tool_type="GOOGLE_SEARCH_WEB",
+                ),
+                _FakePart(
+                    function_call={"name": f"fn-{marker}", "id": f"function-call-{marker}"},
+                    thought_signature=f"sig-function-call-{marker}",
+                    id=f"function-call-{marker}",
+                    tool_type="COMPUTER_USE",
+                ),
+                _FakePart(
+                    function_response={
+                        "name": f"fn-{marker}",
+                        "id": f"function-response-{marker}",
+                        "response": {"ok": True, "turn": turn_number},
+                    },
+                    thought_signature=f"sig-function-response-{marker}",
+                    id=f"function-response-{marker}",
+                    tool_type="COMPUTER_USE",
+                ),
+                _FakePart(
+                    inline_data=f"image-{marker}".encode(),
+                    thought_signature=f"sig-image-{marker}",
+                ),
+            ],
+        )
+
+    def test_default_bound_preserves_last_10_turns_whole(self):
+        from backend.engine import GeminiCUClient, Environment
         from backend.engine.gemini import _prune_gemini_context
 
-        def _fake_shot(marker: bytes) -> types.Part:
-            return types.Part.from_bytes(
-                data=b"\x89PNG\r\n\x1a\n" + marker + b"\x00" * 80,
-                mime_type="image/png",
+        with patch("google.genai.Client"):
+            client = GeminiCUClient(
+                api_key="k",
+                model="gemini-3-flash-preview",
+                environment=Environment.BROWSER,
             )
 
-        # Turn 0: user goal + initial screenshot.
-        contents: list = [
-            types.Content(
-                role="user",
-                parts=[
-                    types.Part(text="goal"),
-                    _fake_shot(b"initial"),
-                ],
-            )
+        contents = [
+            self._make_turn(i, "model" if i % 2 == 0 else "user")
+            for i in range(1, 13)
         ]
-        # Turns 1..19: alternating model / user with an inline_data
-        # screenshot on each user turn (simulating FunctionResponse
-        # replay).  We only need inline_data Parts for pruning signal,
-        # so keep the shape simple.
-        for i in range(1, 20):
-            contents.append(
-                types.Content(
-                    role="user" if i % 2 else "model",
-                    parts=[
-                        types.Part(text=f"turn-{i}"),
-                        _fake_shot(f"turn{i}".encode()),
-                    ],
-                )
+        expected = deepcopy(contents[2:])
+
+        _prune_gemini_context(contents, client._max_history_turns)
+
+        assert client._max_history_turns == 10
+        assert contents == expected
+
+    def test_max_history_turns_3_prunes_turn_1_entirely_when_turn_4_arrives(self):
+        from backend.engine import GeminiCUClient, Environment
+        from backend.engine.gemini import _prune_gemini_context
+
+        with patch("google.genai.Client"):
+            client = GeminiCUClient(
+                api_key="k",
+                model="gemini-3-flash-preview",
+                environment=Environment.BROWSER,
+                max_history_turns=3,
             )
 
-        original_len = len(contents)
-        _prune_gemini_context(contents, types, _CONTEXT_PRUNE_KEEP_RECENT)
+        contents = [
+            self._make_turn(1, "user"),
+            self._make_turn(2, "model"),
+            self._make_turn(3, "user"),
+            self._make_turn(4, "model"),
+        ]
 
-        # Turn sequence preserved.
-        assert len(contents) == original_len, (
-            "pruning must not drop Content entries — that would break "
-            "thought-signature round-trip"
-        )
+        _prune_gemini_context(contents, client._max_history_turns)
 
-        # First Content (goal) kept intact.
-        first_parts = list(contents[0].parts)
-        assert any(getattr(p, "inline_data", None) is not None
-                   for p in first_parts), (
-            "initial goal screenshot must be retained"
-        )
+        assert client._max_history_turns == 3
+        assert len(contents) == 3
+        assert all(content.parts[0].text != "text-turn-1" for content in contents)
+        assert [content.parts[0].text for content in contents] == [
+            "text-turn-2",
+            "text-turn-3",
+            "text-turn-4",
+        ]
 
-        # Last N Contents kept intact.
-        keep_start = original_len - _CONTEXT_PRUNE_KEEP_RECENT
-        recent_image_count = sum(
-            1
-            for content in contents[keep_start:]
-            for part in (content.parts or [])
-            if getattr(part, "inline_data", None) is not None
-        )
-        assert recent_image_count >= 1, (
-            "recent turns must still carry inline_data screenshots"
-        )
+    def test_most_recent_assistant_turn_is_never_pruned_even_at_1(self):
+        from backend.engine.gemini import _prune_gemini_context
 
-        # Middle Contents had inline_data stripped / replaced.
-        for content in contents[1:keep_start]:
-            for part in content.parts or []:
-                if getattr(part, "inline_data", None) is not None:
-                    raise AssertionError(
-                        "middle-range Content still carries inline_data; "
-                        "pruning did not strip old screenshots"
-                    )
+        assistant_turn = self._make_turn(2, "model")
+        trailing_user_turn = self._make_turn(3, "user")
+        contents = [
+            self._make_turn(1, "user"),
+            assistant_turn,
+            trailing_user_turn,
+        ]
 
-        # Total image count bounded: 1 (goal) + at most N_recent.
-        total_images = sum(
-            1
-            for content in contents
-            for part in (content.parts or [])
-            if getattr(part, "inline_data", None) is not None
-        )
-        assert total_images <= 1 + _CONTEXT_PRUNE_KEEP_RECENT, (
-            f"expected <= {1 + _CONTEXT_PRUNE_KEEP_RECENT} inline images "
-            f"after pruning, got {total_images}"
-        )
+        _prune_gemini_context(contents, 1)
+
+        assert contents == [assistant_turn, trailing_user_turn]
+
+    def test_pruning_never_strips_parts_within_a_kept_turn(self):
+        from backend.engine.gemini import _prune_gemini_context
+
+        contents = [
+            self._make_turn(1, "user"),
+            self._make_turn(2, "model"),
+            self._make_turn(3, "user"),
+            self._make_turn(4, "model"),
+        ]
+        expected = deepcopy(contents[1:])
+
+        _prune_gemini_context(contents, 3)
+
+        assert contents == expected
+        kept_assistant = contents[-1]
+        assert len(kept_assistant.parts) == 6
+        assert kept_assistant.parts[1].tool_call == {
+            "id": "tool-call-turn-4",
+            "tool_type": "GOOGLE_SEARCH_WEB",
+        }
+        assert kept_assistant.parts[2].tool_response == {
+            "id": "tool-response-turn-4",
+            "tool_type": "GOOGLE_SEARCH_WEB",
+            "response": {"search_suggestions": ["turn-4"]},
+        }
+        assert kept_assistant.parts[3].function_call == {
+            "name": "fn-turn-4",
+            "id": "function-call-turn-4",
+        }
+        assert kept_assistant.parts[4].function_response == {
+            "name": "fn-turn-4",
+            "id": "function-response-turn-4",
+            "response": {"ok": True, "turn": 4},
+        }
+        assert kept_assistant.parts[5].inline_data == b"image-turn-4"
 
 
 # ---------------------------------------------------------------------------
