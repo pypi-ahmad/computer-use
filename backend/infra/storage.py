@@ -48,8 +48,6 @@ logger = logging.getLogger(__name__)
 # ── Limits ────────────────────────────────────────────────────────────────────
 ALLOWED_EXTS: frozenset[str] = frozenset({".md", ".txt", ".pdf", ".docx"})
 MAX_FILE_BYTES: int = 1 * 1024 * 1024 * 1024  # 1 GB per file
-MAX_FILES_PER_SESSION: int = 10
-MAX_TOTAL_BYTES: int = 1 * 1024 * 1024 * 1024  # 1 GB combined per session
 
 # How long an upload survives if no agent run picks it up.  Long enough
 # to absorb a slow user, short enough that abandoned uploads can't pile

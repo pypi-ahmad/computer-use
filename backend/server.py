@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.infra.config import config, get_all_key_statuses, resolve_api_key
+from backend.engine import validate_builtin_search_config as _validate_builtin_search_config
 from backend.models.schemas import load_allowed_models_json as _load_allowed_models_json
 from backend.infra.observability import install as _install_sid_filter
 from pydantic import BaseModel, ConfigDict, Field
@@ -892,7 +893,7 @@ async def ready():
 async def api_models():
     """Return the canonical allowed-models list for frontend dropdowns.
 
-    Source of truth: backend/allowed_models.json
+    Source of truth: backend/models/allowed_models.json
     """
     return {"models": _CU_ALLOWED_MODELS}
 
@@ -1129,11 +1130,6 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
     if not req.task or not req.task.strip():
         return _error_response(400, "Task description is required")
 
-    # Resolve API key: UI input → .env → system env
-    resolved_key, key_source = resolve_api_key(req.provider, req.api_key)
-    if not resolved_key or len(resolved_key) < 8:
-        return _error_response(400, "API key is required. Provide it in the UI, .env file, or system environment variable.")
-
     # Cap max_steps to prevent runaway agents
     req.max_steps = min(req.max_steps, _MAX_STEPS_HARD_CAP)
 
@@ -1154,19 +1150,36 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
                     f"file_id {fid} is unknown or expired; re-upload it",
                 )
 
-    # Resolve reasoning_effort: request > env var > default "high".
-    # "high" is the CU floor per the OpenAI Responses computer-use
-    # guide (April 2026); the env var and per-request override let
-    # operators opt down when running cheap scenarios.
+    # Resolve reasoning_effort: request > env var > default "medium".
+    # GPT-5.5 defaults to ``medium`` reasoning effort per the OpenAI
+    # changelog + latest-model guide (checked 2026-04-26). The env var
+    # and per-request override still let operators opt into cheaper or
+    # more exhaustive runs.
     # Canonical values per the OpenAI Responses API (2026-04):
-    # {"minimal","low","medium","high"}. ``none`` / ``xhigh`` are
-    # legacy aliases from earlier SDKs — ``OpenAICUClient.__init__``
-    # maps them to the canonical enum before the request is built,
-    # so we accept them here for wire-compat with older frontends.
+    # {"minimal","low","medium","high","xhigh"}. ``none`` is kept as
+    # a legacy alias and normalized by ``OpenAICUClient.__init__``.
     _VALID_REASONING_EFFORTS = {"minimal", "low", "medium", "high", "none", "xhigh"}
-    reasoning_effort = (req.reasoning_effort or os.getenv("OPENAI_REASONING_EFFORT") or "high").lower()
+    reasoning_effort = (req.reasoning_effort or os.getenv("OPENAI_REASONING_EFFORT") or "medium").lower()
     if reasoning_effort not in _VALID_REASONING_EFFORTS:
-        reasoning_effort = "high"
+        reasoning_effort = "medium"
+
+    try:
+        _validate_builtin_search_config(
+            provider=req.provider,
+            model=req.model,
+            use_builtin_search=req.use_builtin_search,
+            reasoning_effort=reasoning_effort,
+            search_max_uses=req.search_max_uses,
+            search_allowed_domains=req.search_allowed_domains,
+            search_blocked_domains=req.search_blocked_domains,
+        )
+    except ValueError as exc:
+        return _error_response(400, str(exc))
+
+    # Resolve API key: UI input → .env → system env
+    resolved_key, key_source = resolve_api_key(req.provider, req.api_key)
+    if not resolved_key or len(resolved_key) < 8:
+        return _error_response(400, "API key is required. Provide it in the UI, .env file, or system environment variable.")
 
     # Limit concurrent sessions
     active_count = sum(1 for t in _active_tasks.values() if not t.done())
