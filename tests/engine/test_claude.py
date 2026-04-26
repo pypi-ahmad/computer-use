@@ -201,26 +201,25 @@ class TestClaudeActionDispatch:
 class TestClaudeToolConfig:
     """Test ClaudeCUClient tool configuration."""
 
-    def test_tool_version_auto_detect_sonnet(self):
-        with patch("anthropic.Anthropic"):
+    def test_tool_version_comes_from_registry_for_sonnet(self):
+        with patch("anthropic.AsyncAnthropic"):
             client = ClaudeCUClient(api_key="test", model="claude-sonnet-4-6")
         assert client._tool_version == "computer_20251124"
         assert client._beta_flag == "computer-use-2025-11-24"
 
-    def test_tool_version_auto_detect_opus(self):
-        with patch("anthropic.Anthropic"):
+    def test_tool_version_comes_from_registry_for_opus(self):
+        with patch("anthropic.AsyncAnthropic"):
             client = ClaudeCUClient(api_key="test", model="claude-opus-4-7")
         assert client._tool_version == "computer_20251124"
         assert client._beta_flag == "computer-use-2025-11-24"
 
-    def test_tool_version_auto_detect_opus_46(self):
-        with patch("anthropic.Anthropic"):
-            client = ClaudeCUClient(api_key="test", model="claude-opus-4-6")
-        assert client._tool_version == "computer_20251124"
-        assert client._beta_flag == "computer-use-2025-11-24"
+    def test_unregistered_future_model_raises_explicit_registry_error(self):
+        with patch("anthropic.AsyncAnthropic"):
+            with pytest.raises(ValueError, match="not in registry"):
+                ClaudeCUClient(api_key="test", model="claude-sonnet-5-0-future")
 
     def test_explicit_tool_version_overrides(self):
-        with patch("anthropic.Anthropic"):
+        with patch("anthropic.AsyncAnthropic"):
             client = ClaudeCUClient(
                 api_key="test", model="some-model",
                 tool_version="computer_20250124",
@@ -230,7 +229,7 @@ class TestClaudeToolConfig:
         assert client._beta_flag == "computer-use-2025-01-24"
 
     def test_build_tools_includes_zoom(self):
-        with patch("anthropic.Anthropic"):
+        with patch("anthropic.AsyncAnthropic"):
             client = ClaudeCUClient(api_key="test", model="claude-sonnet-4-6")
         tools = client._build_tools(1200, 800)
         assert tools[0]["type"] == "computer_20251124"

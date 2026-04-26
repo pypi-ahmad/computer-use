@@ -102,6 +102,7 @@ class AgentLoop:
         search_max_uses: int | None = None,
         search_allowed_domains: list[str] | None = None,
         search_blocked_domains: list[str] | None = None,
+        allowed_callers: list[str] | None = None,
         attached_files: list[str] | None = None,
         on_step: Optional[Callable] = None,
         on_log: Optional[Callable] = None,
@@ -124,6 +125,7 @@ class AgentLoop:
         self._search_max_uses = search_max_uses
         self._search_allowed_domains = search_allowed_domains
         self._search_blocked_domains = search_blocked_domains
+        self._allowed_callers = allowed_callers
         self._attached_files = attached_files or []
         self._action_history: list[AgentAction] = []
         self._stop_requested = False
@@ -374,6 +376,7 @@ class AgentLoop:
                 search_max_uses=self._search_max_uses,
                 search_allowed_domains=self._search_allowed_domains,
                 search_blocked_domains=self._search_blocked_domains,
+                allowed_callers=self._allowed_callers,
                 attached_files=self._attached_files,
             )
 
@@ -544,6 +547,7 @@ class AgentLoop:
             search_max_uses=self._search_max_uses,
             search_allowed_domains=self._search_allowed_domains,
             search_blocked_domains=self._search_blocked_domains,
+            allowed_callers=self._allowed_callers,
             attached_files=self._attached_files,
         )
 
@@ -685,6 +689,9 @@ class AgentLoop:
                     else "Agent cancelled."
                 )
                 self._emit_log("info", final_text)
+            self.session.final_text = final_text
+            completion_payload = engine.last_completion_payload or {}
+            self.session.gemini_grounding = completion_payload.get("gemini_grounding")
             self._emit_log("info", f"CU engine completed: {final_text[:300]}")
             self.session.status = (
                 SessionStatus.STOPPED

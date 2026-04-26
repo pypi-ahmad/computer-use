@@ -37,13 +37,6 @@
     },
     {
       "provider": "openai",
-      "model_id": "gpt-5.5-pro",
-      "display_name": "GPT-5.5 Pro",
-      "supports_computer_use": false,
-      "notes": "Responses API and Batch model with web search support, but the current OpenAI model page lists Computer use as not supported."
-    },
-    {
-      "provider": "openai",
       "model_id": "gpt-5.4",
       "display_name": "GPT-5.4",
       "supports_computer_use": true,

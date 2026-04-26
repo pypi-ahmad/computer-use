@@ -3,6 +3,10 @@ asyncio_mode = "auto"
 # Pin the test discovery root so CI's bare ``pytest`` invocation
 # behaves identically regardless of cwd.
 testpaths = ["tests"]
+addopts = "-m \"not integration\""
+markers = [
+    "integration: live SDK / transport integration checks that run separately from the unit suite",
+]
 
 
 # ── Lint / format (Q13, Q14) ─────────────────────────────────────────────────

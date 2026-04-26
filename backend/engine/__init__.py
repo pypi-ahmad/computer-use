@@ -10,7 +10,7 @@ Architecture
 
     ComputerUseEngine
     ├── GeminiCUClient   (google-genai  types.Tool(computer_use=...))
-    ├── ClaudeCUClient   (anthropic     computer_2025XXYY tool, auto-detected)
+    ├── ClaudeCUClient   (anthropic     computer_2025XXYY tool, registry-backed)
     └── Executors
         └── DesktopExecutor     (desktop via agent_service HTTP API → xdotool + scrot)
 
@@ -33,6 +33,7 @@ import io
 import logging
 import math
 import os
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Protocol
@@ -52,8 +53,8 @@ logger = logging.getLogger(__name__)
 def _lookup_claude_cu_config(model_id: str) -> tuple[str | None, str | None]:
     """Look up cu_tool_version / cu_betas from allowed_models.json.
 
-    Returns (tool_version, beta_flag) or (None, None) if not found,
-    letting ClaudeCUClient fall back to auto-detection.
+    Returns (tool_version, beta_flag) or (None, None) if the model is
+    absent or does not declare Anthropic computer-use metadata.
     """
     try:
         for m in _load_allowed_models_json():
@@ -66,6 +67,19 @@ def _lookup_claude_cu_config(model_id: str) -> tuple[str | None, str | None]:
     except Exception:
         pass
     return None, None
+
+
+def default_openai_reasoning_effort_for_model(model: str) -> str:
+    """Return the doc-backed OpenAI reasoning default for a model slug.
+
+    OpenAI's GPT-5.4 model page says ``reasoning.effort`` defaults to
+    ``none``. OpenAI's GPT-5.5 model page and latest-model guide say the
+    default is ``medium``.
+    """
+    model = str(model or "").lower()
+    if model == "gpt-5.4" or re.match(r"^gpt-5\.4-\d{4}-\d{2}-\d{2}$", model):
+        return "none"
+    return "medium"
 
 
 def _to_plain_dict(value: Any) -> dict[str, Any]:
@@ -541,23 +555,18 @@ def validate_builtin_search_config(
     search_max_uses: int | None = None,
     search_allowed_domains: list[str] | None = None,
     search_blocked_domains: list[str] | None = None,
+    allowed_callers: list[str] | None = None,
 ) -> None:
     """Validate provider-native search settings before any API call is built."""
     has_domain_filters = bool(search_allowed_domains) or bool(search_blocked_domains)
     if not use_builtin_search:
-        if search_max_uses is not None or has_domain_filters:
+        if search_max_uses is not None or has_domain_filters or allowed_callers is not None:
             raise ValueError("Search options require use_builtin_search=true.")
         return
 
     provider_key = _normalize_search_provider(provider)
 
     if provider_key == "claude":
-        if not _app_config.anthropic_web_search_enabled:
-            raise ValueError(
-                "Anthropic web search must be enabled by your organization's admin in Claude Console. "
-                "After enabling it, set CUA_ANTHROPIC_WEB_SEARCH_ENABLED=1 to acknowledge that "
-                "prerequisite before using use_builtin_search with Anthropic models."
-            )
         if search_allowed_domains and search_blocked_domains:
             raise ValueError(
                 "Anthropic web search accepts either search_allowed_domains or "
@@ -571,10 +580,10 @@ def validate_builtin_search_config(
                 "Gemini combined computer_use + google_search is documented only "
                 "for Gemini 3 models.",
             )
-        if search_max_uses is not None or has_domain_filters:
+        if search_max_uses is not None or has_domain_filters or allowed_callers is not None:
             raise ValueError(
                 "Gemini google_search does not support search_max_uses or domain "
-                "filters in the fetched API docs.",
+                "filters in the fetched API docs; allowed_callers is also unsupported.",
             )
         sdk_error = _get_gemini_builtin_search_sdk_error()
         if sdk_error:
@@ -587,6 +596,10 @@ def validate_builtin_search_config(
             openai_effort = "minimal"
         if search_max_uses is not None:
             raise ValueError("OpenAI web_search does not support search_max_uses.")
+        if allowed_callers is not None:
+            raise ValueError(
+                "OpenAI web_search does not support allowed_callers.",
+            )
         if model.startswith("gpt-5") and openai_effort == "minimal":
             raise ValueError(
                 "OpenAI web_search is not supported with gpt-5 models at minimal reasoning.",
@@ -1380,9 +1393,11 @@ class ComputerUseEngine:
         search_max_uses: int | None = None,
         search_allowed_domains: list[str] | None = None,
         search_blocked_domains: list[str] | None = None,
+        allowed_callers: list[str] | None = None,
         attached_files: list[str] | None = None,
     ):
         self.provider = provider
+        self._last_completion_payload: dict[str, Any] | None = None
         self.environment = environment
         self.screen_width = screen_width
         self.screen_height = screen_height
@@ -1416,8 +1431,9 @@ class ComputerUseEngine:
             )
         elif provider == Provider.CLAUDE:
             # Look up tool_version / beta_flag from allowed_models.json
-            # if available, so the canonical allowlist drives the config
-            # instead of relying solely on model-name auto-detection.
+            # so the canonical allowlist drives the Claude CU routing.
+            # ClaudeCUClient raises if the model lacks registry metadata
+            # and no explicit override is supplied.
             _tv, _bf = _lookup_claude_cu_config(model or "claude-sonnet-4-6")
             self._client = ClaudeCUClient(
                 api_key=api_key,
@@ -1425,6 +1441,7 @@ class ComputerUseEngine:
                 system_prompt=system_instruction,
                 tool_version=_tv,
                 beta_flag=_bf,
+                allowed_callers=list(allowed_callers) if allowed_callers is not None else None,
                 **search_kwargs,
                 **file_kwargs,
             )
@@ -1433,7 +1450,7 @@ class ComputerUseEngine:
                 api_key=api_key,
                 model=model or "gpt-5.5",
                 system_prompt=system_instruction,
-                reasoning_effort=reasoning_effort or "medium",
+                reasoning_effort=reasoning_effort,
                 **search_kwargs,
                 **file_kwargs,
             )
@@ -1482,8 +1499,9 @@ class ComputerUseEngine:
             Final text response from the model.
         """
         executor = self._build_executor(page)
+        self._last_completion_payload = None
         try:
-            return await self._client.run_loop(
+            final_text = await self._client.run_loop(
                 goal=goal,
                 executor=executor,
                 turn_limit=turn_limit,
@@ -1491,6 +1509,8 @@ class ComputerUseEngine:
                 on_turn=on_turn,
                 on_log=on_log,
             )
+            self._last_completion_payload = getattr(self._client, "_last_completion_payload", None)
+            return final_text
         finally:
             # Close httpx client to prevent resource leaks
             if hasattr(executor, 'aclose'):
@@ -1498,6 +1518,11 @@ class ComputerUseEngine:
                     await executor.aclose()
                 except Exception:
                     logger.debug("Error closing executor", exc_info=True)
+
+    @property
+    def last_completion_payload(self) -> dict[str, Any] | None:
+        """Provider-specific completion payload for the most recent run."""
+        return self._last_completion_payload
 
     async def iter_turns(
         self,

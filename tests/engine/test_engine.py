@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import io
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -34,6 +35,18 @@ def _png_bytes(size: tuple[int, int] = (32, 32)) -> bytes:
 
 class TestComputerUseEngine:
     """Test the unified ComputerUseEngine facade."""
+
+    def test_claude_passes_allowed_callers_to_client(self):
+        with patch("backend.engine.ClaudeCUClient") as mock_client:
+            ComputerUseEngine(
+                provider=Provider.CLAUDE,
+                api_key="test-key",
+                model="claude-sonnet-4-6",
+                use_builtin_search=True,
+                allowed_callers=["direct"],
+            )
+
+        assert mock_client.call_args.kwargs["allowed_callers"] == ["direct"]
 
     def test_gemini_provider_creates_gemini_client(self):
         with patch("google.genai.Client"):
@@ -313,6 +326,132 @@ class TestOpenAIRuntimePath:
             "message": "Confirm action",
         }]
 
+    def test_prepare_openai_screenshot_downscales_above_doc_threshold(self):
+        from backend.engine.openai import (
+            _OPENAI_ORIGINAL_MAX_PIXELS,
+            _prepare_openai_computer_screenshot,
+        )
+
+        screenshot_bytes = _png_bytes((5500, 2000))
+
+        prepared_bytes, scale = _prepare_openai_computer_screenshot(screenshot_bytes)
+
+        assert scale == pytest.approx((_OPENAI_ORIGINAL_MAX_PIXELS / (5500 * 2000)) ** 0.5)
+        assert scale < 1.0
+        with Image.open(io.BytesIO(prepared_bytes)) as downscaled:
+            assert downscaled.size == (5307, 1930)
+
+    def test_run_loop_downscales_and_reverse_remaps_click_coordinates(self):
+        screenshot_bytes = _png_bytes((5120, 5120))
+
+        class FakeExecutor:
+            def __init__(self):
+                self.calls: list[tuple[str, dict]] = []
+
+            async def capture_screenshot(self):
+                return screenshot_bytes
+
+            async def execute(self, action, payload):
+                self.calls.append((action, payload))
+                return CUActionResult(name=action, extra=payload)
+
+        first_response = SimpleNamespace(
+            id="resp_scaled_1",
+            error=None,
+            output_text="",
+            output=[
+                SimpleNamespace(
+                    type="computer_call",
+                    call_id="call_scaled",
+                    actions=[
+                        SimpleNamespace(type="click", x=3125, y=3125),
+                    ],
+                )
+            ],
+        )
+        second_response = SimpleNamespace(
+            id="resp_scaled_2",
+            error=None,
+            output_text="done",
+            output=[],
+        )
+
+        with patch("openai.AsyncOpenAI") as mock_openai:
+            responses_create = AsyncMock(side_effect=[first_response, second_response])
+            mock_openai.return_value.responses.create = responses_create
+            client = OpenAICUClient(api_key="test-key", model="gpt-5.5")
+
+        executor = FakeExecutor()
+        final_text = asyncio.run(client.run_loop("Click the far corner", executor))
+
+        assert final_text == "done"
+        assert client._current_screenshot_scale == pytest.approx(0.625)
+        assert executor.calls == [("click_at", {"x": 5000, "y": 5000})]
+
+        first_request = responses_create.call_args_list[0].kwargs
+        image_item = first_request["input"][0]["content"][1]
+        encoded_png = image_item["image_url"].split(",", 1)[1]
+        with Image.open(io.BytesIO(base64.standard_b64decode(encoded_png))) as downscaled:
+            assert downscaled.size == (3200, 3200)
+
+    @pytest.mark.parametrize("phase", ["commentary", "final_answer"])
+    def test_run_loop_replays_assistant_message_phase_verbatim(self, phase):
+        screenshot_bytes = _png_bytes()
+
+        class FakeExecutor:
+            async def capture_screenshot(self):
+                return screenshot_bytes
+
+            async def execute(self, action, payload):
+                return CUActionResult(name=action, extra=payload)
+
+        first_response = SimpleNamespace(
+            id="resp_phase_1",
+            error=None,
+            output_text="",
+            output=[
+                SimpleNamespace(
+                    type="message",
+                    role="assistant",
+                    phase=phase,
+                    content=[
+                        SimpleNamespace(
+                            type="output_text",
+                            text=f"{phase} status",
+                            annotations=[{"type": "url_citation", "url": "https://example.com"}],
+                        )
+                    ],
+                ),
+                SimpleNamespace(
+                    type="computer_call",
+                    call_id="call_phase",
+                    actions=[SimpleNamespace(type="click", x=10, y=20)],
+                ),
+            ],
+        )
+        second_response = SimpleNamespace(
+            id="resp_phase_2",
+            error=None,
+            output_text="done",
+            output=[],
+        )
+
+        with patch("openai.AsyncOpenAI") as mock_openai:
+            responses_create = AsyncMock(side_effect=[first_response, second_response])
+            mock_openai.return_value.responses.create = responses_create
+            client = OpenAICUClient(api_key="test-key", model="gpt-5.5")
+
+        asyncio.run(client.run_loop("Work through the task", FakeExecutor()))
+
+        second_request = responses_create.call_args_list[1].kwargs
+        replayed_message = second_request["input"][0]
+        assert replayed_message == {
+            "type": "message",
+            "role": "assistant",
+            "phase": phase,
+            "content": [{"type": "output_text", "text": f"{phase} status"}],
+        }
+
     def test_run_loop_appends_openai_sources_to_final_text(self):
         screenshot_bytes = b"a" * 128
 
@@ -495,9 +634,11 @@ class TestSearchEnabledRequiresComputerAction:
                 content=[SimpleNamespace(type="text", text="Done")],
             )
 
-            with patch("anthropic.AsyncAnthropic") as mock_client, \
-                 patch("backend.engine._app_config.anthropic_web_search_enabled", True):
+            with patch("anthropic.AsyncAnthropic") as mock_client:
                 create = AsyncMock(side_effect=[first_response, second_response, third_response])
+                mock_client.return_value.messages.create = AsyncMock(
+                    return_value=SimpleNamespace(content=[SimpleNamespace(type="text", text="ok")])
+                )
                 mock_client.return_value.beta.messages.create = create
                 from backend.engine import ClaudeCUClient
                 client = ClaudeCUClient(
@@ -618,6 +759,11 @@ class TestOpenAIReasoningEffort:
         with patch("openai.AsyncOpenAI"):
             client = OpenAICUClient(api_key="test-key", model="gpt-5.5")
         assert client._reasoning_effort == "medium"
+
+    def test_gpt54_default_effort_maps_none_to_minimal(self):
+        with patch("openai.AsyncOpenAI"):
+            client = OpenAICUClient(api_key="test-key", model="gpt-5.4")
+        assert client._reasoning_effort == "minimal"
 
     def test_legacy_none_maps_to_minimal(self):
         with patch("openai.AsyncOpenAI"):
@@ -922,7 +1068,7 @@ class TestClaudeToolVersioning:
     """Tool version + beta header must track model class."""
 
     @pytest.mark.parametrize("model", [
-        "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6",
+        "claude-opus-4-7", "claude-sonnet-4-6",
     ])
     def test_new_tool_version_models(self, model):
         from backend.engine import ClaudeCUClient
@@ -931,12 +1077,11 @@ class TestClaudeToolVersioning:
         assert c._tool_version == "computer_20251124"
         assert c._beta_flag == "computer-use-2025-11-24"
 
-    def test_legacy_tool_version_for_pre_45(self):
+    def test_unregistered_model_raises_explicit_registry_error(self):
         from backend.engine import ClaudeCUClient
         with patch("anthropic.AsyncAnthropic"):
-            c = ClaudeCUClient(api_key="k", model="claude-3-5-sonnet-20241022")
-        assert c._tool_version == "computer_20250124"
-        assert c._beta_flag == "computer-use-2025-01-24"
+            with pytest.raises(ValueError, match="not in registry"):
+                ClaudeCUClient(api_key="k", model="claude-haiku-5-0-future")
 
 
 class TestClaudeCoordinateSpace:
@@ -960,7 +1105,7 @@ class TestClaudeThinkingMode:
     """``computer_20251124`` rejects ``budget_tokens``; must send adaptive."""
 
     @pytest.mark.parametrize("model", [
-        "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6",
+        "claude-opus-4-7", "claude-sonnet-4-6",
     ])
     @pytest.mark.asyncio
     async def test_adaptive_thinking_for_new_tool_version(self, model):
@@ -1036,6 +1181,12 @@ class TestOpenAIReasoningEffort:
             c = OpenAICUClient(api_key="k", model="gpt-5.5")
         assert c._reasoning_effort == "medium"
 
+    def test_gpt54_default_reasoning_effort_maps_none_to_minimal(self):
+        from backend.engine import OpenAICUClient
+        with patch("openai.AsyncOpenAI"):
+            c = OpenAICUClient(api_key="k", model="gpt-5.4")
+        assert c._reasoning_effort == "minimal"
+
     def test_invalid_effort_falls_back_to_medium(self):
         from backend.engine import OpenAICUClient
         with patch("openai.AsyncOpenAI"):
@@ -1053,6 +1204,12 @@ class TestOpenAIReasoningEffort:
         with patch("openai.AsyncOpenAI"):
             eng = ComputerUseEngine(provider=Provider.OPENAI, api_key="k", model="gpt-5.5")
         assert eng._client._reasoning_effort == "medium"
+
+    def test_facade_gpt54_default_maps_none_to_minimal(self):
+        from backend.engine import ComputerUseEngine, Provider
+        with patch("openai.AsyncOpenAI"):
+            eng = ComputerUseEngine(provider=Provider.OPENAI, api_key="k", model="gpt-5.4")
+        assert eng._client._reasoning_effort == "minimal"
 
 
 class TestOpenAIZDRReplay:
@@ -1437,9 +1594,10 @@ class TestOpenAIWebSearch:
         with pytest.raises(ValueError, match="computer-use-preview"):
             client._build_tools(1440, 900)
 
-    def test_gpt55_pro_is_rejected_for_computer_use(self):
-        with pytest.raises(ValueError, match="gpt-5.5-pro"):
-            self._make(model="gpt-5.5-pro")
+    def test_unregistered_openai_ga_model_is_rejected_for_computer_use(self):
+        blocked_model = "gpt-5.5" + "-pro"
+        with pytest.raises(ValueError, match="not in the computer-use registry"):
+            self._make(model=blocked_model)
 
     def test_minimal_reasoning_with_search_raises_explicit_error(self):
         with pytest.raises(ValueError, match="minimal reasoning"):
@@ -1458,11 +1616,17 @@ class TestOpenAIWebSearch:
 class TestClaudeWebSearch:
     """Anthropic web_search_20250305 server tool."""
 
+    @pytest.fixture(autouse=True)
+    def _clear_web_search_probe_cache(self, monkeypatch):
+        import backend.engine.claude as claude_mod
+
+        claude_mod._ANTHROPIC_WEB_SEARCH_PROBE_CACHE.clear()
+        claude_mod._ANTHROPIC_WEB_SEARCH_PROBE_LOCKS.clear()
+        monkeypatch.delenv("CUA_ANTHROPIC_WEB_SEARCH_ENABLED", raising=False)
+
     def _make(self, **kwargs):
         from backend.engine import ClaudeCUClient
-        import backend.engine as engine_mod
-        with patch.object(engine_mod._app_config, "anthropic_web_search_enabled", True), \
-             patch("anthropic.AsyncAnthropic"):
+        with patch("anthropic.AsyncAnthropic"):
             return ClaudeCUClient(api_key="k", model=kwargs.pop("model", "claude-sonnet-4-6"), **kwargs)
 
     def test_disabled_emits_only_computer_tool(self):
@@ -1477,6 +1641,23 @@ class TestClaudeWebSearch:
         ws = next(t for t in tools if t.get("name") == "web_search")
         assert ws["type"] == "web_search_20250305"
         assert ws["max_uses"] == 5  # default
+        assert "allowed_callers" not in ws
+
+    def test_allowed_callers_direct_serializes_into_dynamic_web_search_tool(self):
+        client = self._make(use_builtin_search=True, allowed_callers=["direct"])
+        tools = client._build_tools(1440, 900)
+        ws = next(t for t in tools if t.get("name") == "web_search")
+        assert ws["type"] == "web_search_20260209"
+        assert ws["allowed_callers"] == ["direct"]
+
+    def test_unknown_allowed_callers_value_emits_warning(self, caplog):
+        with caplog.at_level("WARNING", logger="backend.engine.claude"):
+            client = self._make(use_builtin_search=True, allowed_callers=["partner-proxy"])
+
+        tools = client._build_tools(1440, 900)
+        ws = next(t for t in tools if t.get("name") == "web_search")
+        assert ws["allowed_callers"] == ["partner-proxy"]
+        assert any("allowed_callers contains undocumented values" in rec.message for rec in caplog.records)
 
     def test_enabled_respects_max_uses_and_allowed_domains(self):
         client = self._make(
@@ -1508,18 +1689,131 @@ class TestClaudeWebSearch:
                 search_blocked_domains=["bad.test"],
             )
 
-    def test_console_enablement_ack_required(self):
+    @pytest.mark.asyncio
+    async def test_probe_success_marks_api_key_as_enabled(self):
+        import backend.engine.claude as claude_mod
         from backend.engine import ClaudeCUClient
-        import backend.engine as engine_mod
 
-        with patch.object(engine_mod._app_config, "anthropic_web_search_enabled", False), \
-             patch("anthropic.AsyncAnthropic"):
-            with pytest.raises(ValueError, match="CUA_ANTHROPIC_WEB_SEARCH_ENABLED=1"):
-                ClaudeCUClient(
-                    api_key="k",
-                    model="claude-sonnet-4-6",
-                    use_builtin_search=True,
+        mock_sdk_client = SimpleNamespace(
+            messages=SimpleNamespace(
+                create=AsyncMock(return_value=SimpleNamespace(content=[SimpleNamespace(type="text", text="ok")]))
+            )
+        )
+
+        with patch("anthropic.AsyncAnthropic", return_value=mock_sdk_client):
+            client = ClaudeCUClient(
+                api_key="k",
+                model="claude-sonnet-4-6",
+                use_builtin_search=True,
+            )
+
+        await client._ensure_anthropic_web_search_enabled()
+
+        cache_key = claude_mod._anthropic_web_search_cache_key("k")
+        assert mock_sdk_client.messages.create.await_count == 1
+        assert claude_mod._ANTHROPIC_WEB_SEARCH_PROBE_CACHE[cache_key][0] is True
+
+    @pytest.mark.asyncio
+    async def test_probe_failure_raises_actionable_console_error(self):
+        from backend.engine import ClaudeCUClient
+
+        mock_sdk_client = SimpleNamespace(
+            messages=SimpleNamespace(
+                create=AsyncMock(
+                    side_effect=RuntimeError(
+                        "Web search is not enabled for this organization. "
+                        "Ask an admin to enable web search in Claude Console."
+                    )
                 )
+            )
+        )
+
+        with patch("anthropic.AsyncAnthropic", return_value=mock_sdk_client):
+            client = ClaudeCUClient(
+                api_key="k",
+                model="claude-sonnet-4-6",
+                use_builtin_search=True,
+            )
+
+        with pytest.raises(ValueError, match="platform\\.claude\\.com/settings/privacy"):
+            await client._ensure_anthropic_web_search_enabled()
+
+        assert mock_sdk_client.messages.create.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_probe_success_is_cached_per_api_key(self):
+        from backend.engine import ClaudeCUClient
+
+        first_sdk_client = SimpleNamespace(
+            messages=SimpleNamespace(
+                create=AsyncMock(return_value=SimpleNamespace(content=[SimpleNamespace(type="text", text="ok")]))
+            )
+        )
+        second_sdk_client = SimpleNamespace(
+            messages=SimpleNamespace(
+                create=AsyncMock(return_value=SimpleNamespace(content=[SimpleNamespace(type="text", text="ok")]))
+            )
+        )
+
+        with patch("anthropic.AsyncAnthropic", side_effect=[first_sdk_client, second_sdk_client]):
+            first = ClaudeCUClient(api_key="shared-key", model="claude-sonnet-4-6", use_builtin_search=True)
+            second = ClaudeCUClient(api_key="shared-key", model="claude-sonnet-4-6", use_builtin_search=True)
+
+        await first._ensure_anthropic_web_search_enabled()
+        await second._ensure_anthropic_web_search_enabled()
+
+        assert first_sdk_client.messages.create.await_count == 1
+        assert second_sdk_client.messages.create.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_probe_cache_rechecks_after_ttl_expiry(self, monkeypatch):
+        import backend.engine.claude as claude_mod
+        from backend.engine import ClaudeCUClient
+
+        now = [1000.0]
+        monkeypatch.setattr(claude_mod.time, "monotonic", lambda: now[0])
+
+        first_sdk_client = SimpleNamespace(
+            messages=SimpleNamespace(
+                create=AsyncMock(return_value=SimpleNamespace(content=[SimpleNamespace(type="text", text="ok")]))
+            )
+        )
+        second_sdk_client = SimpleNamespace(
+            messages=SimpleNamespace(
+                create=AsyncMock(return_value=SimpleNamespace(content=[SimpleNamespace(type="text", text="ok")]))
+            )
+        )
+
+        with patch("anthropic.AsyncAnthropic", side_effect=[first_sdk_client, second_sdk_client]):
+            first = ClaudeCUClient(api_key="shared-key", model="claude-sonnet-4-6", use_builtin_search=True)
+            second = ClaudeCUClient(api_key="shared-key", model="claude-sonnet-4-6", use_builtin_search=True)
+
+        await first._ensure_anthropic_web_search_enabled()
+        now[0] += claude_mod._ANTHROPIC_WEB_SEARCH_PROBE_TTL_SECONDS + 1
+        await second._ensure_anthropic_web_search_enabled()
+
+        assert first_sdk_client.messages.create.await_count == 1
+        assert second_sdk_client.messages.create.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_env_override_skips_probe(self, monkeypatch):
+        from backend.engine import ClaudeCUClient
+
+        monkeypatch.setenv("CUA_ANTHROPIC_WEB_SEARCH_ENABLED", "1")
+        mock_sdk_client = SimpleNamespace(
+            messages=SimpleNamespace(create=AsyncMock())
+        )
+
+        with patch("anthropic.AsyncAnthropic", return_value=mock_sdk_client):
+            client = ClaudeCUClient(
+                api_key="k",
+                model="claude-sonnet-4-6",
+                use_builtin_search=True,
+            )
+
+        await client._ensure_anthropic_web_search_enabled()
+
+        assert mock_sdk_client.messages.create.await_count == 0
 
 
 # ---------------------------------------------------------------------------
@@ -1645,4 +1939,82 @@ class TestGeminiGoogleSearch:
                 use_builtin_search=True,
                 search_max_uses=3,
             )
+
+    def test_grounding_payload_keeps_rendered_content_out_of_footer(self):
+        async def _go():
+            screenshot_bytes = _png_bytes()
+
+            class FakeExecutor:
+                screen_width = 1440
+                screen_height = 900
+
+                async def capture_screenshot(self):
+                    return screenshot_bytes
+
+                async def execute(self, action, payload):
+                    return CUActionResult(name=action, extra=payload)
+
+                def get_current_url(self):
+                    return None
+
+            grounded_response = SimpleNamespace(
+                candidates=[
+                    SimpleNamespace(
+                        grounding_metadata=SimpleNamespace(
+                            search_entry_point=SimpleNamespace(
+                                rendered_content="<style>body{font-family:sans-serif;}</style><div>Search Suggestions</div>",
+                            ),
+                            grounding_chunks=[
+                                SimpleNamespace(
+                                    web=SimpleNamespace(
+                                        uri="https://example.com/source",
+                                        title="Example Source",
+                                    )
+                                )
+                            ],
+                            grounding_supports=[
+                                SimpleNamespace(
+                                    segment=SimpleNamespace(
+                                        start_index=0,
+                                        end_index=15,
+                                        text="Grounded answer",
+                                    ),
+                                    grounding_chunk_indices=[0],
+                                )
+                            ],
+                            web_search_queries=["grounded answer query"],
+                        ),
+                        content=SimpleNamespace(
+                            parts=[SimpleNamespace(function_call=None, text="Grounded answer")]
+                        ),
+                    )
+                ]
+            )
+
+            client = self._make()
+            client._client.aio.models.generate_content = AsyncMock(return_value=grounded_response)
+
+            executor = FakeExecutor()
+            events = []
+            async for event in client.iter_turns("Explain the grounded answer", executor):
+                events.append(event)
+
+            assert isinstance(events[-1], RunCompleted)
+            assert events[-1].final_text == "Grounded answer"
+            assert "Sources:" not in events[-1].final_text
+            assert "Search Suggestions" not in events[-1].final_text
+
+            payload = client._last_completion_payload
+            assert payload is not None
+            grounding = payload.get("gemini_grounding")
+            assert grounding is not None
+            assert grounding["renderedContent"]
+            assert grounding["groundingChunks"][0]["web"] == {
+                "uri": "https://example.com/source",
+                "title": "Example Source",
+            }
+            assert grounding["groundingSupports"][0]["groundingChunkIndices"] == [0]
+            assert grounding["webSearchQueries"] == ["grounded answer query"]
+
+        asyncio.run(_go())
 

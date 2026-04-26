@@ -1,3 +1,4 @@
+// === merged from frontend/src/pages/workbench/ControlPanel.jsx ===
 /**
  * ControlPanel — the left sidebar of the Workbench.
  *

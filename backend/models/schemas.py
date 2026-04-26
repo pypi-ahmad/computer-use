@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import enum
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -106,6 +106,7 @@ class AgentSession(BaseModel):
     max_steps: int = Field(default=50, ge=1, le=200)
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     final_text: Optional[str] = None
+    gemini_grounding: Optional[dict[str, Any]] = None
 
 
 # ── API request / response ────────────────────────────────────────────────────
@@ -144,6 +145,7 @@ class StartTaskRequest(BaseModel):
     search_max_uses: Optional[int] = Field(default=None, ge=1, le=20)  # Anthropic max_uses cap
     search_allowed_domains: Optional[list[str]] = Field(default=None, max_length=64)
     search_blocked_domains: Optional[list[str]] = Field(default=None, max_length=64)
+    allowed_callers: Optional[list[str]] = Field(default=None, max_length=16)
     # Server-side file ids previously persisted via POST /api/files/upload.
     # When non-empty the engine adapter creates a provider-side store
     # (OpenAI vector_store / Gemini file_search_store / Anthropic Files API
@@ -166,6 +168,7 @@ class TaskStatusResponse(BaseModel):
     total_steps: int
     last_action: Optional[AgentAction] = None
     final_text: Optional[str] = None
+    gemini_grounding: Optional[dict[str, Any]] = None
 
 
 class StructuredError(BaseModel):
