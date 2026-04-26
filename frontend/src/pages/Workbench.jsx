@@ -1,3 +1,4 @@
+// === merged from frontend/src/pages/Workbench.jsx ===
 /**
  * Workbench — the single-page computer-use agent UI.
  *
@@ -25,30 +26,30 @@ import {
   startContainer, stopContainer, validateKey,
 } from '../api'
 import useSessionController from '../hooks/useSessionController'
-import ScreenView from '../components/ScreenView'
-import SafetyModal from '../components/SafetyModal'
-import CompletionBanner from '../components/CompletionBanner'
-import ToastContainer, { useToasts } from '../components/ToastContainer'
-import WelcomeOverlay from '../components/WelcomeOverlay'
+import ScreenView from '../components'
+import SafetyModal from '../components'
+import CompletionBanner from '../components'
+import ToastContainer, { useToasts } from '../components'
+import WelcomeOverlay from '../components'
 
-import { estimateCost } from '../utils/pricing'
+import { estimateCost } from '../utils'
 import {
   addSessionToHistory, clearSessionHistory, getSessionHistory,
-} from '../utils/sessionHistory'
-import { getTheme, initTheme, setTheme as applyTheme } from '../utils/theme'
+} from '../utils'
+import { getTheme, initTheme, setTheme as applyTheme } from '../utils'
 
 import ControlPanel from './workbench/ControlPanel'
-import Timeline from './workbench/Timeline'
-import HistoryDrawer from './workbench/HistoryDrawer'
-import LogsPanel from './workbench/LogsPanel'
-import { PROVIDERS, SETTINGS_KEY } from './workbench/constants'
+import Timeline from './workbench/panels'
+import HistoryDrawer from './workbench/panels'
+import LogsPanel from './workbench/panels'
+import { PROVIDERS, SETTINGS_KEY } from './workbench/ControlPanel'
 import {
   downloadLogsTxt,
   exportSessionHTML,
   exportSessionJSON,
   formatLogsForClipboard,
   formatTimelineForClipboard,
-} from './workbench/exporters'
+} from './workbench/panels'
 
 import './Workbench.css'
 
@@ -133,11 +134,12 @@ export default function Workbench() {
   const [useBuiltinSearch, setUseBuiltinSearch] = useState(
     typeof saved.useBuiltinSearch === 'boolean' ? saved.useBuiltinSearch : false,
   )
-  const [automationMode, setAutomationMode] = useState(
-    saved.automationMode === 'browser' ? 'browser' : 'desktop',
-  )
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [keyValidation, setKeyValidation] = useState(null)
+  // Files attached to the next agent run. Each entry: { file_id, filename, size_bytes }.
+  // Not persisted across reloads — uploads survive on the backend store but the
+  // selection is fresh per session to avoid stale references.
+  const [attachedFiles, setAttachedFiles] = useState([])
 
   // --- Theme / onboarding / drawers (page-scoped) -------------------------
 
@@ -170,8 +172,8 @@ export default function Workbench() {
 
   useEffect(() => { initTheme() }, [])
   useEffect(() => {
-    saveSettings({ provider, maxSteps, reasoningEffort, useBuiltinSearch, automationMode })
-  }, [provider, maxSteps, reasoningEffort, useBuiltinSearch, automationMode])
+    saveSettings({ provider, maxSteps, reasoningEffort, useBuiltinSearch })
+  }, [provider, maxSteps, reasoningEffort, useBuiltinSearch])
 
   // C16: model list doesn't depend on provider — fetch once on mount.
   useEffect(() => {
@@ -205,13 +207,6 @@ export default function Workbench() {
             setKeySource(current.source)
           }
         }
-        setFetchedModels(prev => {
-          if (prev?.length) {
-            const firstForProvider = prev.find(m => m.provider === provider)
-            if (firstForProvider) setModel(firstForProvider.model_id)
-          }
-          return prev
-        })
       } catch { /* backend not ready yet */ }
     }
     fetchKeys()
@@ -225,10 +220,21 @@ export default function Workbench() {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
   }, [logs])
 
-  // Sync model when provider changes.
+  // Sync model when provider changes or when the fetched model list arrives.
   useEffect(() => {
-    const list = modelsByProvider[provider] || []
-    setModel(list.length > 0 ? list[0].value : '')
+    const providerModels = fetchedModels.filter(item => item.provider === provider)
+    if (providerModels.length === 0) {
+      if (model) setModel('')
+      return
+    }
+
+    const currentStillAllowed = providerModels.some(item => item.model_id === model)
+    if (!currentStillAllowed) {
+      setModel(providerModels[0].model_id)
+    }
+  }, [provider, fetchedModels, model])
+
+  useEffect(() => {
     const status = keyStatuses[provider]
     if (status?.available) setKeySource(status.source)
     else setKeySource('ui')
@@ -266,6 +272,9 @@ export default function Workbench() {
   const handleStart = async () => {
     if (keySource === 'ui' && !apiKey.trim()) return setError('Please enter your API key above to continue.')
     if (!task.trim()) return setError('Task description is required')
+    if (!model || !models.some(item => item.value === model)) {
+      return setError('Select an allowed model before starting the agent.')
+    }
 
     // Start the environment first if it isn't already running. Keeping
     // this logic on the page preserves the container lifecycle as a
@@ -292,10 +301,10 @@ export default function Workbench() {
         apiKey: keySource === 'ui' ? apiKey.trim() : '',
         model,
         maxSteps: Number(maxSteps),
-        mode: automationMode,
         provider,
         reasoningEffort: provider === 'openai' ? reasoningEffort : null,
         useBuiltinSearch,
+        attachedFiles: attachedFiles.map(f => f.file_id),
       },
       { modelDisplayName: modelMeta?.display_name || model },
     )
@@ -350,7 +359,8 @@ export default function Workbench() {
 
   const costEstimate = estimateCost(model, steps.length)
   const hasKey = keySource === 'ui' ? apiKey.trim().length >= 8 : !!keyStatuses[provider]?.available
-  const canStart = models.length > 0 && !agentRunning && !starting && hasKey
+  const hasAllowedModel = !!model && models.some(item => item.value === model)
+  const canStart = models.length > 0 && hasAllowedModel && !agentRunning && !starting && hasKey
 
   // --- Render -------------------------------------------------------------
 
@@ -424,7 +434,7 @@ export default function Workbench() {
           maxSteps={maxSteps} setMaxSteps={setMaxSteps}
           reasoningEffort={reasoningEffort} setReasoningEffort={setReasoningEffort}
           useBuiltinSearch={useBuiltinSearch} setUseBuiltinSearch={setUseBuiltinSearch}
-          automationMode={automationMode} setAutomationMode={setAutomationMode}
+          attachedFiles={attachedFiles} setAttachedFiles={setAttachedFiles}
           task={task} setTask={setTask}
           error={error}
           agentRunning={agentRunning}
@@ -505,3 +515,26 @@ export default function Workbench() {
     </div>
   )
 }
+
+// === merged from frontend/src/pages/NotFound.jsx ===
+import { Link } from 'react-router-dom'
+
+export default function NotFound() {
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      height: '100vh', background: 'var(--bg-primary)', color: 'var(--text-primary)',
+      fontFamily: 'var(--font-sans)', gap: 16, textAlign: 'center',
+    }}>
+      <h1 style={{ fontSize: 48, fontWeight: 700, color: 'var(--accent)' }}>404</h1>
+      <p style={{ fontSize: 16, color: 'var(--text-secondary)' }}>Page not found</p>
+      <Link to="/" style={{
+        padding: '10px 24px', fontSize: 14, fontWeight: 600, borderRadius: 8,
+        background: 'var(--accent)', color: '#fff', textDecoration: 'none',
+      }}>
+        Go to Dashboard
+      </Link>
+    </div>
+  )
+}
+
