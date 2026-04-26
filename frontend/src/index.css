@@ -249,6 +249,17 @@ html, body {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
+}
+
+.completion-result {
+  width: 100%;
+  margin-top: 6px;
+  color: inherit;
+  font-size: 0.92rem;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: pre-wrap;
 }
 
 .completion-icon {
