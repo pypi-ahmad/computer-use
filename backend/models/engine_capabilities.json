@@ -5,7 +5,7 @@
   "engines": {
     "computer_use": {
       "display_name": "Computer Use (Native CU Protocol) \u2605 Recommended",
-      "description": "Unified engine using Gemini 3 Flash, Claude 4.6, and GPT-5.4 native Computer Use tool protocols. Structured function_call / tool_use instead of text-parsed JSON. Runs through a desktop backend powered by xdotool and scrot.",
+      "description": "Unified engine using Gemini 3 Flash, Claude 4.6, and GPT-5.5 / GPT-5.4 native Computer Use tool protocols. Structured function_call / tool_use instead of text-parsed JSON. Runs through a desktop backend powered by xdotool and scrot.",
       "fallback_priority": 6,
       "recommended": true,
       "categories": {

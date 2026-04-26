@@ -59,6 +59,11 @@ class Config:
     # any non-local setup (watchfiles fires on disk changes). Set
     # ``CUA_RELOAD=1`` explicitly if you want reload.
     reload: bool = False
+    # Anthropic web search requires an organization admin to enable the
+    # feature in Claude Console before requests can succeed. Keep the
+    # local gate off by default so deployments must acknowledge that
+    # provider-side prerequisite explicitly.
+    anthropic_web_search_enabled: bool = False
 
     # WebSocket
     ws_screenshot_interval: float = 1.5
@@ -126,6 +131,9 @@ class Config:
             port=_clamp_int("PORT", cls.port, lo=1, hi=65535),
             debug=os.getenv("DEBUG", "").lower() in ("1", "true", "yes"),
             reload=os.getenv("CUA_RELOAD", "").lower() in ("1", "true", "yes"),
+            anthropic_web_search_enabled=_env_bool(
+                "CUA_ANTHROPIC_WEB_SEARCH_ENABLED", cls.anthropic_web_search_enabled,
+            ),
             ws_screenshot_interval=_clamp_float(
                 "CUA_WS_SCREENSHOT_INTERVAL", cls.ws_screenshot_interval, lo=0.05, hi=60.0,
             ),

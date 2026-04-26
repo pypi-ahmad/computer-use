@@ -1,10 +1,10 @@
-from __future__ import annotations
 """Gemini Computer Use client — split out of ``backend.engine`` (Q2).
 
 The class body lives here; ``backend.engine`` re-exports it so imports
 like ``from backend.engine import GeminiCUClient`` keep working.
 """
 
+from __future__ import annotations
 
 import asyncio
 import base64
@@ -27,6 +27,8 @@ from backend.engine import (
     _call_with_retry,
     _invoke_safety,
     _append_source_footer,
+    _get_gemini_builtin_search_sdk_error,
+    validate_builtin_search_config,
     DEFAULT_TURN_LIMIT,
     _CONTEXT_PRUNE_KEEP_RECENT,
     _IMAGE_PNG,
@@ -230,6 +232,14 @@ class GeminiCUClient:
         self._environment = environment
         self._excluded = excluded_actions or []
         self._system_instruction = system_instruction
+        validate_builtin_search_config(
+            provider="gemini",
+            model=model,
+            use_builtin_search=use_builtin_search,
+            search_max_uses=search_max_uses,
+            search_allowed_domains=search_allowed_domains,
+            search_blocked_domains=search_blocked_domains,
+        )
         # AI-3: read CUA_GEMINI_THINKING_LEVEL once at init so subsequent
         # env mutations don't change behaviour mid-session and we don't pay
         # the os.getenv cost on every _build_config call.
@@ -243,10 +253,8 @@ class GeminiCUClient:
         # ``computer_use`` tool and sets
         # ``include_server_side_tool_invocations=True`` so the
         # combined-tool execution model documented at
-        # https://ai.google.dev/gemini-api/docs/grounding works.
-        # ``search_max_uses`` / domain filters are not supported by the
-        # Gemini grounding tool today and are accepted for parity but
-        # ignored.
+        # https://ai.google.dev/gemini-api/docs/tool-combination works.
+        # Unsupported search options are rejected during validation.
         self._use_builtin_search = bool(use_builtin_search)
         del search_max_uses, search_allowed_domains, search_blocked_domains
         # File Search wiring; provisioned lazily in ``_ensure_file_search_store``.
@@ -323,13 +331,12 @@ class GeminiCUClient:
             # (see ``_run_file_search_pre_step``) because the docs
             # forbid combining file_search with other tools.
             _GoogleSearch = getattr(types, "GoogleSearch", None)
-            if _GoogleSearch is not None:
-                tools.append(types.Tool(google_search=_GoogleSearch()))
-            else:
-                logger.warning(
-                    "Gemini: google_search requested but GoogleSearch type "
-                    "is not available in google-genai SDK; skipping.",
+            if _GoogleSearch is None:
+                raise ValueError(
+                    "Gemini google_search was requested but the installed "
+                    "google-genai SDK does not expose GoogleSearch.",
                 )
+            tools.append(types.Tool(google_search=_GoogleSearch()))
 
         # Safety-threshold relaxation is opt-in.  Per Google's
         # safety-settings docs (2026-04), the default block threshold
@@ -396,23 +403,18 @@ class GeminiCUClient:
             "thinking_config": _ThinkingConfig(**_thinking_kwargs),
         }
         if self._use_builtin_search:
-            # Required to combine google_search with computer_use per
-            # https://ai.google.dev/gemini-api/docs/computer-use#tool-combination
-            # Guard against older SDK versions that lack the field.
-            try:
-                _gcc_params = _inspect.signature(
-                    self._genai.types.GenerateContentConfig
-                ).parameters
-            except (TypeError, ValueError):
-                _gcc_params = {}
-            if "include_server_side_tool_invocations" in _gcc_params:
-                kwargs["include_server_side_tool_invocations"] = True
-            else:
-                logger.warning(
-                    "Gemini: include_server_side_tool_invocations not "
-                    "supported by the installed google-genai SDK; "
-                    "google_search may not combine cleanly with computer_use.",
-                )
+            sdk_error = _get_gemini_builtin_search_sdk_error()
+            if sdk_error:
+                raise ValueError(sdk_error)
+            # Gemini tool-combination docs require VALIDATED mode when
+            # include_server_side_tool_invocations is enabled; AUTO is not
+            # supported in this configuration.
+            kwargs["include_server_side_tool_invocations"] = True
+            kwargs["tool_config"] = types.ToolConfig(
+                function_calling_config=types.FunctionCallingConfig(
+                    mode=types.FunctionCallingConfigMode.VALIDATED,
+                ),
+            )
         if safety_settings:
             kwargs["safety_settings"] = safety_settings
         if self._system_instruction:
@@ -441,7 +443,7 @@ class GeminiCUClient:
         """
         if not self._attached_file_ids or self._file_search_store_name is not None:
             return
-        from backend.infra.storage import store as _file_store
+        from backend.file_store import store as _file_store
         recs = await _file_store.get_many(self._attached_file_ids)
         if not recs:
             if on_log:
