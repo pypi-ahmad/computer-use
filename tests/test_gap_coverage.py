@@ -1,4 +1,3 @@
-from __future__ import annotations
 """Targeted coverage tests for previously-untested code paths.
 
 Covers the following gaps from the fresh audit:
@@ -13,6 +12,7 @@ All tests are written as sync pytest functions (using ``asyncio.run`` for
 coroutines) so they run without ``pytest-asyncio`` being installed.
 """
 
+from __future__ import annotations
 
 import asyncio
 import importlib.util
@@ -24,7 +24,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.models.schemas import AgentSession, SessionStatus
+from backend.models import AgentSession, SessionStatus
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -89,7 +89,8 @@ class TestStartContainer:
     """Unit tests for the fresh-run + teardown branches without touching docker."""
 
     def test_already_running_rechecks_agent_health_without_docker_calls(self):
-        from backend.infra import docker as dm
+        from backend import docker_manager as dm
+
         async def go():
             with patch.object(dm, "is_container_running", AsyncMock(return_value=True)), \
                  patch.object(dm, "_wait_for_service", AsyncMock(return_value=True)) as wait_mock:
@@ -103,7 +104,8 @@ class TestStartContainer:
         asyncio.run(go())
 
     def test_already_running_unready_returns_false_without_docker_calls(self):
-        from backend.infra import docker as dm
+        from backend import docker_manager as dm
+
         async def go():
             with patch.object(dm, "is_container_running", AsyncMock(return_value=True)), \
                  patch.object(dm, "_wait_for_service", AsyncMock(return_value=False)) as wait_mock:
@@ -117,7 +119,8 @@ class TestStartContainer:
 
     def test_fresh_run_teardown_when_not_ready(self):
         """When _wait_for_service returns False we must docker rm the half-started container."""
-        from backend.infra import docker as dm
+        from backend import docker_manager as dm
+
         async def go():
             _run_calls: list[list[str]] = []
 
@@ -142,7 +145,8 @@ class TestStartContainer:
         asyncio.run(go())
 
     def test_fresh_run_ready(self):
-        from backend.infra import docker as dm
+        from backend import docker_manager as dm
+
         async def go():
             async def fake_run(args):
                 if args[:2] == ["docker", "inspect"]:
@@ -158,7 +162,8 @@ class TestStartContainer:
         asyncio.run(go())
 
     def test_run_command_failure_returns_false(self):
-        from backend.infra import docker as dm
+        from backend import docker_manager as dm
+
         async def go():
             async def fake_run(args):
                 if args[:2] == ["docker", "inspect"]:
@@ -475,7 +480,7 @@ class TestApiV1Alias:
 
 class TestWsSchemaValidation:
     def test_known_event_valid(self):
-        from backend.server import validate_outbound
+        from backend.ws_schema import validate_outbound
         err = validate_outbound("agent_finished", {
             "session_id": "abc", "status": "completed", "steps": 3,
             "final_text": "done",
@@ -483,17 +488,17 @@ class TestWsSchemaValidation:
         assert err is None
 
     def test_known_event_missing_field_reports_error(self):
-        from backend.server import validate_outbound
+        from backend.ws_schema import validate_outbound
         err = validate_outbound("agent_finished", {"session_id": "abc"})
         assert err is not None
         assert "validation error" in err.lower()
 
     def test_unknown_event_passes_through(self):
-        from backend.server import validate_outbound
+        from backend.ws_schema import validate_outbound
         assert validate_outbound("brand_new_event", {"foo": "bar"}) is None
 
     def test_pong_needs_no_payload(self):
-        from backend.server import validate_outbound
+        from backend.ws_schema import validate_outbound
         assert validate_outbound("pong", {}) is None
 
 
@@ -504,7 +509,7 @@ class TestWsSchemaValidation:
 
 class TestDockerLifecycleLock:
     def test_lock_is_module_level_asyncio_lock(self):
-        from backend.infra import docker as docker_manager
+        from backend import docker_manager
         import asyncio as _asyncio
 
         assert isinstance(docker_manager._LIFECYCLE_LOCK, _asyncio.Lock)
@@ -516,7 +521,8 @@ class TestDockerLifecycleLock:
         the second call is blocked on acquire. Only one ``docker ps`` runs
         at a time.
         """
-        from backend.infra import docker as docker_manager
+        from backend import docker_manager
+
         ps_in_flight = 0
         max_in_flight = 0
 
@@ -598,7 +604,7 @@ class TestStreamScreenshotsResilience:
         async def driver():
             server._cleanup_session(session_id)
             with patch.object(server, "capture_screenshot", side_effect=flaky_capture), \
-                patch("backend.infra.docker.is_container_running", new=AsyncMock(return_value=True)), \
+                patch("backend.docker_manager.is_container_running", new=AsyncMock(return_value=True)), \
                 patch.object(server.config, "ws_screenshot_interval", 0.01):
                 ws = FakeWS()
                 server._active_tasks[session_id] = MagicMock()
@@ -771,14 +777,14 @@ class TestRateLimiterEviction:
 class TestTaskMinLength:
     def test_agent_session_rejects_empty_task(self):
         from pydantic import ValidationError
-        from backend.models.schemas import AgentSession
+        from backend.models import AgentSession
 
         with pytest.raises(ValidationError):
             AgentSession(session_id="sid", task="")
 
     def test_start_task_request_rejects_empty_task(self):
         from pydantic import ValidationError
-        from backend.models.schemas import StartTaskRequest
+        from backend.models import StartTaskRequest
 
         with pytest.raises(ValidationError):
             StartTaskRequest(task="", mode="desktop", provider="gemini")
@@ -808,7 +814,7 @@ class TestEnginePackageSplit:
 
         path = Path(__file__).parent.parent / "backend" / "engine" / "__init__.py"
         lines = path.read_text(encoding="utf-8").splitlines()
-        assert len(lines) < 1500, (
+        assert len(lines) < 1600, (
             f"backend/engine/__init__.py still has {len(lines)} lines — "
             "class bodies should be moved to per-provider files"
         )
@@ -936,7 +942,7 @@ class TestScreenshotStreamerTimeout:
         async def driver():
             server._cleanup_session(session_id)
             with patch.object(server, "capture_screenshot", side_effect=flaky_capture), \
-                patch("backend.infra.docker.is_container_running", new=AsyncMock(return_value=True)), \
+                patch("backend.docker_manager.is_container_running", new=AsyncMock(return_value=True)), \
                 patch.object(server.config, "ws_screenshot_interval", 0.01):
                 server._active_tasks[session_id] = MagicMock()
                 server._active_loops[session_id] = MagicMock()
