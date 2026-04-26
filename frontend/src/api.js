@@ -54,7 +54,6 @@ export async function stopContainer(signal) {
  * @param {string} params.apiKey - API key (empty string = backend resolves from env).
  * @param {string} params.model - Model identifier.
  * @param {number} params.maxSteps - Maximum agent steps.
- * @param {string} params.mode - Execution mode ('desktop' only).
  * @param {string} params.provider - AI provider ('google' | 'anthropic' | 'openai').
  * @param {string} [params.engine='computer_use'] - Execution engine.
  * @param {string} [params.executionTarget='docker'] - Execution target.
@@ -62,7 +61,7 @@ export async function stopContainer(signal) {
  * @returns {Promise<{session_id?: string, error?: string}>}
  */
 export async function startAgent(
-  { task, apiKey, model, maxSteps, mode, provider, engine = 'computer_use', executionTarget = 'docker', reasoningEffort, useBuiltinSearch = false },
+  { task, apiKey, model, maxSteps, provider, engine = 'computer_use', executionTarget = 'docker', reasoningEffort, useBuiltinSearch = false, attachedFiles = [] },
   signal,
 ) {
   try {
@@ -71,13 +70,13 @@ export async function startAgent(
       api_key: apiKey,
       model,
       max_steps: maxSteps,
-      mode,
       engine,
       provider,
       execution_target: executionTarget,
     }
     if (reasoningEffort) body.reasoning_effort = reasoningEffort
     if (useBuiltinSearch) body.use_builtin_search = true
+    if (attachedFiles && attachedFiles.length > 0) body.attached_files = attachedFiles
     const res = await fetch(`${API_BASE}/agent/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -220,4 +219,34 @@ export async function validateKey(provider, apiKey, signal) {
     body: JSON.stringify({ provider, api_key: apiKey }),
     signal,
   })
+}
+
+/**
+ * Uploads a single file to the server-side store. Returns the new file_id
+ * which can later be passed to startAgent via `attachedFiles`.
+ * Supports the same extensions accepted by the backend (.pdf, .txt, .md, .docx).
+ *
+ * @param {File} file - Browser File object from an <input type="file"> element.
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<{file_id: string, filename: string, size_bytes: number, mime_type: string}>}
+ */
+export async function uploadFile(file, signal) {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(`${API_BASE}/files/upload`, {
+    method: 'POST',
+    body: form,
+    signal,
+  })
+  if (!res.ok) {
+    let message = res.statusText
+    try { message = await res.text() } catch { /* ignore */ }
+    throw new Error(message || 'Upload failed')
+  }
+  return res.json()
+}
+
+/** Deletes a previously uploaded file by its server-side id. */
+export async function deleteFile(fileId, signal) {
+  return request(`/files/${fileId}`, { method: 'DELETE', signal })
 }
