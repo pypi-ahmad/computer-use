@@ -31,7 +31,7 @@ export const ACTION_ICON_MAP = {
   scroll: ScrollText, scroll_to: ScrollText,
   get_text: Search, find_element: Search, evaluate_js: Monitor,
   focus_window: Monitor, open_app: Rocket,
-  wait: Timer, wait_for: Timer, screenshot_region: Camera,
+  wait: Timer, wait_for: Timer, screenshot: Camera, screenshot_region: Camera,
   done: CheckCircle2, error: AlertCircle,
 }
 
@@ -44,7 +44,7 @@ export const ACTION_LABEL_MAP = {
   scroll: 'Scrolled', scroll_to: 'Scrolled to',
   get_text: 'Read text', find_element: 'Found element', evaluate_js: 'Ran script',
   focus_window: 'Switched window', open_app: 'Opened app',
-  wait: 'Waited', wait_for: 'Waited for', screenshot_region: 'Captured region',
+  wait: 'Waited', wait_for: 'Waited for', screenshot: 'Captured screenshot', screenshot_region: 'Captured region',
   done: 'Finished', error: 'Error',
 }
 
