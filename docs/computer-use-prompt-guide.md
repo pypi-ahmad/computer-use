@@ -1,8 +1,8 @@
 # Computer Use Prompt Guide
 
 This app runs provider-native Computer Use. It can optionally add Web Search
-and provider file retrieval. Prompts should describe the desktop outcome, the
-allowed evidence, and the stop condition.
+and provider file retrieval. Prompts should describe the desktop outcome,
+allowed evidence, safety boundaries, and stop condition.
 
 ## Short Rule
 
@@ -17,6 +17,10 @@ Include:
 5. stop condition
 6. final answer format
 7. approval boundary
+
+Do not write prompts as implementation scripts unless the exact UI sequence is
+the point of the task. The model should choose the route; you should define the
+goal, evidence, and limits.
 
 ## Basic Template
 
@@ -82,6 +86,22 @@ Do not upload reference files for Gemini Computer Use sessions.
 Use OpenAI or Anthropic when the task needs file retrieval plus Computer Use.
 ```
 
+Provider selection:
+
+```text
+Use OpenAI or Anthropic if the task depends on attached reference files.
+Use Gemini only for screen-driven Computer Use, optionally with Google Search
+grounding when Web Search is enabled.
+```
+
+Source precedence:
+
+```text
+Treat the attached file as the source of truth for internal requirements.
+Use Web Search only for current public facts.
+If the sources conflict, stop and report the conflict instead of guessing.
+```
+
 ## Good Examples
 
 Find a page:
@@ -113,6 +133,17 @@ Find the current pricing page for the selected provider.
 Open the page in the browser.
 Stop when the pricing table is visible.
 Summarize the relevant price and include the visible source page title.
+```
+
+Compare file and web page:
+
+```text
+Use the attached release checklist as the source of truth.
+Open the product page that is already visible in the browser.
+If Web Search is enabled, use it only to verify the current public page URL.
+Do not publish, save, or submit anything.
+Stop after comparing the visible page to the checklist.
+Return: matching items, missing items, and uncertain items.
 ```
 
 Handle risk:
@@ -152,6 +183,20 @@ Click at 420,300, then type...
 
 The model should decide the UI path. You should define the goal and boundary.
 
+Avoid giving conflicting source rules:
+
+```text
+Use the attached policy as source of truth, but ignore it if search says
+something newer.
+```
+
+Instead, decide the precedence explicitly:
+
+```text
+Use the attached policy for internal requirements. Use Web Search only to
+check whether the public page changed. If they disagree, report the mismatch.
+```
+
 ## Stop Conditions
 
 Good stop conditions are visible or evidence-backed:
@@ -176,6 +221,14 @@ Use explicit approval language for consequential actions:
 Ask before submitting, purchasing, deleting, publishing, saving settings,
 sending messages, downloading secrets, rotating keys, inviting users, or
 changing billing.
+```
+
+For account, billing, security, or data-changing workflows, add a visible stop
+condition:
+
+```text
+Stop before the final confirmation button. Do not submit the change unless I
+approve it in the app.
 ```
 
 ## Quick Checklist

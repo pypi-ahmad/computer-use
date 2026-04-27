@@ -1,10 +1,9 @@
 # Gemini Successor Evaluation Checklist
 
-Use this checklist when the Gemini lifecycle watchdog reports that
-`gemini-3-flash-preview` has a deprecation or shutdown announcement on the
-Gemini API changelog. The purpose is to keep the Gemini allowlist strictly tied
-to official capability documentation instead of assuming that a newer Gemini
-model supports Computer Use.
+Use this checklist when `gemini-3-flash-preview` has a deprecation,
+shutdown announcement, or documented successor. The purpose is to keep the
+Gemini allowlist strictly tied to official capability documentation instead of
+assuming that a newer Gemini model supports Computer Use.
 
 Related documentation:
 
@@ -26,8 +25,19 @@ page shows all required capabilities explicitly.
 2. Inspect the `Capabilities` row on that model page.
 3. Confirm the page explicitly says `Computer use Supported`.
 4. Confirm the page explicitly says `Search grounding Supported`.
-5. Confirm the page explicitly says `Function calling Supported`.
-6. If any one of those three labels is missing or marked unsupported, do not add the model to the Gemini combined-tool allowlist.
+5. Confirm the page explicitly says `Function calling Supported`, if Google
+   still requires function-call support for Computer Use execution.
+6. Confirm the Computer Use guide or model page does not exclude the candidate
+   from Computer Use.
+7. If any required label is missing or marked unsupported, do not add the model
+   to the Gemini combined-tool allowlist.
+
+## File-search rule
+
+Do not enable Gemini reference-file uploads as part of this checklist. This app
+rejects Gemini files for Computer Use sessions unless Google publishes an
+official Computer Use plus File Search combination and the provider adapter is
+updated deliberately.
 
 ## Reference docs
 
@@ -42,6 +52,8 @@ page shows all required capabilities explicitly.
 1. Update the Gemini combined-tool allowlist in `backend/models/allowed_models.json`.
 2. Update the Gemini adapter assumptions in `backend/engine/gemini.py` if the successor model id or capability notes changed.
 3. Re-run the Gemini changelog watchdog and the Gemini adapter test slices before merging.
+4. Confirm Gemini file uploads still reject unless the file-search rule above
+   has changed with official documentation.
 
 If no individual model page currently shows all three required labels, leave
 the allowlist unchanged and treat the combined-tool path as blocked until Google
