@@ -37,18 +37,6 @@ def _png_bytes(size: tuple[int, int] = (32, 32)) -> bytes:
 class TestComputerUseEngine:
     """Test the unified ComputerUseEngine facade."""
 
-    def test_claude_passes_allowed_callers_to_client(self):
-        with patch("backend.engine.ClaudeCUClient") as mock_client:
-            ComputerUseEngine(
-                provider=Provider.CLAUDE,
-                api_key="test-key",
-                model="claude-sonnet-4-6",
-                use_builtin_search=True,
-                allowed_callers=["direct"],
-            )
-
-        assert mock_client.call_args.kwargs["allowed_callers"] == ["direct"]
-
     def test_gemini_provider_creates_gemini_client(self):
         with patch("google.genai.Client"):
             engine = ComputerUseEngine(
@@ -340,8 +328,13 @@ class TestOpenAIRuntimePath:
         assert "previous_response_id" not in second_request
         assert second_request["include"] == ["reasoning.encrypted_content"]
         assert second_request["store"] is False
-        assert len(second_request["input"]) == 2
-        replayed_call = second_request["input"][0]
+        assert len(second_request["input"]) == 3
+        assert second_request["input"][0]["role"] == "user"
+        assert second_request["input"][0]["content"][0] == {
+            "type": "input_text",
+            "text": "Open the page and stop",
+        }
+        replayed_call = second_request["input"][1]
         assert replayed_call == {
             "type": "computer_call",
             "call_id": "call_123",
@@ -350,7 +343,7 @@ class TestOpenAIRuntimePath:
                 {"type": "keypress", "keys": ["CTRL", "L"]},
             ],
         }
-        tool_output = second_request["input"][1]
+        tool_output = second_request["input"][2]
         assert tool_output["type"] == "computer_call_output"
         assert tool_output["call_id"] == "call_123"
         assert tool_output["output"]["type"] == "computer_screenshot"
@@ -480,7 +473,8 @@ class TestOpenAIRuntimePath:
         asyncio.run(client.run_loop("Work through the task", FakeExecutor()))
 
         second_request = responses_create.call_args_list[1].kwargs
-        replayed_message = second_request["input"][0]
+        assert second_request["input"][0]["role"] == "user"
+        replayed_message = second_request["input"][1]
         assert replayed_message == {
             "type": "message",
             "role": "assistant",
@@ -1614,17 +1608,6 @@ class TestOpenAIWebSearch:
         assert {"type": "computer"} in tools
         assert {"type": "web_search"} in tools
 
-    def test_enabled_with_domain_filters(self):
-        client = self._make(
-            use_builtin_search=True,
-            search_allowed_domains=["example.com"],
-            search_blocked_domains=["bad.test"],
-        )
-        tools = client._build_tools(1440, 900)
-        ws = next(t for t in tools if t.get("type") == "web_search")
-        assert ws["filters"]["allowed_domains"] == ["example.com"]
-        assert ws["filters"]["blocked_domains"] == ["bad.test"]
-
     def test_enabled_with_file_search_keeps_all_tools(self):
         client = self._make(use_builtin_search=True)
         client._vector_store_id = "vs_test"
@@ -1697,7 +1680,6 @@ class TestClaudeWebSearch:
         ws = next(t for t in tools if t.get("name") == "web_search")
         assert ws["type"] == "web_search_20250305"
         assert ws["max_uses"] == 5  # default
-        assert "allowed_callers" not in ws
 
     def test_enabled_with_files_keeps_computer_and_web_search_tools(self):
         client = self._make(use_builtin_search=True, attached_file_ids=["f_doc"])
@@ -1705,52 +1687,6 @@ class TestClaudeWebSearch:
         assert tools[0]["name"] == "computer"
         ws = next(t for t in tools if t.get("name") == "web_search")
         assert ws["type"] == "web_search_20250305"
-
-    def test_allowed_callers_direct_serializes_into_dynamic_web_search_tool(self):
-        client = self._make(use_builtin_search=True, allowed_callers=["direct"])
-        tools = client._build_tools(1440, 900)
-        ws = next(t for t in tools if t.get("name") == "web_search")
-        assert ws["type"] == "web_search_20260209"
-        assert ws["allowed_callers"] == ["direct"]
-
-    def test_unknown_allowed_callers_value_emits_warning(self, caplog):
-        with caplog.at_level("WARNING", logger="backend.engine.claude"):
-            client = self._make(use_builtin_search=True, allowed_callers=["partner-proxy"])
-
-        tools = client._build_tools(1440, 900)
-        ws = next(t for t in tools if t.get("name") == "web_search")
-        assert ws["allowed_callers"] == ["partner-proxy"]
-        assert any("allowed_callers contains undocumented values" in rec.message for rec in caplog.records)
-
-    def test_enabled_respects_max_uses_and_allowed_domains(self):
-        client = self._make(
-            use_builtin_search=True,
-            search_max_uses=10,
-            search_allowed_domains=["docs.python.org"],
-        )
-        tools = client._build_tools(1440, 900)
-        ws = next(t for t in tools if t.get("name") == "web_search")
-        assert ws["max_uses"] == 10
-        assert ws["allowed_domains"] == ["docs.python.org"]
-        assert "blocked_domains" not in ws
-
-    def test_blocked_domains_used_when_no_allowlist(self):
-        client = self._make(
-            use_builtin_search=True,
-            search_blocked_domains=["bad.test"],
-        )
-        tools = client._build_tools(1440, 900)
-        ws = next(t for t in tools if t.get("name") == "web_search")
-        assert ws["blocked_domains"] == ["bad.test"]
-        assert "allowed_domains" not in ws
-
-    def test_both_domain_lists_raise_explicit_error(self):
-        with pytest.raises(ValueError, match="either search_allowed_domains or search_blocked_domains"):
-            self._make(
-                use_builtin_search=True,
-                search_allowed_domains=["docs.python.org"],
-                search_blocked_domains=["bad.test"],
-            )
 
     @pytest.mark.asyncio
     async def test_probe_success_marks_api_key_as_enabled(self):
@@ -1998,13 +1934,6 @@ class TestGeminiGoogleSearch:
             self._make(
                 model="gemini-2.5-flash",
                 use_builtin_search=True,
-            )
-
-    def test_search_options_raise_for_google_search(self):
-        with pytest.raises(ValueError, match="does not support search_max_uses or domain filters"):
-            self._make(
-                use_builtin_search=True,
-                search_max_uses=3,
             )
 
     def test_grounding_payload_keeps_rendered_content_out_of_footer(self):

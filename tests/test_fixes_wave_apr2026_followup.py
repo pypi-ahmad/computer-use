@@ -226,6 +226,186 @@ class TestActionsArray:
 
         assert dispatched == ["click"]
 
+    @pytest.mark.asyncio
+    async def test_screenshot_only_ready_turn_gets_nudged(self, monkeypatch):
+        """OpenAI docs allow a screenshot-first turn, but that is only
+        observation. A generic "Ready." after screenshot-only must not
+        be accepted as desktop-task completion."""
+        from backend.engine import OpenAICUClient
+
+        executor = _FakeExecutor()
+        screenshot_call = SimpleNamespace(
+            type="computer_call",
+            call_id="call_screenshot",
+            pending_safety_checks=None,
+            action=None,
+            actions=[SimpleNamespace(type="screenshot")],
+        )
+        responses = [
+            SimpleNamespace(output=[screenshot_call], output_text="", error=None),
+            SimpleNamespace(output=[], output_text="Ready.", error=None),
+            SimpleNamespace(
+                output=[],
+                output_text="I cannot continue because Chrome is not visible.",
+                error=None,
+            ),
+        ]
+        captured_inputs: list[list[dict]] = []
+
+        async def fake_create(**kwargs):
+            captured_inputs.append(kwargs["input"])
+            return responses.pop(0)
+
+        class FakeResponses:
+            create = staticmethod(fake_create)
+
+        class FakeClient:
+            responses = FakeResponses()
+
+        with patch("openai.AsyncOpenAI") as AA:
+            AA.return_value = FakeClient()
+            client = OpenAICUClient(api_key="k", model="gpt-5.4")
+
+            async def fake_exec(action, _executor):
+                return CUActionResult(name=getattr(action, "type", "?"))
+
+            monkeypatch.setattr(client, "_execute_openai_action", fake_exec)
+            final_text = await client.run_loop(
+                'Open Chrome and search for "weather in New York"',
+                executor,
+                turn_limit=3,
+            )
+
+        assert "cannot continue" in final_text
+        assert len(captured_inputs) == 3
+        nudge_turn = captured_inputs[2]
+        assert any(
+            "screenshot-only turn is only observation" in part.get("text", "")
+            for item in nudge_turn
+            for part in item.get("content", [])
+            if isinstance(item, dict) and isinstance(part, dict)
+        )
+        assert any(
+            'Active user task: Open Chrome and search for "weather in New York"' in part.get("text", "")
+            for item in nudge_turn
+            for part in item.get("content", [])
+            if isinstance(item, dict) and isinstance(part, dict)
+        )
+
+    @pytest.mark.asyncio
+    async def test_screenshot_only_generic_after_nudge_fails_fast(self, monkeypatch):
+        """If the model ignores the nudge and still returns only a generic
+        final answer, fail the run instead of reporting task complete."""
+        from backend.engine import OpenAICUClient
+
+        executor = _FakeExecutor()
+        screenshot_call = SimpleNamespace(
+            type="computer_call",
+            call_id="call_screenshot",
+            pending_safety_checks=None,
+            action=None,
+            actions=[SimpleNamespace(type="screenshot")],
+        )
+        responses = [
+            SimpleNamespace(output=[screenshot_call], output_text="", error=None),
+            SimpleNamespace(output=[], output_text="Ready.", error=None),
+            SimpleNamespace(output=[], output_text="Ready.", error=None),
+        ]
+        turns = []
+
+        async def fake_create(**kwargs):
+            return responses.pop(0)
+
+        class FakeResponses:
+            create = staticmethod(fake_create)
+
+        class FakeClient:
+            responses = FakeResponses()
+
+        with patch("openai.AsyncOpenAI") as AA:
+            AA.return_value = FakeClient()
+            client = OpenAICUClient(api_key="k", model="gpt-5.4")
+
+            async def fake_exec(action, _executor):
+                return CUActionResult(name=getattr(action, "type", "?"))
+
+            monkeypatch.setattr(client, "_execute_openai_action", fake_exec)
+            with pytest.raises(RuntimeError, match="stopped before performing"):
+                await client.run_loop(
+                    'Open Chrome and search for "weather in New York"',
+                    executor,
+                    turn_limit=3,
+                    on_turn=turns.append,
+                )
+
+        assert turns[-1].actions[0].name == "error"
+
+    @pytest.mark.asyncio
+    async def test_task_handoff_after_click_gets_nudged(self, monkeypatch):
+        """A stray click is not enough progress if the model later asks for
+        the task again; that means replay context was not understood."""
+        from backend.engine import OpenAICUClient
+
+        executor = _FakeExecutor()
+        click_call = SimpleNamespace(
+            type="computer_call",
+            call_id="call_click",
+            pending_safety_checks=None,
+            action=None,
+            actions=[SimpleNamespace(type="click", x=743, y=876)],
+        )
+        responses = [
+            SimpleNamespace(output=[click_call], output_text="", error=None),
+            SimpleNamespace(output=[], output_text="What would you like me to do?", error=None),
+            SimpleNamespace(
+                output=[],
+                output_text="I cannot continue because Chrome is not visible.",
+                error=None,
+            ),
+        ]
+        captured_inputs: list[list[dict]] = []
+
+        async def fake_create(**kwargs):
+            captured_inputs.append(kwargs["input"])
+            return responses.pop(0)
+
+        class FakeResponses:
+            create = staticmethod(fake_create)
+
+        class FakeClient:
+            responses = FakeResponses()
+
+        with patch("openai.AsyncOpenAI") as AA:
+            AA.return_value = FakeClient()
+            client = OpenAICUClient(api_key="k", model="gpt-5.4")
+
+            async def fake_exec(action, _executor):
+                return CUActionResult(name=getattr(action, "type", "?"))
+
+            monkeypatch.setattr(client, "_execute_openai_action", fake_exec)
+            final_text = await client.run_loop(
+                'Open Chrome and search for "weather in New York"',
+                executor,
+                turn_limit=3,
+            )
+
+        assert "cannot continue" in final_text
+        assert len(captured_inputs) == 3
+        assert captured_inputs[1][0]["role"] == "user"
+        nudge_turn = captured_inputs[2]
+        assert any(
+            "Continue with the computer tool" in part.get("text", "")
+            for item in nudge_turn
+            for part in item.get("content", [])
+            if isinstance(item, dict) and isinstance(part, dict)
+        )
+        assert any(
+            'Active user task: Open Chrome and search for "weather in New York"' in part.get("text", "")
+            for item in nudge_turn
+            for part in item.get("content", [])
+            if isinstance(item, dict) and isinstance(part, dict)
+        )
+
 
 # ---------------------------------------------------------------------------
 # 3. detail=original on computer_call_output
