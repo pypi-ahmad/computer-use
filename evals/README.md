@@ -1,7 +1,7 @@
 # Evals
 
-Offline, deterministic evals for Computer Use behaviors that are
-clearer at the HTTP/runtime boundary than in focused unit tests.
+Offline, deterministic evals for Computer Use behaviors that are clearer at the
+HTTP/runtime boundary than in focused unit tests.
 
 Related documentation:
 
@@ -34,3 +34,13 @@ Add an eval when the behavior depends on request validation,
 container readiness, session registration, or another boundary that is
 awkward to cover with a narrower unit test. Keep evals deterministic:
 mock Docker, provider keys, and external network calls.
+
+Good eval candidates:
+
+- container health transitions
+- session registration or cleanup
+- request-shape rejection before provider calls
+- WebSocket/session event envelopes
+
+Avoid evals for provider SDK payload details; those belong in focused unit
+tests under `tests/engine/`.
