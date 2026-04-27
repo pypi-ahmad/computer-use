@@ -17,7 +17,7 @@ monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002376E9DFBB0>
 
     @pytest.mark.asyncio
     async def test_5xx_falls_back(self, monkeypatch):
-        from backend.agent import loop as ss
+        from backend import loop as ss
     
         called = {}
     
@@ -54,7 +54,7 @@ monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002376FD4A330>
 
     @pytest.mark.asyncio
     async def test_401_propagates(self, monkeypatch):
-        from backend.agent import loop as ss
+        from backend import loop as ss
     
         resp = self._response(401, {"error": "unauthorized"})
     
@@ -293,3 +293,4 @@ FAILED tests/test_audit_fixes.py::TestScreenshotFallback::test_5xx_falls_back
 FAILED tests/test_audit_fixes.py::TestScreenshotFallback::test_401_propagates
 FAILED tests/engine/test_engine.py::TestSearchEnabledRequiresComputerAction::test_gemini_iter_turns_nudges_after_retrieval_only_turn
 ======================== 3 failed, 1 warning in 3.66s =========================
+
