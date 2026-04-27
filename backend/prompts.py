@@ -1,7 +1,7 @@
 """System prompt for the Computer Use engine.
 
 Provides a single ``get_system_prompt("computer_use", mode)`` entry-point
-used by :class:`backend.agent.loop.AgentLoop`. The prompt targets the
+used by :class:`backend.loop.AgentLoop`. The prompt targets the
 desktop-native execution path used by the Gemini, Anthropic, and OpenAI
 computer-use protocols.
 """

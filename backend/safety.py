@@ -2,10 +2,10 @@ from __future__ import annotations
 """Cross-module registry for the CU engine's safety-confirmation handshake.
 
 The native Computer Use engine surfaces ``require_confirmation`` prompts
-synchronously through :class:`backend.agent.loop.AgentLoop`. The REST
+synchronously through :class:`backend.loop.AgentLoop`. The REST
 endpoint that resolves those prompts lives in :mod:`backend.server`.
 Putting the shared state here avoids a backward import from
-``backend.agent.loop`` into ``backend.server``.
+``backend.loop`` into ``backend.server``.
 """
 
 
