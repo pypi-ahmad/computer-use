@@ -202,13 +202,9 @@ class GeminiCUClient:
         # intact on each kept turn:
         # https://ai.google.dev/gemini-api/docs/tool-combination
         max_history_turns: int = 10,
-        # File Search activation per April 2026 docs:
-        # https://ai.google.dev/gemini-api/docs/file-search
-        # When ``attached_file_ids`` is non-empty, the adapter creates
-        # a per-session ``file_search_store``, uploads each file via
-        # ``upload_to_file_search_store`` (polling the long-running
-        # operation until ``done``), and attaches
-        # ``Tool(file_search=FileSearch(file_search_store_names=[...]))``.
+        # Reference files are intentionally unsupported for Gemini CU:
+        # Google's File Search docs say File Search cannot be combined
+        # with other tools, and Computer Use is another tool.
         attached_file_ids: list[str] | None = None,
     ):
         try:
@@ -255,22 +251,11 @@ class GeminiCUClient:
         # Unsupported search options are rejected during validation.
         self._use_builtin_search = bool(use_builtin_search)
         del search_max_uses, search_allowed_domains, search_blocked_domains
-        # File Search wiring; provisioned lazily in ``_ensure_file_search_store``.
-        # Per https://ai.google.dev/gemini-api/docs/file-search :
-        #   "File Search cannot be combined with other tools like
-        #    Grounding with Google Search, URL Context, etc."
-        # Computer Use is another tool, so we cannot attach
-        # ``file_search`` to the same generate_content call as
-        # ``computer_use``. Instead we run a one-shot RAG pre-step
-        # before entering the CU loop: a single ``generate_content``
-        # call with only ``file_search`` attached, asking the model
-        # to extract anything from the uploaded documents that is
-        # relevant to the user goal. The grounded answer (with
-        # citations) is then inlined into the initial user turn of
-        # the CU loop as plain-text context.
-        self._attached_file_ids: list[str] = list(attached_file_ids or [])
-        self._file_search_store_name: str | None = None
-        self._file_search_grounded_context: str | None = None
+        if attached_file_ids:
+            raise ValueError(
+                "Reference files are supported for OpenAI and Anthropic computer-use "
+                "sessions only; Gemini File Search cannot be combined with Computer Use.",
+            )
         self._last_completion_payload: dict[str, Any] | None = None
 
     async def _generate(self, *, contents: list, config: Any) -> Any:
@@ -325,10 +310,6 @@ class GeminiCUClient:
             # per turn whether to invoke search; results are surfaced
             # via ``groundingMetadata`` on the candidate.
             #
-            # Note: ``file_search`` is intentionally NOT attached to
-            # this CU-time config. It is consumed via a RAG pre-step
-            # (see ``_run_file_search_pre_step``) because the docs
-            # forbid combining file_search with other tools.
             _GoogleSearch = getattr(types, "GoogleSearch", None)
             if _GoogleSearch is None:
                 raise ValueError(
@@ -420,233 +401,9 @@ class GeminiCUClient:
             kwargs["system_instruction"] = self._system_instruction
         return self._genai.types.GenerateContentConfig(**kwargs)
 
-    async def _ensure_file_search_store(
-        self,
-        *,
-        on_log: Callable[[str, str], None] | None = None,
-    ) -> None:
-        """Provision the per-session File Search store and import every file.
-
-        Implements the recipe from
-        https://ai.google.dev/gemini-api/docs/file-search:
-
-            store = client.file_search_stores.create(...)
-            op = client.file_search_stores.upload_to_file_search_store(
-                file=..., file_search_store_name=store.name, ...
-            )
-            while not op.done: ...
-
-        We poll until ``operation.done`` for each file before declaring
-        the store ready, so the first ``generate_content`` call sees a
-        queryable store.
-        """
-        if not self._attached_file_ids or self._file_search_store_name is not None:
-            return
-        from backend.file_store import store as _file_store
-        recs = await _file_store.get_many(self._attached_file_ids)
-        if not recs:
-            if on_log:
-                on_log("warning", "Gemini file_search: no readable files; skipping")
-            return
-
-        if on_log:
-            on_log(
-                "info",
-                f"Gemini file_search: provisioning store for {len(recs)} file(s)",
-            )
-
-        def _create_store_blocking() -> Any:
-            return self._client.file_search_stores.create(
-                config={"display_name": f"cua-session-{int(time.time())}"},
-            )
-
-        store = await asyncio.to_thread(_create_store_blocking)
-        store_name = getattr(store, "name", None) or store["name"]
-
-        def _upload_blocking(rec_path: str, rec_filename: str) -> Any:
-            op = self._client.file_search_stores.upload_to_file_search_store(
-                file=rec_path,
-                file_search_store_name=store_name,
-                config={"display_name": rec_filename},
-            )
-            # Poll until the long-running operation finishes.  Per the
-            # docs, embeddings are generated server-side here.
-            deadline = time.time() + 600  # 10 minutes is plenty
-            while not getattr(op, "done", False):
-                if time.time() > deadline:
-                    raise TimeoutError(
-                        f"Gemini file_search: indexing {rec_filename} did not finish in 10 minutes",
-                    )
-                time.sleep(2)
-                op = self._client.operations.get(op)
-            return op
-
-        for rec in recs:
-            try:
-                await asyncio.to_thread(_upload_blocking, str(rec.path), rec.filename)
-                if on_log:
-                    on_log(
-                        "info",
-                        f"Gemini file_search: indexed {rec.filename} "
-                        f"({rec.size_bytes} bytes)",
-                    )
-            except Exception as exc:
-                if on_log:
-                    on_log(
-                        "error",
-                        f"Gemini file_search: upload failed for {rec.filename}: {exc}",
-                    )
-                raise
-
-        self._file_search_store_name = store_name
-
-    async def _run_file_search_pre_step(
-        self,
-        goal: str,
-        *,
-        on_log: Callable[[str, str], None] | None = None,
-    ) -> None:
-        """Run a one-shot RAG query over the per-session File Search store.
-
-        Per https://ai.google.dev/gemini-api/docs/file-search the
-        ``file_search`` tool **cannot be combined** with other tools
-        such as Computer Use. To still ground a CU run on uploaded
-        documents we run a single ``generate_content`` call before the
-        CU loop with only ``Tool(file_search=FileSearch(...))``
-        attached, asking the model to extract anything from the
-        uploaded documents relevant to the user goal. The text +
-        citations are stashed in ``self._file_search_grounded_context``
-        and inlined into the initial user turn of the CU loop.
-        """
-        if not self._file_search_store_name:
-            return
-        types = self._types
-        _FileSearch = getattr(types, "FileSearch", None)
-        if _FileSearch is None:
-            if on_log:
-                on_log(
-                    "warning",
-                    "Gemini file_search: FileSearch type unavailable in SDK; "
-                    "skipping RAG pre-step",
-                )
-            return
-
-        prompt = (
-            "You are preparing context for a Computer Use agent that will "
-            "act on the user's behalf in a sandboxed browser/desktop. "
-            "Read the attached documents and extract every fact, "
-            "instruction, credential hint, URL, parameter, or constraint "
-            "that is relevant to the following user goal. Be concise but "
-            "thorough; preserve exact strings (URLs, names, codes) "
-            "verbatim. If nothing in the documents is relevant, reply "
-            "with the single line: NO_RELEVANT_CONTEXT.\n\n"
-            f"User goal:\n{goal}"
-        )
-        config = types.GenerateContentConfig(
-            tools=[types.Tool(
-                file_search=_FileSearch(
-                    file_search_store_names=[self._file_search_store_name],
-                ),
-            )],
-        )
-
-        if on_log:
-            on_log("info", "Gemini file_search: running RAG pre-step")
-
-        try:
-            response = await self._generate(contents=prompt, config=config)
-        except Exception as exc:
-            if on_log:
-                on_log(
-                    "warning",
-                    f"Gemini file_search: RAG pre-step failed: {exc}; "
-                    "continuing CU loop without grounded context",
-                )
-            return
-
-        text = (getattr(response, "text", None) or "").strip()
-        if not text or text == "NO_RELEVANT_CONTEXT":
-            if on_log:
-                on_log(
-                    "info",
-                    "Gemini file_search: no relevant context found in uploads",
-                )
-            return
-
-        # Collect citation snippets from grounding metadata, if any.
-        citation_lines: list[str] = []
-        try:
-            candidates = getattr(response, "candidates", None) or []
-            if candidates:
-                gm = getattr(candidates[0], "grounding_metadata", None)
-                chunks = getattr(gm, "grounding_chunks", None) or []
-                for chunk in chunks:
-                    rc = getattr(chunk, "retrieved_context", None)
-                    if rc is None:
-                        continue
-                    title = getattr(rc, "title", None) or getattr(rc, "uri", None) or ""
-                    snippet = (getattr(rc, "text", None) or "").strip()
-                    if snippet:
-                        # Trim very long chunks to keep the CU prompt small.
-                        if len(snippet) > 800:
-                            snippet = snippet[:800] + "…"
-                        if title:
-                            citation_lines.append(f"[{title}] {snippet}")
-                        else:
-                            citation_lines.append(snippet)
-        except Exception:  # pragma: no cover — citations are best-effort
-            pass
-
-        sections = [text]
-        if citation_lines:
-            sections.append(
-                "Source excerpts:\n" + "\n---\n".join(citation_lines)
-            )
-        self._file_search_grounded_context = "\n\n".join(sections)
-
-        if on_log:
-            on_log(
-                "info",
-                f"Gemini file_search: grounded context ready "
-                f"({len(self._file_search_grounded_context)} chars, "
-                f"{len(citation_lines)} citation(s))",
-            )
-
-    async def _cleanup_file_search_store(
-        self,
-        *,
-        on_log: Callable[[str, str], None] | None = None,
-    ) -> None:
-        """Delete the per-session File Search store at run-loop exit."""
-        if not self._file_search_store_name:
-            return
-        store_name = self._file_search_store_name
-        self._file_search_store_name = None
-        try:
-            def _delete_blocking() -> None:
-                self._client.file_search_stores.delete(
-                    name=store_name, config={"force": True},
-                )
-            await asyncio.to_thread(_delete_blocking)
-        except Exception as exc:
-            if on_log:
-                on_log("warning", f"Gemini file_search: cleanup failed: {exc}")
-
     def _compose_initial_goal_text(self, goal: str) -> str:
-        """Prepend any RAG pre-step grounded context to the user goal."""
-        ctx = self._file_search_grounded_context
-        if not ctx:
-            return goal
-        return (
-            "<attached_documents_context>\n"
-            f"{ctx}\n"
-            "</attached_documents_context>\n\n"
-            "The above context was retrieved from documents the user "
-            "uploaded for this session via the Gemini File Search tool. "
-            "Treat it as authoritative for facts/URLs/parameters specific "
-            "to the user's task.\n\n"
-            f"User goal:\n{goal}"
-        )
+        """Return the unmodified goal text for the Gemini CU loop."""
+        return goal
 
     async def iter_turns(
         self,
@@ -658,14 +415,11 @@ class GeminiCUClient:
     ) -> AsyncIterator[TurnEvent]:
         """Yield Gemini turn events for the LangGraph driver.
 
-        Wraps :meth:`_iter_turns_core` with provisioning + cleanup of
-        the per-session File Search store, while preserving the
+        Wraps :meth:`_iter_turns_core` while preserving the
         ``agen.asend(bool)`` resume protocol the safety flow relies on.
         Values sent into this generator are forwarded verbatim to the
         inner generator and its yielded events are forwarded back.
         """
-        await self._ensure_file_search_store(on_log=on_log)
-        await self._run_file_search_pre_step(goal, on_log=on_log)
         inner = self._iter_turns_core(
             goal, executor, turn_limit=turn_limit, on_log=on_log,
         )
@@ -678,10 +432,7 @@ class GeminiCUClient:
                     return
                 sent = (yield ev)
         finally:
-            try:
-                await inner.aclose()
-            finally:
-                await self._cleanup_file_search_store(on_log=on_log)
+            await inner.aclose()
 
     async def _iter_turns_core(
         self,
@@ -816,7 +567,7 @@ class GeminiCUClient:
 
             # No function calls → model is done
             if not function_calls:
-                if (self._use_builtin_search or self._attached_file_ids) and not saw_computer_action and not nudged_for_computer_use:
+                if self._use_builtin_search and not saw_computer_action and not nudged_for_computer_use:
                     if on_log:
                         on_log(
                             "info",

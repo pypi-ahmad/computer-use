@@ -271,7 +271,7 @@ The frontend cost badge uses current list prices from the official provider pric
 | **Claude Sonnet 4.6** | General CU tasks, web automation, default choice | Cheaper and faster than Opus 4.7; downscales internally to 1568 px / 1.15 MP so a 1440×900 default viewport is a no-op. Adaptive thinking recommended; legacy `enabled + budget_tokens` still accepted but deprecated. |
 | **GPT-5.5** | Default OpenAI CU path, built-in `computer` tool, current OpenAI docs baseline | Uses stateless replay with `reasoning.encrypted_content` + `store=false` instead of `previous_response_id`. `detail: "original"` is hard-coded on every `computer_call_output` per the OpenAI guide. The workbench defaults `Reasoning Effort` to `medium` per the GPT-5.5 model page and still lets you choose `none`, `low`, `medium`, `high`, or `xhigh`. |
 | **GPT-5.4** | Same OpenAI CU path with the earlier GPT-5.4 reasoning profile | Uses the same stateless replay path and `detail: "original"` screenshot outputs as GPT-5.5. The workbench defaults `Reasoning Effort` to `none` per the GPT-5.4 model page and still lets you choose `none`, `low`, `medium`, `high`, or `xhigh`. Prompts > 272k tokens hit the 2× input / 1.5× output overage multiplier — prune session history before it grows past that. |
-| **Gemini 3 Flash Preview** | Browser-centric tasks, price-sensitive workflows, Google-reference parity | Built-in CU; no separate model id required. Normalized 0–999 coordinates denormalised to pixels by `DesktopExecutor._px`. Browser-mode sessions default to the Playwright-over-CDP path against the in-container Chrome session; set `CUA_GEMINI_USE_PLAYWRIGHT=0` to fall back to xdotool. When attached files are provided through the API, Gemini File Search runs in a separate pre-step because Google's docs do not allow `file_search` to share a call with other tools. |
+| **Gemini 3 Flash Preview** | Browser-centric tasks, price-sensitive workflows, Google-reference parity | Built-in CU; no separate model id required. Normalized 0–999 coordinates denormalised to pixels by `DesktopExecutor._px`. Browser-mode sessions default to the Playwright-over-CDP path against the in-container Chrome session; set `CUA_GEMINI_USE_PLAYWRIGHT=0` to fall back to xdotool. Reference-file uploads are rejected for Gemini CU because Google's File Search docs do not allow `file_search` to share a call with Computer Use. |
 
 The model picker is driven directly from [backend/models/allowed_models.json](backend/models/allowed_models.json). If a model ID is not listed there, it is not selectable for new sessions.
 
@@ -321,8 +321,8 @@ curl -F "file=@notes.pdf" http://127.0.0.1:8100/api/files/upload
 ```jsonc
 {
   "task": "Read the uploaded notes, then log into the site and apply the right values.",
-  "provider": "google",
-  "model": "gemini-3-flash-preview",
+  "provider": "openai",
+  "model": "gpt-5.5",
   "attached_files": ["f_example123"]
 }
 ```
@@ -332,14 +332,14 @@ Current upload contract:
 - Allowed extensions: `.md`, `.txt`, `.pdf`, `.docx`
 - Max files per session: `10`
 - Server-side caps: `1 GB` per file, `1 GB` total per session, 6-hour TTL for unused uploads
-- Tighter provider caps still apply: Gemini File Search currently caps documents at `100 MB/file`; Anthropic Files API caps uploads at `500 MB/file`
+- Tighter provider caps still apply, for example Anthropic Files API caps uploads at `500 MB/file`
 - `DELETE /api/files/{file_id}` removes an upload early instead of waiting for TTL cleanup
 
 Provider behavior differs on purpose:
 
 - OpenAI creates a vector store and attaches the Responses `file_search` tool.
-- Gemini creates a File Search store, runs a one-shot file-search-only RAG pre-step because Google's docs say File Search cannot be combined with other tools, then injects the grounded text/citations into the first Computer Use turn. If the Web Search toggle is ON, `google_search` remains available during later Computer Use turns.
 - Anthropic uses the official Files API. `.pdf` and `.txt` are uploaded and referenced as `document` blocks; `.md` and `.docx` are extracted to plain text and inlined because Claude document blocks only accept PDF and `text/plain`.
+- Gemini rejects `attached_files` for Computer Use runs because Google's File Search docs say File Search cannot be combined with other tools.
 
 ## Configuration reference
 
