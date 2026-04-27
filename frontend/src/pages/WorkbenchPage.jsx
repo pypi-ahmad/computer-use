@@ -39,6 +39,7 @@ import {
 import { getTheme, initTheme, setTheme as applyTheme } from '../utils'
 
 import ControlPanel from './workbench/ControlPanelView.jsx'
+import GraphRunPanel from './workbench/GraphRunPanel.jsx'
 import Timeline from './workbench/Timeline.jsx'
 import HistoryDrawer from './workbench/HistoryDrawer.jsx'
 import LogsPanel from './workbench/LogsPanel.jsx'
@@ -91,7 +92,7 @@ export default function Workbench() {
     onHistoryEntry,
   })
   const {
-    connected, lastScreenshot, logs, steps, safetyPrompt,
+    connected, lastScreenshot, logs, steps, graphRun, safetyPrompt,
     clearLogs, clearSafetyPrompt, setScreenshotMode,
     agentRunning, starting, stopping, completionData, error,
     setError, start, stop, dismissCompletion, clearAll,
@@ -474,6 +475,8 @@ export default function Workbench() {
         </main>
 
         <aside className="wb-right-panel">
+          <GraphRunPanel graphRun={graphRun} />
+
           <div className="wb-timeline-section">
             <div className="wb-panel-header">
               <h3>{showHistory ? 'Session History' : `Timeline (${steps.length})`}</h3>

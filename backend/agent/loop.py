@@ -107,6 +107,7 @@ class AgentLoop:
         on_step: Optional[Callable] = None,
         on_log: Optional[Callable] = None,
         on_screenshot: Optional[Callable] = None,
+        on_graph_state: Optional[Callable] = None,
     ):
         """Initialise a new agent loop for *task* using the given provider/model."""
         self.session = AgentSession(
@@ -136,6 +137,7 @@ class AgentLoop:
         self._on_step = on_step
         self._on_log = on_log
         self._on_screenshot = on_screenshot
+        self._on_graph_state = on_graph_state
 
     @property
     def session_id(self) -> str:
@@ -196,9 +198,12 @@ class AgentLoop:
     async def run(self) -> AgentSession:
         """Execute the full agent loop. Returns the final session state.
 
-        Orchestration is a LangGraph six-node state machine
-        (``preflight → model_turn ⇄ tool_batch → approval_interrupt →
-        recover_or_retry → finalize``) assembled in
+        Orchestration is selected once per session between the legacy
+        six-node graph (``preflight → model_turn → policy_gate →
+        tool_batch → approval_interrupt → finalize``) and the rollout
+        supervisor graph (``intake → capability_probe → planner/grounding
+        → executor → policy → desktop_dispatcher → verifier →
+        recovery/escalate_interrupt → finalize``), both assembled in
         :mod:`backend.agent.graph`. This AgentLoop owns only the
         provider/engine construction, callback wiring, and stop
         handshake — all turn-by-turn orchestration lives in the graph.
@@ -212,8 +217,16 @@ class AgentLoop:
             f"Provider: {self._provider} | Target: {self._execution_target}",
         )
 
-        from backend.agent.graph import build_agent_graph
-        from backend import tracing
+        from backend.agent import graph_rollout
+        from backend.agent.graph import build_agent_graph, build_legacy_graph
+        from backend.infra import observability as tracing
+        from backend.agent.prompts import get_system_prompt
+
+        system_instruction = get_system_prompt(
+            "computer_use",
+            provider=self._provider,
+            model=self.session.model,
+        )
 
         bundle = self._build_graph_bundle()
         # OBS: wrap the bundle so every graph-edge event lands in the
@@ -222,7 +235,28 @@ class AgentLoop:
         # broadcasts are unchanged.
         tracing.start_session(self.session.session_id, task=self.session.task)
         bundle = tracing.install(bundle, self.session.session_id)
-        graph = build_agent_graph(bundle)
+        selection = graph_rollout.begin_session(
+            self.session.session_id,
+            requested_supervisor=config.use_supervisor_graph,
+        )
+        tracing.record(
+            self.session.session_id,
+            tracing.STAGE_SESSION,
+            "graph_selected",
+            selection.to_dict(),
+        )
+        graph_builder = (
+            build_agent_graph
+            if selection.selected_mode == graph_rollout.SUPERVISOR_GRAPH_MODE
+            else build_legacy_graph
+        )
+        graph = graph_builder(bundle)
+        self._emit_log(
+            "info",
+            f"Graph mode: {selection.selected_mode} (reason: {selection.reason})",
+        )
+        if selection.reason == "kill_switch" and selection.alert:
+            self._emit_log("warning", selection.alert)
 
         _sid_token = session_id_var.set(self.session.session_id)
         try:
@@ -232,6 +266,22 @@ class AgentLoop:
                         "session_id": self.session.session_id,
                         "task": self.session.task,
                         "max_steps": self.session.max_steps,
+                        "provider": self._provider,
+                        "model": self.session.model,
+                        "api_key": self._api_key,
+                        "system_instruction": system_instruction,
+                        "screen_width": config.screen_width,
+                        "screen_height": config.screen_height,
+                        "container_name": config.container_name,
+                        "agent_service_url": config.agent_service_url,
+                        "reasoning_effort": self._reasoning_effort,
+                        "use_builtin_search": self._use_builtin_search,
+                        "search_max_uses": self._search_max_uses,
+                        "search_allowed_domains": self._search_allowed_domains,
+                        "search_blocked_domains": self._search_blocked_domains,
+                        "allowed_callers": self._allowed_callers,
+                        "attached_files": list(self._attached_files),
+                        "session_data": self.session.model_dump(mode="json"),
                     },
                     config={"configurable": {"thread_id": self.session.session_id}},
                 )
@@ -260,6 +310,9 @@ class AgentLoop:
                     self.session.status = SessionStatus.COMPLETED
                 if isinstance(final_state, dict):
                     self.session.final_text = final_state.get("final_text") or self.session.final_text
+                    session_data = final_state.get("session_data")
+                    if isinstance(session_data, dict):
+                        self.session = AgentSession.model_validate(session_data)
         except Exception as exc:
             self._emit_log("error", f"Graph invocation failed: {exc}")
             self.session.status = SessionStatus.ERROR
@@ -270,14 +323,6 @@ class AgentLoop:
             try:
                 from backend.agent import safety as safety_registry
                 safety_registry.clear(self.session.session_id)
-            except Exception:
-                pass
-            # Drop the iterator registry entry — finalize already does
-            # this on the happy path, but a cancelled/error path might
-            # not reach finalize.
-            try:
-                from backend.agent.graph import _drop_iterator
-                _drop_iterator(self.session.session_id)
             except Exception:
                 pass
             # OBS: flush the session trace to its sidecar JSON file.
@@ -291,6 +336,15 @@ class AgentLoop:
                 logger.exception(
                     "trace finalize failed for %s", self.session.session_id,
                 )
+            try:
+                graph_rollout.finalize_session(
+                    self.session.session_id,
+                    status=self.session.status.value,
+                )
+            except Exception:
+                logger.exception(
+                    "graph rollout finalize failed for %s", self.session.session_id,
+                )
             session_id_var.reset(_sid_token)
         return self.session
 
@@ -300,27 +354,11 @@ class AgentLoop:
         """Build the ``NodeBundle`` of I/O closures for the agent graph.
 
         The closures bridge graph nodes to this loop's callback set
-        (``on_step`` / ``on_log`` / ``on_screenshot``) and to the legacy
-        safety-registry signal still used by Gemini / OpenAI.
+        (``on_step`` / ``on_log`` / ``on_screenshot``).
         """
         from backend.agent.graph import NodeBundle
-        from backend.agent import safety as safety_registry
-        from backend.engine import (
-            ComputerUseEngine,
-            Environment,
-            Provider,
-            ToolBatchCompleted,
-        )
-        from backend.agent.prompts import get_system_prompt
+        from backend.engine import ToolBatchCompleted
 
-        provider_map = {
-            "google": Provider.GEMINI,
-            "anthropic": Provider.CLAUDE,
-            "openai": Provider.OPENAI,
-        }
-
-        # Engine is lazily constructed on first start_iter invocation
-        # so graph preflight can surface configuration errors cleanly.
         last_fingerprints: list[str] = []
 
         def _fingerprint(action: AgentAction | None) -> str:
@@ -345,79 +383,6 @@ class AgentLoop:
                 return await check_service_health()
             except Exception:
                 return False
-
-        async def _start_iter(session_id: str, task: str, max_steps: int):
-            cu_provider = provider_map.get(self._provider)
-            if cu_provider is None:
-                raise ValueError(f"Unsupported CU provider: {self._provider}")
-            system_instruction = get_system_prompt(
-                "computer_use",
-                provider=self._provider,
-                model=self.session.model,
-            )
-            # Unified Computer Use surface: a single X11/Chromium-equipped
-            # sandbox. The provider's CU tool decides whether to drive a
-            # desktop application or Chromium itself; Gemini always sees
-            # ENVIRONMENT_DESKTOP per
-            # https://ai.google.dev/gemini-api/docs/computer-use.
-            cu_env = Environment.DESKTOP
-            engine = ComputerUseEngine(
-                provider=cu_provider,
-                api_key=self._api_key,
-                model=self.session.model,
-                environment=cu_env,
-                screen_width=config.screen_width,
-                screen_height=config.screen_height,
-                system_instruction=system_instruction,
-                container_name=config.container_name,
-                agent_service_url=config.agent_service_url,
-                reasoning_effort=self._reasoning_effort,
-                use_builtin_search=self._use_builtin_search,
-                search_max_uses=self._search_max_uses,
-                search_allowed_domains=self._search_allowed_domains,
-                search_blocked_domains=self._search_blocked_domains,
-                allowed_callers=self._allowed_callers,
-                attached_files=self._attached_files,
-            )
-
-            # Legacy safety callback used by Gemini / OpenAI's run_loop
-            # (via iter_turns_via_run_loop). Claude's iter_turns ignores
-            # this argument — its safety is server-side refusal only.
-            async def _on_safety(explanation: str) -> bool:
-                self._emit_log(
-                    "warning",
-                    f"Safety confirmation required: {explanation}",
-                    data={
-                        "type": "safety_confirmation",
-                        "explanation": explanation,
-                        "session_id": self.session.session_id,
-                    },
-                )
-                sid = self.session.session_id
-                evt = safety_registry.get_or_create_event(sid)
-                evt.clear()
-                try:
-                    await asyncio.wait_for(evt.wait(), timeout=60.0)
-                    decision = bool(safety_registry.decisions.pop(sid, False))
-                except asyncio.TimeoutError:
-                    self._emit_log(
-                        "warning", "Safety confirmation timed out, denying action",
-                    )
-                    decision = False
-                finally:
-                    safety_registry.clear(sid)
-                self._emit_log("info", f"Safety confirmation result: {decision}")
-                return decision
-
-            def _on_engine_log(level: str, message: str) -> None:
-                self._emit_log(level, message)
-
-            return engine.iter_turns(
-                goal=task,
-                turn_limit=max_steps,
-                on_safety=_on_safety,
-                on_log=_on_engine_log,
-            )
 
         def _emit_step(event: ToolBatchCompleted) -> None:
             """Map a ``ToolBatchCompleted`` event to a session ``StepRecord``."""
@@ -473,21 +438,17 @@ class AgentLoop:
         def _emit_log(level: str, message: str, data: dict | None = None) -> None:
             self._emit_log(level, message, data)
 
-        def _build_snapshot() -> dict:
-            return self.session.model_dump(
-                mode="json",
-                exclude={"steps": {"__all__": {"screenshot_b64"}}},
-            )
+        def _emit_graph_state(snapshot: dict) -> None:
+            self._fire_callback(self._on_graph_state, snapshot)
 
         def _stop_requested() -> bool:
             return self._stop_requested
 
         return NodeBundle(
             check_health=_check_health,
-            start_iter=_start_iter,
             emit_step=_emit_step,
             emit_log=_emit_log,
-            build_snapshot=_build_snapshot,
+            emit_graph_state=_emit_graph_state,
             stop_requested=_stop_requested,
         )
 
