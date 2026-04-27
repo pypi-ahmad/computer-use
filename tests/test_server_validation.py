@@ -310,6 +310,18 @@ class TestAgentStartValidation:
         assert resp.status_code == 400
         assert "does not support search_max_uses or domain filters" in resp.json().get("error", "")
 
+    def test_gemini_reference_files_rejected(self, client):
+        resp = client.post("/api/agent/start", json={
+            "task": "test",
+            "engine": "computer_use",
+            "provider": "google",
+            "model": "gemini-3-flash-preview",
+            "mode": "desktop",
+            "attached_files": ["f_example123"],
+        })
+        assert resp.status_code == 400
+        assert "Gemini File Search cannot be combined with Computer Use" in resp.json().get("error", "")
+
     def test_gemini_builtin_search_sdk_support_required(self, client):
         with patch("backend.engine._get_gemini_builtin_search_sdk_error", return_value="sdk support missing"):
             resp = client.post("/api/agent/start", json={

@@ -872,12 +872,11 @@ grounding. The sidebar uploader posts to `POST /api/files/upload`, stores the
 returned ids in `attached_files`, and forwards them on
 `POST /api/agent/start`. Direct API callers can use the same flow manually.
 OpenAI turns those server-side file ids into a vector store and attaches the
-`file_search` tool. Gemini uploads into a File Search store, runs a one-shot
-file-search-only RAG pre-step because Google's docs forbid combining File
-Search with other tools in the same call, then injects the grounded text into
-the Computer Use loop. Anthropic uses the official Files API: `.pdf` and
-`.txt` become `document` blocks, while `.md` and `.docx` are extracted to
-plain text because Claude document blocks only support PDF and `text/plain`.
+`file_search` tool. Anthropic uses the official Files API: `.pdf` and `.txt`
+become `document` blocks, while `.md` and `.docx` are extracted to plain text
+because Claude document blocks only support PDF and `text/plain`. Gemini
+sessions reject reference files because Google's File Search docs do not allow
+combining File Search with Computer Use.
 
 ## Frontend experience
 

@@ -1062,21 +1062,9 @@ def _fake_engine_factory(provider: str, stats: dict[str, int]):
         def __init__(self):
             self._model = "gemini-3-flash-preview"
             self._types = _FakeGeminiTypes
-            self._file_search_store_name = None
-            self._file_search_grounded_context = None
             self._last_completion_payload = None
             self._max_history_turns = 10
             self._use_builtin_search = True
-
-        async def _ensure_file_search_store(self, on_log=None):
-            return None
-
-        async def _run_file_search_pre_step(self, goal: str, on_log=None):
-            del goal
-            return None
-
-        async def _cleanup_file_search_store(self, on_log=None):
-            return None
 
         def _compose_initial_goal_text(self, goal: str) -> str:
             return goal
