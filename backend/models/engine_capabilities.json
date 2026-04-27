@@ -30,6 +30,7 @@
           "scroll_at"
         ],
         "wait": [
+          "screenshot",
           "wait_5_seconds"
         ],
         "special": [
@@ -50,6 +51,7 @@
         "key_combination",
         "scroll_document",
         "scroll_at",
+        "screenshot",
         "wait_5_seconds",
         "done",
         "error"

@@ -8,7 +8,7 @@
       "model_id": "gemini-3-flash-preview",
       "display_name": "Gemini 3 Flash Preview",
       "supports_computer_use": true,
-      "notes": "Fast, lightweight Gemini CU model. Sole supported Gemini SKU per official Computer Use docs."
+      "notes": "Fast, lightweight Gemini CU model. This is the only Gemini CU SKU exposed by this app."
     },
     {
       "provider": "anthropic",
