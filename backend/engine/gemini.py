@@ -13,12 +13,9 @@ import os
 import time
 from typing import Any, AsyncIterator, Callable
 
-from backend.engine.grounding import _extract_gemini_grounding_payload
+from backend.executor import ActionExecutor, CUActionResult, SafetyDecision
 from backend.engine import (
-    CUActionResult,
     CUTurnRecord,
-    SafetyDecision,
-    ActionExecutor,
     Environment,
     ModelTurnStarted,
     RunCompleted,
@@ -39,6 +36,133 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Gemini Computer Use Client
 # ---------------------------------------------------------------------------
+
+
+def _to_plain_dict(value: Any) -> dict[str, Any]:
+    def _to_plain_value(item: Any) -> Any:
+        if isinstance(item, dict):
+            return {key: _to_plain_value(val) for key, val in item.items()}
+        if isinstance(item, list):
+            return [_to_plain_value(val) for val in item]
+        if isinstance(item, tuple):
+            return [_to_plain_value(val) for val in item]
+        if hasattr(item, "model_dump"):
+            return _to_plain_value(item.model_dump())
+        if hasattr(item, "dict"):
+            return _to_plain_value(item.dict())
+        if hasattr(item, "__dict__"):
+            return {
+                key: _to_plain_value(val)
+                for key, val in vars(item).items()
+                if not key.startswith("_")
+            }
+        return item
+
+    plain = _to_plain_value(value)
+    return plain if isinstance(plain, dict) else {}
+
+
+def _extract_gemini_grounding_payload(response: Any) -> dict[str, Any] | None:
+    """Normalize Gemini Google Search grounding metadata for the UI."""
+    candidates = getattr(response, "candidates", None) or []
+    if not candidates:
+        return None
+
+    candidate = _to_plain_dict(candidates[0])
+    grounding = candidate.get("grounding_metadata") or candidate.get("groundingMetadata") or {}
+    if not isinstance(grounding, dict):
+        grounding = _to_plain_dict(grounding)
+    if not grounding:
+        return None
+
+    search_entry = grounding.get("search_entry_point") or grounding.get("searchEntryPoint") or {}
+    if not isinstance(search_entry, dict):
+        search_entry = _to_plain_dict(search_entry)
+    rendered_content = str(
+        search_entry.get("renderedContent")
+        or search_entry.get("rendered_content")
+        or ""
+    ).strip()
+
+    normalized_chunks: list[dict[str, Any]] = []
+    for raw_chunk in grounding.get("grounding_chunks") or grounding.get("groundingChunks") or []:
+        chunk = raw_chunk if isinstance(raw_chunk, dict) else _to_plain_dict(raw_chunk)
+        web = chunk.get("web") or {}
+        if not isinstance(web, dict):
+            web = _to_plain_dict(web)
+        uri = str(web.get("uri") or "").strip()
+        if not uri:
+            continue
+        title = str(web.get("title") or uri).strip() or uri
+        normalized_chunks.append({"web": {"uri": uri, "title": title}})
+
+    normalized_supports: list[dict[str, Any]] = []
+    for raw_support in grounding.get("grounding_supports") or grounding.get("groundingSupports") or []:
+        support = raw_support if isinstance(raw_support, dict) else _to_plain_dict(raw_support)
+        segment = support.get("segment") or {}
+        if not isinstance(segment, dict):
+            segment = _to_plain_dict(segment)
+
+        start_index = segment.get("startIndex")
+        if start_index is None:
+            start_index = segment.get("start_index")
+        end_index = segment.get("endIndex")
+        if end_index is None:
+            end_index = segment.get("end_index")
+        try:
+            start_index = int(start_index) if start_index is not None else None
+        except (TypeError, ValueError):
+            start_index = None
+        try:
+            end_index = int(end_index) if end_index is not None else None
+        except (TypeError, ValueError):
+            end_index = None
+
+        indices_raw = support.get("grounding_chunk_indices")
+        if indices_raw is None:
+            indices_raw = support.get("groundingChunkIndices")
+        indices: list[int] = []
+        for value in indices_raw or []:
+            try:
+                idx = int(value)
+            except (TypeError, ValueError):
+                continue
+            if idx >= 0 and idx not in indices:
+                indices.append(idx)
+
+        segment_payload: dict[str, Any] = {}
+        if start_index is not None:
+            segment_payload["startIndex"] = start_index
+        if end_index is not None:
+            segment_payload["endIndex"] = end_index
+        segment_text = str(segment.get("text") or "").strip()
+        if segment_text:
+            segment_payload["text"] = segment_text
+
+        if segment_payload or indices:
+            normalized_supports.append(
+                {
+                    "segment": segment_payload,
+                    "groundingChunkIndices": indices,
+                }
+            )
+
+    web_search_queries = [
+        str(query).strip()
+        for query in grounding.get("web_search_queries") or grounding.get("webSearchQueries") or []
+        if str(query).strip()
+    ]
+
+    payload: dict[str, Any] = {}
+    if rendered_content:
+        payload["renderedContent"] = rendered_content
+    if normalized_chunks:
+        payload["groundingChunks"] = normalized_chunks
+    if normalized_supports:
+        payload["groundingSupports"] = normalized_supports
+    if web_search_queries:
+        payload["webSearchQueries"] = web_search_queries
+    return payload or None
 
 
 def _prune_gemini_context(contents: list[Any], max_history_turns: int) -> None:
@@ -75,91 +199,6 @@ def _prune_gemini_context(contents: list[Any], max_history_turns: int) -> None:
         for idx, content in enumerate(contents)
         if idx in keep_indexes
     ]
-
-
-# ---------------------------------------------------------------------------
-# S4 — Gemini browser routing + Playwright opt-in
-# ---------------------------------------------------------------------------
-
-# Google's Gemini 3 Flash Preview reference guidance uses a Chromium instance
-# under Playwright. The repo's default xdotool/full-desktop harness is
-# compatible (the model returns normalized 0-999 coordinates which
-# ``DesktopExecutor._denormalize_coords`` maps to any viewport), but when
-# the agent has a choice of browser for a Gemini session, Chromium is the
-# reference match.  This helper mirrors that preference so the Gemini adapter
-# (and its tests) can assert "Chromium first, Firefox-ESR fallback with a
-# warning" without disturbing the OpenAI / Anthropic paths.
-
-_GEMINI_CHROMIUM_CANDIDATES: tuple[str, ...] = (
-    "chromium-browser",
-    "chromium",
-)
-_GEMINI_FIREFOX_FALLBACKS: tuple[str, ...] = (
-    "firefox-esr",
-    "firefox",
-)
-
-
-def _gemini_resolve_browser_binary(
-    which: Callable[[str], str | None] | None = None,
-    log: Callable[[str, str], None] | None = None,
-) -> str | None:
-    """Return the first available browser binary path for a Gemini session.
-
-    Preference: ``chromium-browser`` → ``chromium`` → ``firefox-esr`` →
-    ``firefox``.  Emits a single WARNING via *log* (or the module logger)
-    when no Chromium flavour is installed and a Firefox fallback is used,
-    because Google's reference implementation is Chromium-only.
-
-    *which* defaults to ``shutil.which`` and is overridable for tests.
-    Returns ``None`` when no browser is found at all.
-    """
-    import shutil
-
-    if which is None:
-        which = shutil.which
-
-    for name in _GEMINI_CHROMIUM_CANDIDATES:
-        path = which(name)
-        if path:
-            return path
-
-    for name in _GEMINI_FIREFOX_FALLBACKS:
-        path = which(name)
-        if path:
-            msg = (
-                "Gemini: Chromium not installed; falling back to %s. "
-                "Google's reference implementation uses Chromium." % name
-            )
-            if log is not None:
-                log("warning", msg)
-            else:
-                logger.warning(msg)
-            return path
-
-    return None
-
-
-def _gemini_playwright_enabled() -> bool:
-    """Return True when the Playwright path should be used for a Gemini
-    browser-mode session.
-
-    Per Google's official Gemini Computer Use docs the recommended
-    client-side action handler is Playwright. The unified Docker
-    sandbox pre-launches Chromium with CDP exposed on
-    ``127.0.0.1:9223`` (see ``docker/entrypoint.sh``) so the backend
-    can connect via ``playwright.connect_over_cdp(...)`` without
-    abandoning the single-container architecture.
-
-    Defaults: enabled. Set ``CUA_GEMINI_USE_PLAYWRIGHT=0`` to fall
-    back to the xdotool ``DesktopExecutor``. The legacy
-    ``CUA_GEMINI_USE_PLAYWRIGHT=1`` value is still accepted as an
-    explicit opt-in. When ``playwright`` is not importable on the
-    backend we log once and return False so the caller falls back to
-    the xdotool path cleanly.
-    """
-    from backend.engine.playwright_executor import browser_playwright_enabled
-    return browser_playwright_enabled()
 
 
 class GeminiCUClient:

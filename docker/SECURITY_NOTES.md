@@ -206,42 +206,27 @@ specific sandbox posture.  The shared image satisfies it:
 
 ## Google Gemini 3 Flash Preview sandbox alignment
 
-Google's Computer Use reference guidance uses Playwright Chromium. The shared
-sandbox supports this contract additively:
+Gemini Computer Use returns normalized coordinates and the shared sandbox
+dispatches them through the same visible desktop action service as the other
+providers:
 
 - **Browser**: `google-chrome-stable` is the actual installed
   Chromium-family browser. The Dockerfile also exposes `chromium`
   and `chromium-browser` compatibility names as symlinks to that
-  Chrome install, with `firefox-esr` alongside it. The Gemini
-  adapter helper `_gemini_resolve_browser_binary` still prefers
-  `chromium-browser` then `chromium`, which now resolve to the
-  hardened Chrome binary, and warns once before falling back to
-  `firefox-esr` / `firefox`.
+  Chrome install, with `firefox-esr` alongside it.
 - **Viewport**: 1440x900 — Gemini's docs recommend exactly this
   resolution, so S1's shared default is kept unchanged.
 - **Coordinate contract**: the model returns 0–999 normalized
-  coordinates; `DesktopExecutor._denormalize_coords` in
-  backend/engine/__init__.py scales them to the actual viewport.
+  coordinates; `backend/executor.py` denormalizes them to the actual
+  viewport before dispatching desktop actions.
   Unchanged in this commit; documented here for completeness.
 - **Single-tab paradigm**: soft-hinted via `SYSTEM_PROMPT_GEMINI_CU`
-  in backend/agent/prompts.py so the model treats new-tab links as
-  in-tab navigations.  Hard enforcement (Chromium new-tab
-  interception) requires the optional Playwright path below.
-- **Playwright path (default for Gemini browser mode)**:
-  ``docker/entrypoint.sh`` pre-launches Google Chrome inside the
-  unified sandbox with ``--remote-debugging-port=9223``,
-  ``--remote-allow-origins=*`` and the OpenAI-CU hardening flags
-  (``--disable-extensions``, ``--disable-file-system``,
-  ``--no-default-browser-check``, ``--user-data-dir=/tmp/chrome-profile``).
-  ``docker-compose.yml`` already publishes ``127.0.0.1:9223:9223``,
-  so the backend connects via
-  ``playwright.connect_over_cdp("http://127.0.0.1:9223")`` without
-  needing host-side Chromium bundles. Disable with
-  ``CUA_GEMINI_USE_PLAYWRIGHT=0`` (backend) or ``CUA_DISABLE_CDP=1``
-  (container)—both fall back cleanly to the xdotool path.
+  in backend/prompts.py so the model treats new-tab links as
+  in-tab navigations.
 - **Safety handshake**: ToS-mandated
   `safety_acknowledgement: \"true\"` on confirmed
   `require_confirmation` decisions.  Cannot be bypassed; see
   `CUA_GEMINI_RELAX_SAFETY` (S1 phase 3) for the only env flag
   that touches Gemini safety, and note it only adjusts
   `HarmBlockThreshold` — it does not skip the handshake.
+

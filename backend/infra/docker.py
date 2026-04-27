@@ -195,7 +195,6 @@ async def _start_container_locked(container: str) -> bool:
         "-p", "127.0.0.1:5900:5900",
         "-p", "127.0.0.1:6080:6080",
         "-p", f"127.0.0.1:{config.agent_service_port}:{config.agent_service_port}",
-        "-p", "127.0.0.1:9223:9223",
         "--shm-size=2g",
         "--security-opt=no-new-privileges:true",
         "--memory=4g",

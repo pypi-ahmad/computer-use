@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse
 from backend.infra.config import config, get_all_key_statuses, resolve_api_key
 from backend.engine import default_openai_reasoning_effort_for_model as _default_openai_reasoning_effort_for_model
 from backend.engine import validate_builtin_search_config as _validate_builtin_search_config
+from backend import files as file_registry
 from backend.models.schemas import load_allowed_models_json as _load_allowed_models_json
 from backend.infra.observability import install as _install_sid_filter
 from pydantic import BaseModel, ConfigDict, Field
@@ -31,9 +32,9 @@ from backend.models.schemas import (
     StartTaskRequest,
     TaskStatusResponse,
 )
-from backend.agent.loop import AgentLoop
-from backend.agent import safety as safety_registry
-from backend.agent.loop import capture_screenshot, check_service_health
+from backend.loop import AgentLoop
+from backend import safety as safety_registry
+from backend.executor import capture_screenshot, check_service_health
 from backend.infra.docker import (
     _run as _dm_run,
     build_image,
@@ -123,8 +124,7 @@ async def _lifespan(_app: FastAPI):
 
         # Wipe any uploaded RAG files left over on disk.
         try:
-            from backend.infra.storage import store as _file_store
-            await _file_store.close()
+            await file_registry.close_store()
         except Exception:
             logger.exception("Error closing file_store")
 
@@ -882,7 +882,7 @@ async def api_screenshot(request: Request):
 # max 1 GB each. Provider-side caps, such as Anthropic 500 MB/file,
 # surface as upstream API errors at session start.
 
-_FILE_UPLOAD_BYTES_CAP = 1 * 1024 * 1024 * 1024  # 1 GB; mirrors file_store.MAX_FILE_BYTES
+_FILE_UPLOAD_BYTES_CAP = file_registry.MAX_FILE_BYTES
 
 
 @app.post("/api/files/upload")
@@ -921,9 +921,8 @@ async def api_upload_file(request: Request):
     except Exception:
         return _error_response(400, "Could not read upload payload")
 
-    from backend.infra.storage import store as _file_store
     try:
-        rec = await _file_store.add(filename=filename, data=data)
+        rec = await file_registry.upload_file(filename=filename, data=data)
     except ValueError as exc:
         return _error_response(400, str(exc))
     except Exception:
@@ -948,8 +947,7 @@ async def api_delete_file(file_id: str, request: Request):
     forbidden = _require_origin(request)
     if forbidden is not None:
         return forbidden
-    from backend.infra.storage import store as _file_store
-    ok = await _file_store.delete(file_id)
+    ok = await file_registry.delete_file(file_id)
     if not ok:
         return _error_response(404, f"file_id not found: {file_id}")
     return {"deleted": file_id}
@@ -987,30 +985,17 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
     # Cap max_steps to prevent runaway agents
     req.max_steps = min(req.max_steps, _MAX_STEPS_HARD_CAP)
 
-    # Validate attached_files (optional). Reference-file grounding is
-    # available only where the provider has a documented CU-compatible path:
-    # OpenAI Responses file_search and Anthropic Files API. Gemini File Search
-    # cannot be combined with other tools, including Computer Use.
+    # Validate attached_files (optional). Provider-specific handling:
+    # OpenAI -> Responses file_search/vector store; Anthropic -> Files API
+    # document blocks; Gemini -> explicit reject with Computer Use.
     if req.attached_files:
-        if req.provider == "google":
-            return _error_response(
-                400,
-                "Reference files are supported for OpenAI and Anthropic computer-use "
-                "sessions only; Gemini File Search cannot be combined with Computer Use.",
+        try:
+            req.attached_files = await file_registry.validate_attached_files(
+                req.provider,
+                req.attached_files,
             )
-        from backend.infra.storage import store as _file_store
-        seen = set()
-        for fid in req.attached_files:
-            if not isinstance(fid, str) or not fid.startswith("f_"):
-                return _error_response(400, f"invalid file_id: {fid!r}")
-            if fid in seen:
-                return _error_response(400, f"duplicate file_id: {fid}")
-            seen.add(fid)
-            if (await _file_store.get(fid)) is None:
-                return _error_response(
-                    400,
-                    f"file_id {fid} is unknown or expired; re-upload it",
-                )
+        except ValueError as exc:
+            return _error_response(400, str(exc))
 
     # Resolve reasoning_effort: request > env var > model-specific default.
     # Per OpenAI's model pages and latest-model guide (checked 2026-04-27),

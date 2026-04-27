@@ -16,10 +16,9 @@ from typing import Any, Callable
 
 from backend.infra.config import config as _app_config
 from backend.models.schemas import load_allowed_models_json as _load_allowed_models_json
+from backend.executor import ActionExecutor, CUActionResult
 from backend.engine import (
-    CUActionResult,
     CUTurnRecord,
-    ActionExecutor,
     _call_with_retry,
     _invoke_safety,
     _to_plain_dict,
@@ -313,39 +312,12 @@ class OpenAICUClient:
         """
         if not self._attached_file_ids or self._vector_store_id is not None:
             return
-        from backend.file_store import store as _file_store
-        recs = await _file_store.get_many(self._attached_file_ids)
-        if not recs:
-            if on_log:
-                on_log("warning", "OpenAI file_search: no readable files; skipping")
-            return
-
-        if on_log:
-            on_log("info", f"OpenAI file_search: provisioning vector store for {len(recs)} file(s)")
-        vs = await self._client.vector_stores.create(name=f"cua-session-{int(time.time())}")
-        self._vector_store_id = vs.id
-
-        # Upload each file via the async client.  ``upload_and_poll``
-        # accepts a (filename, bytes, mime) tuple per the openai SDK.
-        for rec in recs:
-            try:
-                await self._client.vector_stores.files.upload_and_poll(
-                    vector_store_id=self._vector_store_id,
-                    file=(rec.filename, rec.read_bytes(), rec.mime_type),
-                )
-                if on_log:
-                    on_log(
-                        "info",
-                        f"OpenAI file_search: indexed {rec.filename} "
-                        f"({rec.size_bytes} bytes)",
-                    )
-            except Exception as exc:
-                if on_log:
-                    on_log(
-                        "error",
-                        f"OpenAI file_search: upload failed for {rec.filename}: {exc}",
-                    )
-                raise
+        from backend.files import prepare_openai_file_search
+        self._vector_store_id = await prepare_openai_file_search(
+            self._client,
+            self._attached_file_ids,
+            on_log=on_log,
+        )
 
     async def _cleanup_vector_store(
         self,
@@ -358,15 +330,13 @@ class OpenAICUClient:
         store will be GC'd by OpenAI eventually.  See the retrieval
         guide for vector store lifecycle.
         """
-        if not self._vector_store_id:
-            return
-        try:
-            await self._client.vector_stores.delete(vector_store_id=self._vector_store_id)
-        except Exception as exc:
-            if on_log:
-                on_log("warning", f"OpenAI file_search: vector store cleanup failed: {exc}")
-        finally:
-            self._vector_store_id = None
+        from backend.files import cleanup_openai_vector_store
+        await cleanup_openai_vector_store(
+            self._client,
+            self._vector_store_id,
+            on_log=on_log,
+        )
+        self._vector_store_id = None
 
     async def run_loop(
         self,

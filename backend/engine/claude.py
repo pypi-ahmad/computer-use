@@ -14,10 +14,10 @@ import os
 import time
 from typing import Any, Callable
 
+from backend.executor import ActionExecutor, CUActionResult
+from backend.infra.config import config as _app_config
 from backend.engine import (
-    CUActionResult,
     CUTurnRecord,
-    ActionExecutor,
     ModelTurnStarted,
     ToolBatchCompleted,
     RunCompleted,
@@ -33,7 +33,6 @@ from backend.engine import (
     _CLAUDE_OPUS_47_MAX_LONG_EDGE,
     _IMAGE_PNG,
     _lookup_claude_cu_config,
-    _app_config,
 )
 from typing import AsyncIterator
 
@@ -263,7 +262,7 @@ class ClaudeCUClient:
         #     ``text/plain`` only.
         #   * ``.csv``, ``.md``, ``.docx``, ``.xlsx`` must be converted
         #     to plain text and inlined in the message.
-        # The IDs received here are local ``backend.file_store`` IDs
+        # The IDs received here are local ``backend.files`` IDs
         # (``f_...``); :func:`_prepare_attached_files` resolves them
         # against the store, uploads the document-eligible ones to
         # Anthropic on first use, and pre-extracts the inline-only
@@ -362,84 +361,21 @@ class ClaudeCUClient:
           docs, so the adapter inlines them as plain text in the goal
           message).
 
-        Lookups are resolved against ``backend.file_store.store`` and
-        uploads to Anthropic are cached on the client instance so a
+        Lookups and provider uploads are resolved by ``backend.files``.
+        Uploads to Anthropic are cached on the client instance so a
         multi-turn run does not re-upload on every call.
         """
         if not self._attached_file_ids:
             return [], []
 
-        # Local import to avoid circulars and keep optional deps lazy.
-        from backend.file_store import store as _file_store
-        from backend.file_store import extract_text as _extract_text
-
-        document_blocks: list[dict[str, Any]] = []
-        inline_pairs: list[tuple[str, str]] = []
-
-        records = await _file_store.get_many(self._attached_file_ids)
-        for rec in records:
-            ext = rec.extension
-            if ext in (".pdf", ".txt"):
-                anthropic_id = self._anthropic_file_cache.get(rec.file_id)
-                if anthropic_id is None:
-                    anthropic_id = await self._upload_to_anthropic(rec, on_log)
-                    self._anthropic_file_cache[rec.file_id] = anthropic_id
-                document_blocks.append({
-                    "type": "document",
-                    "source": {"type": "file", "file_id": anthropic_id},
-                    "title": rec.filename,
-                })
-            elif ext in (".md", ".docx"):
-                cached = self._inline_text_cache.get(rec.file_id)
-                if cached is None:
-                    try:
-                        text = _extract_text(rec)
-                    except Exception as exc:
-                        if on_log:
-                            on_log("error",
-                                   f"Claude inline-text extract failed for {rec.filename}: {exc}")
-                        continue
-                    cached = (rec.filename, text)
-                    self._inline_text_cache[rec.file_id] = cached
-                inline_pairs.append(cached)
-            else:
-                if on_log:
-                    on_log("warning",
-                           f"Claude attached_file: unsupported extension {ext} for {rec.filename}")
-
-        return document_blocks, inline_pairs
-
-    async def _upload_to_anthropic(
-        self,
-        rec: Any,
-        on_log: Callable[[str, str], None] | None,
-    ) -> str:
-        """Upload a single ``UploadedFile`` to Anthropic's Files API.
-
-        Returns the Anthropic ``file_id`` (``file_...``). Uses
-        ``client.beta.files.upload`` with the ``files-api-2025-04-14``
-        beta as documented in the Files API guide.
-        """
-        if on_log:
-            on_log("info",
-                   f"Claude Files API upload: {rec.filename} ({rec.size_bytes} bytes)")
-
-        # Use the AsyncAnthropic client directly — its
-        # ``beta.files.upload`` method accepts the same
-        # ``(filename, fileobj, mime_type)`` tuple shape documented
-        # for the sync client. Open the file in a thread to avoid
-        # blocking the event loop on disk I/O.
-        def _open() -> Any:
-            return open(rec.path, "rb")
-
-        fh = await asyncio.to_thread(_open)
-        try:
-            result = await self._client.beta.files.upload(
-                file=(rec.filename, fh, rec.mime_type),
-            )
-        finally:
-            await asyncio.to_thread(fh.close)
-        return result.id
+        from backend.files import prepare_anthropic_documents
+        return await prepare_anthropic_documents(
+            self._client,
+            self._attached_file_ids,
+            file_cache=self._anthropic_file_cache,
+            inline_text_cache=self._inline_text_cache,
+            on_log=on_log,
+        )
 
     def _warn_on_unknown_allowed_callers(self) -> None:
         """Warn when callers request an undocumented allowed_callers value."""
