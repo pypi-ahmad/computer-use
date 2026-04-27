@@ -1,4 +1,3 @@
-// === merged from frontend/src/pages/Workbench.jsx ===
 /**
  * Workbench — the single-page computer-use agent UI.
  *
@@ -26,30 +25,30 @@ import {
   startContainer, stopContainer, validateKey,
 } from '../api'
 import useSessionController from '../hooks/useSessionController'
-import ScreenView from '../components'
-import SafetyModal from '../components'
-import CompletionBanner from '../components'
-import ToastContainer, { useToasts } from '../components'
-import WelcomeOverlay from '../components'
+import ScreenView from '../components/ScreenView'
+import SafetyModal from '../components/SafetyModal'
+import CompletionBanner from '../components/CompletionBanner'
+import ToastContainer, { useToasts } from '../components/ToastContainer'
+import WelcomeOverlay from '../components/WelcomeOverlay'
 
-import { estimateCost } from '../utils'
+import { estimateCost } from '../utils/pricing'
 import {
   addSessionToHistory, clearSessionHistory, getSessionHistory,
-} from '../utils'
-import { getTheme, initTheme, setTheme as applyTheme } from '../utils'
+} from '../utils/sessionHistory'
+import { getTheme, initTheme, setTheme as applyTheme } from '../utils/theme'
 
 import ControlPanel from './workbench/ControlPanel'
-import Timeline from './workbench/panels'
-import HistoryDrawer from './workbench/panels'
-import LogsPanel from './workbench/panels'
-import { PROVIDERS, SETTINGS_KEY } from './workbench/ControlPanel'
+import Timeline from './workbench/Timeline'
+import HistoryDrawer from './workbench/HistoryDrawer'
+import LogsPanel from './workbench/LogsPanel'
+import { PROVIDERS, SETTINGS_KEY } from './workbench/constants'
 import {
   downloadLogsTxt,
   exportSessionHTML,
   exportSessionJSON,
   formatLogsForClipboard,
   formatTimelineForClipboard,
-} from './workbench/panels'
+} from './workbench/exporters'
 
 import './Workbench.css'
 
@@ -62,6 +61,14 @@ function loadSettings() {
 }
 function saveSettings(s) {
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)) } catch { /* ignore */ }
+}
+
+function getOpenAIReasoningDefault(modelId) {
+  return modelId === 'gpt-5.4' ? 'none' : 'medium'
+}
+
+function isOpenAIReasoningModel(modelId) {
+  return modelId === 'gpt-5.4' || modelId === 'gpt-5.5'
 }
 
 export default function Workbench() {
@@ -130,7 +137,7 @@ export default function Workbench() {
   const [keyStatuses, setKeyStatuses] = useState({})
   const [task, setTask] = useState('')
   const [maxSteps, setMaxSteps] = useState(saved.maxSteps || 50)
-  const [reasoningEffort, setReasoningEffort] = useState(saved.reasoningEffort || 'low')
+  const [reasoningEffort, setReasoningEffort] = useState(saved.reasoningEffort || '')
   const [useBuiltinSearch, setUseBuiltinSearch] = useState(
     typeof saved.useBuiltinSearch === 'boolean' ? saved.useBuiltinSearch : false,
   )
@@ -174,6 +181,12 @@ export default function Workbench() {
   useEffect(() => {
     saveSettings({ provider, maxSteps, reasoningEffort, useBuiltinSearch })
   }, [provider, maxSteps, reasoningEffort, useBuiltinSearch])
+
+  useEffect(() => {
+    if (provider !== 'openai') return
+    if (isOpenAIReasoningModel(model)) return
+    setReasoningEffort('')
+  }, [provider, model])
 
   // C16: model list doesn't depend on provider — fetch once on mount.
   useEffect(() => {
@@ -302,7 +315,9 @@ export default function Workbench() {
         model,
         maxSteps: Number(maxSteps),
         provider,
-        reasoningEffort: provider === 'openai' ? reasoningEffort : null,
+        reasoningEffort: provider === 'openai' && isOpenAIReasoningModel(model)
+          ? (reasoningEffort || getOpenAIReasoningDefault(model))
+          : null,
         useBuiltinSearch,
         attachedFiles: attachedFiles.map(f => f.file_id),
       },
@@ -433,6 +448,7 @@ export default function Workbench() {
           showAdvanced={showAdvanced} setShowAdvanced={setShowAdvanced}
           maxSteps={maxSteps} setMaxSteps={setMaxSteps}
           reasoningEffort={reasoningEffort} setReasoningEffort={setReasoningEffort}
+          openAIReasoningDefault={getOpenAIReasoningDefault(model)}
           useBuiltinSearch={useBuiltinSearch} setUseBuiltinSearch={setUseBuiltinSearch}
           attachedFiles={attachedFiles} setAttachedFiles={setAttachedFiles}
           task={task} setTask={setTask}
@@ -515,26 +531,3 @@ export default function Workbench() {
     </div>
   )
 }
-
-// === merged from frontend/src/pages/NotFound.jsx ===
-import { Link } from 'react-router-dom'
-
-export default function NotFound() {
-  return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-      height: '100vh', background: 'var(--bg-primary)', color: 'var(--text-primary)',
-      fontFamily: 'var(--font-sans)', gap: 16, textAlign: 'center',
-    }}>
-      <h1 style={{ fontSize: 48, fontWeight: 700, color: 'var(--accent)' }}>404</h1>
-      <p style={{ fontSize: 16, color: 'var(--text-secondary)' }}>Page not found</p>
-      <Link to="/" style={{
-        padding: '10px 24px', fontSize: 14, fontWeight: 600, borderRadius: 8,
-        background: 'var(--accent)', color: '#fff', textDecoration: 'none',
-      }}>
-        Go to Dashboard
-      </Link>
-    </div>
-  )
-}
-

@@ -56,16 +56,18 @@ flowchart TB
 ### 2.2 Request lifecycle
 
 1. The user selects a provider and model in
-   `frontend/src/pages/Workbench.jsx` and submits a task through
-   `frontend/src/hooks/useSessionController.js`.
+  `frontend/src/pages/WorkbenchPage.jsx` and submits a task through
+  `frontend/src/hooks/useSessionController.js`. The mirrored
+  `frontend/src/pages/Workbench.jsx` is kept in sync for compatibility,
+  but `frontend/src/main.jsx` loads `WorkbenchPage.jsx`.
 2. The frontend keeps `/ws` open via
    `frontend/src/hooks/useWebSocket.js`. If the user switches to the
-   interactive desktop, `frontend/src/components.jsx` loads
+   interactive desktop, `frontend/src/components/ScreenView.jsx` loads
    `/vnc/vnc.html` and points its `path=` query at `/vnc/websockify`.
 3. `POST /api/agent/start` in `backend/server.py` validates the request,
    checks origin policy, resolves the API key, enforces the allowlisted
-   model registry from `backend/models/allowed_models.json`, and calls
-   `backend/infra/docker.py::start_container()`.
+  model registry from `backend/models/allowed_models.json`, and calls
+  `backend/infra/docker.py::start_container()`.
 4. The backend waits for `docker/agent_service.py` to answer `/health`,
    then creates an `AgentLoop` from `backend/agent/loop.py`. The loop
    builds a LangGraph `NodeBundle`, wraps it with tracing, and compiles
@@ -118,7 +120,8 @@ here.
 |   `-- certifier.py
 |-- frontend/src/
 |   |-- api.js
-|   |-- pages/Workbench.jsx
+|   |-- pages/WorkbenchPage.jsx
+|   |-- pages/workbench/ControlPanelView.jsx
 |   |-- hooks/useSessionController.js
 |   |-- hooks/useWebSocket.js
 |   `-- components/ScreenView.jsx
@@ -194,7 +197,7 @@ official `web_search_20250305` server tool in the same `tools` array as the
 computer-use tool. When false, it emits only the computer-use tool.
 
 When `attached_file_ids` is non-empty, `ClaudeCUClient` resolves the
-local `f_...` ids against `backend.infra.storage`, adds the
+local `f_...` ids against `backend.file_store`, adds the
 `files-api-2025-04-14` beta, uploads `.pdf` / `.txt` files through
 `client.beta.files.upload()`, and emits `document` content blocks with
 the returned `file_...` ids. `.md` and `.docx` are not legal Claude
@@ -206,12 +209,21 @@ re-upload or re-extract the same material.
 ### 4.3 OpenAI
 
 `backend/engine/openai.py` implements `OpenAICUClient` against the
-Responses API. For `gpt-5.4` it emits the built-in short-form
+Responses API. For `gpt-5.5` and `gpt-5.4` it emits the built-in short-form
 `{"type": "computer"}` tool; the old `computer-use-preview` branch is
 still present only as compatibility code.
 When `use_builtin_search` is true, `OpenAICUClient` also attaches the official
 Responses `web_search` tool alongside `computer`, which is the documented
 OpenAI combined-tool path for live web context plus UI action execution.
+
+Server-side request validation resolves `reasoning_effort` as request override
+>`OPENAI_REASONING_EFFORT`>`default_openai_reasoning_effort_for_model()` from
+`backend/engine/__init__.py`. That keeps the default doc-backed per model:
+GPT-5.5 falls back to `medium`, GPT-5.4 falls back to `none`. The active
+workbench path in `frontend/src/pages/WorkbenchPage.jsx` and
+`frontend/src/pages/workbench/ControlPanelView.jsx` exposes those exact models
+with a `Reasoning Effort` dropdown and a blank `Default` option that follows
+the selected model page.
 
 The core invariant is stateless, ZDR-safe replay. The adapter sets
 `include=["reasoning.encrypted_content"]`, `store=False`,
@@ -340,11 +352,11 @@ Every desktop action goes through `DesktopExecutor` in
 `POST /action` requests against `docker/agent_service.py`.
 
 Inside the container, `AgentHandler.do_POST()` resolves aliases through
-`backend.models.registry.resolve_action()` and rejects anything not in the
+`backend.action_aliases.resolve_action()` and rejects anything not in the
 always-on `_ENGINE_ACTIONS` set unless `CUA_ENABLE_LEGACY_ACTIONS=1` is
 set. Additional guards limit keyboard tokens, block dangerous shell
 patterns on the legacy `run_command` path, and keep upload helpers
-inside approved prefixes. `backend/models/validation.py` is not a runtime gate;
+inside approved prefixes. `backend/certifier.py` is not a runtime gate;
 it is an offline validator.
 
 ### 6.3 Screenshot publishing
@@ -376,7 +388,7 @@ stack.
 
 ## 7. Observability and tracing
 
-`backend/infra/observability.py` records every session as an in-memory event stream
+`backend/tracing.py` records every session as an in-memory event stream
 and flushes it to `$CUA_TRACE_DIR/<session_id>.json` on terminal states.
 Tracing is additive: it wraps the `NodeBundle` and provider iterator.
 
@@ -388,8 +400,8 @@ status, and no tool batch while approval is pending.
 
 `evals/_harness.py` builds on that trace model by running fake iterators
 through the real graph and approval path. The same module exposes
-`python -m backend.infra.observability dump <session_id>` and
-`python -m backend.infra.observability list`.
+`python -m backend.tracing dump <session_id>` and
+`python -m backend.tracing list`.
 
 ## 8. Configuration surface
 
@@ -404,7 +416,7 @@ that reads them.
   provider when `GOOGLE_API_KEY` is unset.
 - `VITE_WS_TOKEN` (string, build-time frontend env, no default) is read
   in `frontend/src/hooks/useWebSocket.js` and
-  `frontend/src/components.jsx`; it must match
+  `frontend/src/components/ScreenView.jsx`; it must match
   `CUA_WS_TOKEN` when WebSocket auth is enabled.
 - `CUA_WS_TOKEN` (string, default empty) is read in `backend/server.py`
   and guarded again in `backend/main.py`.
@@ -417,7 +429,7 @@ that reads them.
 - `HOST` and `PORT` (string/int, defaults `127.0.0.1` and `8100`) are
   read in `backend/infra/config.py` and enforced in `backend/main.py`.
 - `DEBUG`, `LOG_LEVEL`, and `LOG_FORMAT` control backend logging and are
-  read in `backend/infra/config.py` and `backend/infra/observability.py`.
+  read in `backend/infra/config.py` and `backend/logging_ctx.py`.
 - `CUA_RELOAD` (bool, default false) controls hot reload.
 - `CORS_ORIGINS` and `CUA_ALLOWED_HOSTS` are parsed in
   `backend/server.py` for origin and `Host` validation.
@@ -430,7 +442,7 @@ that reads them.
 - `CUA_SESSIONS_MAX_THREADS` (int, default 1000 with floor 50) is read
   in `backend/server.py`.
 - `CUA_TRACE_DIR` (path string, default
-  `~/.computer-use/traces/`) is read in `backend/infra/observability.py`.
+  `~/.computer-use/traces/`) is read in `backend/tracing.py`.
 - `CUA_TEST_MODE` enables test-only behavior in `backend/server.py`.
 - `CUA_DEBUG_TB` re-enables executor tracebacks in
   `backend/engine/__init__.py`.
@@ -462,7 +474,7 @@ that reads them.
   by `backend/infra/docker.py::_wait_for_service()`.
 - `AGENT_SERVICE_TOKEN` is usually generated by
   `backend/infra/docker.py::_ensure_agent_token()` and then read by
-  `backend/agent/loop.py`, `backend/engine/__init__.py`,
+  `backend/agent/screenshot.py`, `backend/engine/__init__.py`,
   `backend/server.py`, and `docker/agent_service.py`.
 
 ### 8.4 Provider-specific knobs
@@ -470,8 +482,11 @@ that reads them.
 - `OPENAI_BASE_URL` (string, no default) is read in
   `backend/engine/openai.py`. Use it to target regional endpoints
   (e.g. `https://us.api.openai.com/v1`) or Azure / proxy deployments.
-- `OPENAI_REASONING_EFFORT` (string, default `high`) is read in
-  `backend/server.py`; `OpenAICUClient` canonicalizes legacy aliases.
+- `OPENAI_REASONING_EFFORT` (string, model-specific default) is read in
+  `backend/server.py`; request handling resolves it as request override >
+  env var > helper default. For the documented OpenAI CU models that means
+  `gpt-5.5 -> medium` and `gpt-5.4 -> none`. `OpenAICUClient` still accepts
+  `minimal` as a compatibility alias when callers bypass the workbench.
 - `CUA_CLAUDE_MAX_TOKENS`, `CUA_CLAUDE_CACHING`, and
   `CUA_OPUS47_HIRES` are read in `backend/engine/claude.py`.
 - `CUA_GEMINI_THINKING_LEVEL`, `CUA_GEMINI_RELAX_SAFETY`, and
@@ -487,7 +502,7 @@ that reads them.
   `CUA_WINDOW_X`, `CUA_WINDOW_Y`, `CUA_WINDOW_W`, and `CUA_WINDOW_H` are
   read in `docker/agent_service.py`.
 - `DISPLAY` is set in `docker/entrypoint.sh`, checked by
-  `backend/models/validation.py`, and passed through by `docker/agent_service.py`.
+  `backend/certifier.py`, and passed through by `docker/agent_service.py`.
 
 ## 9. Testing strategy
 
@@ -499,7 +514,7 @@ dedicated JS test runner.
 
 Run `python -m pytest -p no:warnings --tb=short` for the main suite,
 `pytest evals/` for replay evals, `ruff check .` and `mypy backend` for
-static checks, and `python -m backend.models.validation --deep` when changing the
+static checks, and `python -m backend.certifier --deep` when changing the
 action surface. CI runs backend tests on Python 3.11 and 3.13, frontend
 build on Node 20, and a security job with `pip-audit`, Trivy, and
 Hadolint. Ruff and mypy are advisory in CI, `pytest-cov` is installed but
@@ -532,11 +547,11 @@ invocation because `pyproject.toml` pins `testpaths = ["tests"]`.
 6. **Gemini is restricted to `gemini-3-flash-preview`.**
    All other Gemini ids (including `gemini-3.1-pro-preview` and
    `gemini-2.5-computer-use-preview-10-2025`) have been removed from
-   `backend/models/allowed_models.json` to match Google's official Computer
+  `backend/models/allowed_models.json` to match Google's official Computer
    Use supported-model list and avoid `400 INVALID_ARGUMENT: Computer
    Use is not enabled` errors. See [CHANGELOG.md](CHANGELOG.md).
 7. **Host-to-container auth uses a generated token, not a plain `-e`
-   flag.** `backend/infra/docker.py` writes `AGENT_SERVICE_TOKEN` to a
+  flag.** `backend/infra/docker.py` writes `AGENT_SERVICE_TOKEN` to a
    temporary env-file and unlinks it after `docker run`, reducing leakage
    through `docker inspect`. See the token-env-file hardening commit in
    repo history.
@@ -549,7 +564,7 @@ invocation because `pyproject.toml` pins `testpaths = ["tests"]`.
 - Create a provider client under `backend/engine/` and expose it through
   `backend/engine/__init__.py::ComputerUseEngine`.
 - Add or adjust the system prompt in `backend/agent/prompts.py`.
-- Add provider tests following `tests/engine/test_engine.py` and the
+- Add provider tests following `tests/test_adapters_april2026.py` and the
   existing sandbox/provider-specific files.
 
 ### 11.2 Add a new sandbox action
@@ -559,10 +574,10 @@ invocation because `pyproject.toml` pins `testpaths = ["tests"]`.
 - Update `docker/agent_service.py` in `_ENGINE_ACTIONS`, the dispatcher,
   and the concrete helper implementation.
 - If the action should appear in prompt/schema parity checks, update
-  `backend/models/engine_capabilities.json`, `backend/models/schemas.py`, and
+  `backend/engine_capabilities.json`, `backend/models.py`, and
   `backend/agent/prompts.py`.
-- Add tests in `tests/docker/test_agent_service.py`,
-  `tests/docker/test_agent_service.py`, or the closest action-specific file.
+- Add tests in `tests/test_agent_service_action_gate.py`,
+  `tests/test_docker_cmd_policy.py`, or the closest action-specific file.
 
 ### 11.3 Add or change a LangGraph node
 
@@ -570,8 +585,8 @@ invocation because `pyproject.toml` pins `testpaths = ["tests"]`.
   together.
 - If the node needs new I/O, extend `NodeBundle` and then update
   `backend/agent/loop.py::_build_graph_bundle()`.
-- Add routing tests in `tests/agent/test_graph.py` and any safety
-  interaction tests in `tests/agent/test_graph.py`.
+- Add routing tests in `tests/test_agent_graph_nodes.py` and any safety
+  interaction tests in `tests/test_agent_graph_safety.py`.
 
 ### 11.4 Add a new invariant eval
 
@@ -624,7 +639,7 @@ invocation because `pyproject.toml` pins `testpaths = ["tests"]`.
 - **Session snapshot**: The screenshot-free session state persisted in
   the LangGraph SQLite checkpoint store.
 - **Trace**: The redacted append-only JSON sidecar written by
-  `backend/infra/observability.py`.
+  `backend/tracing.py`.
 
 ## 14. References
 
