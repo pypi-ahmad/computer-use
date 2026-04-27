@@ -216,7 +216,7 @@ import { Component } from 'react'
 
 /**
  * React error boundary — catches unhandled exceptions in the component tree
- * and renders a recovery UI instead of a blank page.
+ * and renders a fallback UI instead of a blank page.
  */
 export default class ErrorBoundary extends Component {
   constructor(props) {

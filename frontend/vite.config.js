@@ -7,8 +7,8 @@ import react from '@vitejs/plugin-react'
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const backendPort = env.VITE_API_PORT || process.env.VITE_API_PORT || '8100'
-  const httpTarget = `http://localhost:${backendPort}`
-  const wsTarget = `ws://localhost:${backendPort}`
+  const httpTarget = `http://127.0.0.1:${backendPort}`
+  const wsTarget = `ws://127.0.0.1:${backendPort}`
 
   return {
   plugins: [react()],
