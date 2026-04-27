@@ -29,38 +29,10 @@ from backend.models.schemas import (
     StepRecord,
     StructuredError,
 )
-from backend.agent import screenshot as _screenshot
 from backend.infra.observability import session_id_var
 
 logger = logging.getLogger(__name__)
 
-
-def _get_client():
-    """Compatibility wrapper for tests that patch backend.agent.loop._get_client."""
-    return _screenshot._get_client()
-
-
-async def _fallback_docker_screenshot() -> str:
-    """Compatibility wrapper for tests that patch backend.agent.loop._fallback_docker_screenshot."""
-    return await _screenshot._fallback_docker_screenshot()
-
-
-async def check_service_health() -> bool:
-    """Proxy to the shared screenshot helper module."""
-    return await _screenshot.check_service_health()
-
-
-async def capture_screenshot(*, mode: str = "desktop") -> str:
-    """Proxy screenshot capture while honoring loop-level monkeypatches in tests."""
-    original_get_client = _screenshot._get_client
-    original_fallback = _screenshot._fallback_docker_screenshot
-    _screenshot._get_client = _get_client
-    _screenshot._fallback_docker_screenshot = _fallback_docker_screenshot
-    try:
-        return await _screenshot.capture_screenshot(mode=mode)
-    finally:
-        _screenshot._get_client = original_get_client
-        _screenshot._fallback_docker_screenshot = original_fallback
 
 # CU action name → ActionType best-effort mapping for the step timeline.
 # Static mapping, defined once at module level.
@@ -212,7 +184,7 @@ class AgentLoop:
             self._run_task = None
             # Always drop safety-registry state for this session.
             try:
-                from backend.agent import safety as safety_registry
+                from backend import safety as safety_registry
                 safety_registry.clear(self.session.session_id)
             except Exception:
                 pass
@@ -234,7 +206,7 @@ class AgentLoop:
             Environment,
             Provider,
         )
-        from backend.agent.prompts import get_system_prompt
+        from backend.prompts import get_system_prompt
 
         self._emit_log("info", "Delegating to native Computer Use engine")
 
@@ -368,7 +340,7 @@ class AgentLoop:
             """Safety confirmation callback for CU require_confirmation.
 
             Broadcasts the safety prompt via WebSocket and awaits the
-            user's response through :mod:`backend.agent.safety`. Denies
+            user's response through :mod:`backend.safety`. Denies
             the action (returns False) on timeout — this satisfies the
             TOS requirement to never silently proceed on
             ``require_confirmation``.
@@ -379,7 +351,7 @@ class AgentLoop:
                 data={"type": "safety_confirmation", "explanation": explanation,
                       "session_id": self.session.session_id},
             )
-            from backend.agent import safety as safety_registry
+            from backend import safety as safety_registry
             sid = self.session.session_id
             evt = safety_registry.get_or_create_event(sid)
             evt.clear()
