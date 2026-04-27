@@ -2,8 +2,8 @@
 
 These notes document the in-container action surface and the sandbox posture
 expected by the backend provider adapters. They are intended for maintainers who
-change `docker/agent_service.py`, `backend/engine/__init__.py`, provider
-request builders, or the Docker image.
+change `docker/agent_service.py`, `backend/executor.py`, provider request
+builders, or the Docker image.
 
 Related documentation:
 
@@ -11,16 +11,15 @@ Related documentation:
 - [Technical Architecture](../TECHNICAL.md)
 - [Computer Use Prompt Guide](../docs/computer-use-prompt-guide.md)
 
-The in-container HTTP service (`docker/agent_service.py`) historically
-exposed more actions than the engine ever invokes. As of PR
-`<docker-action-trim>`, the default build serves exactly the action
-surface the engine uses today. Everything else is gated behind
-`CUA_ENABLE_LEGACY_ACTIONS=1` and, when disabled, returns **HTTP 404**
-on `POST /action`.
+The in-container HTTP service (`docker/agent_service.py`) contains more action
+handlers than the provider loops normally need. The default build serves the
+action surface emitted by `backend/executor.py`. Compatibility handlers are
+gated behind `CUA_ENABLE_LEGACY_ACTIONS=1` and, when disabled, return
+**HTTP 404** on `POST /action`.
 
 ## Live action set (always on)
 
-Derived from `backend/engine/__init__.py::DesktopExecutor`. Any action
+Derived from `backend/executor.py::DesktopExecutor`. Any action
 name outside this set is treated as unknown by default.
 
 | Action           | Origin in engine                                       |
@@ -70,10 +69,10 @@ Content-Type: application/json
 | `get_text`, `find_element`, `evaluate_js`, `wait_for`              | DOM stubs     | All return "not supported" today — dead code path. | None; use pixel-based interaction. |
 | `scroll_up`, `scroll_down`                                         | Scroll variants | Engine uses `scroll` with a direction. | `scroll` + `text=up|down`. |
 | `screenshot`, `screenshot_full`, `screenshot_region`               | Vision        | Engine uses `GET /screenshot?mode=desktop`; POST variants are drift. Region screenshots were never used. | `GET /screenshot`. |
-| `run_command`                                                      | Shell exec    | Largest single attack surface in the service. Allowlist + blocked-pattern defenses remain in source (enforced when flag is on) per PR 05. | None in default build. |
+| `run_command`                                                      | Shell exec    | Largest single attack surface in the service. Allowlist + blocked-pattern defenses remain in source when the compatibility flag is on. | None in default build. |
 | `wait`                                                             | Synchronisation | Engine implements waits with `asyncio.sleep`, not an HTTP call. | In-process sleep in the engine. |
 
-## Re-enabling legacy actions
+## Re-enabling compatibility actions
 
 ```bash
 docker run \
@@ -181,9 +180,8 @@ specific sandbox posture.  The shared image satisfies it:
 - **Window manager**: XFCE4 (`startxfce4`) \u2014 the WM called out
   in OpenAI's Option 1 Dockerfile.
 - **Screenshot tool**: ImageMagick `import -window root png:-`
-  is available (`imagemagick` package from the S1 reference
-  baseline).  The runtime path uses `scrot` for speed but
-  ImageMagick remains available for guide parity.
+  is available for guide parity. The runtime path uses `scrot` for
+  speed.
 - **Lockscreen / screensaver**: `light-locker`, `xfce4-screensaver`,
   and `xfce4-power-manager` are removed at build time to prevent
   focus-stealing during agent sessions.
@@ -214,8 +212,8 @@ providers:
   Chromium-family browser. The Dockerfile also exposes `chromium`
   and `chromium-browser` compatibility names as symlinks to that
   Chrome install, with `firefox-esr` alongside it.
-- **Viewport**: 1440x900 — Gemini's docs recommend exactly this
-  resolution, so S1's shared default is kept unchanged.
+- **Viewport**: 1440x900 - Gemini's docs recommend exactly this
+  resolution, so the shared default is kept unchanged.
 - **Coordinate contract**: the model returns 0–999 normalized
   coordinates; `backend/executor.py` denormalizes them to the actual
   viewport before dispatching desktop actions.
@@ -226,7 +224,7 @@ providers:
 - **Safety handshake**: ToS-mandated
   `safety_acknowledgement: \"true\"` on confirmed
   `require_confirmation` decisions.  Cannot be bypassed; see
-  `CUA_GEMINI_RELAX_SAFETY` (S1 phase 3) for the only env flag
+  `CUA_GEMINI_RELAX_SAFETY` for the only env flag
   that touches Gemini safety, and note it only adjusts
   `HarmBlockThreshold` — it does not skip the handshake.
 
