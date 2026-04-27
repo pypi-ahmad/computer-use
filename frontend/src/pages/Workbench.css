@@ -149,7 +149,7 @@
 
 /* Graph run */
 .wb-graph-section {
-  flex: 0 0 178px; display: flex; flex-direction: column;
+  flex: 0 0 320px; display: flex; flex-direction: column;
   border-bottom: 1px solid var(--border); overflow: hidden; min-height: 0;
 }
 .wb-graph-phase {
@@ -190,6 +190,54 @@
 .wb-graph-field-value {
   display: block; margin-top: 3px; color: var(--text-primary);
   font-size: 12px; line-height: 1.25; overflow-wrap: anywhere;
+}
+.wb-graph-insight {
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg-primary); padding: 7px 8px; min-width: 0;
+}
+.wb-graph-insight-title,
+.wb-graph-subhead {
+  display: flex; align-items: center; gap: 5px; color: var(--text-secondary);
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+}
+.wb-graph-subhead { margin-top: 8px; }
+.wb-graph-prose {
+  margin: 5px 0 0; color: var(--text-primary); font-size: 12px;
+  line-height: 1.35; overflow-wrap: anywhere;
+}
+.wb-graph-muted {
+  margin: 5px 0 0; color: var(--text-secondary); font-size: 12px;
+  line-height: 1.35; overflow-wrap: anywhere;
+}
+.wb-graph-criteria {
+  list-style: none; padding: 0; margin: 5px 0 0;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.wb-graph-criteria li {
+  display: grid; grid-template-columns: 34px minmax(0, 1fr);
+  gap: 6px; align-items: start; font-size: 12px;
+}
+.wb-graph-criteria span {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  color: var(--text-secondary); padding-top: 1px;
+}
+.wb-graph-criteria li.unmet span { color: var(--warning,#fbbf24); }
+.wb-graph-criteria li.met span { color: var(--success); }
+.wb-graph-criteria p {
+  margin: 0; color: var(--text-primary); line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.wb-graph-recovery-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-top: 5px; font-size: 12px;
+}
+.wb-graph-recovery-row span {
+  color: var(--text-secondary); font-weight: 700; text-transform: uppercase;
+  font-size: 10px;
+}
+.wb-graph-recovery-row strong {
+  color: var(--text-primary); font-size: 12px; text-align: right;
+  overflow-wrap: anywhere;
 }
 
 /* Timeline */
