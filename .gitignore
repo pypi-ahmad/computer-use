@@ -56,11 +56,9 @@ yarn-debug.log*
 pnpm-debug.log*
 
 # -------------------------
-# Playwright
+# Test artifacts
 # -------------------------
-playwright-report/
 test-results/
-# Playwright trace files (*.zip in test-results, not globally)
 test-results/**/*.zip
 *.trace
 

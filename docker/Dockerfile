@@ -136,16 +136,6 @@ RUN arch="$(dpkg --print-architecture)" \
     && ln -sf /opt/firefox/firefox /usr/local/bin/firefox-esr \
     && rm -f /tmp/firefox-esr.tar
 
-# Google Gemini Computer Use reference guidance drives Chromium through
-# Playwright. To align the unified sandbox with that
-# contract — without abandoning the single-container architecture —
-# this image runs Google Chrome inside the container with CDP
-# enabled (see docker/entrypoint.sh) and the backend connects to it
-# via ``playwright.connect_over_cdp("http://127.0.0.1:9223")``.
-# Playwright is therefore needed inside the container only for its
-# Chromium launcher dependencies (already covered by chrome-stable
-# below); the Python package is installed on the backend host via
-# requirements.txt.
 # OpenAI Computer Use guide mandates the sandbox be free of lockscreens
 # and screensavers that would steal focus from xdotool / the agent.
 # Idempotent: ``|| true`` so rebuilds with upstream removal succeed.

@@ -43,7 +43,7 @@ def validate_tool_parity() -> bool:
 
     # 2. Prompt action drift detection
     try:
-        from backend.agent.prompts import validate_prompt_actions
+        from backend.prompts import validate_prompt_actions
         prompt_warnings = validate_prompt_actions()
         if prompt_warnings:
             for w in prompt_warnings:
