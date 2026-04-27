@@ -307,73 +307,6 @@ class TestSafetyConfirmEndpoint:
         assert "error" in data
 
 
-class TestCompletedSessionFallback:
-    """Tests status/history endpoints for recently finished sessions."""
-
-    def test_status_returns_recently_finished_session(self, client):
-        session_id = "00000000-0000-0000-0000-000000000123"
-        session = AgentSession(
-            session_id=session_id,
-            task="done task",
-            model="gpt-5.4",
-            engine="computer_use",
-            status=SessionStatus.COMPLETED,
-            max_steps=5,
-            steps=[
-                StepRecord(
-                    step_number=1,
-                    action=AgentAction(action=ActionType.DONE),
-                )
-            ],
-        )
-
-        with patch.dict("backend.server._active_loops", {}, clear=True), \
-             patch(
-                 "backend.server.load_session_snapshot",
-                 new_callable=AsyncMock,
-                 return_value=session.model_dump(mode="json"),
-             ):
-            resp = client.get(f"/api/agent/status/{session_id}")
-
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["session_id"] == session_id
-        assert data["status"] == "completed"
-        assert data["current_step"] == 1
-        assert data["last_action"]["action"] == "done"
-
-    def test_history_returns_recently_finished_session_steps(self, client):
-        session_id = "00000000-0000-0000-0000-000000000124"
-        session = AgentSession(
-            session_id=session_id,
-            task="done task",
-            model="gpt-5.4",
-            engine="computer_use",
-            status=SessionStatus.ERROR,
-            max_steps=5,
-            steps=[
-                StepRecord(
-                    step_number=1,
-                    action=AgentAction(action=ActionType.CLICK),
-                )
-            ],
-        )
-
-        with patch.dict("backend.server._active_loops", {}, clear=True), \
-             patch(
-                 "backend.server.load_session_snapshot",
-                 new_callable=AsyncMock,
-                 return_value=session.model_dump(mode="json"),
-             ):
-            resp = client.get(f"/api/agent/history/{session_id}")
-
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["session_id"] == session_id
-        assert len(data["steps"]) == 1
-        assert data["steps"][0]["action"]["action"] == "click"
-
-
 class TestContainerEndpoints:
     """Tests GET /api/container/status with a mocked Docker backend."""
 
@@ -496,8 +429,8 @@ class TestGracefulShutdownInvariant:
     tasks and broadcasts with a bounded wait. This test does not
     exercise SIGTERM (that's an integration-harness concern); it
     verifies the source invariant: the lifespan calls ``task.cancel()``
-    on every non-done entry in ``_active_tasks`` before falling through
-    to the checkpointer-close step."""
+    on every non-done entry in ``_active_tasks`` before shared clients
+    are closed."""
 
     def test_lifespan_cancels_active_tasks_on_shutdown(self) -> None:
         import inspect

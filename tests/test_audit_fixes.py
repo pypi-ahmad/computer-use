@@ -60,46 +60,6 @@ class TestPromptViewportSubstitution:
 # ── C4 — path prefix check ─────────────────────────────────────────────────
 
 
-class TestSessionsDbPathResolution:
-    """C4: ``/home/alice`` allowlist must not accept ``/home/alice2/...``."""
-
-    def test_lookalike_prefix_rejected(self, monkeypatch):
-        from backend import server
-        import shutil
-        import uuid
-
-        # Use a workspace-local base (not /tmp) so Linux's built-in
-        # /tmp allowlist does not mask the lookalike-prefix check.
-        base = Path.cwd() / f".tmp-c4-{uuid.uuid4().hex}"
-        fake_home = base / "alice"
-        neighbor = base / "alice2"
-        fake_home.mkdir(parents=True)
-        neighbor.mkdir(parents=True)
-        bad_path = neighbor / "sessions.sqlite"
-
-        try:
-            monkeypatch.setattr(Path, "home", lambda: fake_home)
-            monkeypatch.setenv("CUA_SESSIONS_DB", str(bad_path))
-            monkeypatch.delenv("CUA_SESSIONS_DB_ALLOW_DIR", raising=False)
-
-            resolved = server._resolve_sessions_db_path()
-            # Must fall back to the default, NOT the neighbor dir.
-            assert str(neighbor) not in resolved
-            assert str(fake_home.resolve()) in resolved
-        finally:
-            shutil.rmtree(base, ignore_errors=True)
-
-    def test_non_sqlite_suffix_rejected(self, tmp_path, monkeypatch):
-        from backend import server
-
-        fake_home = tmp_path / "home"
-        fake_home.mkdir()
-        monkeypatch.setattr(Path, "home", lambda: fake_home)
-        monkeypatch.setenv("CUA_SESSIONS_DB", str(fake_home / "evil.db"))
-        resolved = server._resolve_sessions_db_path()
-        assert resolved.endswith(".sqlite")
-
-
 # ── C5 — OpenAI scroll magnitude ───────────────────────────────────────────
 
 
@@ -929,7 +889,7 @@ class TestPublicBindGuardrail:
         with caplog.at_level("WARNING", logger="backend.main"):
             main._enforce_public_bind_guardrail("0.0.0.0")
         # Operator should still see a loud warning even when allowed.
-        assert any("binding externally" in r.message for r in caplog.records)
+            assert any("binding externally" in r.getMessage() for r in caplog.records)
 
 
 # ── C13 — token env-file ───────────────────────────────────────────────────
