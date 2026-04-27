@@ -4,9 +4,10 @@
 
 Operator reference for `computer-use`. For the project pitch and quickstart context, see
 [README.md](README.md). For architecture, provider internals, and extension points, see
-[TECHNICAL.md](TECHNICAL.md). This guide covers installation, running a session, every
-environment variable the backend reads, the sandbox's per-provider behaviour, and the
-failure modes you are most likely to see.
+[TECHNICAL.md](TECHNICAL.md). For prompt-writing patterns, provider-specific guidance,
+and reusable task templates, see [docs/computer-use-prompt-guide.md](docs/computer-use-prompt-guide.md).
+This guide covers installation, running a session, every environment variable the backend
+reads, the sandbox's per-provider behaviour, and the failure modes you are most likely to see.
 
 ## Table of contents
 
@@ -15,6 +16,7 @@ failure modes you are most likely to see.
 - [Installation](#installation)
 - [Rebuilding and operations](#rebuilding-and-operations)
 - [Running a session](#running-a-session)
+- [Writing better prompts](#writing-better-prompts)
 - [Model selection](#model-selection)
 - [Document attachments](#document-attachments)
 - [Configuration reference](#configuration-reference)
@@ -56,7 +58,7 @@ layer. Desktop actions run inside the sandbox container, not on the host.
 
 ### Recommended — launcher
 
-`dev.py --bootstrap` is the recommended first-run and recovery entrypoint. It bootstraps the
+`dev.py --bootstrap` is the recommended first-run and reset entrypoint. It bootstraps the
 environment, then launches the sandbox plus the host-side backend and frontend.
 
 ```bash
@@ -65,8 +67,8 @@ cd computer-use
 cp .env.example .env
 # add at least one API key to .env
 
-python3 dev.py --bootstrap     # macOS / Linux first run or recovery
-# python dev.py --bootstrap    # Windows PowerShell first run or recovery
+python3 dev.py --bootstrap     # macOS / Linux first run or clean setup
+# python dev.py --bootstrap    # Windows PowerShell first run or clean setup
 
 python3 dev.py                 # macOS / Linux daily start after bootstrap
 # python dev.py                # Windows PowerShell daily start after bootstrap
@@ -74,7 +76,7 @@ python3 dev.py                 # macOS / Linux daily start after bootstrap
 ```
 
 Open <http://localhost:3000>. The first image build takes several minutes; subsequent starts
-are fast. `dev.py --bootstrap` remains the recovery path when you want to rebuild and reinstall,
+are fast. `dev.py --bootstrap` remains the reset path when you want to rebuild and reinstall,
 while plain `dev.py` remains the preferred day-to-day launcher: it does
 `docker compose down`, `docker compose up -d`, then starts FastAPI and Vite in one terminal.
 
@@ -250,7 +252,7 @@ A session is one agent run, end-to-end: model selection → task entry → conta
 
 2. **Configure a provider.** Pick Google / Anthropic / OpenAI. The model dropdown populates from `GET /api/models`, which reads [backend/models/allowed_models.json](backend/models/allowed_models.json) and filters to entries with `supports_computer_use: true`. If your API key is in `.env` or a system env var, the workbench offers it as a "Config File ✓" / "Pre-configured ✓" button with a masked preview; otherwise enter it in the password field and it will be used per-request only (never persisted). For exact `gpt-5.5` and `gpt-5.4` selections, the settings panel also shows a `Reasoning Effort` dropdown; leaving it blank uses the selected model's documented default.
 
-3. **Describe the task.** Write a literal description of what you want done, not a chain-of-thought. The system prompt already covers "act only on what was asked" — over-specifying tends to make the model narrate instead of act. For Opus 4.7 specifically, the prompt has been stripped of self-verification scaffolding per Anthropic's migration guide; keep your task prompt similarly direct.
+3. **Describe the task.** Write a literal description of the visible outcome you want, not a chain-of-thought. Include the app or site to use, the source of truth, the stop condition, and any approval boundary. The system prompt already covers provider tool details; your task prompt should describe the work, not raw action names or coordinates. For larger tasks, use the structure in [docs/computer-use-prompt-guide.md](docs/computer-use-prompt-guide.md).
 
 4. **Start.** Click **Start Agent**. The backend calls `docker run` (or reuses the existing container), waits on the in-container agent service's `/health` endpoint with exponential-backoff jitter up to `CUA_CONTAINER_READY_TIMEOUT` seconds (default 30 s), and then hands control to the chosen provider's adapter. If readiness fails, you get HTTP 409 with the most recent `/health` error detail — not a cryptic `screenshot capture failed` mid-run.
 
@@ -259,6 +261,49 @@ A session is one agent run, end-to-end: model selection → task entry → conta
 6. **Handle approvals.** When the provider returns `require_confirmation` (Gemini), `pending_safety_checks` (OpenAI), or `stop_reason=refusal` (Anthropic), the workbench opens the `SafetyModal` with the model's explanation. Confirm or deny. A denial terminates the run cleanly with `Agent terminated: safety confirmation denied.`; a 60-second no-response auto-denies per the ToS posture. See [docker/SECURITY_NOTES.md](docker/SECURITY_NOTES.md) for the underlying contract.
 
 7. **Stop.** **Stop** issues `POST /api/agent/stop/<sid>`. The server returns 2xx or 404 (`session already ended`) on positive confirmation; either clears local state. Any other outcome (network error, 5xx) keeps `sessionId` populated and surfaces a retry toast — silent stops would otherwise leave the backend spending tokens.
+
+## Writing better prompts
+
+The workbench is most reliable when the user's prompt gives the model enough
+shape to act and stop cleanly. A strong prompt is not a click-by-click
+script. It is a clear work order.
+
+Include these pieces whenever the task matters:
+
+1. **Outcome.** What should be visibly true at the end of the run?
+2. **Context.** Which app, URL, account area, or attached file should be used?
+3. **Source of truth.** Should the agent trust the visible page, official docs, Web Search, or uploaded reference files?
+4. **Constraints.** What should the agent avoid clicking, changing, downloading, submitting, or saving?
+5. **Completion.** What visible state means the task is done?
+6. **Final answer.** What should the agent report back after it stops?
+
+Example:
+
+```text
+Use the attached onboarding checklist as the source of truth.
+Open the HR portal and navigate to the first incomplete onboarding item.
+Do not submit forms or acknowledge policies.
+Stop when the relevant task page is visible.
+Final answer: task title, visible deadline, and the checklist item that matched it.
+```
+
+Use **Web Search** when the task depends on current external facts, such as
+current provider docs, release notes, pricing, changelogs, public policies, or
+searching for the correct official page. Leave it off for tasks that only need
+the current desktop, uploaded files, or a known URL. When files are attached,
+OpenAI uses `file_search` and Anthropic uses the Files API or extracted inline
+context in both Web Search modes; Gemini Computer Use sessions reject attached
+files because this repo does not combine Gemini File Search with Computer Use.
+
+For consequential tasks, make the approval boundary explicit:
+
+```text
+Prepare the change, but do not save, submit, send, publish, delete, purchase, or confirm.
+Stop at the final review screen and ask me for approval.
+```
+
+The longer reference with provider-specific examples lives in
+[docs/computer-use-prompt-guide.md](docs/computer-use-prompt-guide.md).
 
 ## Model selection
 
@@ -279,10 +324,12 @@ The model picker is driven directly from [backend/models/allowed_models.json](ba
 
 The workbench exposes a **Web Search** toggle button. When ON, the request
 advertises each provider's first-party search tool alongside Computer Use. When
-OFF, the request advertises only Computer Use. This matches the official tool
-contracts documented by OpenAI, Anthropic, and Google: search is enabled by
-including the provider-native search tool in the request, and disabled by
-omitting it.
+OFF, the request omits that search tool. If reference files are attached,
+OpenAI still attaches `file_search` and Anthropic still attaches Files API
+document context in both modes; Gemini rejects attached files for Computer Use.
+This matches the official tool contracts documented by OpenAI, Anthropic, and
+Google: search is enabled by including the provider-native search tool in the
+request, and disabled by omitting it.
 
 | Provider | Tool emitted | Notes |
 |---|---|---|
@@ -364,9 +411,6 @@ Keys resolve in priority order: UI input > `.env` > system env. Keys entered in 
 | `PORT` | no | `8100` | FastAPI bind port | `backend/infra/config.py`, `backend/main.py` |
 | `DEBUG` | no | `false` | Verbose logging + full tracebacks | `backend/infra/config.py` |
 | `CUA_RELOAD` | no | `false` | uvicorn `--reload`. Off by default; turning it on in non-dev is a footgun | `backend/main.py` |
-| `CUA_USE_SUPERVISOR_GRAPH` | no | `false` | Requests the supervisor graph for new sessions; legacy remains the default until rollout is complete | `backend/infra/config.py`, `backend/agent/loop.py` |
-| `CUA_SUPERVISOR_FAILURE_RATE_THRESHOLD` | no | `0.20` | Kill-switch failure-rate threshold for supervisor nodes | `backend/infra/config.py`, `backend/agent/graph_rollout.py` |
-| `CUA_SUPERVISOR_FAILURE_RATE_MIN_SESSIONS` | no | `100` | Rolling session window before the supervisor kill switch can trip | `backend/infra/config.py`, `backend/agent/graph_rollout.py` |
 | `CUA_WS_TOKEN` | required for non-loopback bind | unset | Shared secret; clients pass `?token=<value>` on `/ws` and `/vnc/websockify` | `backend/server.py` |
 | `CUA_ALLOWED_HOSTS` | no | loopback + configured CORS | Comma-separated `Host`-header allowlist | `backend/server.py` |
 | `CUA_ALLOW_PUBLIC_BIND` | required for non-loopback bind | unset | Guardrail: refuses to start on non-loopback unless also set alongside `CUA_WS_TOKEN` | `backend/main.py` |
@@ -408,9 +452,6 @@ Keys resolve in priority order: UI input > `.env` > system env. Keys entered in 
 | `CUA_TRACE_DIR` | no | `~/.computer-use/traces/` | On-disk trace JSON files | `backend/infra/observability.py` |
 | `CUA_DEBUG_TB` | no | unset | When `1`: include full tracebacks in executor error logs | `backend/engine/__init__.py` |
 | `CUA_TEST_MODE` | no | unset | Test-harness-only switches | `backend/server.py` |
-| `CUA_SESSIONS_DB` | no | – | Override LangGraph SQLite checkpoint path | `backend/server.py` |
-| `CUA_SESSIONS_DB_ALLOW_DIR` | no | – | Extra allowed parent dir for `CUA_SESSIONS_DB` | `backend/server.py` |
-| `CUA_SESSIONS_MAX_THREADS` | no | 1000 | Cap on retained LangGraph threads | `backend/server.py` |
 
 ## Sandbox behavior
 
@@ -459,14 +500,12 @@ What to expect: GPT-5.4 batches multiple actions per turn (scroll, read, type) w
 
 ## Observability
 
-Every session produces both a **LangGraph checkpoint** (per-node state,
-enables restart-resume on approval) and a **session trace** (ordered
-`TraceEvent` records with redacted payloads).
+Every session streams live status to the workbench and can also produce a
+redacted session trace when tracing is enabled.
 
 - **Live.** The workbench streams `log`, `step`, `screenshot`,
-  `screenshot_stream`, `graph_state`, and `agent_finished` events over
-  WebSocket. The Logs panel renders them in real time and supports copy /
-  download / export, while the graph-state stream drives the graph-run panel.
+  `screenshot_stream`, and `agent_finished` events over WebSocket. The Logs
+  panel renders them in real time and supports copy / download / export.
 - **After the run.** Traces land at `$CUA_TRACE_DIR/<session_id>.json` (default `~/.computer-use/traces/`). Inspect with:
 
   ```bash
@@ -476,17 +515,6 @@ enables restart-resume on approval) and a **session trace** (ordered
   ```
 
   Screenshots in the persisted trace are redacted to `{"sha256": <hex>, "len": <int>}` — the bytes stay on disk only if you asked for them. Free-text fields pass through the same `scrub_secrets` regex that redacts logs.
-- **Rollout metrics.** `GET /api/agent/graph-rollout` exposes the current
-  graph selection counts, per-node latency histograms and failure rates,
-  verifier verdict distribution, policy escalation rate, recovery
-  classification distribution, planner-stage memory hit rate, and the
-  supervisor kill-switch state.
-- **Restart-resume.** If the backend is killed while a session is paused on
-  legacy `approval_interrupt` or supervisor `escalate_interrupt`, the
-  LangGraph SQLite checkpointer preserves `pending_approval` and the exact
-  graph state. Posting to `/api/agent/safety-confirm` after restart resumes
-  via `graph.ainvoke(Command(resume=decision), config)`.
-
 ## Troubleshooting
 
 1. **Docker container won't start / "Sandbox is not ready".** The server returns HTTP 409 with the underlying health-probe error. Inspect with `docker logs cua-environment`; the most common cause is `x11vnc` crashing because XFCE4 hasn't come up yet — bump `CUA_CONTAINER_READY_TIMEOUT` past 30 s or check Xvfb logs.
@@ -507,7 +535,7 @@ enables restart-resume on approval) and a **session trace** (ordered
 No. It is a local research workbench. The REST surface is unauthenticated; the default bind is `127.0.0.1`. Do not expose it on a LAN without both `CUA_WS_TOKEN` and your own reverse-proxy auth.
 
 **Can I run multiple concurrent sessions?**
-Up to 3, hard-capped by `_MAX_CONCURRENT_SESSIONS` in `backend/server.py`. The 4th returns HTTP 429. Each session gets its own LangGraph checkpoint thread.
+Up to 3, hard-capped by `_MAX_CONCURRENT_SESSIONS` in `backend/server.py`. The 4th returns HTTP 429.
 
 **Does it support custom models?**
 Only model IDs in [backend/models/allowed_models.json](backend/models/allowed_models.json) are accepted. Add an entry with `supports_computer_use: true` and, for Anthropic, the correct `cu_tool_version` + `cu_betas`.
@@ -528,6 +556,9 @@ Google has not enabled Computer Use on that model. The repo exposes only `gemini
 
 - [README.md](README.md) — project pitch and quickstart
 - [TECHNICAL.md](TECHNICAL.md) — architecture and internals
+- [docs/computer-use-prompt-guide.md](docs/computer-use-prompt-guide.md) — prompt patterns, provider notes, and task templates
+- [docs/gemini-successor-evaluation.md](docs/gemini-successor-evaluation.md) — Gemini successor checklist
+- [evals/README.md](evals/README.md) — deterministic replay evals
 - [CHANGELOG.md](CHANGELOG.md) — release history
 - [docker/SECURITY_NOTES.md](docker/SECURITY_NOTES.md) — sandbox security posture
 
