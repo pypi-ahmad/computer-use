@@ -50,9 +50,8 @@ All notable changes to this project will be documented in this file.
     fields from retained turns.
 - Replace Anthropic's local `CUA_ANTHROPIC_WEB_SEARCH_ENABLED` acknowledgement gate with a first-use Messages API probe that caches org-level web-search enablement per API key for 24 hours. `CUA_ANTHROPIC_WEB_SEARCH_ENABLED=1` still works, but now only as an optional skip-probe override for deployments that want to avoid the initial readiness check latency after they have already enabled web search in Claude Console.
 - Refresh README, USAGE, TECHNICAL, and security notes to match the
-    current Gemini Playwright default, the single supported Gemini CU SKU,
-    the sandbox app surface, and the current pricing assumptions surfaced
-    by the frontend estimator.
+    single supported Gemini CU SKU, the sandbox app surface, and the
+    current pricing assumptions surfaced by the frontend estimator.
 
 #### OpenAI default reasoning_effort changed from high to medium
 
