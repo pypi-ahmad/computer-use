@@ -20,33 +20,79 @@ reproducible, inspectable, and safer than pointing a model at your host machine.
 If you only need the shortest path to trying the project, jump to
 [Quickstart](#quickstart). If you want the operating manual, see [USAGE.md](USAGE.md).
 If you want the architecture and code-level contract map, see
-[TECHNICAL.md](TECHNICAL.md).
+[TECHNICAL.md](TECHNICAL.md). If you want the rollout playbook and operator
+note for the supervisor graph, see
+[docs/supervisor-rollout-plan.md](docs/supervisor-rollout-plan.md) and
+[docs/operator-supervisor-graph-migration.md](docs/operator-supervisor-graph-migration.md).
 
-## Tech stack
-
-**Backend and orchestration**
+Core stack quick scan:
 
 [![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB)](https://react.dev/)
+[![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white)](https://vite.dev/)
 [![LangGraph](https://img.shields.io/badge/LangGraph-1C3C3C?logo=langchain&logoColor=white)](https://www.langchain.com/langgraph)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
+[![Playwright](https://img.shields.io/badge/Playwright-2EAD33?logo=playwright&logoColor=white)](https://playwright.dev/)
+[![Anthropic](https://img.shields.io/badge/Anthropic-191919?logo=anthropic&logoColor=white)](https://www.anthropic.com/)
+[![OpenAI](https://img.shields.io/badge/OpenAI-412991?logo=openai&logoColor=white)](https://openai.com/)
+[![Google Gemini](https://img.shields.io/badge/Google%20Gemini-4285F4?logo=googlegemini&logoColor=white)](https://deepmind.google/technologies/gemini/)
+
+## Tech stack
+
+The full badge grid below expands that core stack into the backend,
+frontend, sandbox, provider, and testing layers.
+
+<table>
+<tr>
+<td valign="top" width="50%">
+
+**Backend &amp; Orchestration**
+
+[![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![uvicorn](https://img.shields.io/badge/uvicorn-499848?logoColor=white)](https://www.uvicorn.org/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-1C3C3C?logo=langchain&logoColor=white)](https://www.langchain.com/langgraph)
+[![SQLite](https://img.shields.io/badge/SQLite-07405E?logo=sqlite&logoColor=white)](https://sqlite.org/)
+[![WebSockets](https://img.shields.io/badge/WebSockets-010101?logo=socketdotio&logoColor=white)](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API)
+
+</td>
+<td valign="top" width="50%">
 
 **Frontend**
 
 [![React](https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB)](https://react.dev/)
 [![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white)](https://vite.dev/)
+[![Node.js](https://img.shields.io/badge/Node.js-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 
-**Sandbox and automation**
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**Sandbox &amp; Desktop**
 
 [![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
-[![Ubuntu%2024.04](https://img.shields.io/badge/Ubuntu%2024.04-E95420?logo=ubuntu&logoColor=white)](https://ubuntu.com/)
+[![Ubuntu 24.04](https://img.shields.io/badge/Ubuntu%2024.04-E95420?logo=ubuntu&logoColor=white)](https://ubuntu.com/)
+[![XFCE4](https://img.shields.io/badge/XFCE4-2284F2?logoColor=white)](https://xfce.org/)
+[![noVNC](https://img.shields.io/badge/noVNC-5A5A5A?logoColor=white)](https://novnc.com/)
 [![Playwright](https://img.shields.io/badge/Playwright-2EAD33?logo=playwright&logoColor=white)](https://playwright.dev/)
 
-**Providers and quality gates**
+</td>
+<td valign="top">
+
+**Providers &amp; Quality**
 
 [![Anthropic](https://img.shields.io/badge/Anthropic-191919?logo=anthropic&logoColor=white)](https://www.anthropic.com/)
 [![OpenAI](https://img.shields.io/badge/OpenAI-412991?logo=openai&logoColor=white)](https://openai.com/)
-[![Google%20Gemini](https://img.shields.io/badge/Google%20Gemini-4285F4?logo=googlegemini&logoColor=white)](https://deepmind.google/technologies/gemini/)
+[![Google Gemini](https://img.shields.io/badge/Google%20Gemini-4285F4?logo=googlegemini&logoColor=white)](https://deepmind.google/technologies/gemini/)
 [![Pytest](https://img.shields.io/badge/Pytest-0A9EDC?logo=pytest&logoColor=white)](https://pytest.org/)
+[![Ruff](https://img.shields.io/badge/Ruff-D7FF64?logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
+
+</td>
+</tr>
+</table>
 
 ## Table of contents
 
@@ -285,7 +331,9 @@ flowchart LR
     User([Operator])
     UI[React Workbench<br/>Vite frontend]
     API[FastAPI Backend<br/>REST + WebSocket]
-    GRAPH[LangGraph session graph<br/>preflight -> model_turn <-> tool_batch -> approval_interrupt -> finalize]
+  SELECTOR[Session-start graph selector<br/>feature flag + kill switch]
+  LEGACY[Legacy graph<br/>preflight -> model_turn <-> policy_gate -> tool_batch -> approval_interrupt -> finalize]
+  SUPERVISOR[Supervisor graph<br/>intake -> capability_probe -> planner/grounding -> executor -> policy -> desktop_dispatcher -> verifier -> recovery/escalate_interrupt -> finalize]
     DOCKER[Ubuntu 24.04 sandbox<br/>Xvfb + XFCE4]
     AGENT[agent_service.py<br/>desktop action API]
     ANTH[Anthropic Messages API]
@@ -294,8 +342,11 @@ flowchart LR
 
     User --> UI
     UI <-->|REST + WebSocket| API
-    API --> GRAPH
-    GRAPH <-->|HTTP action + screenshot calls| AGENT
+  API --> SELECTOR
+  SELECTOR --> LEGACY
+  SELECTOR --> SUPERVISOR
+  LEGACY <-->|HTTP action + screenshot calls| AGENT
+  SUPERVISOR <-->|HTTP action + screenshot calls| AGENT
     AGENT -.-> DOCKER
     API --> ANTH
     API --> OAI
@@ -317,18 +368,23 @@ against the allowlist, resolves credentials, starts the sandbox if needed, and
 waits for the container-side agent service to become healthy.
 
 Once the environment is ready, the backend creates an `AgentLoop`, builds the
-provider adapter, and enters the graph-driven execution flow. The exact internal
-details differ by provider, but the broad pattern is the same: capture a
-screenshot, send a provider request, receive a structured response that may
-contain text, actions, or safety state, execute any returned actions through the
-desktop executor, capture the next screenshot, and continue until the run ends.
+provider adapter, selects either the legacy or supervisor graph once per
+session, and enters the graph-driven execution flow. The supervisor path is
+requested with `CUA_USE_SUPERVISOR_GRAPH=1`; otherwise the legacy path remains
+the default. The exact internal details differ by provider, but the broad
+pattern is the same: capture a screenshot, send a provider request, receive a
+structured response that may contain text, actions, or safety state, execute
+any returned actions through the desktop executor, capture the next screenshot,
+and continue until the run ends.
 
 The state machine is designed to make pauses and retries explicit. A provider
 may require a human acknowledgment before a sensitive or policy-triggering step.
 When that happens, the session enters an approval state that is surfaced to the
-frontend. The operator can approve or deny. If the backend restarts during that
-pause window, the persisted graph state allows the session to resume in a way
-that is far more reliable than keeping everything only in in-memory callbacks.
+frontend. On the legacy path that pause lands at `approval_interrupt`; on the
+supervisor path it lands at `escalate_interrupt`. The operator can approve or
+deny. If the backend restarts during that pause window, the persisted graph
+state allows the session to resume in a way that is far more reliable than
+keeping everything only in in-memory callbacks.
 
 During the run, the frontend shows the live desktop, the model-visible
 screenshot stream, the log stream, and the timeline of steps. After the run,
@@ -671,6 +727,9 @@ Here are the most important environment variables to understand first:
 | `HOST` / `PORT` | `127.0.0.1` / `8100` | Backend bind address and port |
 | `CUA_WS_TOKEN` | custom secret | Needed when you intentionally expose `/ws` or `/vnc/websockify` beyond loopback |
 | `SCREEN_WIDTH` / `SCREEN_HEIGHT` | `1440` / `900` | Default virtual desktop size |
+| `CUA_USE_SUPERVISOR_GRAPH` | `0` / `1` | Requests the supervisor graph for new sessions; legacy remains the default |
+| `CUA_SUPERVISOR_FAILURE_RATE_THRESHOLD` | `0.20` | Kill-switch trip threshold for supervisor node session failure rate |
+| `CUA_SUPERVISOR_FAILURE_RATE_MIN_SESSIONS` | `100` | Rolling window size before the supervisor kill switch can trip |
 | `OPENAI_REASONING_EFFORT` | model default | Overrides OpenAI reasoning effort; GPT-5.5 defaults to `medium`, GPT-5.4 defaults to `none` |
 | `CUA_CLAUDE_CACHING` | `1` or unset | Enables Claude tool-definition prompt caching |
 | `CUA_OPUS47_HIRES` | `1` or unset | Enables Opus 4.7 hi-res behavior |
@@ -810,14 +869,23 @@ This repository treats observability as a first-class feature, not a cleanup
 task left for later.
 
 During a live session, the frontend receives streamed log events, step events,
-screenshot events, and session-state events over WebSocket. That makes it
-possible to watch a run as it happens and understand where time is being spent.
+screenshot events, graph-state events, and finish events over WebSocket. That
+makes it possible to watch a run as it happens and understand where time is
+being spent.
 
 After the run, the backend writes traces and graph state in ways that support
 postmortem analysis. Trace payloads are structured and redacted. Session
 snapshots are kept in the LangGraph SQLite checkpoint store. If a run is paused
 on a human approval, that persisted state makes restart-resume possible in
 supported paths.
+
+When the supervisor graph is enabled, the backend also keeps an operator-facing
+rollout snapshot at `GET /api/agent/graph-rollout`. That endpoint exposes the
+selected graph counts, per-node latency histograms and failure rates, verifier
+verdict distribution, policy escalation rate, recovery classification
+distribution, planner-stage long-term-memory hit rate, and the automatic kill
+switch state that falls new sessions back to the legacy graph if a supervisor
+node exceeds its configured failure-rate window.
 
 From an engineering perspective, this is one of the most valuable traits of the
 project. A surprising number of agent systems are easy to demo but hard to
@@ -1085,6 +1153,10 @@ oriented. Use the companion docs for deeper work:
   workflows, and troubleshooting details
 - [TECHNICAL.md](TECHNICAL.md) for the code-level architecture, adapter layer,
   graph orchestration, and module boundaries
+- [docs/supervisor-rollout-plan.md](docs/supervisor-rollout-plan.md) for the
+  phased supervisor rollout plan and kill-switch policy
+- [docs/operator-supervisor-graph-migration.md](docs/operator-supervisor-graph-migration.md)
+  for the operator migration note and rollout dashboard fields
 - [docker/SECURITY_NOTES.md](docker/SECURITY_NOTES.md) for sandbox hardening and
   the rationale behind the container design
 - [CHANGELOG.md](CHANGELOG.md) for historical decisions and notable changes
