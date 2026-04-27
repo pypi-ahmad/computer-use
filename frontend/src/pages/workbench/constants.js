@@ -1,4 +1,3 @@
-// === merged from frontend/src/pages/workbench/constants.js ===
 /**
  * Workbench-scoped constants.
  *
@@ -18,7 +17,7 @@ import {
 export const PROVIDERS = [
   { value: 'google', label: 'Google Gemini', envVar: 'GOOGLE_API_KEY', placeholder: 'Paste your Google API key' },
   { value: 'anthropic', label: 'Anthropic Claude', envVar: 'ANTHROPIC_API_KEY', placeholder: 'Paste your Anthropic API key' },
-  { value: 'openai', label: 'OpenAI GPT-5.4', envVar: 'OPENAI_API_KEY', placeholder: 'Paste your OpenAI API key' },
+  { value: 'openai', label: 'OpenAI GPT-5.4 / GPT-5.5', envVar: 'OPENAI_API_KEY', placeholder: 'Paste your OpenAI API key' },
 ]
 
 export const ICON_SIZE = 14
@@ -53,6 +52,7 @@ export const MODEL_HINTS = {
   'gemini-3-flash-preview': { hint: 'Fast and affordable — good for simple tasks', tier: 'Budget' },
   'claude-sonnet-4-6': { hint: 'Balanced speed and capability — recommended for most tasks', tier: 'Mid-range', recommended: true },
   'claude-opus-4-7': { hint: 'Most capable — best for complex multi-step tasks', tier: 'Premium' },
+  'gpt-5.5': { hint: 'OpenAI\'s latest computer-use model; defaults to medium reasoning effort', tier: 'Premium' },
   'gpt-5.4': { hint: 'OpenAI\'s built-in computer use model', tier: 'Mid-range' },
 }
 
