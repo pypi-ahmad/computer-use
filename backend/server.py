@@ -13,7 +13,6 @@ import re
 import time
 import uuid
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,17 +27,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from backend.models.schemas import (
     AgentAction,
     AgentSession,
-    LogEntry,
     SessionStatus,
     StartTaskRequest,
     TaskStatusResponse,
 )
 from backend.agent.loop import AgentLoop
-from backend.agent.graph import (
-    init_runtime,
-    load_session_snapshot,
-    shutdown_runtime,
-)
 from backend.agent import safety as safety_registry
 from backend.agent.loop import capture_screenshot, check_service_health
 from backend.infra.docker import (
@@ -77,18 +70,6 @@ async def _lifespan(_app: FastAPI):
         config.gemini_model, config.agent_service_url, config.agent_mode,
     )
     try:
-        Path(_SESSIONS_DB_PATH).parent.mkdir(parents=True, exist_ok=True)
-        await init_runtime(_SESSIONS_DB_PATH)
-        logger.info("Session checkpointer ready at %s", _SESSIONS_DB_PATH)
-    except Exception:
-        logger.exception("Failed to initialise session checkpointer")
-
-    try:
-        _sweep_sessions_db(_SESSIONS_DB_PATH, _SESSIONS_MAX_THREADS)
-    except Exception:
-        logger.exception("Session checkpointer sweep failed (non-fatal)")
-
-    try:
         validate_tool_parity()
     except Exception as exc:
         logger.warning("Tool parity check failed: %s", exc)
@@ -99,8 +80,8 @@ async def _lifespan(_app: FastAPI):
         global _novnc_client, _screenshot_publisher_task, _last_screenshot_frame
         # ── shutdown ──────────────────────────────────────────────────
         # Cancel in-flight run tasks, then await them (and any pending
-        # broadcasts) so finalize-node persistence and WS flushes get a
-        # chance to complete before we tear down the checkpointer/clients.
+        # broadcasts) so WS flushes get a chance to complete before
+        # we tear down shared clients.
         pending: list[asyncio.Task] = []
         for sid in list(_active_tasks.keys()):
             task = _active_tasks.get(sid)
@@ -131,11 +112,6 @@ async def _lifespan(_app: FastAPI):
             except Exception:
                 logger.exception("Error closing noVNC proxy client")
         _novnc_client = None
-
-        try:
-            await shutdown_runtime()
-        except Exception:
-            logger.exception("Error shutting down session checkpointer")
 
         # P11: release the shared httpx client pool used by every
         # DesktopExecutor so FD counts don't grow across reloads.
@@ -454,114 +430,6 @@ def _require_origin(request: Request) -> Response:
     return None  # type: ignore[return-value]
 
 
-# Upper bound on distinct session threads persisted in the sqlite
-# checkpointer. On startup we prune oldest-first past this cap so the
-# file doesn't grow unbounded. Override with CUA_SESSIONS_MAX_THREADS.
-try:
-    _SESSIONS_MAX_THREADS = max(50, int(os.getenv("CUA_SESSIONS_MAX_THREADS", "1000")))
-except ValueError:
-    _SESSIONS_MAX_THREADS = 1000
-
-
-def _resolve_sessions_db_path() -> str:
-    """Resolve and validate the sqlite checkpointer path.
-
-    Restricts the writer to the user's home directory or /tmp (plus an
-    optional explicit allowlist via ``CUA_SESSIONS_DB_ALLOW_DIR``) and
-    enforces a ``.sqlite`` suffix, so an unprivileged env override can't
-    redirect the writer into an arbitrary filesystem location.
-    """
-    default = str(Path.home() / ".computer-use" / "sessions.sqlite")
-    raw = os.getenv("CUA_SESSIONS_DB", default)
-    resolved = Path(raw).expanduser().resolve()
-    if resolved.suffix != ".sqlite":
-        logger.warning(
-            "CUA_SESSIONS_DB=%s rejected (must end in .sqlite); using default", raw,
-        )
-        resolved = Path(default).expanduser().resolve()
-    allowed_roots = [Path.home().resolve(), Path("/tmp").resolve()]
-    extra = os.getenv("CUA_SESSIONS_DB_ALLOW_DIR", "").strip()
-    if extra:
-        try:
-            allowed_roots.append(Path(extra).expanduser().resolve())
-        except Exception:
-            pass
-    # ``startswith`` gets fooled by look-alike roots (``/home/alice`` vs
-    # ``/home/alice2/...``). ``Path.is_relative_to`` is the right primitive.
-    def _under_any(child: Path, roots: list[Path]) -> bool:
-        for root in roots:
-            try:
-                if child == root or child.is_relative_to(root):
-                    return True
-            except (ValueError, OSError):
-                continue
-        return False
-    if not _under_any(resolved, allowed_roots):
-        logger.warning(
-            "CUA_SESSIONS_DB=%s outside allowed roots; using default", raw,
-        )
-        resolved = Path(default).expanduser().resolve()
-    return str(resolved)
-
-
-# Sessions database (LangGraph sqlite checkpointer). Override with CUA_SESSIONS_DB.
-_SESSIONS_DB_PATH = _resolve_sessions_db_path()
-
-
-def _sweep_sessions_db(db_path: str, max_threads: int) -> None:
-    """Prune the oldest rows past ``max_threads`` distinct thread_ids.
-
-    LangGraph's AsyncSqliteSaver doesn't ship a built-in TTL, so we do
-    a best-effort cap on distinct ``thread_id`` count in the
-    ``checkpoints`` table (oldest rowid = oldest insertion). Runs once
-    at startup to keep the file bounded across long-running deployments.
-    """
-    import sqlite3
-
-    if not Path(db_path).exists():
-        return
-    try:
-        con = sqlite3.connect(db_path, timeout=5.0)
-    except sqlite3.DatabaseError:
-        logger.warning("Session sweep: cannot open %s", db_path)
-        return
-    try:
-        cur = con.cursor()
-        row = cur.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='checkpoints'"
-        ).fetchone()
-        if row is None:
-            return
-        (count,) = cur.execute(
-            "SELECT COUNT(DISTINCT thread_id) FROM checkpoints"
-        ).fetchone()
-        if count <= max_threads:
-            return
-        drop = count - max_threads
-        # Oldest thread_ids by min(rowid)
-        victims = [
-            r[0] for r in cur.execute(
-                "SELECT thread_id FROM ("
-                "  SELECT thread_id, MIN(rowid) AS r FROM checkpoints GROUP BY thread_id"
-                ") ORDER BY r ASC LIMIT ?",
-                (drop,),
-            ).fetchall()
-        ]
-        if not victims:
-            return
-        placeholders = ",".join("?" for _ in victims)
-        for table in ("checkpoints", "writes", "checkpoint_writes", "checkpoint_blobs"):
-            if cur.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
-            ).fetchone():
-                cur.execute(
-                    f"DELETE FROM {table} WHERE thread_id IN ({placeholders})", victims,
-                )
-        con.commit()
-        logger.info("Session sweep pruned %d oldest thread(s)", len(victims))
-    finally:
-        con.close()
-
 # ── Allowed models (single source of truth: backend/allowed_models.json) ──────
 
 _ALLOWED_MODELS: list[dict] = _load_allowed_models_json()
@@ -722,29 +590,11 @@ def _cleanup_session(sid: str) -> None:
 
 
 async def _get_session_snapshot(session_id: str) -> AgentSession | None:
-    """Return active or persisted session state for status/history calls.
-
-    Active runs are served from ``_active_loops``. Once a run finishes
-    and its entry is cleaned up, the LangGraph sqlite checkpointer
-    becomes the source of truth (populated by the ``finalize`` node
-    inside :class:`AgentLoop`).
-    """
+    """Return active session state for status/history calls."""
     loop = _active_loops.get(session_id)
     if loop:
         return loop.session
-
-    try:
-        snapshot = await load_session_snapshot(session_id)
-    except Exception:
-        logger.exception("Failed to load session snapshot — session_id=%s", session_id)
-        return None
-    if snapshot is None:
-        return None
-    try:
-        return AgentSession.model_validate(snapshot)
-    except Exception:
-        logger.exception("Invalid session snapshot — session_id=%s", session_id)
-        return None
+    return None
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1257,11 +1107,6 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
         on_screenshot=lambda b64: _schedule_broadcast(
             "screenshot", {"screenshot": b64}
         ),
-        on_graph_state=lambda graph: _schedule_broadcast(
-            "graph_state",
-            {"graph": graph},
-            session_id=graph.get("session_id") if isinstance(graph, dict) else None,
-        ),
     )
 
     _active_loops[loop.session_id] = loop
@@ -1277,8 +1122,6 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
             loop.session.status = SessionStatus.ERROR
             session = loop.session
 
-        # Finished-session retention is handled by the LangGraph sqlite
-        # checkpointer (written by the ``finalize`` node inside the loop).
         await _broadcast("agent_finished", {
             "session_id": loop.session_id,
             "status": session.status.value,
@@ -1355,17 +1198,6 @@ async def api_agent_status(session_id: str):
         final_text=session.final_text,
         gemini_grounding=session.gemini_grounding,
     ).model_dump()
-
-
-@app.get("/api/agent/graph-rollout")
-async def api_agent_graph_rollout(request: Request):
-    """Return the supervisor rollout flag, kill-switch state, and graph metrics."""
-    forbidden = _require_origin(request)
-    if forbidden is not None:
-        return forbidden
-    from backend.agent.graph_rollout import get_snapshot
-
-    return get_snapshot()
 
 
 # ── Safety Confirmation for CU Engine ─────────────────────────────────────────
@@ -1451,24 +1283,7 @@ async def api_validate_key(req: ValidateKeyRequest, request: Request):
 
 @app.post("/api/agent/safety-confirm")
 async def api_agent_safety_confirm(req: SafetyConfirmRequest, request: Request):
-    """Respond to a CU safety_decision / require_confirmation prompt.
-
-    Two resolution paths coexist (see PR 7):
-
-     1. **Graph interrupt path** — used when the agent graph paused at
-       ``escalate_interrupt``. We call ``graph.ainvoke(Command(
-       resume=decision), ...)`` so the interrupt returns the user's
-       choice and the run continues from checkpointed graph/provider
-       state until the next interrupt or terminal node. After a backend
-       restart this runs headlessly, because no ``AgentLoop`` object is
-       alive, but the graph itself still resumes from the checkpointer.
-    2. **Legacy asyncio.Event path** — still used by Gemini / OpenAI
-       whose ``run_loop`` has not yet been inverted into ``iter_turns``.
-       We store the decision in :mod:`backend.agent.safety` and signal
-       the waiting loop. Claude never reaches this path.
-
-    We invoke both unconditionally — the unused path is a cheap no-op.
-    """
+    """Respond to a CU safety_decision / require_confirmation prompt."""
     forbidden = _require_origin(request)
     if forbidden is not None:
         return forbidden
@@ -1476,117 +1291,13 @@ async def api_agent_safety_confirm(req: SafetyConfirmRequest, request: Request):
     if not _is_valid_uuid(sid):
         return _error_response(400, "Invalid session_id")
     if sid not in _active_loops:
-        # Backend restart drops live AgentLoop objects, but a suspended
-        # graph can still continue from its checkpointed interrupt.
-        resumed_via_graph = await _try_resume_graph(sid, req.confirm)
-        if not resumed_via_graph:
-            return _error_response(404, "Session not found")
-        logger.info(
-            "AUDIT safety_confirm (graph-resume-after-restart) — session_id=%s confirm=%s",
-            sid, req.confirm,
-        )
-        return {"session_id": sid, "confirmed": req.confirm}
+        return _error_response(404, "Session not found")
 
-    # Legacy asyncio.Event signal for Gemini/OpenAI.
     safety_registry.decisions[sid] = req.confirm
     safety_registry.get_or_create_event(sid).set()
 
-    # Graph interrupt resume — harmless no-op if no interrupt is pending.
-    await _try_resume_graph(sid, req.confirm)
-
     logger.info("AUDIT safety_confirm — session_id=%s confirm=%s", sid, req.confirm)
     return {"session_id": sid, "confirmed": req.confirm}
-
-
-async def _try_resume_graph(session_id: str, decision: bool) -> bool:
-    """Try resuming a graph paused on ``escalate_interrupt``.
-
-    This is a graph resume, not just an approval-state acknowledgement:
-    ``Command(resume=...)`` continues from the checkpointed interrupt
-    until the next interrupt or terminal node. If a live ``AgentLoop``
-    exists, its callbacks receive the resumed run. After a backend
-    restart, no loop object exists, so the run resumes headlessly with
-    lightweight log/graph-state broadcasts and checkpointer-backed
-    status/history.
-
-    Returns True if the graph accepted the resume, False otherwise
-    (for example runtime not initialised, no pending interrupt, or other
-    errors). Errors are logged but never propagated to the caller.
-    """
-    try:
-        from backend.agent.graph import build_agent_graph, NodeBundle, get_runtime
-        runtime = get_runtime()
-        if runtime.checkpointer is None:
-            return False
-        config = {"configurable": {"thread_id": session_id}}
-        tup = await runtime.checkpointer.aget_tuple(config)
-        if tup is None:
-            return False
-        # Quick heuristic: only call resume if there's an interrupt
-        # pending. Otherwise ainvoke(Command) raises.
-        channel_values = tup.checkpoint.get("channel_values") or {}
-        if not channel_values.get("pending_approval"):
-            return False
-        from langgraph.types import Command
-        loop_ref = _active_loops.get(session_id)
-        if loop_ref is not None and hasattr(loop_ref, "_build_graph_bundle"):
-            bundle = loop_ref._build_graph_bundle()
-        else:
-            logger.info(
-                "Resuming checkpointed graph without live AgentLoop — session_id=%s",
-                session_id,
-            )
-
-            async def _noop_health() -> bool:
-                return True
-
-            def _emit_log(level: str, message: str, data: dict | None = None) -> None:
-                entry = LogEntry(level=level, message=message, data=data)
-                _schedule_broadcast(
-                    "log",
-                    {"log": entry.model_dump()},
-                    session_id=session_id,
-                )
-
-            def _emit_graph_state(graph: dict[str, Any]) -> None:
-                graph_session_id = (
-                    graph.get("session_id") if isinstance(graph, dict) else session_id
-                )
-                _schedule_broadcast(
-                    "graph_state",
-                    {"graph": graph},
-                    session_id=graph_session_id,
-                )
-
-            bundle = NodeBundle(
-                check_health=_noop_health,
-                emit_log=_emit_log,
-                emit_graph_state=_emit_graph_state,
-            )
-        graph = build_agent_graph(bundle)
-        final_state = await graph.ainvoke(Command(resume=bool(decision)), config=config)
-        if (
-            isinstance(final_state, dict)
-            and final_state.get("session_data")
-            and final_state.get("status") in {"completed", "error"}
-        ):
-            session_data = final_state["session_data"]
-            await _broadcast("agent_finished", {
-                "session_id": session_id,
-                "status": str(
-                    session_data.get("status", final_state.get("status", "completed"))
-                ),
-                "steps": len(session_data.get("steps") or []),
-                "final_text": session_data.get("final_text"),
-                "gemini_grounding": session_data.get("gemini_grounding"),
-            })
-        return True
-    except Exception as exc:
-        logger.warning(
-            "Graph resume on safety-confirm failed for %s: %s",
-            session_id, exc,
-        )
-        return False
 
 
 @app.get("/api/agent/history/{session_id}")
@@ -2036,13 +1747,6 @@ class StepEvent(_WSEventBase):
     step: dict[str, Any]
 
 
-class GraphStateEvent(_WSEventBase):
-    """Compact LangGraph run-state update for the workbench panel."""
-
-    event: Literal["graph_state"] = "graph_state"
-    graph: dict[str, Any]
-
-
 class AgentFinishedEvent(_WSEventBase):
     """Terminal event for a session (status=completed|error|stopped)."""
 
@@ -2079,7 +1783,6 @@ WSEvent = Union[
     ScreenshotStreamEvent,
     LogEvent,
     StepEvent,
-    GraphStateEvent,
     AgentFinishedEvent,
     AuthFailedEvent,
     PongEvent,
@@ -2092,7 +1795,6 @@ _TYPED_EVENTS: dict[str, type[_WSEventBase]] = {
     "screenshot_stream": ScreenshotStreamEvent,
     "log": LogEvent,
     "step": StepEvent,
-    "graph_state": GraphStateEvent,
     "agent_finished": AgentFinishedEvent,
     "auth_failed": AuthFailedEvent,
     "pong": PongEvent,

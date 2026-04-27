@@ -11,12 +11,12 @@ import asyncio
 import hashlib
 import logging
 import uuid
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import Callable, Optional
 
 # AI6: reuse the shared secret-scrubber from backend.engine so the
 # patterns and redaction format stay consistent between what flows
-# through the provider clients and what loop.py persists into the
-# LangGraph checkpoint + broadcasts over the WebSocket.
+# through the provider clients and what loop.py broadcasts over the
+# WebSocket.
 from backend.engine import scrub_secrets as _scrub_secrets
 
 from backend.infra.config import config
@@ -31,9 +31,6 @@ from backend.models.schemas import (
 )
 from backend.agent import screenshot as _screenshot
 from backend.infra.observability import session_id_var
-
-if TYPE_CHECKING:
-    from backend.agent.graph import NodeBundle
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +78,7 @@ _CU_ACTION_MAP: dict[str, ActionType] = {
     "click": ActionType.CLICK, "move": ActionType.HOVER,
     "type": ActionType.TYPE, "keypress": ActionType.KEY,
     "scroll": ActionType.SCROLL, "drag": ActionType.DRAG,
-    "wait": ActionType.WAIT, "screenshot": ActionType.WAIT,
+    "wait": ActionType.WAIT, "screenshot": ActionType.SCREENSHOT,
 }
 
 
@@ -107,7 +104,6 @@ class AgentLoop:
         on_step: Optional[Callable] = None,
         on_log: Optional[Callable] = None,
         on_screenshot: Optional[Callable] = None,
-        on_graph_state: Optional[Callable] = None,
     ):
         """Initialise a new agent loop for *task* using the given provider/model."""
         self.session = AgentSession(
@@ -137,7 +133,6 @@ class AgentLoop:
         self._on_step = on_step
         self._on_log = on_log
         self._on_screenshot = on_screenshot
-        self._on_graph_state = on_graph_state
 
     @property
     def session_id(self) -> str:
@@ -162,7 +157,7 @@ class AgentLoop:
         # AI6: run the message text through the same scrubber used for
         # persisted model output so a leaked secret (either echoed from
         # a screenshot or from the user's task) doesn't land verbatim
-        # in log files, WS frames, or the sqlite checkpoint.
+        # in log files or WS frames.
         clean_message = _scrub_secrets(message) or message
         entry = LogEntry(level=level, message=clean_message, data=data)
         logger.log(
@@ -196,18 +191,7 @@ class AgentLoop:
         return err
 
     async def run(self) -> AgentSession:
-        """Execute the full agent loop. Returns the final session state.
-
-        Orchestration is selected once per session between the legacy
-        six-node graph (``preflight → model_turn → policy_gate →
-        tool_batch → approval_interrupt → finalize``) and the rollout
-        supervisor graph (``intake → capability_probe → planner/grounding
-        → executor → policy → desktop_dispatcher → verifier →
-        recovery/escalate_interrupt → finalize``), both assembled in
-        :mod:`backend.agent.graph`. This AgentLoop owns only the
-        provider/engine construction, callback wiring, and stop
-        handshake — all turn-by-turn orchestration lives in the graph.
-        """
+        """Execute the provider-native Computer Use loop."""
         self.session.status = SessionStatus.RUNNING
         self._emit_log("info", f"Agent starting — task: {self.session.task}")
         self._emit_log(
@@ -217,104 +201,11 @@ class AgentLoop:
             f"Provider: {self._provider} | Target: {self._execution_target}",
         )
 
-        from backend.agent import graph_rollout
-        from backend.agent.graph import build_agent_graph, build_legacy_graph
-        from backend.infra import observability as tracing
-        from backend.agent.prompts import get_system_prompt
-
-        system_instruction = get_system_prompt(
-            "computer_use",
-            provider=self._provider,
-            model=self.session.model,
-        )
-
-        bundle = self._build_graph_bundle()
-        # OBS: wrap the bundle so every graph-edge event lands in the
-        # per-session trace recorder. The wrapper is additive — the
-        # original callbacks still fire, so existing logging and WS
-        # broadcasts are unchanged.
-        tracing.start_session(self.session.session_id, task=self.session.task)
-        bundle = tracing.install(bundle, self.session.session_id)
-        selection = graph_rollout.begin_session(
-            self.session.session_id,
-            requested_supervisor=config.use_supervisor_graph,
-        )
-        tracing.record(
-            self.session.session_id,
-            tracing.STAGE_SESSION,
-            "graph_selected",
-            selection.to_dict(),
-        )
-        graph_builder = (
-            build_agent_graph
-            if selection.selected_mode == graph_rollout.SUPERVISOR_GRAPH_MODE
-            else build_legacy_graph
-        )
-        graph = graph_builder(bundle)
-        self._emit_log(
-            "info",
-            f"Graph mode: {selection.selected_mode} (reason: {selection.reason})",
-        )
-        if selection.reason == "kill_switch" and selection.alert:
-            self._emit_log("warning", selection.alert)
-
         _sid_token = session_id_var.set(self.session.session_id)
         try:
-            self._run_task = asyncio.create_task(
-                graph.ainvoke(
-                    {
-                        "session_id": self.session.session_id,
-                        "task": self.session.task,
-                        "max_steps": self.session.max_steps,
-                        "provider": self._provider,
-                        "model": self.session.model,
-                        "api_key": self._api_key,
-                        "system_instruction": system_instruction,
-                        "screen_width": config.screen_width,
-                        "screen_height": config.screen_height,
-                        "container_name": config.container_name,
-                        "agent_service_url": config.agent_service_url,
-                        "reasoning_effort": self._reasoning_effort,
-                        "use_builtin_search": self._use_builtin_search,
-                        "search_max_uses": self._search_max_uses,
-                        "search_allowed_domains": self._search_allowed_domains,
-                        "search_blocked_domains": self._search_blocked_domains,
-                        "allowed_callers": self._allowed_callers,
-                        "attached_files": list(self._attached_files),
-                        "session_data": self.session.model_dump(mode="json"),
-                    },
-                    config={"configurable": {"thread_id": self.session.session_id}},
-                )
-            )
-            try:
-                final_state = await self._run_task
-            except asyncio.CancelledError:
-                self._emit_log("info", "Agent run cancelled")
-                final_state = None
-            if final_state and final_state.get("status") == "error":
-                self._emit_log(
-                    "error",
-                    f"Graph run ended in error: {final_state.get('error', '(unknown)')}",
-                )
-                self.session.status = SessionStatus.ERROR
-                self.session.final_text = final_state.get("final_text") or final_state.get("error")
-            elif self._stop_requested:
-                self.session.status = SessionStatus.STOPPED
-                if isinstance(final_state, dict):
-                    self.session.final_text = final_state.get("final_text") or self.session.final_text
-            else:
-                # Only flip to COMPLETED if _run_computer_use_engine
-                # hasn't already set a terminal status (e.g. ERROR from
-                # a provider-level failure surfaced via RunFailed).
-                if self.session.status == SessionStatus.RUNNING:
-                    self.session.status = SessionStatus.COMPLETED
-                if isinstance(final_state, dict):
-                    self.session.final_text = final_state.get("final_text") or self.session.final_text
-                    session_data = final_state.get("session_data")
-                    if isinstance(session_data, dict):
-                        self.session = AgentSession.model_validate(session_data)
+            return await self._run_computer_use_engine()
         except Exception as exc:
-            self._emit_log("error", f"Graph invocation failed: {exc}")
+            self._emit_log("error", f"Agent run failed: {exc}")
             self.session.status = SessionStatus.ERROR
             self.session.final_text = str(exc)
         finally:
@@ -325,132 +216,8 @@ class AgentLoop:
                 safety_registry.clear(self.session.session_id)
             except Exception:
                 pass
-            # OBS: flush the session trace to its sidecar JSON file.
-            # Runs last so any cleanup above is recorded.
-            try:
-                tracing.finalize_session(
-                    self.session.session_id,
-                    status=self.session.status.value,
-                )
-            except Exception:
-                logger.exception(
-                    "trace finalize failed for %s", self.session.session_id,
-                )
-            try:
-                graph_rollout.finalize_session(
-                    self.session.session_id,
-                    status=self.session.status.value,
-                )
-            except Exception:
-                logger.exception(
-                    "graph rollout finalize failed for %s", self.session.session_id,
-                )
             session_id_var.reset(_sid_token)
         return self.session
-
-    # ── NodeBundle construction (PR 7) ────────────────────────────────────
-
-    def _build_graph_bundle(self) -> "NodeBundle":
-        """Build the ``NodeBundle`` of I/O closures for the agent graph.
-
-        The closures bridge graph nodes to this loop's callback set
-        (``on_step`` / ``on_log`` / ``on_screenshot``).
-        """
-        from backend.agent.graph import NodeBundle
-        from backend.engine import ToolBatchCompleted
-
-        last_fingerprints: list[str] = []
-
-        def _fingerprint(action: AgentAction | None) -> str:
-            if action is None:
-                return ""
-            parts = [
-                action.action.value
-                if hasattr(action.action, "value") else str(action.action)
-            ]
-            if action.coordinates:
-                parts.append(":".join(str(c) for c in action.coordinates))
-            if action.text:
-                parts.append(
-                    hashlib.blake2b(
-                        action.text.encode("utf-8", "replace"), digest_size=8,
-                    ).hexdigest()
-                )
-            return "|".join(parts)
-
-        async def _check_health() -> bool:
-            try:
-                return await check_service_health()
-            except Exception:
-                return False
-
-        def _emit_step(event: ToolBatchCompleted) -> None:
-            """Map a ``ToolBatchCompleted`` event to a session ``StepRecord``."""
-            agent_action: AgentAction | None = None
-            if event.results:
-                first = event.results[0]
-                action_type = _CU_ACTION_MAP.get(first.name)
-                if action_type:
-                    agent_action = AgentAction(
-                        action=action_type,
-                        reasoning=_scrub_secrets(
-                            event.model_text[:500] if event.model_text else None
-                        ),
-                    )
-                    px = first.extra.get("pixel_x")
-                    py = first.extra.get("pixel_y")
-                    if px is not None and py is not None:
-                        agent_action.coordinates = [px, py]
-                    if first.extra.get("text"):
-                        agent_action.text = str(first.extra["text"])
-                else:
-                    self._emit_log(
-                        "warning",
-                        f"Unmapped CU action '{first.name}' — not in ActionType enum",
-                    )
-            step = StepRecord(
-                step_number=event.turn,
-                screenshot_b64=event.screenshot_b64,
-                raw_model_response=_scrub_secrets(event.model_text),
-                action=agent_action,
-            )
-            self.session.steps.append(step)
-            self._fire_callback(self._on_step, step)
-            if event.screenshot_b64 and self._on_screenshot:
-                self._fire_callback(self._on_screenshot, event.screenshot_b64)
-
-            # AI2: stuck-agent detection.
-            fp = _fingerprint(agent_action)
-            if fp:
-                last_fingerprints.append(fp)
-                del last_fingerprints[:-3]
-                if len(last_fingerprints) == 3 and len(set(last_fingerprints)) == 1:
-                    self._emit_log(
-                        "warning",
-                        "Stuck-agent detected (3 consecutive identical actions); "
-                        "requesting stop.",
-                    )
-                    self._stop_requested = True
-                    run_task = getattr(self, "_run_task", None)
-                    if run_task is not None and not run_task.done():
-                        run_task.cancel()
-
-        def _emit_log(level: str, message: str, data: dict | None = None) -> None:
-            self._emit_log(level, message, data)
-
-        def _emit_graph_state(snapshot: dict) -> None:
-            self._fire_callback(self._on_graph_state, snapshot)
-
-        def _stop_requested() -> bool:
-            return self._stop_requested
-
-        return NodeBundle(
-            check_health=_check_health,
-            emit_step=_emit_step,
-            emit_log=_emit_log,
-            emit_graph_state=_emit_graph_state,
-            stop_requested=_stop_requested,
-        )
 
     # ── Computer Use engine delegation ────────────────────────────────────
 

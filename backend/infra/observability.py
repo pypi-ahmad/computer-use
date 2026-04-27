@@ -160,11 +160,8 @@ the artefact operators look at when triaging a run after the fact.
 Design goals
 ------------
 
-* **Additive.** Tracing wraps the existing :class:`NodeBundle` (see
-  :mod:`backend.agent.graph`) and the engine's :class:`TurnEvent`
-  iterator. No existing logging is restructured and no call site
-  becomes responsible for "also record a trace event" — wiring
-  happens once in :func:`install`.
+* **Additive.** Tracing records explicit session events without
+  restructuring normal application logging.
 
 * **Cheap.** :func:`record` is a dict append plus a monotonic clock
   read. The hot path never touches disk. Traces are flushed as a
@@ -198,7 +195,7 @@ import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, AsyncIterator, Callable, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -207,9 +204,8 @@ logger = logging.getLogger(__name__)
 # Event model
 # ---------------------------------------------------------------------------
 
-# Node / stage names used in recorded events. Kept as plain strings
-# (not an enum) so evals can assert on them without importing from the
-# agent graph module — which keeps the eval harness provider-agnostic.
+# Stage names used in recorded events. Kept as plain strings
+# (not an enum) so tests can assert on them without extra imports.
 STAGE_SESSION = "session"
 STAGE_PREFLIGHT = "preflight"
 STAGE_MODEL_TURN = "model_turn"
@@ -249,7 +245,7 @@ class TraceEvent:
     session_id:
         The session this event belongs to.
     stage:
-        Graph node / pipeline stage that produced the event. One of
+        Pipeline stage that produced the event. One of
         the ``STAGE_*`` constants above.
     event_type:
         Semantic type of the event. One of the ``EVT_*`` constants.
@@ -558,126 +554,6 @@ def record(
     with _lock:
         tr.events.append(evt)
     return evt
-
-
-# ---------------------------------------------------------------------------
-# NodeBundle / iterator instrumentation
-# ---------------------------------------------------------------------------
-
-
-def install_bundle(bundle, session_id: str):
-    """Return a new :class:`NodeBundle` that records trace events.
-
-    Wraps the bundle's ``emit_step`` and ``emit_log``
-    callables so every graph-edge event is captured without touching
-    the graph or engine code. Returns the original bundle untouched if
-    :mod:`backend.agent.graph` can't be imported (unusual in tests
-    that fake the whole bundle shape).
-    """
-    try:
-        from backend.agent.graph import NodeBundle
-    except Exception:
-        return bundle
-
-    orig_emit_step = bundle.emit_step
-    orig_emit_log = bundle.emit_log
-    record(session_id, STAGE_PREFLIGHT, "graph_session_ready", None)
-
-    def _traced_emit_step(event) -> None:
-        # Defer the full payload redaction to _redact via record(), but
-        # pull the cheap identity bits eagerly so the recorded event
-        # stays useful if the underlying object mutates.
-        payload = {
-            "turn": getattr(event, "turn", None),
-            "model_text": getattr(event, "model_text", None),
-            "screenshot_b64": getattr(event, "screenshot_b64", None),
-            "results": [
-                {
-                    "name": getattr(r, "name", None),
-                    "success": getattr(r, "success", None),
-                }
-                for r in (getattr(event, "results", None) or [])
-            ],
-        }
-        record(session_id, STAGE_TOOL_BATCH, EVT_STEP, payload)
-        return orig_emit_step(event)
-
-    def _traced_emit_log(level: str, message: str, data=None) -> None:
-        record(
-            session_id, STAGE_ENGINE, EVT_LOG,
-            {"level": level, "message": message, "data": data},
-        )
-        return orig_emit_log(level, message, data)
-
-    return NodeBundle(
-        check_health=bundle.check_health,
-        emit_step=_traced_emit_step,
-        emit_log=_traced_emit_log,
-        stop_requested=bundle.stop_requested,
-    )
-
-
-async def wrap_iterator(it: AsyncIterator, session_id: str):
-    """Wrap *it* so every yielded :class:`TurnEvent` is recorded.
-
-    Yields the original event objects unchanged — the graph must keep
-    driving them. Also supports ``asend`` so approval resume keeps
-    working.
-
-    Exposed as public API so iterator-based eval helpers can opt in.
-    """
-    # Lazy import — tests that don't use the engine iter_turns may not
-    # have the SDKs available at all.
-    from backend.engine import (
-        ModelTurnStarted, ToolBatchCompleted, SafetyRequired,
-        RunCompleted, RunFailed,
-    )
-
-    async def _record(evt):
-        if isinstance(evt, ModelTurnStarted):
-            record(session_id, STAGE_MODEL_TURN, EVT_MODEL_TURN_STARTED, {
-                "turn": evt.turn,
-                "model_text": evt.model_text,
-                "pending_tool_uses": evt.pending_tool_uses,
-            })
-        elif isinstance(evt, ToolBatchCompleted):
-            record(session_id, STAGE_TOOL_BATCH, EVT_TOOL_BATCH_COMPLETED, {
-                "turn": evt.turn,
-                "results": [
-                    {"name": getattr(r, "name", None),
-                     "success": getattr(r, "success", None)}
-                    for r in (evt.results or [])
-                ],
-                "screenshot_b64": evt.screenshot_b64,
-            })
-        elif isinstance(evt, SafetyRequired):
-            record(session_id, STAGE_APPROVAL, EVT_SAFETY_REQUIRED,
-                   {"explanation": evt.explanation})
-        elif isinstance(evt, RunCompleted):
-            record(session_id, STAGE_MODEL_TURN, EVT_RUN_COMPLETED,
-                   {"final_text": evt.final_text})
-        elif isinstance(evt, RunFailed):
-            record(session_id, STAGE_MODEL_TURN, EVT_RUN_FAILED,
-                   {"error": evt.error})
-
-    # Use asend so the wrapper is transparent to the approval resume
-    # handshake (``asend(decision)``).
-    sent: Any = None
-    while True:
-        try:
-            if sent is None:
-                evt = await it.__anext__()
-            else:
-                # Forward sent decision; reset.
-                evt = await it.asend(sent) if hasattr(it, "asend") else await it.__anext__()
-                sent = None
-        except StopAsyncIteration:
-            return
-        await _record(evt)
-        try:
-            sent = yield evt
-        except GeneratorExit:
-            raise
 
 
 # ---------------------------------------------------------------------------
