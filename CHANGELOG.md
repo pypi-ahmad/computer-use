@@ -21,27 +21,22 @@ All notable changes to this project will be documented in this file.
     Computer Use.
 - Expand the documentation set with a professional Computer Use Prompt
     Guide, clearer README/USAGE entry points, technical prompt-contract
-    notes, and cross-links across the supervisor rollout and Gemini
-    successor docs.
-- Phase 4 verification: the Phase 2 commitment to drive Anthropic
-    computer-use tool routing from registry metadata has shipped.
+    notes, and cross-links across Gemini successor and sandbox-security docs.
+- Drive Anthropic computer-use tool routing from registry metadata.
     `ClaudeCUClient` now rejects Anthropic models missing
     `cu_tool_version` / `cu_betas` registry metadata instead of
     selecting `tool_version` / `beta_flag` from model-name substrings.
-- Phase 4 verification: remove the GPT-5.5 Pro slug from the OpenAI model
+- Remove the GPT-5.5 Pro slug from the OpenAI model
     registry/metadata entirely and reject unregistered GA `gpt-5.5*`
     slugs through the registry gate instead of a hardcoded
     per-model exception. See also `OpenAI default reasoning_effort changed from high to medium` below for the main GPT-5.5 behavior change that can shift latency and output quality after upgrading.
-- Phase 4 verification: keep GPT-5.5 screenshot handling aligned with
+- Keep GPT-5.5 screenshot handling aligned with
     OpenAI's current docs by preserving `detail: "original"` up to
     10,240,000 pixels / 6000 px and regression-testing exact
     downscale/remap behavior on oversized screenshots.
-- Phase 4 verification: add runtime replay coverage that confirms
+- Add runtime replay coverage that confirms
     outbound assistant-message replay preserves GPT-5.5 `phase`
     verbatim for both `commentary` and `final_answer` items.
-- Anthropic Claude web search now accepts an optional `allowed_callers`
-    field so ZDR callers can request the documented `web_search_20260209`
-    + `allowed_callers=["direct"]` workaround through the wrapper.
 - Gemini history pruning now uses an atomic turn window instead of
     stripping fields from older kept turns. `GeminiCUClient` accepts a
     new optional `max_history_turns` argument (default `10`) so long
@@ -60,7 +55,7 @@ All notable changes to this project will be documented in this file.
 - Source: OpenAI's latest-model guide for GPT-5.5: https://developers.openai.com/api/docs/guides/latest-model
 - Callers that were relying on the old default should now set `reasoning_effort="high"` explicitly at construction.
 - Observable changes for callers that keep the new default: shorter latency, potentially less deep reasoning on complex tasks, and lower token cost.
-- See the GPT-5.5 Phase 4 note above if you are investigating an output-quality or latency regression after upgrading the OpenAI side of this wrapper.
+- See the GPT-5.5 note above if you are investigating an output-quality or latency regression after upgrading the OpenAI side of this wrapper.
 
 ### Removed
 

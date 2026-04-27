@@ -1,24 +1,24 @@
 # TECHNICAL
 
-Concise architecture notes for contributors.
+Architecture notes for contributors.
 
 The repo is intentionally small in concept:
 
 **Computer Use + optional Web Search + optional provider file retrieval.**
 
-The default architecture is the provider SDK loop plus the shared desktop
-executor.
+The runtime is a provider SDK loop plus a shared desktop executor.
 
 ## Runtime Shape
 
 ```text
 React UI
   -> FastAPI server
-    -> provider run loop
-      -> provider SDK call with documented tools
-      -> DesktopExecutor
-        -> docker/agent_service.py
-          -> Xvfb/XFCE desktop
+    -> AgentLoop
+      -> ComputerUseEngine
+        -> provider SDK call with documented tools
+        -> DesktopExecutor
+          -> docker/agent_service.py
+            -> Xvfb/XFCE desktop
 ```
 
 The provider sees screenshots and returns tool calls. The executor performs
@@ -30,6 +30,7 @@ those calls inside the Docker desktop and returns the next screenshot.
 |---|---|
 | `backend/server.py` | HTTP API, WebSocket events, key/model validation, session lifecycle |
 | `backend/loop.py` | Turns a UI request into one provider Computer Use run |
+| `backend/engine/__init__.py` | Provider/model validation and `ComputerUseEngine` facade |
 | `backend/providers/openai.py` | OpenAI public `run(...)` wrapper |
 | `backend/providers/anthropic.py` | Anthropic public `run(...)` wrapper |
 | `backend/providers/gemini.py` | Gemini public `run(...)` wrapper |
@@ -63,6 +64,10 @@ on_event(event): callback for UI/session events
 on_safety(prompt): callback for provider safety confirmation
 ```
 
+`tools.web_search` is the only public search option. If it is false, the
+provider receives only Computer Use plus any eligible file context. If it is
+true, the provider receives its official Web Search tool in the same run.
+
 ## Tool Matrix
 
 | Condition | OpenAI | Anthropic | Gemini |
@@ -72,7 +77,13 @@ on_safety(prompt): callback for provider safety confirmation
 | Files uploaded | add `file_search` | add Files API/document context | reject |
 
 Gemini file uploads are rejected because Gemini File Search is not documented
-as compatible with Computer Use.
+as part of this app's Computer Use path.
+
+Rejected request-shape examples:
+
+- Gemini plus `attached_files`
+- OpenAI Web Search with minimal reasoning effort
+- any request field outside the public schema
 
 ## Executor Contract
 
@@ -100,6 +111,10 @@ executor.
 File ids passed through the UI are local opaque ids until `backend/files.py`
 prepares them for a provider.
 
+The backend accepts `.pdf`, `.txt`, `.md`, and `.docx`. Provider-side limits may
+be stricter than the local upload cap and are surfaced as provider errors at
+session start.
+
 ## Session Lifecycle
 
 1. `POST /api/agent/start`
@@ -111,6 +126,21 @@ prepares them for a provider.
 
 Safety prompts pause the active provider loop through `backend/safety.py` and
 resume when the operator confirms or denies.
+
+## API Surface
+
+Primary endpoints:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/models` | Return the Computer Use capable model allowlist |
+| `GET /api/container/status` | Report sandbox/container health |
+| `POST /api/files/upload` | Store a reference file and return a local file id |
+| `POST /api/agent/start` | Start one Computer Use run |
+| `POST /api/agent/stop/{session_id}` | Stop a running session |
+| `GET /api/agent/status/{session_id}` | Poll current session state |
+| `POST /api/safety/confirm` | Confirm or deny a provider safety prompt |
+| `WS /ws` | Stream logs, steps, status, and safety prompts |
 
 ## Sandbox Boundary
 
@@ -136,7 +166,7 @@ python -m pytest -p no:cacheprovider tests evals --tb=short
 Focused architecture tests:
 
 ```powershell
-python -m pytest tests/test_provider_run_contract.py tests/test_files.py tests/test_executor_split.py --tb=short
+python -m pytest tests/test_provider_run_contract.py tests/test_files.py tests/test_server_validation.py --tb=short
 ```
 
 Provider hot spots:
