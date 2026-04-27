@@ -517,7 +517,7 @@ def server_mod(monkeypatch):
     """Import backend.server with the publisher's IO stubbed out.
 
     We patch:
-      * ``backend.agent.loop.capture_screenshot`` → returns a
+      * ``backend.executor.capture_screenshot`` → returns a
         tiny fake PNG-base64 string. We also clear the server's bound
         import so the freshly-patched callable is picked up.
       * ``backend.infra.docker.is_container_running`` → True, so the
@@ -705,4 +705,5 @@ class TestSingleSubscriberCadence:
             await _drain_task(task)
 
         asyncio.run(go())
+
 
