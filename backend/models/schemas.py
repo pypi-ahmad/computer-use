@@ -33,6 +33,7 @@ class ActionType(str, enum.Enum):
     OPEN_WEB_BROWSER = "open_web_browser"
     SCROLL_DOCUMENT = "scroll_document"
     SEARCH = "search"
+    SCREENSHOT = "screenshot"
     WAIT_5_SECONDS = "wait_5_seconds"
 
     # ── Canonical Mapped Actions (timeline-friendly) ──────────────────────
