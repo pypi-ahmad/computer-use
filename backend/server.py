@@ -1135,9 +1135,17 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
     # Cap max_steps to prevent runaway agents
     req.max_steps = min(req.max_steps, _MAX_STEPS_HARD_CAP)
 
-    # Validate attached_files (optional). Activation rule: file_search
-    # is only attached when the user explicitly uploads files.
+    # Validate attached_files (optional). Reference-file grounding is
+    # available only where the provider has a documented CU-compatible path:
+    # OpenAI Responses file_search and Anthropic Files API. Gemini File Search
+    # cannot be combined with other tools, including Computer Use.
     if req.attached_files:
+        if req.provider == "google":
+            return _error_response(
+                400,
+                "Reference files are supported for OpenAI and Anthropic computer-use "
+                "sessions only; Gemini File Search cannot be combined with Computer Use.",
+            )
         from backend.infra.storage import store as _file_store
         seen = set()
         for fid in req.attached_files:

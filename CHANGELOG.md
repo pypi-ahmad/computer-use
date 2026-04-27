@@ -65,5 +65,4 @@ All notable changes to this project will be documented in this file.
   and all docs. The repo now exposes a single Gemini SKU,
   `gemini-3-flash-preview`, matching the only Gemini id on Google's
   official Computer Use supported-model list that this project
-  ships against. `gemini-2.5-computer-use-preview-10-2025` is also
-  not listed; callers that need it can re-add it locally.
+  ships against.
