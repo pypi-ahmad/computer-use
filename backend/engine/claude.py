@@ -518,7 +518,7 @@ class ClaudeCUClient:
         turn_limit: int = DEFAULT_TURN_LIMIT,
         on_log: Callable[[str, str], None] | None = None,
     ) -> AsyncIterator[TurnEvent]:
-        """Async-generator contract powering the LangGraph node split.
+        """Async-generator contract for consumers that need per-turn events.
 
         Yields per-turn events (``ModelTurnStarted`` → ``ToolBatchCompleted``)
         until the run terminates, at which point a final ``RunCompleted``
@@ -528,8 +528,8 @@ class ClaudeCUClient:
         ``stop_reason=="refusal"`` — there is no client-side
         ``require_confirmation`` handshake — so this generator never
         yields ``SafetyRequired``. For consistency with Gemini/OpenAI
-        the outer graph still routes to the ``approval_interrupt``
-        node when a ``SafetyRequired`` event arrives.
+        callers can still handle a ``SafetyRequired`` event uniformly
+        if another provider yields one.
         """
         # Compute screenshot scaling to prevent coordinate drift.
         scale = get_claude_scale_factor(
@@ -682,8 +682,8 @@ class ClaudeCUClient:
                 refusal_reason = turn_text or "Model refused to continue (safety refusal)."
                 if on_log:
                     on_log("warning", f"Claude refused: {refusal_reason[:200]}")
-                # Emit an empty-actions tool-batch event so the outer
-                # graph still gets a step record for this turn.
+                # Emit an empty-actions tool-batch event so consumers
+                # still get a step record for this turn.
                 yield ToolBatchCompleted(
                     turn=turn + 1, model_text=refusal_reason,
                     results=[], screenshot_b64=None,
@@ -763,9 +763,7 @@ class ClaudeCUClient:
 
             saw_computer_action = True
 
-            # Emit the "model call done, about to run tools" boundary
-            # event. The outer graph transitions preflight/model_turn →
-            # tool_batch here.
+            # Emit the "model call done, about to run tools" boundary event.
             yield ModelTurnStarted(
                 turn=turn + 1,
                 model_text=turn_text,

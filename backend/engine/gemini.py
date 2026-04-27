@@ -413,7 +413,7 @@ class GeminiCUClient:
         turn_limit: int = DEFAULT_TURN_LIMIT,
         on_log: Callable[[str, str], None] | None = None,
     ) -> AsyncIterator[TurnEvent]:
-        """Yield Gemini turn events for the LangGraph driver.
+        """Yield Gemini turn events for per-turn consumers.
 
         Wraps :meth:`_iter_turns_core` while preserving the
         ``agen.asend(bool)`` resume protocol the safety flow relies on.
@@ -445,8 +445,7 @@ class GeminiCUClient:
         """Core iter_turns body — see :meth:`iter_turns` for the public contract.
 
         Safety confirmations are emitted as :class:`SafetyRequired`
-        events and resumed via ``agen.asend(bool)`` so the shared graph
-        interrupt path owns the approval lifecycle.
+        events and resumed via ``agen.asend(bool)``.
         """
         types = self._types
         config = self._build_config()
@@ -583,7 +582,7 @@ class GeminiCUClient:
                             parts=[
                                 types.Part(
                                     text=(
-                                        "Use any retrieved search/file context to continue, but do not stop yet. "
+                                        "Use any retrieved search context to continue, but do not stop yet. "
                                         "This app's purpose is computer use: the task is not complete until you perform "
                                         "the requested action with the computer_use tool on the current screen. "
                                         "Continue with computer actions now."
