@@ -9,9 +9,8 @@ Scenario:
   ``_active_tasks``.
 
 Closes the loop on the readiness gate that only exists at the HTTP
-layer — a pure-graph test can't catch a regression in
-``api_start_agent``'s ordering between ``start_container`` and
-``get_container_state``.
+layer, where session creation checks ``start_container`` and
+``get_container_state`` before registering an agent run.
 """
 
 from __future__ import annotations

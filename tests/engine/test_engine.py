@@ -1636,6 +1636,15 @@ class TestOpenAIWebSearch:
             "vector_store_ids": ["vs_test"],
         } in tools
 
+    def test_file_search_without_web_search_keeps_computer_tool(self):
+        client = self._make(use_builtin_search=False)
+        client._vector_store_id = "vs_test"
+        tools = client._build_tools(1440, 900)
+        assert tools == [
+            {"type": "computer"},
+            {"type": "file_search", "vector_store_ids": ["vs_test"]},
+        ]
+
     def test_unsupported_openai_model_with_search_raises_explicit_error(self):
         client = self._make(model="gpt-experimental-xyz", use_builtin_search=True)
         with pytest.raises(ValueError, match="not a supported OpenAI computer-use model"):

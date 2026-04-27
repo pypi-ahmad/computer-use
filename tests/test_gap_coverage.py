@@ -625,7 +625,7 @@ class TestStreamScreenshotsResilience:
         asyncio.run(driver())
         assert calls["n"] >= 2, "loop should retry after broad Exception"
         assert any("screenshot_stream" in e for e in sent_events), (
-            "post-recovery frame should still be broadcast"
+            "frame after retry should still be broadcast"
         )
 
 
@@ -965,7 +965,7 @@ class TestScreenshotStreamerTimeout:
         assert calls["n"] >= 2, "loop should recover and retry after the timeout"
         assert not ws.closed, "WS must remain open across the timeout"
         assert any("screenshot_stream" in m for m in ws.messages), (
-            "A screenshot frame should be delivered after recovery"
+            "A screenshot frame should be delivered after retry"
         )
 
 
