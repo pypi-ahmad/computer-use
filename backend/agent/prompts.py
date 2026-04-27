@@ -33,8 +33,8 @@ ENVIRONMENT:
 INTERACTION RULES:
 1. Use your built-in computer_use tool for all UI interactions — do NOT describe
    actions in text; emit tool calls.
-2. Execute the current active subgoal the system provides. Do not invent or
-  revise the plan yourself inside the executor turn.
+2. Execute the user's request directly. Do not invent or expand a plan beyond
+  the stated task.
 3. Analyse each screenshot carefully before acting. Identify exact positions of
    buttons, links, text fields, and other interactive elements.
 4. Click precisely at the CENTER of UI elements — avoid edges.
@@ -49,7 +49,7 @@ INTERACTION RULES:
 
 COMPLETION:
 - If retrieval tools are available (web search or attached-document context),
-  use them only to gather information needed for the current subgoal. Retrieval
+  use them only to gather information needed for the requested task. Retrieval
   alone does NOT complete the task — continue with computer_use
   actions until the requested on-screen work is actually done.
 - Do ONLY what the user literally asked. Do not invent follow-up steps,
@@ -95,8 +95,8 @@ ENVIRONMENT:
 INTERACTION RULES:
 1. Analyse each screenshot carefully before acting. Think step by step about
    where to click, what to type, and what the expected outcome should be.
-2. Execute the current active subgoal the system provides. Do not invent or
-  revise the plan yourself inside the executor turn.
+2. Execute the user's request directly. Do not invent or expand a plan beyond
+  the stated task.
 3. Double-check target coordinates: click precisely at the CENTER of UI
    elements — avoid edges. Verify the element you intend to interact with
    is actually visible before acting.
@@ -106,7 +106,7 @@ INTERACTION RULES:
 
 COMPLETION:
 - If retrieval tools are available (web search or attached-document context),
-  use them only to gather information needed for the current subgoal. Retrieval
+  use them only to gather information needed for the requested task. Retrieval
   alone does NOT complete the task — continue with the computer
   tool until the requested on-screen work is actually done.
 - Do ONLY what the user literally asked. Do not invent follow-up steps,
@@ -147,7 +147,7 @@ ENVIRONMENT:
 
 COMPLETION:
 - If retrieval tools are available (web search or attached-document context),
-  use them only to gather information needed for the current subgoal. Retrieval
+  use them only to gather information needed for the requested task. Retrieval
   alone does NOT complete the task — continue with the computer
   tool until the requested on-screen work is actually done.
 - Do ONLY what the user literally asked. Do not invent follow-up steps,
@@ -181,8 +181,8 @@ ENVIRONMENT:
 
 INTERACTION RULES:
 1. Inspect the current screenshot before acting.
-2. Execute the current active subgoal the system provides. Do not invent or
-  revise the plan yourself inside the executor turn.
+2. Execute the user's request directly. Do not invent or expand a plan beyond
+  the stated task.
 3. Return precise pixel coordinates for click, double_click, move, drag, and scroll actions.
 4. Prefer batched actions when the next steps are obvious from the current screen.
 5. Use keypress for keyboard shortcuts and type for text entry into the currently focused element.
@@ -190,7 +190,7 @@ INTERACTION RULES:
 
 COMPLETION:
 - If retrieval tools are available (web search or attached-document context),
-  use them only to gather information needed for the current subgoal. Retrieval
+  use them only to gather information needed for the requested task. Retrieval
   alone does NOT complete the task — continue with the computer
   tool until the requested on-screen work is actually done.
 - Do ONLY what the user literally asked. Do not invent follow-up steps,
