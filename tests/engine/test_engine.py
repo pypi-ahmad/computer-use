@@ -588,7 +588,7 @@ class TestOpenAIRuntimePath:
             mock_openai.return_value.responses.create = responses_create
             client = OpenAICUClient(
                 api_key="test-key",
-                model="gpt-5.4",
+                model="gpt-5.5",
                 use_builtin_search=True,
             )
 
@@ -1336,7 +1336,7 @@ class TestOpenAIZDRReplay:
             AA.return_value = FakeClient()
             client = OpenAICUClient(
                 api_key="k",
-                model="gpt-5.4",
+                model="gpt-5.5",
                 use_builtin_search=True,
             )
 
@@ -1625,9 +1625,9 @@ class TestOpenAIWebSearch:
         assert ws["filters"]["allowed_domains"] == ["example.com"]
         assert ws["filters"]["blocked_domains"] == ["bad.test"]
 
-    def test_preview_model_with_search_raises_explicit_error(self):
-        client = self._make(model="computer-use-preview", use_builtin_search=True)
-        with pytest.raises(ValueError, match="computer-use-preview"):
+    def test_unsupported_openai_model_with_search_raises_explicit_error(self):
+        client = self._make(model="gpt-experimental-xyz", use_builtin_search=True)
+        with pytest.raises(ValueError, match="not a supported OpenAI computer-use model"):
             client._build_tools(1440, 900)
 
     def test_unregistered_openai_ga_model_is_rejected_for_computer_use(self):
@@ -1965,7 +1965,7 @@ class TestGeminiGoogleSearch:
     def test_non_gemini3_combo_raises_explicit_error(self):
         with pytest.raises(ValueError, match="Gemini 3"):
             self._make(
-                model="gemini-2.5-computer-use-preview-10-2025",
+                model="gemini-2.5-flash",
                 use_builtin_search=True,
             )
 

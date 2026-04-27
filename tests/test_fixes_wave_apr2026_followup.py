@@ -4,7 +4,6 @@ migration + registry correctness.
 
 Covers:
   * Short-form ``{"type": "computer"}`` tool for ``gpt-5.4``.
-  * Legacy long-form tool for the ``computer-use-preview`` model id.
   * ``actions[]`` array iteration with a single screenshot + single
     ``computer_call_output`` at the end.
   * ``computer_call_output.output.detail == "original"`` on every turn.
@@ -51,31 +50,14 @@ class TestToolShape:
 
         assert client._build_tools(1440, 900) == [{"type": "computer"}]
 
-    def test_legacy_computer_use_preview_model_keeps_old_shape(self):
-        from backend.engine import OpenAICUClient
-
-        with patch("openai.AsyncOpenAI"):
-            client = OpenAICUClient(api_key="k", model="computer-use-preview")
-
-        tools = client._build_tools(1440, 900)
-        assert len(tools) == 1
-        tool = tools[0]
-        assert tool["type"] == "computer_use_preview"
-        assert tool["display_width"] == 1440
-        assert tool["display_height"] == 900
-        assert tool["environment"] == "browser"
-
-    def test_unknown_openai_model_warns_and_uses_short_form(self):
+    def test_unknown_openai_model_is_rejected(self):
         from backend.engine import OpenAICUClient
 
         with patch("openai.AsyncOpenAI"):
             client = OpenAICUClient(api_key="k", model="gpt-experimental-xyz")
 
-        logs: list[tuple[str, str]] = []
-        tools = client._build_tools(1440, 900, on_log=lambda lvl, msg: logs.append((lvl, msg)))
-
-        assert tools == [{"type": "computer"}]
-        assert any(lvl == "warning" and "untested" in msg for lvl, msg in logs)
+        with pytest.raises(ValueError, match="not a supported OpenAI computer-use model"):
+            client._build_tools(1440, 900)
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +184,7 @@ class TestActionsArray:
     @pytest.mark.asyncio
     async def test_single_action_fallback_still_works(self, monkeypatch):
         """If a computer_call has `.action` but no `.actions`, that single
-        action should still be dispatched (legacy preview shape)."""
+        action should still be dispatched."""
         from backend.engine import OpenAICUClient
 
         executor = _FakeExecutor()

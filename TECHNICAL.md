@@ -225,8 +225,8 @@ re-upload or re-extract the same material.
 
 `backend/engine/openai.py` implements `OpenAICUClient` against the
 Responses API. For `gpt-5.5` and `gpt-5.4` it emits the built-in short-form
-`{"type": "computer"}` tool; the old `computer-use-preview` branch is
-still present only as compatibility code.
+`{"type": "computer"}` tool. Unsupported OpenAI model ids are rejected
+instead of falling back to an unverified tool shape.
 When `use_builtin_search` is true, `OpenAICUClient` also attaches the official
 Responses `web_search` tool alongside `computer`, which is the documented
 OpenAI combined-tool path for live web context plus UI action execution.
@@ -300,9 +300,7 @@ turn. This keeps the loop doc-compliant while preserving the optional
 `google_search` tool during later Computer Use turns when the toggle is on.
 
 `gemini-3.1-pro-preview` and every other non-Flash Gemini id have been
-removed from `backend/models/allowed_models.json`. Google's official Computer
-Use docs list only `gemini-3-flash-preview` (and the legacy
-`gemini-2.5-computer-use-preview-10-2025`); the repo standardises on
+removed from `backend/models/allowed_models.json`. The repo standardises on
 Flash as the single Gemini CU SKU. See [CHANGELOG.md](CHANGELOG.md).
 
 ## 5. Agent orchestration (LangGraph)
@@ -568,9 +566,9 @@ invocation because `pyproject.toml` pins `testpaths = ["tests"]`.
    `backend/server.py::_screenshot_publisher_loop()` and the
    screenshot-publisher tests.
 6. **Gemini is restricted to `gemini-3-flash-preview`.**
-   All other Gemini ids (including `gemini-3.1-pro-preview` and
-   `gemini-2.5-computer-use-preview-10-2025`) have been removed from
-  `backend/models/allowed_models.json` to match Google's official Computer
+   All other Gemini ids, including older Gemini 2.5 Computer Use ids, have
+   been removed from
+   `backend/models/allowed_models.json` to match Google's official Computer
    Use supported-model list and avoid `400 INVALID_ARGUMENT: Computer
    Use is not enabled` errors. See [CHANGELOG.md](CHANGELOG.md).
 7. **Host-to-container auth uses a generated token, not a plain `-e`
@@ -677,5 +675,4 @@ invocation because `pyproject.toml` pins `testpaths = ["tests"]`.
 - 12-factor App: <https://12factor.net>
 - Anthropic reference sandbox:
   <https://github.com/anthropics/claude-quickstarts/tree/main/computer-use-demo>
-- Google reference implementation:
-  <https://github.com/google-gemini/computer-use-preview>
+- Google Computer Use reference material is linked from the official guide.
