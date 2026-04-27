@@ -14,10 +14,15 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Document the current provider-native attachment flow: OpenAI uploads
-    into a vector store, Gemini uses File Search through a one-shot RAG
-    pre-step before the Computer Use loop, and Anthropic uses the Files
-    API for `.pdf` / `.txt` with inline-text fallback for `.md` /
-    `.docx`.
+    into a vector store and attaches `file_search`, Anthropic uses the
+    Files API for `.pdf` / `.txt` with inline-text fallback for `.md` /
+    `.docx`, and Gemini rejects reference-file uploads for Computer Use
+    sessions because this repo does not combine Gemini File Search with
+    Computer Use.
+- Expand the documentation set with a professional Computer Use Prompt
+    Guide, clearer README/USAGE entry points, technical prompt-contract
+    notes, and cross-links across the supervisor rollout and Gemini
+    successor docs.
 - Phase 4 verification: the Phase 2 commitment to drive Anthropic
     computer-use tool routing from registry metadata has shipped.
     `ClaudeCUClient` now rejects Anthropic models missing

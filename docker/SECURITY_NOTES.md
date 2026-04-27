@@ -1,5 +1,16 @@
 # Agent-service attack-surface notes
 
+These notes document the in-container action surface and the sandbox posture
+expected by the backend provider adapters. They are intended for maintainers who
+change `docker/agent_service.py`, `backend/engine/__init__.py`, provider
+request builders, or the Docker image.
+
+Related documentation:
+
+- [Operator Usage Guide](../USAGE.md)
+- [Technical Architecture](../TECHNICAL.md)
+- [Computer Use Prompt Guide](../docs/computer-use-prompt-guide.md)
+
 The in-container HTTP service (`docker/agent_service.py`) historically
 exposed more actions than the engine ever invokes. As of PR
 `<docker-action-trim>`, the default build serves exactly the action
@@ -94,6 +105,20 @@ action rejected: action='open_app' resolved='open_app' legacy_enabled=False
 Operators looking for unexpected client behaviour (old engine images,
 prompt-injected action names) should grep container logs for
 `action rejected:`.
+
+## Prompt and content-safety boundary
+
+The sandbox service does not interpret user intent directly. It executes only
+the normalized actions sent by the backend engine. User prompts, webpages,
+uploaded files, model text, screenshots, and tool outputs are therefore treated
+as upstream context, not as authority to expand the action surface.
+
+This boundary matters for prompt injection. If a webpage, document, or visible
+UI tells the model to ignore the user's task, reveal secrets, download unrelated
+files, or call unsupported actions, the correct behavior is to stop, report the
+conflict, or ask for approval. The operator-facing wording lives in
+[../docs/computer-use-prompt-guide.md](../docs/computer-use-prompt-guide.md);
+the enforcement surface lives here and in the provider adapters.
 
 ## Viewport default (1440x900)
 
