@@ -233,9 +233,6 @@ class GeminiCUClient:
         excluded_actions: list[str] | None = None,
         system_instruction: str | None = None,
         use_builtin_search: bool = False,
-        search_max_uses: int | None = None,
-        search_allowed_domains: list[str] | None = None,
-        search_blocked_domains: list[str] | None = None,
         # Bound replay depth without stripping any fields from retained turns.
         # Gemini tool-combination docs require replaying all parts/fields
         # intact on each kept turn:
@@ -269,9 +266,6 @@ class GeminiCUClient:
             provider="gemini",
             model=model,
             use_builtin_search=use_builtin_search,
-            search_max_uses=search_max_uses,
-            search_allowed_domains=search_allowed_domains,
-            search_blocked_domains=search_blocked_domains,
         )
         # AI-3: read CUA_GEMINI_THINKING_LEVEL once at init so subsequent
         # env mutations don't change behaviour mid-session and we don't pay
@@ -287,9 +281,7 @@ class GeminiCUClient:
         # ``include_server_side_tool_invocations=True`` so the
         # combined-tool execution model documented at
         # https://ai.google.dev/gemini-api/docs/tool-combination works.
-        # Unsupported search options are rejected during validation.
         self._use_builtin_search = bool(use_builtin_search)
-        del search_max_uses, search_allowed_domains, search_blocked_domains
         if attached_file_ids:
             raise ValueError(
                 "Reference files are supported for OpenAI and Anthropic computer-use "
