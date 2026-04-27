@@ -264,7 +264,7 @@ class TestRunAndNotifyErrorPath:
 
     def test_exception_marks_session_error_and_broadcasts(self):
         from backend import server
-        from backend.agent.loop import AgentLoop  # noqa: F401  (only for type hints)
+        from backend.loop import AgentLoop  # noqa: F401  (only for type hints)
 
         session_id = "00000000-0000-0000-0000-000000000001"
 
@@ -983,7 +983,7 @@ class TestSafetyTimeoutAutoDeny:
         ``TimeoutError`` immediately — asserting the callback returns False
         and emits a 'timed out' warning.
         """
-        from backend.agent.loop import AgentLoop
+        from backend.loop import AgentLoop
 
         loop = AgentLoop(
             task="t",
@@ -1006,7 +1006,7 @@ class TestSafetyTimeoutAutoDeny:
         # Replace the nested import target inside _run_computer_use_engine
         # with our fake so it hands back the on_safety closure.
         with patch("backend.engine.ComputerUseEngine", FakeEngine), \
-             patch("backend.agent.prompts.get_system_prompt", return_value="sys"):
+             patch("backend.prompts.get_system_prompt", return_value="sys"):
             # Drive the engine path just long enough to capture on_safety.
             asyncio.run(loop._run_computer_use_engine())
 
@@ -1020,7 +1020,7 @@ class TestSafetyTimeoutAutoDeny:
             logs.append((level, message))
             return original_emit(level, message, *a, **kw)
 
-        # Patch asyncio.wait_for inside backend.agent.loop so the closure
+        # Patch asyncio.wait_for inside backend.loop so the closure
         # sees our replacement and the 60 s wait collapses instantly.
         async def instant_timeout(coro, *a, **kw):
             # Close the inner coroutine so pytest doesn't warn about a
@@ -1030,7 +1030,7 @@ class TestSafetyTimeoutAutoDeny:
             raise asyncio.TimeoutError()
 
         with patch.object(loop, "_emit_log", side_effect=record_emit), \
-             patch("backend.agent.loop.asyncio.wait_for", side_effect=instant_timeout):
+             patch("backend.loop.asyncio.wait_for", side_effect=instant_timeout):
             decision = asyncio.run(on_safety("drop production tables"))
 
         assert decision is False, "timeout must auto-deny the action (T3)"
@@ -1134,3 +1134,4 @@ class TestComposeHardening:
         assert any("/tmp" in entry for entry in tmpfs), (
             "D4: /tmp must be mounted as tmpfs for read-only image tolerance"
         )
+

@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from backend.agent.prompts import get_system_prompt
+from backend.prompts import get_system_prompt
 from backend.infra.config import Config
 
 
@@ -321,7 +321,7 @@ class TestScreenshotFallback:
 
     @pytest.mark.asyncio
     async def test_5xx_falls_back(self, monkeypatch):
-        from backend.agent import loop as ss
+        import backend.executor as ss
 
         called = {}
 
@@ -350,7 +350,7 @@ class TestScreenshotFallback:
 
     @pytest.mark.asyncio
     async def test_401_propagates(self, monkeypatch):
-        from backend.agent import loop as ss
+        import backend.executor as ss
 
         resp = self._response(401, {"error": "unauthorized"})
 
@@ -924,7 +924,7 @@ class TestStuckAgentDetection:
 
     @pytest.mark.asyncio
     async def test_three_identical_trips_stop(self):
-        from backend.agent.loop import AgentLoop
+        from backend.loop import AgentLoop
         from backend.engine import CUActionResult, CUTurnRecord
 
         loop = AgentLoop(task="hello", api_key="k" * 16)
@@ -961,7 +961,7 @@ class TestStuckAgentDetection:
         """Flipping ``_stop_requested`` alone leaves the engine running
         until its turn limit. Detection must also cancel ``_run_task``
         so the next provider call raises ``CancelledError``."""
-        from backend.agent.loop import AgentLoop
+        from backend.loop import AgentLoop
         from backend.engine import CUActionResult, CUTurnRecord
         from backend.engine import ComputerUseEngine
 
@@ -999,7 +999,7 @@ class TestStuckAgentDetection:
     async def test_long_workflow_with_varying_actions_not_stopped(self):
         """Preserve successful long-running workflows: many turns whose
         actions vary (different coords / text) must NOT trip detection."""
-        from backend.agent.loop import AgentLoop
+        from backend.loop import AgentLoop
         from backend.engine import CUActionResult, CUTurnRecord
         from backend.engine import ComputerUseEngine
 
@@ -1095,3 +1095,4 @@ class TestGeminiNativeAsync:
                 "Unexpected asyncio.to_thread use outside the file-search "
                 f"blocking-call wrappers: {occurrence_line!r}"
             )
+

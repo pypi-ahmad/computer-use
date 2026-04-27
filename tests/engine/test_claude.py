@@ -447,7 +447,7 @@ _SCAFFOLDING_PHRASES = (
 
 class TestPromptAudit:
     def test_opus_47_prompts_stripped_of_scaffolding(self):
-        from backend.agent.prompts import get_system_prompt
+        from backend.prompts import get_system_prompt
 
         prompt = get_system_prompt(
             "computer_use", "desktop",
@@ -462,7 +462,7 @@ class TestPromptAudit:
     def test_sonnet_46_prompt_keeps_scaffolding(self):
         """Negative control: non-4.7 Claude models still benefit from
         the scaffolding and must retain it."""
-        from backend.agent.prompts import get_system_prompt
+        from backend.prompts import get_system_prompt
 
         prompt = get_system_prompt(
             "computer_use", "desktop",
@@ -478,7 +478,7 @@ class TestPromptAudit:
     def test_opus_46_gets_scaffolded_prompt(self):
         """Opus 4.6 (computer_20251124 tool but older reasoning) still
         benefits from scaffolding — only 4.7 is more literal."""
-        from backend.agent.prompts import get_system_prompt
+        from backend.prompts import get_system_prompt
 
         prompt = get_system_prompt(
             "computer_use", "desktop",
@@ -489,7 +489,7 @@ class TestPromptAudit:
     def test_anthropic_without_model_defaults_to_scaffolded(self):
         """Callers that don't pass a model id must get the conservative
         scaffolded prompt."""
-        from backend.agent.prompts import get_system_prompt
+        from backend.prompts import get_system_prompt
 
         prompt = get_system_prompt(
             "computer_use", "desktop", provider="anthropic",
@@ -1096,4 +1096,5 @@ class TestSonnet46AllowedModelsEntry:
         assert entry["supports_computer_use"] is True
         assert entry["cu_tool_version"] == "computer_20251124"
         assert entry["cu_betas"] == ["computer-use-2025-11-24"]
+
 
