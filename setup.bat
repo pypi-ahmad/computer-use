@@ -1,9 +1,42 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 
 REM Usage:
 REM   setup.bat
+REM   setup.bat --bootstrap-only
 REM   setup.bat --clean
+
+set "CLEAN=0"
+set "BOOTSTRAP_ONLY=0"
+
+:parse_args
+if "%~1"=="" goto args_done
+if /I "%~1"=="--clean" (
+  set "CLEAN=1"
+  shift
+  goto parse_args
+)
+if /I "%~1"=="--bootstrap-only" (
+  set "BOOTSTRAP_ONLY=1"
+  shift
+  goto parse_args
+)
+if /I "%~1"=="--help" goto show_help
+if /I "%~1"=="-h" goto show_help
+echo [ERROR] Unknown option: %~1
+exit /b 1
+
+:show_help
+echo Usage:
+echo   setup.bat [--clean] [--bootstrap-only]
+echo.
+echo Options:
+echo   --clean           Destructive Docker cleanup before rebuilding.
+echo   --bootstrap-only  Prepare the environment but do not launch dev.py.
+echo   --help            Show this help text.
+exit /b 0
+
+:args_done
 
 echo [INFO] Checking prerequisites...
 
@@ -42,7 +75,7 @@ if errorlevel 1 (
 echo [INFO] All prerequisites met.
 
 REM Destructive cleanup only when explicitly requested
-if /I "%~1"=="--clean" (
+if "%CLEAN%"=="1" (
   echo [WARN] Running destructive Docker cleanup ^(--clean^)...
   docker compose down --rmi all -v
   docker system prune -a --volumes -f
@@ -72,23 +105,42 @@ if not exist ".venv" (
 )
 call .venv\Scripts\activate.bat
 python -m pip install --upgrade pip
+if errorlevel 1 (
+  echo [ERROR] Failed to upgrade pip.
+  exit /b !errorlevel!
+)
 python -m pip install -r requirements.txt
+if errorlevel 1 (
+  echo [ERROR] Failed to install Python dependencies.
+  exit /b !errorlevel!
+)
 echo [INFO] Python dependencies installed.
 
 echo [INFO] Installing frontend dependencies...
 pushd frontend >nul
 call npm install
+if errorlevel 1 (
+  popd >nul
+  echo [ERROR] Failed to install frontend dependencies.
+  exit /b !errorlevel!
+)
 popd >nul
 echo [INFO] Frontend dependencies installed.
 
 echo.
 echo === Setup complete! ===
-echo.
-echo To run the system:
-echo   1. Start container: docker compose up -d --build
-echo   2. Start backend:   .venv\Scripts\activate ^& python -m backend.main
-echo   3. Start frontend:  cd frontend ^& npm run dev
-echo   4. Open http://localhost:3000
-echo.
+if "%BOOTSTRAP_ONLY%"=="1" (
+  echo [INFO] Bootstrap-only mode requested; not launching dev.py.
+  echo [INFO] Run "python dev.py" for day-to-day startup.
+  echo.
+  endlocal
+  exit /b 0
+)
+
+echo [INFO] Launching the full stack...
+echo [INFO] The browser UI will be available at http://localhost:3000 once Vite is ready.
+python "%~dp0dev.py"
+set "EXIT_CODE=%ERRORLEVEL%"
 
 endlocal
+exit /b %EXIT_CODE%

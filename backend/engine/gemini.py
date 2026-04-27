@@ -81,9 +81,8 @@ def _prune_gemini_context(contents: list[Any], max_history_turns: int) -> None:
 # S4 — Gemini browser routing + Playwright opt-in
 # ---------------------------------------------------------------------------
 
-# Google's Gemini 3 Flash Preview reference implementation
-# (github.com/google-gemini/computer-use-preview) drives a Chromium instance
-# under Playwright.  The repo's default xdotool/full-desktop harness is
+# Google's Gemini 3 Flash Preview reference guidance uses a Chromium instance
+# under Playwright. The repo's default xdotool/full-desktop harness is
 # compatible (the model returns normalized 0-999 coordinates which
 # ``DesktopExecutor._denormalize_coords`` maps to any viewport), but when
 # the agent has a choice of browser for a Gemini session, Chromium is the

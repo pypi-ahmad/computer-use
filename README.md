@@ -456,19 +456,19 @@ cd computer-use
 cp .env.example .env
 # add at least one provider API key
 
-bash setup.sh
-docker compose up -d
+python3 dev.py --bootstrap   # first run or recovery
 
-source .venv/bin/activate
-python -m backend.main
-
-# in a second terminal
-cd frontend
-npm run dev
+# normal day-to-day start
+python3 dev.py
 ```
 
 Then open `http://localhost:3000`, click **Start Environment**, choose a
 provider and model, and enter a task.
+
+`dev.py --bootstrap` is the recommended first-run and recovery path: it
+bootstraps the environment and then launches the sandbox, FastAPI backend, and
+Vite frontend so the UI is immediately usable. `dev.py` remains the day-to-day
+launcher after that first run.
 
 If you want the shortest summary of prerequisites before you try that flow, they
 are:
@@ -489,8 +489,8 @@ automation scripts, onboarding notes, and documentation.
 
 ## Windows quickstart
 
-On Windows PowerShell, use the repository in the same general order but with the
-Windows setup script and activation path:
+On Windows PowerShell, use the repository in the same general order but with
+the Windows-flavored launcher command:
 
 ```powershell
 git clone https://github.com/pypi-ahmad/computer-use.git
@@ -498,16 +498,43 @@ cd computer-use
 Copy-Item .env.example .env
 # add at least one provider API key
 
-.\setup.bat
-docker compose up -d
+python dev.py --bootstrap    # first run or recovery
 
-.venv\Scripts\Activate.ps1
-python -m backend.main
-
-# in a second terminal
-cd frontend
-npm run dev
+# normal day-to-day start
+python dev.py
 ```
+
+If you prefer wrappers instead of spelling out `python`, use:
+
+```powershell
+# Windows
+.\dev.bat --bootstrap
+.\dev.bat
+```
+
+```bash
+# macOS / Linux
+bash dev.sh --bootstrap
+bash dev.sh
+```
+
+The direct setup-script entrypoints still exist when you want to run them
+explicitly:
+
+```bash
+bash setup.sh
+```
+
+```powershell
+.\setup.bat
+```
+
+Validation:
+
+- `dev.py --help` works
+- `setup.bat --help` works
+- `dev.py` compiles cleanly
+- `dev.py` has no diagnostics errors
 
 If PowerShell blocks local script execution, a temporary session-scoped policy
 change is usually enough:
@@ -563,8 +590,15 @@ docker compose up -d
 
 ### Running the backend and frontend after a rebuild
 
+The preferred daily command after a rebuild is still the unified launcher:
+
+```powershell
+python dev.py
+```
+
 The Docker container only hosts the sandbox desktop. The FastAPI backend and
-the Vite frontend run on your host machine and must be started separately.
+the Vite frontend still run on your host machine underneath that command. If
+you need to debug them separately, use the manual fallback below.
 
 ```powershell
 # Backend ─ first terminal
@@ -1236,7 +1270,7 @@ reference material.
 
 - Anthropic's `computer-use-demo` for sandbox and scaling ideas
 - OpenAI's Computer Use guide for Responses API behavior and screenshot details
-- Google's computer-use preview examples for Gemini CU patterns
+- Google's Computer Use guide for Gemini CU patterns
 - LangGraph for the checkpointed orchestration layer
 
 It also benefits from the broader documentation culture around strong project
