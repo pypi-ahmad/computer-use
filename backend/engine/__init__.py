@@ -1419,6 +1419,11 @@ class ComputerUseEngine:
         self._container_name = container_name
         self._agent_service_url = agent_service_url
         self._attached_file_ids = list(attached_files or [])
+        if provider == Provider.GEMINI and self._attached_file_ids:
+            raise ValueError(
+                "Reference files are supported for OpenAI and Anthropic computer-use "
+                "sessions only; Gemini File Search cannot be combined with Computer Use.",
+            )
 
         # Bundle the optional search options once so each adapter
         # receives the same shape via a single kwarg.
@@ -1428,10 +1433,10 @@ class ComputerUseEngine:
             "search_allowed_domains": list(search_allowed_domains) if search_allowed_domains else None,
             "search_blocked_domains": list(search_blocked_domains) if search_blocked_domains else None,
         }
-        # File-search activation rule (per all 3 official docs): only
-        # attach the provider-side ``file_search`` tool when the user
-        # has explicitly uploaded files.  When empty the adapter falls
-        # through to its normal flow with no retrieval.
+        # Reference-file activation rule: only attach provider-native
+        # document grounding when the user explicitly uploaded files.
+        # Gemini is excluded above because its File Search tool is not
+        # compatible with Computer Use.
         file_kwargs: dict[str, Any] = {"attached_file_ids": self._attached_file_ids}
 
         if provider == Provider.GEMINI:

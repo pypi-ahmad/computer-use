@@ -1046,7 +1046,7 @@ async def _step_claude(state: dict[str, Any], engine: Any, executor: Any, on_log
                             {
                                 "type": "text",
                                 "text": (
-                                    "Use any retrieved search/file context to continue, but do not stop yet. "
+                                    "Use any retrieved search context to continue, but do not stop yet. "
                                     "This app's purpose is computer use: the task is not complete until you perform "
                                     "the requested action with the computer tool on the current screen. "
                                     "Continue with computer actions now."
@@ -1191,21 +1191,15 @@ async def _step_gemini(state: dict[str, Any], engine: Any, executor: Any, on_log
             "provider": "google",
             "turn_index": 0,
             "contents": None,
-            "file_search_store_name": None,
-            "file_search_grounded_context": None,
             "last_completion_payload": None,
             "saw_computer_action": False,
             "nudged_for_computer_use": False,
             "pending_turn": None,
         }
 
-    client._file_search_store_name = ps.get("file_search_store_name")
-    client._file_search_grounded_context = ps.get("file_search_grounded_context")
     client._last_completion_payload = ps.get("last_completion_payload")
 
     if ps.get("contents") is None:
-        await client._ensure_file_search_store(on_log=on_log)
-        await client._run_file_search_pre_step(str(state.get("task", "")), on_log=on_log)
         screenshot_bytes = await executor.capture_screenshot()
         if not screenshot_bytes or len(screenshot_bytes) < 100:
             text = "Error: Could not capture initial screenshot"
@@ -1226,8 +1220,6 @@ async def _step_gemini(state: dict[str, Any], engine: Any, executor: Any, on_log
             )
         ]
         ps["contents"] = _serialize_gemini_contents(contents)
-        ps["file_search_store_name"] = client._file_search_store_name
-        ps["file_search_grounded_context"] = client._file_search_grounded_context
 
     turn_index = int(ps.get("turn_index", 0) or 0)
     turn_limit = int(state.get("max_steps", 25) or 25)
@@ -1306,7 +1298,7 @@ async def _step_gemini(state: dict[str, Any], engine: Any, executor: Any, on_log
     ps["turn_index"] = turn_number
 
     if not function_calls:
-        if (state.get("use_builtin_search") or state.get("attached_files")) and not ps.get("saw_computer_action") and not ps.get("nudged_for_computer_use"):
+        if state.get("use_builtin_search") and not ps.get("saw_computer_action") and not ps.get("nudged_for_computer_use"):
             try:
                 retry_ss = await executor.capture_screenshot()
             except Exception:
@@ -1556,6 +1548,4 @@ async def cleanup_provider_resources(state: dict[str, Any], *, on_log=None) -> N
     if provider == "openai":
         client._vector_store_id = ps.get("vector_store_id")
         await client._cleanup_vector_store(on_log=on_log)
-    elif provider == "google":
-        client._file_search_store_name = ps.get("file_search_store_name")
-        await client._cleanup_file_search_store(on_log=on_log)
+      

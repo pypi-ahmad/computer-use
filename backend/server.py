@@ -1023,12 +1023,14 @@ async def api_screenshot(request: Request):
 # ── File upload (RAG / file_search) ──────────────────────────────────
 # Files live on disk in a temp directory keyed by an opaque server-side
 # id; the id flows back to the caller, then into the agent/start
-# payload as ``attached_files``. At session start, each engine adapter
-# hands the bytes to the appropriate provider-side store
-# (OpenAI vector_stores / Gemini file_search_stores / Anthropic Files API).
+# payload as ``attached_files``. At session start, OpenAI and Anthropic
+# hand the bytes to their provider-native reference-file paths
+# (OpenAI vector_stores / Anthropic Files API). Gemini CU rejects
+# ``attached_files`` because Gemini File Search cannot be combined with
+# Computer Use.
 # Per the user-facing contract: .md/.txt/.pdf/.docx, max 10 files,
-# max 1 GB each.  Provider-side caps (Gemini 100 MB/file, Anthropic
-# 500 MB/file) surface as upstream API errors at session start.
+# max 1 GB each. Provider-side caps, such as Anthropic 500 MB/file,
+# surface as upstream API errors at session start.
 
 _FILE_UPLOAD_BYTES_CAP = 1 * 1024 * 1024 * 1024  # 1 GB; mirrors file_store.MAX_FILE_BYTES
 
