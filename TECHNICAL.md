@@ -5,11 +5,14 @@
 This document is for people reading, reviewing, or changing the code. It
 explains the runtime shape of the system, the contracts between modules,
 and the places where a small edit can quietly break provider behavior,
-resume semantics, or safety handling. End users should start with
+safety handling, or sandbox behavior. End users should start with
 [USAGE.md](USAGE.md), and evaluators or first-time visitors should start
-with [README.md](README.md). The project is a local, single-user
-research workbench, not a multi-tenant SaaS, and many choices below only
-make sense under that constraint.
+with [README.md](README.md). Operators who need to write reliable
+computer-use tasks should also read
+[docs/computer-use-prompt-guide.md](docs/computer-use-prompt-guide.md).
+The project is a local, single-user research workbench, not a
+multi-tenant SaaS, and many choices below only make sense under that
+constraint.
 
 ## 2. System overview
 
@@ -19,7 +22,7 @@ make sense under that constraint.
 workbench that owns form state, screen toggles, drawers, and WebSocket
 session state, but not provider logic. The backend is a FastAPI process
 that validates requests, resolves keys and models, starts the sandbox,
-orchestrates LangGraph runs, proxies noVNC, and translates
+drives provider-native Computer Use runs, proxies noVNC, and translates
 provider-native Computer Use responses into one shared desktop executor.
 The sandbox is an Ubuntu 24.04 Docker container running Xvfb, XFCE4,
 `x11vnc`, `websockify`, and `docker/agent_service.py`; it executes UI
@@ -70,23 +73,19 @@ flowchart TB
   `backend/infra/docker.py::start_container()`.
 4. The backend waits for `docker/agent_service.py` to answer `/health`,
    then creates an `AgentLoop` from `backend/agent/loop.py`. The loop
-   builds a LangGraph `NodeBundle`, wraps it with tracing, asks
-   `backend/agent/graph_rollout.py` to choose the graph once per session,
-   and compiles either the legacy six-node graph or the supervisor graph
-   from `backend/agent/graph.py`.
+   builds a `ComputerUseEngine` and enters the selected provider's
+   native Computer Use protocol.
 5. The provider adapter begins the core loop: capture screenshot, call
    provider, translate returned actions, execute them through
-   `DesktopExecutor`, capture another screenshot, and yield the next
-   `TurnEvent`.
-6. If a provider demands confirmation, the graph moves into the legacy
-  `approval_interrupt` node or the supervisor `escalate_interrupt`
-  node, and the backend exposes the pause to the UI over `/ws`. The
-  user resolves it through `POST /api/agent/safety-confirm`.
+   `DesktopExecutor`, capture another screenshot, and continue.
+6. If a provider demands confirmation, the backend exposes the pause to
+   the UI over `/ws`. The user resolves it through
+   `POST /api/agent/safety-confirm`, and the running provider loop
+   receives that decision.
 7. The run ends when the provider returns a terminal answer, the user
-   stops the session, the graph exhausts retries, or the turn limit is
-   hit. The backend broadcasts `agent_finished`, writes the trace sidecar
-   JSON, and keeps a screenshot-free session snapshot in the LangGraph
-   SQLite checkpoint store.
+   stops the session, a provider error occurs, or the turn limit is hit.
+   The backend broadcasts `agent_finished` and clears active in-memory
+   session state.
 
 ## 3. Repository layout
 
@@ -100,8 +99,8 @@ here.
 |-- TECHNICAL.md
 |-- CHANGELOG.md
 |-- docs/
-|   |-- operator-supervisor-graph-migration.md
-|   `-- supervisor-rollout-plan.md
+|   |-- computer-use-prompt-guide.md
+|   `-- gemini-successor-evaluation.md
 |-- pyproject.toml
 |-- requirements.txt
 |-- docker-compose.yml
@@ -128,8 +127,6 @@ here.
 |   |   `-- playwright_executor.py
 |   `-- agent/
 |       |-- loop.py
-|       |-- graph.py
-|       |-- graph_rollout.py
 |       |-- prompts.py
 |       |-- screenshot.py
 |       `-- safety.py
@@ -149,10 +146,9 @@ here.
 `-- evals/
 ```
 
-Start with `backend/server.py`, `backend/agent/graph.py`,
-`backend/agent/loop.py`, `backend/engine/__init__.py`, and the
-provider-specific engine files. Those areas define most of the hidden
-contracts in the repo.
+Start with `backend/server.py`, `backend/agent/loop.py`,
+`backend/engine/__init__.py`, and the provider-specific engine files.
+Those areas define most of the hidden contracts in the repo.
 
 ## 4. Provider adapter layer
 
@@ -170,9 +166,9 @@ the event stream by `iter_turns_via_run_loop()`.
 `CUActionResult`, `CUTurnRecord`, `ModelTurnStarted`,
 `ToolBatchCompleted`, `SafetyRequired`, `RunCompleted`, and `RunFailed`.
 `ComputerUseEngine` chooses a provider client, builds a
-`DesktopExecutor`, and offers two public execution styles:
-`execute_task()` for the legacy callback path and `iter_turns()` for the
-LangGraph driver. `backend/models/allowed_models.json`, loaded through
+`DesktopExecutor`, and offers `execute_task()` as the default execution
+path. `iter_turns()` remains a lower-level per-turn stream for provider
+tests and diagnostics. `backend/models/allowed_models.json`, loaded through
 `backend/models/schemas.py`, is the single source of truth for exposed
 model ids and CU capability flags.
 
@@ -249,19 +245,16 @@ screenshots always use `detail: "original"`. One `computer_call` may
 contain `actions[]`, and the adapter executes the whole batch before the
 next screenshot. Safety is still callback-driven:
 `pending_safety_checks` arrive through `on_safety` and return as
-`acknowledged_safety_checks`. In the graph this client still comes
-through `iter_turns_via_run_loop()`.
+`acknowledged_safety_checks`. The optional `iter_turns_via_run_loop()`
+adapter exposes the same behavior as per-turn events for tests.
 
 ### 4.4 Google
 
 `backend/engine/gemini.py` implements `GeminiCUClient` using
 `google-genai` and
-`types.Tool(computer_use=types.ComputerUse(...))`. Gemini is the most
-natural fit for the graph because it already yields a native
-`iter_turns()` stream and resumes safety decisions through
-`agen.asend(bool)`. The adapter sends the initial screenshot as inline
-PNG bytes, then on each tool turn returns `FunctionResponse` parts that
-embed the next screenshot directly.
+`types.Tool(computer_use=types.ComputerUse(...))`. The adapter sends the
+initial screenshot as inline PNG bytes, then on each tool turn returns
+`FunctionResponse` parts that embed the next screenshot directly.
 When `use_builtin_search` is true, `GeminiCUClient` also attaches
 `Tool(google_search=GoogleSearch())` alongside `computer_use` and sets
 `include_server_side_tool_invocations=True`, which is required for Google's
@@ -298,49 +291,36 @@ file-search pre-step.
 removed from `backend/models/allowed_models.json`. The repo standardises on
 Flash as the single Gemini CU SKU. See [CHANGELOG.md](CHANGELOG.md).
 
-## 5. Agent orchestration (LangGraph)
+## 5. Agent execution
 
-`backend/agent/graph.py` is the real orchestrator. It defines
-`AgentGraphState`, a process-wide `GraphRuntime` backed by
-`AsyncSqliteSaver`, and two compiled graphs that share the same
-provider-native execution boundary.
+`backend/agent/loop.py` is the execution bridge between FastAPI and the
+provider adapters. It maps server provider names to `Provider` enums,
+builds `ComputerUseEngine`, emits sanitized logs, turns provider turns
+into `StepRecord` objects, detects three identical consecutive actions as
+a stuck-agent condition, and owns session lifecycle.
 
-The legacy graph remains in the codebase and is still the default for new
-sessions. Its shape is:
-`preflight -> model_turn -> policy_gate -> tool_batch -> approval_interrupt -> finalize`.
+The runtime deliberately stays close to official provider contracts:
+Computer Use is always the core tool; Web Search is added only when the
+operator enables the toggle; OpenAI and Anthropic reference files are
+attached through their documented retrieval paths; Gemini rejects
+reference files because Gemini File Search is not documented as
+compatible with Computer Use.
 
-The rollout supervisor graph is selected only when the feature flag is on
-and the kill switch has not tripped. Its shape is:
-`intake -> capability_probe -> planner -> grounding(optional) -> executor -> policy -> desktop_dispatcher -> verifier -> [executor | recovery | finalize]`,
-with recovery able to route back to planner, grounding, policy,
-desktop_dispatcher, `escalate_interrupt`, or finalize.
+### 5.1 Prompt construction
 
-Both graphs consume the same `NodeBundle` supplied by `AgentLoop`, use the
-same checkpointer, and keep provider adapters unchanged. The graph does
-not talk to SDKs or Docker directly; the actual provider boundary remains
-`advance_provider_turn()` and `dispatch_pending_action_batch()` in
-`backend/agent/persisted_runtime.py`.
+Prompting is a runtime contract in this project, not just copy in the UI.
+`backend/agent/prompts.py` supplies provider-specific computer-use
+instructions that tell the model to act directly on the user's request,
+use retrieval only as supporting context, stop once the visible task is
+done, and avoid extra work beyond the prompt.
 
-`backend/agent/graph_rollout.py` owns the session-start graph selector,
-in-memory rollout metrics, and the automatic kill switch. It records
-per-node latency histograms and failure rates plus supervisor-only
-metrics such as verifier verdict distribution, policy escalation rate,
-recovery classification distribution, and planner memory hit rate.
-`GET /api/agent/graph-rollout` in `backend/server.py` exposes that
-snapshot for operators.
-
-Approval pauses are still checkpoint-backed. The legacy path pauses at
-`approval_interrupt`; the supervisor path pauses at
-`escalate_interrupt`. In both cases `backend/server.py::_try_resume_graph()`
-resumes the checkpointed graph with `Command(resume=decision)` while the
-frontend keeps the WebSocket contract unchanged.
-
-`backend/agent/loop.py` is the bridge between the graph and the rest of
-the application. It builds the `NodeBundle`, maps provider strings to
-`Provider` enums, emits sanitized logs, turns `ToolBatchCompleted` into
-`StepRecord` objects, detects three identical consecutive actions as a
-"stuck agent" condition, and owns session lifecycle plus trace
-finalization.
+That contract is why user-facing documentation matters technically. A
+prompt that names a visible end state, source of truth, and approval
+boundary gives the model better material for the next computer action. A
+vague prompt forces the model to infer success conditions from sparse
+context. Keep
+[docs/computer-use-prompt-guide.md](docs/computer-use-prompt-guide.md) in
+sync with prompt, Web Search, and file-context changes.
 
 ## 6. Sandbox design
 
@@ -405,17 +385,16 @@ stack.
 
 `backend/infra/observability.py` records every session as an in-memory event stream
 and flushes it to `$CUA_TRACE_DIR/<session_id>.json` on terminal states.
-Tracing is additive: it wraps the `NodeBundle` and provider iterator. The module
-also owns the session-scoped logging context (formerly `backend/logging_ctx.py`).
+Tracing is additive: code records explicit session events without changing the
+normal logging path. The module also owns the session-scoped logging context
+(formerly `backend/logging_ctx.py`).
 
-Traces are separate from the LangGraph checkpoint store. Checkpoints are
-SQLite state snapshots; traces are append-only redacted JSON sidecars.
+Traces are append-only redacted JSON sidecars.
 `_redact()` replaces screenshot blobs with digests and lengths, and
 `assert_invariants()` checks one session start/end pair, valid terminal
 status, and no tool batch while approval is pending.
 
-`evals/_harness.py` builds on that trace model by running fake iterators
-through the real graph and approval path. The same module exposes
+The same module exposes
 `python -m backend.infra.observability dump <session_id>` and
 `python -m backend.infra.observability list`.
 
@@ -452,11 +431,6 @@ that reads them.
 - `CUA_MAX_BODY_BYTES` (int, default 256 KiB) and
   `CUA_MAX_SESSION_BROADCAST_BACKLOG` (int, default 64 with floor 8) are
   read in `backend/server.py`.
-- `CUA_SESSIONS_DB` and `CUA_SESSIONS_DB_ALLOW_DIR` are read in
-  `backend/server.py` and control the checkpoint database path and its
-  safe-parent allowlist.
-- `CUA_SESSIONS_MAX_THREADS` (int, default 1000 with floor 50) is read
-  in `backend/server.py`.
 - `CUA_TRACE_DIR` (path string, default
   `~/.computer-use/traces/`) is read in `backend/infra/observability.py`.
 - `CUA_TEST_MODE` enables test-only behavior in `backend/server.py`.
@@ -522,9 +496,9 @@ that reads them.
 
 ## 9. Testing strategy
 
-The regular `tests/` tree is the main hermetic suite and currently
-collects 440 tests. The separate `evals/` tree is offline and drives
-fake `TurnEvent` iterators through the real graph and trace recorder.
+The regular `tests/` tree is the main hermetic suite. The separate
+`evals/` tree is offline and focuses on runtime boundary checks such as
+container readiness.
 The frontend is covered structurally through its build job rather than a
 dedicated JS test runner.
 
@@ -551,22 +525,17 @@ invocation because `pyproject.toml` pins `testpaths = ["tests"]`.
    encrypted reasoning content and replays sanitized output items instead
    of using `previous_response_id`. See `backend/engine/openai.py` and
    the relevant commit in repo history.
-4. **LangGraph checkpoints state, not iterators.** Persisting raw async
-   generators would make checkpointing fragile and provider-specific. The
-   repo accepts the tradeoff that after-restart continuation needs a live
-   loop to rebuild the iterator. See `backend/agent/graph.py` and
-   `backend/server.py::_try_resume_graph()`.
-5. **Screenshot publishing is refcounted and independent of noVNC.**
+4. **Screenshot publishing is refcounted and independent of noVNC.**
    `/ws` screenshot capture should stop when everyone is on noVNC. See
    `backend/server.py::_screenshot_publisher_loop()` and the
    screenshot-publisher tests.
-6. **Gemini is restricted to `gemini-3-flash-preview`.**
+5. **Gemini is restricted to `gemini-3-flash-preview`.**
    All other Gemini ids, including older Gemini 2.5 Computer Use ids, have
    been removed from
    `backend/models/allowed_models.json` to match Google's official Computer
    Use supported-model list and avoid `400 INVALID_ARGUMENT: Computer
    Use is not enabled` errors. See [CHANGELOG.md](CHANGELOG.md).
-7. **Host-to-container auth uses a generated token, not a plain `-e`
+6. **Host-to-container auth uses a generated token, not a plain `-e`
   flag.** `backend/infra/docker.py` writes `AGENT_SERVICE_TOKEN` to a
    temporary env-file and unlinks it after `docker run`, reducing leakage
    through `docker inspect`. See the token-env-file hardening commit in
@@ -595,24 +564,14 @@ invocation because `pyproject.toml` pins `testpaths = ["tests"]`.
 - Add tests in `tests/test_agent_service_action_gate.py`,
   `tests/test_docker_cmd_policy.py`, or the closest action-specific file.
 
-### 11.3 Add or change a LangGraph node
+### 11.3 Add a new invariant eval
 
-- Edit `backend/agent/graph.py` state, node factory, and edge routing
-  together.
-- If the node needs new I/O, extend `NodeBundle` and then update
-  `backend/agent/loop.py::_build_graph_bundle()`.
-- Add routing tests in `tests/test_agent_graph_nodes.py` and any safety
-  interaction tests in `tests/test_agent_graph_safety.py`.
+- Mock Docker, provider keys, and external calls.
+- Prefer HTTP/runtime boundary assertions that would be awkward in a
+  narrower unit test.
+- Keep evals deterministic and offline.
 
-### 11.4 Add a new invariant eval
-
-- Build a small fake iterator that yields `TurnEvent`s for the scenario.
-- Use `evals/_harness.py::run_graph_with_decision()` to run the real
-  graph and finalize a trace.
-- Assert over the persisted trace with `backend/tracing.iter_events()` and
-  `backend/tracing.assert_invariants()`.
-
-### 11.5 Update a provider tool version
+### 11.4 Update a provider tool version
 
 - Change the canonical metadata first in `backend/models/allowed_models.json`.
 - Update the provider client comments and request builder in
@@ -629,9 +588,7 @@ invocation because `pyproject.toml` pins `testpaths = ["tests"]`.
   the REST surface is not token-gated.
 - No horizontal scaling. One backend process and one shared sandbox
   container are the intended deployment shape.
-- No complete resume after backend restart unless a live loop can
-  rebuild the provider iterator. Checkpoints preserve graph state, not
-  SDK execution state.
+- No complete resume after backend restart. Active sessions are in-memory.
 - No outbound domain allowlist in the sandbox today. Network egress is
   broader than the provider docs ideally recommend.
 - No built-in cost accounting or quota tracking. Provider dashboards are
@@ -642,18 +599,14 @@ invocation because `pyproject.toml` pins `testpaths = ["tests"]`.
 ## 13. Glossary
 
 - **CU**: Computer Use.
-- **TurnEvent**: The event union that bridges provider adapters and the
-  LangGraph driver.
-- **NodeBundle**: The injected set of closures the graph uses for health
-  checks, iterator startup, step emission, log emission, and snapshots.
+- **TurnEvent**: The event union exposed by provider adapters for
+  lower-level diagnostics and tests.
 - **ZDR**: Zero Data Retention; in this repo it matters most for OpenAI's
   stateless replay path and Anthropic's documented eligibility.
 - **noVNC**: The HTML5 VNC client served through `/vnc/` and proxied to
   the container's `websockify`.
-- **Approval interrupt**: The LangGraph pause point entered when a
-  provider demands human confirmation.
-- **Session snapshot**: The screenshot-free session state persisted in
-  the LangGraph SQLite checkpoint store.
+- **Safety approval**: The UI prompt shown when a provider demands human
+  confirmation.
 - **Trace**: The redacted append-only JSON sidecar written by
   `backend/infra/observability.py`.
 
@@ -665,8 +618,6 @@ invocation because `pyproject.toml` pins `testpaths = ["tests"]`.
   <https://developers.openai.com/api/docs/guides/tools-computer-use>
 - Google Gemini Computer Use guide:
   <https://ai.google.dev/gemini-api/docs/computer-use>
-- LangGraph overview:
-  <https://docs.langchain.com/oss/python/langgraph/overview>
 - 12-factor App: <https://12factor.net>
 - Anthropic reference sandbox:
   <https://github.com/anthropics/claude-quickstarts/tree/main/computer-use-demo>
