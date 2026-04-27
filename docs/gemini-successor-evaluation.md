@@ -1,12 +1,24 @@
 # Gemini Successor Evaluation Checklist
 
-Use this checklist when the Gemini lifecycle watchdog reports that `gemini-3-flash-preview` has a deprecation or shutdown announcement on the Gemini API changelog.
+Use this checklist when the Gemini lifecycle watchdog reports that
+`gemini-3-flash-preview` has a deprecation or shutdown announcement on the
+Gemini API changelog. The purpose is to keep the Gemini allowlist strictly tied
+to official capability documentation instead of assuming that a newer Gemini
+model supports Computer Use.
+
+Related documentation:
+
+- [Computer Use Prompt Guide](computer-use-prompt-guide.md)
+- [Technical Architecture](../TECHNICAL.md)
+- [Operator Usage Guide](../USAGE.md)
 
 Successor discovery starts on the Gemini models overview page:
 
 - Models overview: https://ai.google.dev/gemini-api/docs/models
 
-The models overview is only for finding candidate replacements. Do not add a successor to the combined-tool allowlist until the candidate's individual model page shows all required capabilities explicitly.
+The models overview is only for finding candidate replacements. Do not add a
+successor to the combined-tool allowlist until the candidate's individual model
+page shows all required capabilities explicitly.
 
 ## Required checks
 
@@ -31,4 +43,17 @@ The models overview is only for finding candidate replacements. Do not add a suc
 2. Update the Gemini adapter assumptions in `backend/engine/gemini.py` if the successor model id or capability notes changed.
 3. Re-run the Gemini changelog watchdog and the Gemini adapter test slices before merging.
 
-If no individual model page currently shows all three required labels, leave the allowlist unchanged and treat the combined-tool path as blocked until Google publishes a compatible successor.
+If no individual model page currently shows all three required labels, leave
+the allowlist unchanged and treat the combined-tool path as blocked until Google
+publishes a compatible successor.
+
+## Documentation updates after a change
+
+If a successor passes the checks and is added to the repo, update every public
+operator-facing reference in the same change:
+
+- [README.md](../README.md) model matrix
+- [USAGE.md](../USAGE.md) model selection table
+- [TECHNICAL.md](../TECHNICAL.md) provider-adapter notes
+- [Computer Use Prompt Guide](computer-use-prompt-guide.md) provider guidance if
+  the prompt shape, tool combination, or file behavior changes

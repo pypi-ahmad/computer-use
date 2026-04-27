@@ -20,10 +20,8 @@ reproducible, inspectable, and safer than pointing a model at your host machine.
 If you only need the shortest path to trying the project, jump to
 [Quickstart](#quickstart). If you want the operating manual, see [USAGE.md](USAGE.md).
 If you want the architecture and code-level contract map, see
-[TECHNICAL.md](TECHNICAL.md). If you want the rollout playbook and operator
-note for the supervisor graph, see
-[docs/supervisor-rollout-plan.md](docs/supervisor-rollout-plan.md) and
-[docs/operator-supervisor-graph-migration.md](docs/operator-supervisor-graph-migration.md).
+[TECHNICAL.md](TECHNICAL.md). If you want to write clearer agent tasks, see
+[docs/computer-use-prompt-guide.md](docs/computer-use-prompt-guide.md).
 
 Core stack quick scan:
 
@@ -31,7 +29,6 @@ Core stack quick scan:
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB)](https://react.dev/)
 [![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white)](https://vite.dev/)
-[![LangGraph](https://img.shields.io/badge/LangGraph-1C3C3C?logo=langchain&logoColor=white)](https://www.langchain.com/langgraph)
 [![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 [![Playwright](https://img.shields.io/badge/Playwright-2EAD33?logo=playwright&logoColor=white)](https://playwright.dev/)
 [![Anthropic](https://img.shields.io/badge/Anthropic-191919?logo=anthropic&logoColor=white)](https://www.anthropic.com/)
@@ -52,8 +49,6 @@ frontend, sandbox, provider, and testing layers.
 [![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![uvicorn](https://img.shields.io/badge/uvicorn-499848?logoColor=white)](https://www.uvicorn.org/)
-[![LangGraph](https://img.shields.io/badge/LangGraph-1C3C3C?logo=langchain&logoColor=white)](https://www.langchain.com/langgraph)
-[![SQLite](https://img.shields.io/badge/SQLite-07405E?logo=sqlite&logoColor=white)](https://sqlite.org/)
 [![WebSockets](https://img.shields.io/badge/WebSockets-010101?logo=socketdotio&logoColor=white)](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API)
 
 </td>
@@ -112,6 +107,7 @@ frontend, sandbox, provider, and testing layers.
 - [Rebuilding the sandbox and daily operations](#rebuilding-the-sandbox-and-daily-operations)
 - [What you should expect on first boot](#what-you-should-expect-on-first-boot)
 - [A guided first session](#a-guided-first-session)
+- [Prompting and task design](#prompting-and-task-design)
 - [Configuration philosophy](#configuration-philosophy)
 - [Configuration overview](#configuration-overview)
 - [Sandbox and security model](#sandbox-and-security-model)
@@ -153,7 +149,7 @@ From a practical perspective, the project gives you a web UI for choosing a
 provider and model, starting a sandbox, entering a task, watching the live
 desktop, inspecting per-turn logs, handling safety interruptions, and exporting
 session traces. The backend handles model validation, key resolution, WebSocket
-broadcasting, graph orchestration, and container management. The sandbox is an
+broadcasting, provider execution, and container management. The sandbox is an
 Ubuntu 24.04 desktop with Xvfb, XFCE4, browsers, and an in-container HTTP agent
 service that turns abstract actions into real desktop operations.
 
@@ -161,7 +157,7 @@ The resulting workflow is straightforward: pick a model, describe a task, start
 the environment, watch the agent operate on a virtual desktop, and inspect what
 happened if the run succeeds, stalls, or fails. That simplicity at the surface
 is supported by deliberate engineering underneath: provider-specific adapters,
-checkpointed session state, explicit model allowlists, loopback-first defaults,
+explicit model allowlists, loopback-first defaults,
 and test coverage for many of the brittle seams where desktop automation, model
 APIs, and safety requirements collide.
 
@@ -265,14 +261,13 @@ project:
 - The desktop runs in Docker, not on the host.
 - The frontend is a React/Vite workbench.
 - The backend is a FastAPI service with WebSocket streaming.
-- Session orchestration is modeled as a LangGraph state machine.
+- Session execution uses the provider-native Computer Use loop directly.
 - Anthropic, OpenAI, and Google adapters keep vendor-specific behavior rather
   than pretending all providers are identical.
 - The model list is controlled by `backend/models/allowed_models.json`.
 - The backend binds to loopback by default.
 - Safety prompts are surfaced to the operator instead of silently accepted.
-- Session state is traceable, and paused sessions can resume after a backend
-  restart when the runtime path supports it.
+- Session state is streamed live through logs, screenshots, and step events.
 - The repository is optimized for local research, evaluation, and adapter work.
 
 The canonical Git remote is:
@@ -291,8 +286,8 @@ The repo is deliberately organized around the boundaries that matter at runtime.
 - `frontend/` contains the operator workbench. That includes the screen view,
   model/provider picker, session control flow, safety modal, and the WebSocket
   client logic that turns backend events into UI state.
-- `backend/` contains the server, model registry loader, adapter layer,
-  LangGraph orchestration, tracing, and container management logic.
+- `backend/` contains the server, model registry loader, provider adapters,
+  tracing, and container management logic.
 - `docker/` contains the sandbox image, entrypoint, and the in-container agent
   service that performs actions and captures screenshots.
 - `tests/` contains a large suite of unit, policy, regression, and hot-path
@@ -301,6 +296,8 @@ The repo is deliberately organized around the boundaries that matter at runtime.
 - `evals/` contains evaluation-oriented harness code and degraded-state checks.
 - [USAGE.md](USAGE.md) is the operator reference.
 - [TECHNICAL.md](TECHNICAL.md) is the code-and-architecture reference.
+- [docs/computer-use-prompt-guide.md](docs/computer-use-prompt-guide.md) is the
+  prompt-writing reference for reliable computer-use sessions.
 
 This split is intentional. The README should help a new visitor understand the
 project, why it is useful, how to start it, and where to go next. The deeper
@@ -316,8 +313,8 @@ steps, and offers a UI for selecting provider, model, and task parameters.
 
 The second plane is the backend. It validates requests, resolves the selected
 model against the allowlist, resolves API keys from the UI or environment,
-starts or checks the sandbox, coordinates the LangGraph state machine, handles
-pause/resume logic, proxies noVNC, and broadcasts run events to the UI.
+starts or checks the sandbox, runs the provider-native Computer Use loop,
+handles safety approvals, proxies noVNC, and broadcasts run events to the UI.
 
 The third plane is the sandbox. It is an Ubuntu 24.04 container with Xvfb,
 XFCE4, hardened browsers, common desktop apps such as LibreOffice, XFCE
@@ -331,9 +328,7 @@ flowchart LR
     User([Operator])
     UI[React Workbench<br/>Vite frontend]
     API[FastAPI Backend<br/>REST + WebSocket]
-  SELECTOR[Session-start graph selector<br/>feature flag + kill switch]
-  LEGACY[Legacy graph<br/>preflight -> model_turn <-> policy_gate -> tool_batch -> approval_interrupt -> finalize]
-  SUPERVISOR[Supervisor graph<br/>intake -> capability_probe -> planner/grounding -> executor -> policy -> desktop_dispatcher -> verifier -> recovery/escalate_interrupt -> finalize]
+    LOOP[AgentLoop<br/>provider-native Computer Use]
     DOCKER[Ubuntu 24.04 sandbox<br/>Xvfb + XFCE4]
     AGENT[agent_service.py<br/>desktop action API]
     ANTH[Anthropic Messages API]
@@ -342,11 +337,8 @@ flowchart LR
 
     User --> UI
     UI <-->|REST + WebSocket| API
-  API --> SELECTOR
-  SELECTOR --> LEGACY
-  SELECTOR --> SUPERVISOR
-  LEGACY <-->|HTTP action + screenshot calls| AGENT
-  SUPERVISOR <-->|HTTP action + screenshot calls| AGENT
+    API --> LOOP
+    LOOP <-->|HTTP action + screenshot calls| AGENT
     AGENT -.-> DOCKER
     API --> ANTH
     API --> OAI
@@ -368,30 +360,21 @@ against the allowlist, resolves credentials, starts the sandbox if needed, and
 waits for the container-side agent service to become healthy.
 
 Once the environment is ready, the backend creates an `AgentLoop`, builds the
-provider adapter, selects either the legacy or supervisor graph once per
-session, and enters the graph-driven execution flow. The supervisor path is
-requested with `CUA_USE_SUPERVISOR_GRAPH=1`; otherwise the legacy path remains
-the default. The exact internal details differ by provider, but the broad
-pattern is the same: capture a screenshot, send a provider request, receive a
-structured response that may contain text, actions, or safety state, execute
-any returned actions through the desktop executor, capture the next screenshot,
-and continue until the run ends.
+provider adapter, and enters the provider-native Computer Use flow. The exact
+internal details differ by provider, but the broad pattern is the same: capture
+a screenshot, send a provider request, receive a structured response that may
+contain text, actions, or safety state, execute returned actions through the
+desktop executor, capture the next screenshot, and continue until the run ends.
 
-The state machine is designed to make pauses and retries explicit. A provider
-may require a human acknowledgment before a sensitive or policy-triggering step.
-When that happens, the session enters an approval state that is surfaced to the
-frontend. On the legacy path that pause lands at `approval_interrupt`; on the
-supervisor path it lands at `escalate_interrupt`. The operator can approve or
-deny. If the backend restarts during that pause window, the persisted graph
-state allows the session to resume in a way that is far more reliable than
-keeping everything only in in-memory callbacks.
+A provider may require a human acknowledgment before a sensitive step. When
+that happens, the session enters an approval state that is surfaced to the
+frontend. The operator can approve or deny, and the running native loop receives
+that decision directly.
 
 During the run, the frontend shows the live desktop, the model-visible
-screenshot stream, the log stream, and the timeline of steps. After the run,
-the trace and checkpoint data remain available for inspection. That post-run
-inspectability is one of the most important properties of the project. The goal
-is not just to make the model do something interesting once. The goal is to make
-the run understandable enough that you can trust, debug, and improve it.
+screenshot stream, the log stream, and the timeline of steps. The goal is not
+just to make the model do something interesting once. The goal is to make the
+run understandable enough that you can trust, debug, and improve it.
 
 ## Supported models
 
@@ -407,7 +390,7 @@ The current selectable CU-capable models are:
 | Anthropic | `claude-sonnet-4-6` | `computer_20251124` | Balanced default for many desktop tasks. |
 | OpenAI | `gpt-5.5` | built-in `computer` tool | Default OpenAI CU model. Uses the Responses API with stateless replay, `phase` preservation, and `detail: "original"` screenshot outputs. `Reasoning Effort` defaults to `medium` per OpenAI's GPT-5.5 model page. |
 | OpenAI | `gpt-5.4` | built-in `computer` tool | Still supported for CU workloads that need the prior GPT-5.4 behavior. `Reasoning Effort` defaults to `none` per OpenAI's GPT-5.4 model page. |
-| Google | `gemini-3-flash-preview` | `types.Tool(computer_use=...)` | Sole Gemini Computer Use SKU per Google's official docs. |
+| Google | `gemini-3-flash-preview` | `types.Tool(computer_use=...)` | Gemini Computer Use model exposed by this app. |
 
 The registry also contains `gpt-5.4-nano`, but it is intentionally marked as not
 supporting Computer Use and therefore is not surfaced as a selectable CU model.
@@ -456,7 +439,7 @@ cd computer-use
 cp .env.example .env
 # add at least one provider API key
 
-python3 dev.py --bootstrap   # first run or recovery
+python3 dev.py --bootstrap   # first run or clean setup
 
 # normal day-to-day start
 python3 dev.py
@@ -465,7 +448,7 @@ python3 dev.py
 Then open `http://localhost:3000`, click **Start Environment**, choose a
 provider and model, and enter a task.
 
-`dev.py --bootstrap` is the recommended first-run and recovery path: it
+`dev.py --bootstrap` is the recommended first-run and reset path: it
 bootstraps the environment and then launches the sandbox, FastAPI backend, and
 Vite frontend so the UI is immediately usable. `dev.py` remains the day-to-day
 launcher after that first run.
@@ -498,7 +481,7 @@ cd computer-use
 Copy-Item .env.example .env
 # add at least one provider API key
 
-python dev.py --bootstrap    # first run or recovery
+python dev.py --bootstrap    # first run or clean setup
 
 # normal day-to-day start
 python dev.py
@@ -716,6 +699,32 @@ page, typing text into a form, launching a desktop application, or saving a
 small file into a known directory. Avoid large or open-ended tasks until you are
 confident the environment is behaving correctly.
 
+## Prompting and task design
+
+Computer-use prompts work best when they read like an operator work order. Name
+the visible outcome, give only the context needed to reach it, define the source
+of truth, and say which actions require approval. The app already supplies the
+provider-specific system prompts and tool schemas, so user prompts should focus
+on goals and boundaries rather than raw click coordinates or provider action
+names.
+
+For routine sessions, a good prompt usually includes:
+
+1. the app, website, file, or account area to use
+2. the exact end state the operator should reach
+3. the source of truth, such as the visible UI, an attached file, or official
+   documentation
+4. actions the agent must not take, such as save, submit, send, purchase,
+   delete, publish, or confirm
+5. the final answer format
+
+The dedicated [Computer Use Prompt Guide](docs/computer-use-prompt-guide.md)
+contains provider-specific guidance for Anthropic, OpenAI, and Gemini, plus
+templates for research, attached-file workflows, form filling, admin-console
+preparation, codebase review, and restart-friendly tasks. Use it whenever a
+session involves current web facts, uploaded reference files, sensitive account
+areas, or a multi-step workflow where verification matters.
+
 ## Configuration philosophy
 
 The configuration model is intentionally simple and operator-friendly.
@@ -761,9 +770,6 @@ Here are the most important environment variables to understand first:
 | `HOST` / `PORT` | `127.0.0.1` / `8100` | Backend bind address and port |
 | `CUA_WS_TOKEN` | custom secret | Needed when you intentionally expose `/ws` or `/vnc/websockify` beyond loopback |
 | `SCREEN_WIDTH` / `SCREEN_HEIGHT` | `1440` / `900` | Default virtual desktop size |
-| `CUA_USE_SUPERVISOR_GRAPH` | `0` / `1` | Requests the supervisor graph for new sessions; legacy remains the default |
-| `CUA_SUPERVISOR_FAILURE_RATE_THRESHOLD` | `0.20` | Kill-switch trip threshold for supervisor node session failure rate |
-| `CUA_SUPERVISOR_FAILURE_RATE_MIN_SESSIONS` | `100` | Rolling window size before the supervisor kill switch can trip |
 | `OPENAI_REASONING_EFFORT` | model default | Overrides OpenAI reasoning effort; GPT-5.5 defaults to `medium`, GPT-5.4 defaults to `none` |
 | `CUA_CLAUDE_CACHING` | `1` or unset | Enables Claude tool-definition prompt caching |
 | `CUA_OPUS47_HIRES` | `1` or unset | Enables Opus 4.7 hi-res behavior |
@@ -826,6 +832,8 @@ denser UIs, and longer-horizon tasks.
 When the workbench's Web Search toggle is enabled, Anthropic sessions also
 attach the official `web_search_20250305` server tool alongside the computer-
 use tool. When the toggle is off, Claude receives only the computer-use tool.
+Uploaded reference files are included through Anthropic's Files API in either
+mode.
 
 ### OpenAI
 
@@ -846,7 +854,8 @@ is left blank.
 When the workbench's Web Search toggle is enabled, OpenAI sessions advertise
 the official `web_search` tool alongside `computer`, which matches the
 documented combined-tool Responses flow. When the toggle is off, the request
-uses only `computer`.
+uses only `computer`. Uploaded reference files add the Responses `file_search`
+tool in either mode.
 
 ### Google
 
@@ -857,8 +866,8 @@ you are comparing provider logs casually, but it is critical when debugging
 action accuracy. Browser-mode Gemini sessions default to the
 Playwright-over-CDP path against the in-container Chrome session, with
 `CUA_GEMINI_USE_PLAYWRIGHT=0` falling back to the xdotool path. The repo
-standardizes on `gemini-3-flash-preview`, the only Gemini SKU on Google's
-current Computer Use supported-model list that this project ships against.
+standardizes on `gemini-3-flash-preview`, the Gemini Computer Use SKU this
+project ships against.
 When the workbench's Web Search toggle is enabled, Gemini sessions attach
 `google_search` alongside `computer_use` and set
 `include_server_side_tool_invocations=True`, following Google's documented
@@ -902,23 +911,12 @@ This repository treats observability as a first-class feature, not a cleanup
 task left for later.
 
 During a live session, the frontend receives streamed log events, step events,
-screenshot events, graph-state events, and finish events over WebSocket. That
-makes it possible to watch a run as it happens and understand where time is
-being spent.
+screenshot events, and finish events over WebSocket. That makes it possible to
+watch a run as it happens and understand where time is being spent.
 
-After the run, the backend writes traces and graph state in ways that support
-postmortem analysis. Trace payloads are structured and redacted. Session
-snapshots are kept in the LangGraph SQLite checkpoint store. If a run is paused
-on a human approval, that persisted state makes restart-resume possible in
-supported paths.
-
-When the supervisor graph is enabled, the backend also keeps an operator-facing
-rollout snapshot at `GET /api/agent/graph-rollout`. That endpoint exposes the
-selected graph counts, per-node latency histograms and failure rates, verifier
-verdict distribution, policy escalation rate, recovery classification
-distribution, planner-stage long-term-memory hit rate, and the automatic kill
-switch state that falls new sessions back to the legacy graph if a supervisor
-node exceeds its configured failure-rate window.
+Trace payloads are structured and redacted. Logs and step events are designed
+to make adapter behavior, safety prompts, and sandbox execution easy to inspect
+without exposing screenshots or secrets unnecessarily.
 
 From an engineering perspective, this is one of the most valuable traits of the
 project. A surprising number of agent systems are easy to demo but hard to
@@ -953,9 +951,9 @@ and stop when the answer is grounded."
 
 This is the sort of work where model reasoning quality matters more than raw
 action speed. Claude Opus 4.7 is often the strongest fit here. If you need the
-Google path, `gemini-3-flash-preview` is the only supported Gemini CU SKU and
-can also ground itself on uploaded documents through the backend's pre-step RAG
-path.
+Google path, `gemini-3-flash-preview` is the Gemini CU SKU this project exposes.
+Reference-file uploads are intentionally rejected for Gemini CU because Gemini
+File Search is not combined with Computer Use in this app.
 
 ### Sandbox and policy debugging task
 
@@ -1069,8 +1067,8 @@ model receives is the truth when debugging action decisions.
 
 That is expected behavior. The repository is designed to surface required
 confirmations rather than auto-bypass them. Approve or deny in the UI. If the
-backend restarts during the pause, the checkpointed graph state is what allows a
-clean resume path.
+backend restarts during the pause, start a fresh run; active sessions live in
+memory.
 
 ### The backend is reachable on my machine. Can I expose it publicly?
 
@@ -1146,8 +1144,8 @@ meant to stand on its own for a serious first read.
 If you want balance, start with `claude-sonnet-4-6` or `gpt-5.5`. If you want
 the strongest Anthropic path for harder tasks, use `claude-opus-4-7`. If you
 want the earlier OpenAI reasoning profile, choose `gpt-5.4`. If you want a
-lower-cost Google option, use `gemini-3-flash-preview` — the only Gemini SKU
-on Google's official Computer Use supported-model list.
+lower-cost Google option, use `gemini-3-flash-preview` — the Gemini CU SKU this
+project exposes.
 
 ### Can I point this at my code repository and ask it to implement features?
 
@@ -1185,11 +1183,14 @@ oriented. Use the companion docs for deeper work:
 - [USAGE.md](USAGE.md) for the operator reference, environment variable matrix,
   workflows, and troubleshooting details
 - [TECHNICAL.md](TECHNICAL.md) for the code-level architecture, adapter layer,
-  graph orchestration, and module boundaries
-- [docs/supervisor-rollout-plan.md](docs/supervisor-rollout-plan.md) for the
-  phased supervisor rollout plan and kill-switch policy
-- [docs/operator-supervisor-graph-migration.md](docs/operator-supervisor-graph-migration.md)
-  for the operator migration note and rollout dashboard fields
+  provider execution, and module boundaries
+- [docs/computer-use-prompt-guide.md](docs/computer-use-prompt-guide.md) for
+  prompt-writing patterns, provider-specific prompting guidance, Web Search and
+  reference-file behavior, and reusable task templates
+- [docs/gemini-successor-evaluation.md](docs/gemini-successor-evaluation.md)
+  for the checklist used before replacing the supported Gemini Computer Use SKU
+- [evals/README.md](evals/README.md) for deterministic replay evals and the
+  invariants they protect
 - [docker/SECURITY_NOTES.md](docker/SECURITY_NOTES.md) for sandbox hardening and
   the rationale behind the container design
 - [CHANGELOG.md](CHANGELOG.md) for historical decisions and notable changes
@@ -1270,8 +1271,6 @@ reference material.
 - Anthropic's `computer-use-demo` for sandbox and scaling ideas
 - OpenAI's Computer Use guide for Responses API behavior and screenshot details
 - Google's Computer Use guide for Gemini CU patterns
-- LangGraph for the checkpointed orchestration layer
-
 It also benefits from the broader documentation culture around strong project
 READMEs. In shaping this README, the guiding ideas were consistent with GitHub's
 own guidance on what a README should answer, with the structure-and-scannability
