@@ -201,7 +201,7 @@ export default function ControlPanel({
           Routed per-provider:
             - OpenAI: vector store + file_search tool
             - Anthropic: Files API (PDF/TXT) or inline (MD/DOCX) document blocks
-            - Gemini: file-search store + RAG pre-step
+            - Gemini: rejected for Computer Use runs
           Backend caps: 10 files per session, 1 GB per file. */}
       <FileAttachments
         attachedFiles={attachedFiles}
@@ -367,8 +367,8 @@ function FileAttachments({ attachedFiles, setAttachedFiles, agentRunning }) {
       )}
       <span style={{ fontSize: 10, color: 'var(--text-secondary)', display: 'block', marginTop: 4 }}>
         PDF, TXT, MD, DOCX. Documents are routed to the provider's official
-        retrieval contract (OpenAI vector store, Anthropic Files API, Gemini
-        file-search).
+        retrieval contract (OpenAI vector store, Anthropic Files API). Gemini
+        Computer Use runs do not accept document attachments.
       </span>
     </div>
   )
