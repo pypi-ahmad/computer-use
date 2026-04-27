@@ -9,7 +9,7 @@ httpx==0.28.1
 Pillow==12.2.0
 python-multipart==0.0.26
 python-dotenv==1.2.2
-langgraph==1.0.10
+langgraph==1.1.9
 langgraph-checkpoint==4.0.0
 langgraph-checkpoint-sqlite==3.0.3
 aiosqlite==0.20.0
