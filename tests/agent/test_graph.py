@@ -154,11 +154,24 @@ class TestPreflight:
                     "steps": ["Open dashboard"],
                     "active_subgoal": "Open dashboard",
                 },
+                "completion_criteria": [
+                    "Dashboard title visible",
+                    "User menu visible",
+                ],
+                "verification_status": "needs_more_work",
+                "unmet_completion_criteria": ["User menu visible"],
+                "verification_rationale": "Dashboard title is visible, but the user menu is not.",
                 "recovery_context": {
                     "classification": "transient",
                     "retry_reason": "tool_batch",
+                    "error": "Click missed the menu button.",
                     "retry_count": 2,
                     "replan_count": 1,
+                    "latest_turn": 3,
+                    "failure_context": {
+                        "verification_rationale": "Need another screenshot before deciding.",
+                        "evidence_brief": "Dashboard page is visible.",
+                    },
                 },
             }
             await node(state)
@@ -168,6 +181,16 @@ class TestPreflight:
             assert emitted[-1]["route"] == "model_turn"
             assert emitted[-1]["retry_count"] == 2
             assert emitted[-1]["replan_count"] == 1
+            assert emitted[-1]["verifier_verdict"] == "needs_more_work"
+            assert emitted[-1]["verification_rationale"] == "Dashboard title is visible, but the user menu is not."
+            assert emitted[-1]["completion_criteria"] == [
+                "Dashboard title visible",
+                "User menu visible",
+            ]
+            assert emitted[-1]["unmet_completion_criteria"] == ["User menu visible"]
+            assert emitted[-1]["recovery"]["classification"] == "transient"
+            assert emitted[-1]["recovery"]["replan_reason"] == "Need another screenshot before deciding."
+            assert emitted[-1]["replan_reason"] == "Need another screenshot before deciding."
             assert emitted[-1]["active_subgoal"] == "Open dashboard"
             assert emitted[-1]["pending_approval"] is None
 
