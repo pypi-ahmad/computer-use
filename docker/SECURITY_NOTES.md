@@ -181,9 +181,8 @@ specific sandbox posture.  The shared image satisfies it:
 
 ## Google Gemini 3 Flash Preview sandbox alignment
 
-Google's reference Computer Use implementation
-(github.com/google-gemini/computer-use-preview) drives a Playwright
-Chromium.  The shared sandbox supports this contract additively:
+Google's Computer Use reference guidance uses Playwright Chromium. The shared
+sandbox supports this contract additively:
 
 - **Browser**: `google-chrome-stable` is the actual installed
   Chromium-family browser. The Dockerfile also exposes `chromium`

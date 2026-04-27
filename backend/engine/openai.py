@@ -48,8 +48,6 @@ _OPENAI_CU_REGISTRY_MODELS = frozenset(
 
 def _ensure_openai_ga_model_is_in_registry(model: str) -> None:
     """Reject GPT-5.5-family GA slugs that are absent from the registry."""
-    if model == "computer-use-preview":
-        return
     if any(model.startswith(prefix) for prefix in _OPENAI_REGISTRY_GATED_MODEL_PREFIXES):
         if model in _OPENAI_CU_REGISTRY_MODELS:
             return
@@ -252,26 +250,8 @@ class OpenAICUClient:
         The built-in tool infers display dimensions from the screenshots
         the harness sends, so no display_width / display_height /
         environment keys are needed.
-
-        The legacy preview model ``computer-use-preview`` still requires
-        the long-form tool with explicit dimensions + environment, per
-        the deprecated-but-still-live preview API shape.
         """
         model = self._model
-        if model == "computer-use-preview":
-            if self._use_builtin_search:
-                raise ValueError(
-                    "OpenAI use_builtin_search requires the GA `computer` tool "
-                    "path; `computer-use-preview` is not supported with use_builtin_search.",
-                )
-            return [
-                {
-                    "type": "computer_use_preview",
-                    "display_width": screen_width,
-                    "display_height": screen_height,
-                    "environment": "browser",
-                },
-            ]
         _ensure_openai_ga_model_is_in_registry(model)
         if any(model.startswith(prefix) for prefix in _OPENAI_GA_COMPUTER_MODEL_PREFIXES):
             # Built-in tool — dimensions inferred from screenshot bytes.
@@ -301,20 +281,11 @@ class OpenAICUClient:
                     "vector_store_ids": [self._vector_store_id],
                 })
             return tools
-        # Any other OpenAI model flagged as CU-capable: use the new
-        # short-form tool but warn, since we have not verified it.
-        if self._use_builtin_search:
-            raise ValueError(
-                f"OpenAI use_builtin_search is not supported for model {model!r}. "
-                "Use a GA `computer` tool model.",
-            )
-        if on_log is not None:
-            on_log(
-                "warning",
-                f"OpenAI CU: model {model!r} is not a documented GA computer model or computer-use-preview; "
-                "emitting the built-in `computer` tool shape (untested).",
-            )
-        return [{"type": "computer"}]
+        allowed = ", ".join(sorted(_OPENAI_CU_REGISTRY_MODELS))
+        raise ValueError(
+            f"OpenAI model {model!r} is not a supported OpenAI computer-use model. "
+            f"Use one of: {allowed}."
+        )
 
     async def _create_response(self, *, on_log: "Callable[[str, str], None] | None" = None, **kwargs: Any) -> Any:
         """Call the async OpenAI Responses API with transient-error retry."""
