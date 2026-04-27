@@ -54,10 +54,10 @@ layer. Desktop actions run inside the sandbox container, not on the host.
 
 ## Installation
 
-### Recommended — setup script
+### Recommended — launcher
 
-`setup.sh` and `setup.bat` check prerequisites, build the sandbox image, create the Python
-virtualenv, and install frontend dependencies.
+`dev.py --bootstrap` is the recommended first-run and recovery entrypoint. It bootstraps the
+environment, then launches the sandbox plus the host-side backend and frontend.
 
 ```bash
 git clone https://github.com/pypi-ahmad/computer-use.git
@@ -65,18 +65,47 @@ cd computer-use
 cp .env.example .env
 # add at least one API key to .env
 
-bash setup.sh          # macOS / Linux
-# .\setup.bat          # Windows PowerShell
+python3 dev.py --bootstrap     # macOS / Linux first run or recovery
+# python dev.py --bootstrap    # Windows PowerShell first run or recovery
 
-docker compose up -d                                  # start the sandbox
-source .venv/bin/activate && python -m backend.main   # backend
-cd frontend && npm run dev                            # frontend (second terminal)
+python3 dev.py                 # macOS / Linux daily start after bootstrap
+# python dev.py                # Windows PowerShell daily start after bootstrap
 
 ```
 
 Open <http://localhost:3000>. The first image build takes several minutes; subsequent starts
-are fast. Re-running `setup.sh` / `setup.bat` does a full rebuild and is meant for setup or
-recovery, not daily use.
+are fast. `dev.py --bootstrap` remains the recovery path when you want to rebuild and reinstall,
+while plain `dev.py` remains the preferred day-to-day launcher: it does
+`docker compose down`, `docker compose up -d`, then starts FastAPI and Vite in one terminal.
+
+If you prefer wrappers instead of spelling out `python`, use:
+
+```bash
+bash dev.sh --bootstrap
+bash dev.sh
+```
+
+```powershell
+.\dev.bat --bootstrap
+.\dev.bat
+```
+
+The direct setup-script entrypoints still exist when you want to run them explicitly:
+
+```bash
+bash setup.sh
+```
+
+```powershell
+.\setup.bat
+```
+
+### Validation
+
+- `dev.py --help` works
+- `setup.bat --help` works
+- `dev.py` compiles cleanly
+- `dev.py` has no diagnostics errors
 
 ### Manual
 
@@ -171,6 +200,8 @@ npm run dev                           # serves http://localhost:3000
 Open <http://localhost:3000>. The frontend talks to the backend on `8100`,
 the backend talks to the sandbox on `9222` (agent service) and `9223`
 (Chrome DevTools Protocol used by the Gemini Playwright path).
+
+For normal day-to-day use, prefer `python dev.py` over this manual split flow.
 
 ### Restart after a backend code change
 

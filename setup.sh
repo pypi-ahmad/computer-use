@@ -2,8 +2,9 @@
 # setup.sh — One-command setup for CUA
 #
 # Usage:
-#   bash setup.sh          # normal setup
-#   bash setup.sh --clean  # DESTRUCTIVE: compose down + prune ALL images/volumes
+#   bash setup.sh                   # bootstrap and launch the full stack
+#   bash setup.sh --bootstrap-only  # bootstrap only, do not launch dev.py
+#   bash setup.sh --clean           # destructive bootstrap, then launch the full stack
 
 set -euo pipefail
 
@@ -15,6 +16,41 @@ NC='\033[0m'
 info()  { echo -e "${GREEN}[INFO]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
+
+usage() {
+  cat <<'EOF'
+Usage:
+  bash setup.sh [--clean] [--bootstrap-only]
+
+Options:
+  --clean           Destructive Docker cleanup before rebuilding.
+  --bootstrap-only  Prepare the environment but do not launch dev.py.
+  --help            Show this help text.
+EOF
+}
+
+CLEAN=0
+BOOTSTRAP_ONLY=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --clean)
+      CLEAN=1
+      shift
+      ;;
+    --bootstrap-only)
+      BOOTSTRAP_ONLY=1
+      shift
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      error "Unknown option: $1"
+      ;;
+  esac
+done
 
 # ── Check prerequisites ──────────────────────────────────────────────────────
 command -v docker >/dev/null 2>&1 || error "Docker is required. Install: https://docs.docker.com/get-docker/"
@@ -31,7 +67,7 @@ docker info >/dev/null 2>&1 || error "Docker daemon is not running. Start Docker
 info "All prerequisites met."
 
 # ── Optional destructive cleanup ─────────────────────────────────────────────
-if [[ "${1:-}" == "--clean" ]]; then
+if [[ "$CLEAN" == "1" ]]; then
   warn "Running destructive Docker cleanup (--clean): removing compose containers/images/volumes and pruning ALL Docker images/volumes..."
   docker compose down --rmi all -v || true
   docker system prune -a --volumes -f
@@ -70,9 +106,14 @@ info "Frontend dependencies installed."
 info ""
 info "=== Setup complete! ==="
 info ""
-info "To run the system:"
-info "  1. Start container: docker compose up -d --build"
-info "  2. Start backend:   source .venv/bin/activate && python -m backend.main"
-info "  3. Start frontend:  cd frontend && npm run dev"
-info "  4. Open http://localhost:3000"
-info ""
+
+if [[ "$BOOTSTRAP_ONLY" == "1" ]]; then
+  info "Bootstrap-only mode requested; not launching dev.py."
+  info "Run 'python3 dev.py' for day-to-day startup."
+  info ""
+  exit 0
+fi
+
+info "Launching the full stack..."
+info "The browser UI will be available at http://localhost:3000 once Vite is ready."
+exec python dev.py

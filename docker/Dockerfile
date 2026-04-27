@@ -136,9 +136,8 @@ RUN arch="$(dpkg --print-architecture)" \
     && ln -sf /opt/firefox/firefox /usr/local/bin/firefox-esr \
     && rm -f /tmp/firefox-esr.tar
 
-# Google Gemini Computer Use's reference implementation
-# (github.com/google-gemini/computer-use-preview) drives Chromium
-# through Playwright. To align the unified sandbox with that
+# Google Gemini Computer Use reference guidance drives Chromium through
+# Playwright. To align the unified sandbox with that
 # contract — without abandoning the single-container architecture —
 # this image runs Google Chrome inside the container with CDP
 # enabled (see docker/entrypoint.sh) and the backend connects to it

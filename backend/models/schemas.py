@@ -148,12 +148,13 @@ class StartTaskRequest(BaseModel):
     allowed_callers: Optional[list[str]] = Field(default=None, max_length=16)
     # Server-side file ids previously persisted via POST /api/files/upload.
     # When non-empty the engine adapter creates a provider-side store
-    # (OpenAI vector_store / Gemini file_search_store / Anthropic Files API
-    # uploads) and injects the provider-appropriate grounding path per
+    # (OpenAI vector_store / Anthropic Files API uploads) and injects the
+    # provider-appropriate grounding path per
     # the official April 2026 docs:
     #   * https://developers.openai.com/api/docs/guides/tools-file-search
-    #   * https://ai.google.dev/gemini-api/docs/file-search
     #   * https://platform.claude.com/docs/en/build-with-claude/files
+    # Gemini File Search is intentionally excluded because Google's File
+    # Search docs do not allow combining it with Computer Use.
     # When empty, no provider-side attachment flow is activated and the
     # agent runs in its normal flow (the activation rule is doc-mandated).
     attached_files: Optional[list[str]] = Field(default=None, max_length=10)
