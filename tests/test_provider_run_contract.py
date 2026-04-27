@@ -16,9 +16,6 @@ class FakeExecutor:
 
 class FakeClient:
     _use_builtin_search = True
-    _search_allowed_domains = ["example.com"]
-    _search_blocked_domains = None
-    _allowed_callers = None
     _last_completion_payload = {"provider": "fake"}
 
     async def run_loop(

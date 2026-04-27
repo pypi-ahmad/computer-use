@@ -191,31 +191,25 @@ class TestAgentStartValidation:
         assert resp.status_code == 400
         assert "not allowed" in resp.json().get("error", "").lower()
 
-    def test_search_options_require_toggle(self, client):
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("unexpected_search_option", 3),
+            ("unexpected_retrieval_policy", ["docs.python.org"]),
+            ("unexpected_tool_override", {"mode": "direct"}),
+        ],
+    )
+    def test_unexpected_tool_options_rejected_by_request_schema(self, client, field, value):
         resp = client.post("/api/agent/start", json={
             "task": "test",
             "engine": "computer_use",
             "provider": "openai",
             "model": "gpt-5.4",
             "mode": "desktop",
-            "search_max_uses": 3,
+            field: value,
         })
-        assert resp.status_code == 400
-        assert "use_builtin_search=true" in resp.json().get("error", "")
-
-    def test_anthropic_both_domain_lists_rejected(self, client):
-        resp = client.post("/api/agent/start", json={
-            "task": "test",
-            "engine": "computer_use",
-            "provider": "anthropic",
-            "model": "claude-sonnet-4-6",
-            "mode": "desktop",
-            "use_builtin_search": True,
-            "search_allowed_domains": ["docs.python.org"],
-            "search_blocked_domains": ["bad.test"],
-        })
-        assert resp.status_code == 400
-        assert "search_allowed_domains or search_blocked_domains" in resp.json().get("error", "")
+        assert resp.status_code == 422
+        assert any(field in str(item.get("loc", [])) for item in resp.json().get("detail", []))
 
     def test_anthropic_builtin_search_no_longer_requires_ack_env(self, client):
         from backend.server import _agent_start_limiter
@@ -250,40 +244,6 @@ class TestAgentStartValidation:
         assert resp.status_code == 200
         assert mock_agent_loop.call_args.kwargs["use_builtin_search"] is True
 
-    def test_anthropic_allowed_callers_passes_through_to_agent_loop(self, client):
-        from backend.server import _agent_start_limiter
-
-        _agent_start_limiter._calls.clear()
-        fake_loop = SimpleNamespace(session_id="session-anthropic-search-2", run=AsyncMock())
-        fake_task = Mock()
-        fake_task.done.return_value = False
-
-        def fake_create_task(coro):
-            coro.close()
-            return fake_task
-
-        with patch.dict("backend.server._active_tasks", {}, clear=True), \
-             patch.dict("backend.server._active_loops", {}, clear=True), \
-             patch("backend.server.resolve_api_key", return_value=("sk-ant-test-12345678", "ui")), \
-             patch("backend.server.start_container", new_callable=AsyncMock, return_value=True), \
-             patch("backend.server.get_container_state",
-                   return_value={"container": "running", "agent": "ready",
-                                 "last_health_error": None}), \
-             patch("backend.server.AgentLoop", return_value=fake_loop) as mock_agent_loop, \
-             patch("backend.server.asyncio.create_task", side_effect=fake_create_task):
-            resp = client.post("/api/agent/start", json={
-                "task": "test",
-                "engine": "computer_use",
-                "provider": "anthropic",
-                "model": "claude-sonnet-4-6",
-                "mode": "desktop",
-                "use_builtin_search": True,
-                "allowed_callers": ["direct"],
-            })
-
-        assert resp.status_code == 200
-        assert mock_agent_loop.call_args.kwargs["allowed_callers"] == ["direct"]
-
     def test_openai_minimal_reasoning_search_rejected(self, client):
         resp = client.post("/api/agent/start", json={
             "task": "test",
@@ -296,19 +256,6 @@ class TestAgentStartValidation:
         })
         assert resp.status_code == 400
         assert "minimal reasoning" in resp.json().get("error", "")
-
-    def test_gemini_search_options_rejected(self, client):
-        resp = client.post("/api/agent/start", json={
-            "task": "test",
-            "engine": "computer_use",
-            "provider": "google",
-            "model": "gemini-3-flash-preview",
-            "mode": "desktop",
-            "use_builtin_search": True,
-            "search_allowed_domains": ["example.com"],
-        })
-        assert resp.status_code == 400
-        assert "does not support search_max_uses or domain filters" in resp.json().get("error", "")
 
     def test_gemini_reference_files_rejected(self, client):
         resp = client.post("/api/agent/start", json={
