@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from backend.agent.executor_prompt import build_executor_system_prompt
 from backend.agent.prompts import (
     get_system_prompt,
     validate_prompt_actions,
@@ -47,6 +48,41 @@ class TestPromptSeparation:
         prompt = get_system_prompt("computer_use", "browser", provider="google")
         assert "click" in prompt.lower()
         assert "scroll" in prompt.lower()
+
+    def test_executor_prompt_strips_planning_guidance_and_appends_active_subgoal(self):
+        prompt = build_executor_system_prompt(
+            provider="openai",
+            model="gpt-5.5",
+            active_plan={"summary": "Open settings and enable Wi-Fi.", "active_subgoal": "Open Settings"},
+            subgoals=[
+                {"title": "Open Settings", "status": "active"},
+                {"title": "Enable Wi-Fi", "status": "pending"},
+            ],
+            completion_criteria=["Settings is open", "Wi-Fi toggle is on"],
+        )
+        lowered = prompt.lower()
+        assert "planning alone" not in lowered
+        assert "active subgoal: open settings" in lowered
+        assert "do not re-plan" in lowered
+
+    def test_executor_prompt_includes_memory_briefs(self):
+        prompt = build_executor_system_prompt(
+            provider="openai",
+            model="gpt-5.5",
+            active_plan={"summary": "Open billing.", "active_subgoal": "Open Billing"},
+            subgoals=[{"title": "Open Billing", "status": "active"}],
+            completion_criteria=["Billing is open"],
+            evidence=[{"kind": "evidence_summary", "summary": "Check the billing dashboard first."}],
+            memory_context={
+                "prior_workflows": [{"workflow_summary": "Use the Billing menu before opening invoices."}],
+                "ui_patterns": [{"pattern": "Invoices live under the top Billing tab."}],
+                "operator_preferences": [{"preferred_model": "gpt-5.5", "risk_level": "low", "notes": ["Check dashboards before login"]}],
+            },
+        )
+        lowered = prompt.lower()
+        assert "working memory" in lowered
+        assert "long-term memory" in lowered
+        assert "billing menu" in lowered
 
     def test_fallback_for_unknown_engine(self):
         """Unknown engine should still return a prompt (with warning)."""

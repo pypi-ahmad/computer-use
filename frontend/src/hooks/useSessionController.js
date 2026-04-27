@@ -48,10 +48,12 @@ export default function useSessionController({ onToast, onHistoryEntry } = {}) {
     lastScreenshot,
     logs,
     steps,
+    graphRun,
     agentFinished,
     safetyPrompt,
     clearLogs,
     clearSteps,
+    clearGraphRun,
     clearFinished,
     clearSafetyPrompt,
     setScreenshotMode: setWsScreenshotMode,
@@ -203,6 +205,7 @@ export default function useSessionController({ onToast, onHistoryEntry } = {}) {
     setError('')
     clearSteps()
     clearLogs()
+    clearGraphRun()
     clearFinished()
     setCompletionData(null)
     setStarting(true)
@@ -235,7 +238,7 @@ export default function useSessionController({ onToast, onHistoryEntry } = {}) {
       setError(`Failed to start: ${e.message}`)
       return { error: e.message }
     }
-  }, [clearSteps, clearLogs, clearFinished, onToast])
+  }, [clearSteps, clearLogs, clearGraphRun, clearFinished, onToast])
 
   /**
    * Stop the currently running agent session with positive-confirmation
@@ -322,8 +325,9 @@ export default function useSessionController({ onToast, onHistoryEntry } = {}) {
   const clearAll = useCallback(() => {
     clearSteps()
     clearLogs()
+    clearGraphRun()
     setCompletionData(null)
-  }, [clearLogs, clearSteps])
+  }, [clearGraphRun, clearLogs, clearSteps])
 
   return {
     // WS-backed pass-throughs
@@ -331,6 +335,7 @@ export default function useSessionController({ onToast, onHistoryEntry } = {}) {
     lastScreenshot,
     logs,
     steps,
+    graphRun,
     safetyPrompt,
     clearLogs,
     clearSafetyPrompt,

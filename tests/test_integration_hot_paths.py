@@ -120,6 +120,115 @@ class TestAgentStartFinishIntegration:
         assert "sess-int-1" not in server._active_tasks
         assert "sess-int-1" not in server._active_loops
 
+    @pytest.mark.parametrize(
+        ("provider", "model"),
+        [
+            ("openai", "gpt-5.4"),
+            ("anthropic", "claude-sonnet-4-6"),
+            ("google", "gemini-3-flash-preview"),
+        ],
+    )
+    def test_start_path_preserves_frontend_event_stream_for_each_provider(
+        self,
+        provider,
+        model,
+    ):
+        from backend import server
+        from backend.models.schemas import (
+            AgentAction,
+            AgentSession,
+            ActionType,
+            LogEntry,
+            SessionStatus,
+            StepRecord,
+        )
+
+        broadcasts: list[tuple[str, dict]] = []
+
+        def _capture_scheduled(event, data):
+            assert server.validate_outbound(event, data) is None
+            broadcasts.append((event, data))
+
+        async def _capture_broadcast(event, data):
+            assert server.validate_outbound(event, data) is None
+            broadcasts.append((event, data))
+
+        class _BroadcastingLoop:
+            def __init__(self, **kwargs):
+                self.session_id = f"sess-stream-{provider}"
+                self.session = AgentSession(
+                    session_id=self.session_id,
+                    task="emit callbacks",
+                    model=model,
+                    status=SessionStatus.RUNNING,
+                    max_steps=3,
+                )
+                self._on_log = kwargs["on_log"]
+                self._on_step = kwargs["on_step"]
+                self._on_screenshot = kwargs["on_screenshot"]
+
+            async def run(self):
+                self._on_log(LogEntry(level="info", message=f"{provider} log"))
+                self._on_step(
+                    StepRecord(
+                        step_number=1,
+                        screenshot_b64="SEVDUkVU",
+                        raw_model_response="opaque",
+                        action=AgentAction(action=ActionType.CLICK, target="button"),
+                    )
+                )
+                self._on_screenshot("QUJD")
+                self.session.status = SessionStatus.COMPLETED
+                self.session.final_text = f"{provider} done"
+                return self.session
+
+        with patch.dict(server._active_tasks, {}, clear=True), \
+             patch.dict(server._active_loops, {}, clear=True), \
+             patch("backend.server.resolve_api_key",
+                   return_value=("sk-test-int", "ui")), \
+             patch("backend.server.start_container",
+                   new_callable=AsyncMock, return_value=True), \
+             patch("backend.server.get_container_state",
+                   return_value={"container": "running", "agent": "ready",
+                                 "last_health_error": None}), \
+             patch("backend.server.AgentLoop", side_effect=_BroadcastingLoop), \
+             patch("backend.server._schedule_broadcast", side_effect=_capture_scheduled), \
+             patch("backend.server._broadcast",
+                   new=AsyncMock(side_effect=_capture_broadcast)):
+
+            with TestClient(server.app) as c:
+                resp = c.post("/api/agent/start", json={
+                    "task": "open a page",
+                    "engine": "computer_use",
+                    "provider": provider,
+                    "model": model,
+                    "mode": "desktop",
+                    "execution_target": "docker",
+                    "max_steps": 3,
+                })
+
+            assert resp.status_code == 200
+
+            for _ in range(50):
+                if len(broadcasts) >= 4:
+                    break
+                time.sleep(0.01)
+
+        assert [event for event, _ in broadcasts] == [
+            "log",
+            "step",
+            "screenshot",
+            "agent_finished",
+        ]
+        assert broadcasts[0][1]["log"]["message"] == f"{provider} log"
+        assert broadcasts[1][1]["step"]["step_number"] == 1
+        assert "screenshot_b64" not in broadcasts[1][1]["step"]
+        assert "raw_model_response" not in broadcasts[1][1]["step"]
+        assert broadcasts[2][1] == {"screenshot": "QUJD"}
+        assert broadcasts[3][1]["session_id"] == f"sess-stream-{provider}"
+        assert broadcasts[3][1]["status"] == "completed"
+        assert broadcasts[3][1]["final_text"] == f"{provider} done"
+
 
 # ── 2. WebSocket end-to-end: connect → ping/pong → broadcast delivery ─────
 

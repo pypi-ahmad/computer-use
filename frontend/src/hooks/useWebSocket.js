@@ -18,9 +18,9 @@ const WS_URL = (() => {
 
 /**
  * React hook that maintains a persistent WebSocket connection to the backend.
- * Provides real-time agent screenshots, logs, step timeline, and finish events.
+ * Provides real-time agent screenshots, logs, graph state, step timeline, and finish events.
  * Includes automatic reconnection (2 s delay) and a 15 s heartbeat ping.
- * @returns {{connected: boolean, lastScreenshot: string|null, logs: Array, steps: Array, agentFinished: Object|null, clearLogs: Function, clearSteps: Function, clearFinished: Function}}
+ * @returns {{connected: boolean, lastScreenshot: string|null, logs: Array, steps: Array, graphRun: Object|null, agentFinished: Object|null, clearLogs: Function, clearSteps: Function, clearGraphRun: Function, clearFinished: Function}}
  */
 export default function useWebSocket() {
   const wsRef = useRef(null)
@@ -28,6 +28,7 @@ export default function useWebSocket() {
   const [lastScreenshot, setLastScreenshot] = useState(null)
   const [logs, setLogs] = useState([])
   const [steps, setSteps] = useState([])
+  const [graphRun, setGraphRun] = useState(null)
   const [agentFinished, setAgentFinished] = useState(null)
   const [safetyPrompt, setSafetyPrompt] = useState(null)
   const reconnectTimer = useRef(null)
@@ -95,8 +96,16 @@ export default function useWebSocket() {
           case 'step':
             setSteps((prev) => [...prev.slice(-500), msg.step])
             break
+          case 'graph_state':
+            if (msg.graph) setGraphRun(msg.graph)
+            break
           case 'agent_finished':
             setAgentFinished(msg)
+            setGraphRun((prev) => (
+              prev && prev.session_id === msg.session_id
+                ? { ...prev, status: msg.status, phase: 'completed' }
+                : prev
+            ))
             setSafetyPrompt(null)
             break
           case 'pong':
@@ -145,6 +154,7 @@ export default function useWebSocket() {
 
   const clearLogs = useCallback(() => setLogs([]), [])
   const clearSteps = useCallback(() => setSteps([]), [])
+  const clearGraphRun = useCallback(() => setGraphRun(null), [])
   const clearFinished = useCallback(() => setAgentFinished(null), [])
   const clearSafetyPrompt = useCallback(() => setSafetyPrompt(null), [])
 
@@ -165,5 +175,5 @@ export default function useWebSocket() {
     sendScreenshotMode(ws, screenshotModeRef.current, screenshotSessionIdRef.current)
   }, [sendScreenshotMode])
 
-  return { connected, lastScreenshot, logs, steps, agentFinished, safetyPrompt, clearLogs, clearSteps, clearFinished, clearSafetyPrompt, setScreenshotMode }
+  return { connected, lastScreenshot, logs, steps, graphRun, agentFinished, safetyPrompt, clearLogs, clearSteps, clearGraphRun, clearFinished, clearSafetyPrompt, setScreenshotMode }
 }

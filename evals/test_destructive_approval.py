@@ -44,7 +44,7 @@ def test_destructive_action_requires_approval(sqlite_db):
     )
 
     assert final_state.get("status") in ("completed", "stopped")
-    assert final_state.get("approval_decision") is False
+    assert final_state.get("final_text") == "Agent terminated: safety confirmation denied."
 
     trace = load_trace_or_fail(SESSION_ID)
     safety_events = list(

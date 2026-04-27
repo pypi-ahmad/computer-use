@@ -947,6 +947,8 @@ class DesktopExecutor:
         self._normalize = normalize_coords
         self._service_url = agent_service_url
         self._container = container_name
+        self._current_action_id: str | None = None
+        self._current_action_substep: int = 0
         # P11: httpx client is shared across DesktopExecutor instances
         # in the same process via the ``_SHARED_HTTPX_CLIENTS`` dict
         # keyed by service URL. Previously every executor opened its
@@ -978,9 +980,13 @@ class DesktopExecutor:
     async def _post_action(self, payload: dict[str, Any]) -> dict[str, Any]:
         """POST an action to the agent_service and return the JSON result."""
         client = await self._get_client()
+        final_payload = dict(payload)
+        if self._current_action_id:
+            final_payload["action_id"] = f"{self._current_action_id}:{self._current_action_substep}"
+            self._current_action_substep += 1
         resp = await client.post(
             f"{self._service_url}/action",
-            json=payload,
+            json=final_payload,
             headers=self._auth_headers(),
         )
         resp.raise_for_status()
@@ -1010,7 +1016,16 @@ class DesktopExecutor:
                 error=f"Unimplemented desktop action: {name}",
             )
         try:
-            extra = await handler(args) or {}
+            handler_args = dict(args or {})
+            previous_action_id = self._current_action_id
+            previous_substep = self._current_action_substep
+            self._current_action_id = str(handler_args.pop("action_id", "") or "") or None
+            self._current_action_substep = 0
+            try:
+                extra = await handler(handler_args) or {}
+            finally:
+                self._current_action_id = previous_action_id
+                self._current_action_substep = previous_substep
             # Detect agent_service returning {"success": false}
             if isinstance(extra, dict) and extra.get("success") is False:
                 return CUActionResult(

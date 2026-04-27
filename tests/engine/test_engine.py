@@ -15,6 +15,7 @@ from PIL import Image
 from backend.engine import (
     ComputerUseEngine,
     CUActionResult,
+    DesktopExecutor,
     Environment,
     OpenAICUClient,
     Provider,
@@ -133,6 +134,41 @@ class TestComputerUseEngine:
         executor = engine._build_executor(page=None)
         from backend.engine import DesktopExecutor
         assert isinstance(executor, DesktopExecutor)
+
+
+class TestDesktopExecutorIdempotency:
+    @pytest.mark.asyncio
+    async def test_action_id_uses_deterministic_substeps(self, monkeypatch):
+        captured_payloads: list[dict[str, object]] = []
+
+        class _FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"success": True, "message": "ok"}
+
+        class _FakeClient:
+            async def post(self, _url, *, json, headers):
+                captured_payloads.append(dict(json))
+                assert isinstance(headers, dict)
+                return _FakeResponse()
+
+        executor = DesktopExecutor(screen_width=1440, screen_height=900, normalize_coords=False)
+        monkeypatch.setattr("backend.engine._app_config.ui_settle_delay", 0.0)
+        monkeypatch.setattr(executor, "_get_client", AsyncMock(return_value=_FakeClient()))
+
+        result = await executor.execute("triple_click", {"x": 44, "y": 55, "action_id": "replay-123"})
+
+        assert result.success is True
+        assert [payload["action_id"] for payload in captured_payloads] == [
+            "replay-123:0",
+            "replay-123:1",
+        ]
+        assert [payload["action"] for payload in captured_payloads] == [
+            "double_click",
+            "click",
+        ]
 
 
 class TestLookupClaudeCUConfig:

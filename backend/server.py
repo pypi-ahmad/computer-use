@@ -28,6 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from backend.models.schemas import (
     AgentAction,
     AgentSession,
+    LogEntry,
     SessionStatus,
     StartTaskRequest,
     TaskStatusResponse,
@@ -1246,6 +1247,11 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
         on_screenshot=lambda b64: _schedule_broadcast(
             "screenshot", {"screenshot": b64}
         ),
+        on_graph_state=lambda graph: _schedule_broadcast(
+            "graph_state",
+            {"graph": graph},
+            session_id=graph.get("session_id") if isinstance(graph, dict) else None,
+        ),
     )
 
     _active_loops[loop.session_id] = loop
@@ -1341,6 +1347,17 @@ async def api_agent_status(session_id: str):
     ).model_dump()
 
 
+@app.get("/api/agent/graph-rollout")
+async def api_agent_graph_rollout(request: Request):
+    """Return the supervisor rollout flag, kill-switch state, and graph metrics."""
+    forbidden = _require_origin(request)
+    if forbidden is not None:
+        return forbidden
+    from backend.agent.graph_rollout import get_snapshot
+
+    return get_snapshot()
+
+
 # ── Safety Confirmation for CU Engine ─────────────────────────────────────────
 
 
@@ -1428,13 +1445,13 @@ async def api_agent_safety_confirm(req: SafetyConfirmRequest, request: Request):
 
     Two resolution paths coexist (see PR 7):
 
-    1. **Graph interrupt path** — used when the agent graph paused at
-       ``approval_interrupt``. We call ``graph.ainvoke(Command(
+     1. **Graph interrupt path** — used when the agent graph paused at
+       ``escalate_interrupt``. We call ``graph.ainvoke(Command(
        resume=decision), ...)`` so the interrupt returns the user's
-       choice and the run continues from the checkpointed state. This
-       path survives a backend restart: the checkpointer restores
-       ``pending_approval`` and the resume call picks up where the run
-       left off.
+       choice and the run continues from checkpointed graph/provider
+       state until the next interrupt or terminal node. After a backend
+       restart this runs headlessly, because no ``AgentLoop`` object is
+       alive, but the graph itself still resumes from the checkpointer.
     2. **Legacy asyncio.Event path** — still used by Gemini / OpenAI
        whose ``run_loop`` has not yet been inverted into ``iter_turns``.
        We store the decision in :mod:`backend.agent.safety` and signal
@@ -1449,9 +1466,8 @@ async def api_agent_safety_confirm(req: SafetyConfirmRequest, request: Request):
     if not _is_valid_uuid(sid):
         return _error_response(400, "Invalid session_id")
     if sid not in _active_loops:
-        # The graph interrupt path can still serve this request if the
-        # backend was just restarted and the session is suspended in
-        # the checkpointer but has no live AgentLoop yet.
+        # Backend restart drops live AgentLoop objects, but a suspended
+        # graph can still continue from its checkpointed interrupt.
         resumed_via_graph = await _try_resume_graph(sid, req.confirm)
         if not resumed_via_graph:
             return _error_response(404, "Session not found")
@@ -1473,11 +1489,19 @@ async def api_agent_safety_confirm(req: SafetyConfirmRequest, request: Request):
 
 
 async def _try_resume_graph(session_id: str, decision: bool) -> bool:
-    """Try resuming a graph paused on ``approval_interrupt``.
+    """Try resuming a graph paused on ``escalate_interrupt``.
 
-    Returns True if the graph was actually resumed, False otherwise
-    (e.g. runtime not initialised, no pending interrupt, other errors).
-    Errors are logged but never propagated to the caller.
+    This is a graph resume, not just an approval-state acknowledgement:
+    ``Command(resume=...)`` continues from the checkpointed interrupt
+    until the next interrupt or terminal node. If a live ``AgentLoop``
+    exists, its callbacks receive the resumed run. After a backend
+    restart, no loop object exists, so the run resumes headlessly with
+    lightweight log/graph-state broadcasts and checkpointer-backed
+    status/history.
+
+    Returns True if the graph accepted the resume, False otherwise
+    (for example runtime not initialised, no pending interrupt, or other
+    errors). Errors are logged but never propagated to the caller.
     """
     try:
         from backend.agent.graph import build_agent_graph, NodeBundle, get_runtime
@@ -1488,36 +1512,64 @@ async def _try_resume_graph(session_id: str, decision: bool) -> bool:
         tup = await runtime.checkpointer.aget_tuple(config)
         if tup is None:
             return False
-        pending_tasks = tup.pending_writes or []
         # Quick heuristic: only call resume if there's an interrupt
         # pending. Otherwise ainvoke(Command) raises.
         channel_values = tup.checkpoint.get("channel_values") or {}
         if not channel_values.get("pending_approval"):
             return False
         from langgraph.types import Command
-        # Build a minimal bundle — only used if the run actually
-        # advances past approval (in which case an AgentLoop is live
-        # and will receive events via its own bundle). For a pure
-        # after-restart resume, the graph hits a dead iterator
-        # immediately and finalizes with an error; that's acceptable
-        # for the A1 scope and documented as a follow-up.
-        async def _noop_health() -> bool:
-            return True
-        async def _noop_iter(sid: str, task: str, max_steps: int):
-            # Yield nothing — forces the graph to finalize if there is
-            # no live engine.
-            if False:
-                yield None
-            return
         loop_ref = _active_loops.get(session_id)
-        bundle = (
-            loop_ref._build_graph_bundle()
-            if loop_ref is not None and hasattr(loop_ref, "_build_graph_bundle")
-            else NodeBundle(check_health=_noop_health, start_iter=_noop_iter)
-        )
+        if loop_ref is not None and hasattr(loop_ref, "_build_graph_bundle"):
+            bundle = loop_ref._build_graph_bundle()
+        else:
+            logger.info(
+                "Resuming checkpointed graph without live AgentLoop — session_id=%s",
+                session_id,
+            )
+
+            async def _noop_health() -> bool:
+                return True
+
+            def _emit_log(level: str, message: str, data: dict | None = None) -> None:
+                entry = LogEntry(level=level, message=message, data=data)
+                _schedule_broadcast(
+                    "log",
+                    {"log": entry.model_dump()},
+                    session_id=session_id,
+                )
+
+            def _emit_graph_state(graph: dict[str, Any]) -> None:
+                graph_session_id = (
+                    graph.get("session_id") if isinstance(graph, dict) else session_id
+                )
+                _schedule_broadcast(
+                    "graph_state",
+                    {"graph": graph},
+                    session_id=graph_session_id,
+                )
+
+            bundle = NodeBundle(
+                check_health=_noop_health,
+                emit_log=_emit_log,
+                emit_graph_state=_emit_graph_state,
+            )
         graph = build_agent_graph(bundle)
-        await graph.ainvoke(Command(resume=bool(decision)), config=config)
-        del pending_tasks
+        final_state = await graph.ainvoke(Command(resume=bool(decision)), config=config)
+        if (
+            isinstance(final_state, dict)
+            and final_state.get("session_data")
+            and final_state.get("status") in {"completed", "error"}
+        ):
+            session_data = final_state["session_data"]
+            await _broadcast("agent_finished", {
+                "session_id": session_id,
+                "status": str(
+                    session_data.get("status", final_state.get("status", "completed"))
+                ),
+                "steps": len(session_data.get("steps") or []),
+                "final_text": session_data.get("final_text"),
+                "gemini_grounding": session_data.get("gemini_grounding"),
+            })
         return True
     except Exception as exc:
         logger.warning(
@@ -1974,6 +2026,13 @@ class StepEvent(_WSEventBase):
     step: dict[str, Any]
 
 
+class GraphStateEvent(_WSEventBase):
+    """Compact LangGraph run-state update for the workbench panel."""
+
+    event: Literal["graph_state"] = "graph_state"
+    graph: dict[str, Any]
+
+
 class AgentFinishedEvent(_WSEventBase):
     """Terminal event for a session (status=completed|error|stopped)."""
 
@@ -2010,6 +2069,7 @@ WSEvent = Union[
     ScreenshotStreamEvent,
     LogEvent,
     StepEvent,
+    GraphStateEvent,
     AgentFinishedEvent,
     AuthFailedEvent,
     PongEvent,
@@ -2022,6 +2082,7 @@ _TYPED_EVENTS: dict[str, type[_WSEventBase]] = {
     "screenshot_stream": ScreenshotStreamEvent,
     "log": LogEvent,
     "step": StepEvent,
+    "graph_state": GraphStateEvent,
     "agent_finished": AgentFinishedEvent,
     "auth_failed": AuthFailedEvent,
     "pong": PongEvent,
