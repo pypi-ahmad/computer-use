@@ -143,10 +143,6 @@ class StartTaskRequest(BaseModel):
     # flag only controls availability. Off by default; the frontend
     # toggle enables the provider-native search tool when requested.
     use_builtin_search: bool = False
-    search_max_uses: Optional[int] = Field(default=None, ge=1, le=20)  # Anthropic max_uses cap
-    search_allowed_domains: Optional[list[str]] = Field(default=None, max_length=64)
-    search_blocked_domains: Optional[list[str]] = Field(default=None, max_length=64)
-    allowed_callers: Optional[list[str]] = Field(default=None, max_length=16)
     # Server-side file ids previously persisted via POST /api/files/upload.
     # When non-empty the engine adapter creates a provider-side store
     # (OpenAI vector_store / Anthropic Files API uploads) and injects the

@@ -16,10 +16,6 @@ class ProviderTools:
     """Provider-native tools requested for one Computer Use run."""
 
     web_search: bool = False
-    search_max_uses: int | None = None
-    search_allowed_domains: list[str] | None = None
-    search_blocked_domains: list[str] | None = None
-    allowed_callers: list[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -33,15 +29,6 @@ class ProviderEvent:
 EventCallback = Callable[[ProviderEvent], Any]
 SafetyCallback = Callable[[str], Awaitable[bool] | bool]
 
-
-def _list_or_none(value: Any) -> list[str] | None:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        return [value]
-    return [str(item) for item in value]
-
-
 def normalize_tools(tools: ProviderTools | Mapping[str, Any] | None) -> ProviderTools:
     """Accept either the typed tools object or a request-style mapping."""
     if isinstance(tools, ProviderTools):
@@ -50,10 +37,6 @@ def normalize_tools(tools: ProviderTools | Mapping[str, Any] | None) -> Provider
         return ProviderTools()
     return ProviderTools(
         web_search=bool(tools.get("web_search", False)),
-        search_max_uses=tools.get("search_max_uses"),
-        search_allowed_domains=_list_or_none(tools.get("search_allowed_domains")),
-        search_blocked_domains=_list_or_none(tools.get("search_blocked_domains")),
-        allowed_callers=_list_or_none(tools.get("allowed_callers")),
     )
 
 

@@ -58,10 +58,6 @@ async def run(
             tool_version=tool_version,
             beta_flag=beta_flag,
             use_builtin_search=provider_tools.web_search,
-            search_max_uses=provider_tools.search_max_uses,
-            search_allowed_domains=provider_tools.search_allowed_domains,
-            search_blocked_domains=provider_tools.search_blocked_domains,
-            allowed_callers=provider_tools.allowed_callers,
             attached_file_ids=file_ids,
         )
 

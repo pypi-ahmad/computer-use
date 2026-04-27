@@ -38,9 +38,6 @@ async def run_client(
     """Run an already-constructed provider client through its provider module."""
     tools = ProviderTools(
         web_search=bool(getattr(client, "_use_builtin_search", False)),
-        search_allowed_domains=getattr(client, "_search_allowed_domains", None),
-        search_blocked_domains=getattr(client, "_search_blocked_domains", None),
-        allowed_callers=getattr(client, "_allowed_callers", None),
     )
     final_text = ""
     completion_payload: dict[str, Any] = {}

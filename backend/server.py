@@ -1017,10 +1017,6 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
             model=req.model,
             use_builtin_search=req.use_builtin_search,
             reasoning_effort=reasoning_effort,
-            search_max_uses=req.search_max_uses,
-            search_allowed_domains=req.search_allowed_domains,
-            search_blocked_domains=req.search_blocked_domains,
-            allowed_callers=req.allowed_callers,
         )
     except ValueError as exc:
         return _error_response(400, str(exc))
@@ -1077,10 +1073,6 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
         execution_target=req.execution_target,
         reasoning_effort=reasoning_effort if req.provider == "openai" else None,
         use_builtin_search=req.use_builtin_search,
-        search_max_uses=req.search_max_uses,
-        search_allowed_domains=req.search_allowed_domains,
-        search_blocked_domains=req.search_blocked_domains,
-        allowed_callers=req.allowed_callers,
         attached_files=req.attached_files or [],
         on_log=lambda entry: _schedule_broadcast(
             "log", {"log": entry.model_dump()}
@@ -1343,6 +1335,10 @@ async def vnc_ws_proxy(ws: WebSocket):
             f"{_NOVNC_WS}/websockify",
             subprotocols=["binary"],
             max_size=2**22,
+            # This is a loopback proxy to local websockify. Keepalive pings
+            # from the websockets client can time out noisily during idle VNC
+            # periods even though the UI can reconnect cleanly.
+            ping_interval=None,
         ) as upstream:
 
             async def client_to_upstream():

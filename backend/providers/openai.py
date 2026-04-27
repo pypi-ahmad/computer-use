@@ -49,9 +49,6 @@ async def run(
             system_prompt=options.get("system_prompt"),
             reasoning_effort=options.get("reasoning_effort"),
             use_builtin_search=provider_tools.web_search,
-            search_max_uses=provider_tools.search_max_uses,
-            search_allowed_domains=provider_tools.search_allowed_domains,
-            search_blocked_domains=provider_tools.search_blocked_domains,
             attached_file_ids=file_ids,
         )
 
