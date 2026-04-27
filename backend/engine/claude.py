@@ -41,8 +41,6 @@ logger = logging.getLogger(__name__)
 _ANTHROPIC_WEB_SEARCH_CONSOLE_URL = "https://platform.claude.com/settings/privacy"
 _ANTHROPIC_WEB_SEARCH_PROBE_TTL_SECONDS = 24 * 60 * 60
 _ANTHROPIC_WEB_SEARCH_BASIC_TOOL = "web_search_20250305"
-_ANTHROPIC_WEB_SEARCH_DIRECT_TOOL = "web_search_20260209"
-_ANTHROPIC_ALLOWED_CALLERS_DIRECT = "direct"
 _ANTHROPIC_WEB_SEARCH_PROBE_CACHE: dict[str, tuple[bool, float]] = {}
 _ANTHROPIC_WEB_SEARCH_PROBE_LOCKS: dict[str, asyncio.Lock] = {}
 _ANTHROPIC_WEB_SEARCH_PROBE_LOCKS_GUARD = asyncio.Lock()
@@ -174,10 +172,6 @@ class ClaudeCUClient:
         tool_version: str | None = None,
         beta_flag: str | None = None,
         use_builtin_search: bool = False,
-        search_max_uses: int | None = None,
-        search_allowed_domains: list[str] | None = None,
-        search_blocked_domains: list[str] | None = None,
-        allowed_callers: list[str] | None = None,
         attached_file_ids: list[str] | None = None,
     ):
         try:
@@ -224,27 +218,13 @@ class ClaudeCUClient:
             provider="claude",
             model=model,
             use_builtin_search=use_builtin_search,
-            search_max_uses=search_max_uses,
-            search_allowed_domains=search_allowed_domains,
-            search_blocked_domains=search_blocked_domains,
-            allowed_callers=allowed_callers,
         )
 
         # Official Anthropic web_search server tool (April 2026:
-        # tool type ``web_search_20250305`` by default. When
-        # ``allowed_callers`` is supplied, switch to the documented ZDR
-        # workaround shape for ``web_search_20260209`` with dynamic
-        # filtering disabled.
-        # When enabled the adapter advertises it alongside the
-        # computer-use tool and the model invokes it server-side
-        # (no client-side execution). Domain-filter validation happens
-        # up front so unsupported combinations fail explicitly.
+        # tool type ``web_search_20250305``). When enabled the adapter
+        # advertises it alongside the computer-use tool and the model
+        # invokes it server-side.
         self._use_builtin_search = bool(use_builtin_search)
-        self._search_max_uses = int(search_max_uses) if search_max_uses else 5
-        self._search_allowed_domains = list(search_allowed_domains) if search_allowed_domains else None
-        self._search_blocked_domains = list(search_blocked_domains) if search_blocked_domains else None
-        self._allowed_callers = list(allowed_callers) if allowed_callers is not None else None
-        self._warn_on_unknown_allowed_callers()
 
         # Anthropic Files API integration. Per the official Computer
         # Use docs there is no sibling ``file_search`` tool on Claude
@@ -377,42 +357,13 @@ class ClaudeCUClient:
             on_log=on_log,
         )
 
-    def _warn_on_unknown_allowed_callers(self) -> None:
-        """Warn when callers request an undocumented allowed_callers value."""
-        if self._allowed_callers is None:
-            return
-        unknown = [value for value in self._allowed_callers if value != _ANTHROPIC_ALLOWED_CALLERS_DIRECT]
-        if unknown:
-            logger.warning(
-                "Anthropic web search allowed_callers contains undocumented values %s; "
-                "official docs currently show only %r.",
-                unknown,
-                _ANTHROPIC_ALLOWED_CALLERS_DIRECT,
-            )
-
     def _build_web_search_tool(self, *, max_uses: int | None = None) -> dict[str, Any]:
         """Build the Anthropic web_search server-tool definition."""
-        tool_type = (
-            _ANTHROPIC_WEB_SEARCH_DIRECT_TOOL
-            if self._allowed_callers is not None
-            else _ANTHROPIC_WEB_SEARCH_BASIC_TOOL
-        )
         ws_tool: dict[str, Any] = {
-            "type": tool_type,
+            "type": _ANTHROPIC_WEB_SEARCH_BASIC_TOOL,
             "name": "web_search",
-            "max_uses": self._search_max_uses if max_uses is None else max_uses,
+            "max_uses": 5 if max_uses is None else max_uses,
         }
-        if self._search_allowed_domains and self._search_blocked_domains:
-            raise ValueError(
-                "Anthropic web search accepts either search_allowed_domains "
-                "or search_blocked_domains, not both.",
-            )
-        if self._search_allowed_domains:
-            ws_tool["allowed_domains"] = self._search_allowed_domains
-        if self._search_blocked_domains:
-            ws_tool["blocked_domains"] = self._search_blocked_domains
-        if self._allowed_callers is not None:
-            ws_tool["allowed_callers"] = list(self._allowed_callers)
         return ws_tool
 
     def _build_tools(self, sw: int, sh: int) -> list[dict]:

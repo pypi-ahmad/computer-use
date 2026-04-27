@@ -51,6 +51,7 @@ _CU_ACTION_MAP: dict[str, ActionType] = {
     "type": ActionType.TYPE, "keypress": ActionType.KEY,
     "scroll": ActionType.SCROLL, "drag": ActionType.DRAG,
     "wait": ActionType.WAIT, "screenshot": ActionType.SCREENSHOT,
+    "done": ActionType.DONE, "error": ActionType.ERROR,
 }
 
 
@@ -68,10 +69,6 @@ class AgentLoop:
         execution_target: str = "docker",
         reasoning_effort: str | None = None,
         use_builtin_search: bool = False,
-        search_max_uses: int | None = None,
-        search_allowed_domains: list[str] | None = None,
-        search_blocked_domains: list[str] | None = None,
-        allowed_callers: list[str] | None = None,
         attached_files: list[str] | None = None,
         on_step: Optional[Callable] = None,
         on_log: Optional[Callable] = None,
@@ -91,10 +88,6 @@ class AgentLoop:
         self._execution_target = execution_target
         self._reasoning_effort = reasoning_effort
         self._use_builtin_search = use_builtin_search
-        self._search_max_uses = search_max_uses
-        self._search_allowed_domains = search_allowed_domains
-        self._search_blocked_domains = search_blocked_domains
-        self._allowed_callers = allowed_callers
         self._attached_files = attached_files or []
         self._action_history: list[AgentAction] = []
         self._stop_requested = False
@@ -244,10 +237,6 @@ class AgentLoop:
             agent_service_url=config.agent_service_url,
             reasoning_effort=self._reasoning_effort,
             use_builtin_search=self._use_builtin_search,
-            search_max_uses=self._search_max_uses,
-            search_allowed_domains=self._search_allowed_domains,
-            search_blocked_domains=self._search_blocked_domains,
-            allowed_callers=self._allowed_callers,
             attached_files=self._attached_files,
         )
 
@@ -299,6 +288,17 @@ class AgentLoop:
                         "warning",
                         f"Unmapped CU action '{first.name}' — not in ActionType enum",
                     )
+            elif record.model_text:
+                scrubbed_text = _scrub_secrets(record.model_text[:500])
+                terminal_action = (
+                    ActionType.ERROR
+                    if scrubbed_text.lower().startswith(("error:", "openai stopped"))
+                    else ActionType.DONE
+                )
+                agent_action = AgentAction(
+                    action=terminal_action,
+                    reasoning=scrubbed_text,
+                )
             step = StepRecord(
                 step_number=record.turn,
                 screenshot_b64=record.screenshot_b64,
@@ -400,6 +400,7 @@ class AgentLoop:
             )
         except Exception as exc:
             self._emit_log("error", f"CU engine failed: {exc}")
+            self.session.final_text = str(exc)
             self.session.status = SessionStatus.ERROR
         finally:
             self._run_task = None

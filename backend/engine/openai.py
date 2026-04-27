@@ -11,6 +11,7 @@ import base64
 import io
 import logging
 import os
+import re
 import time
 from typing import Any, Callable
 
@@ -43,6 +44,87 @@ _OPENAI_CU_REGISTRY_MODELS = frozenset(
     for model in _load_allowed_models_json()
     if model.get("provider") == "openai" and model.get("supports_computer_use")
 )
+_OPENAI_OBSERVATION_ONLY_ACTIONS = frozenset({"screenshot"})
+_OPENAI_UI_ACTION_TASK_RE = re.compile(
+    r"\b(open|launch|start|search|click|type|enter|press|navigate|visit|"
+    r"scroll|fill|select|choose|upload|download|create|delete|rename|"
+    r"move|drag|paste|copy)\b|\bgo\s+to\b",
+    re.IGNORECASE,
+)
+_OPENAI_BLOCKED_FINAL_RE = re.compile(
+    r"\b(can't|cannot|could\s+not|couldn't|unable|blocked|failed|failure|"
+    r"error|need|needs|required|requires|not\s+able|not\s+possible)\b",
+    re.IGNORECASE,
+)
+_OPENAI_GENERIC_FINALS = frozenset({
+    "ready",
+    "done",
+    "complete",
+    "completed",
+    "finished",
+    "ok",
+    "okay",
+})
+_OPENAI_NEEDS_USER_INPUT_FINAL_RE = re.compile(
+    r"\b("
+    r"what\s+would\s+you\s+like\s+me\s+to\s+do|"
+    r"what\s+should\s+i\s+do|"
+    r"how\s+can\s+i\s+help|"
+    r"please\s+(provide|tell|let\s+me\s+know)|"
+    r"tell\s+me\s+what\s+you\s+would\s+like|"
+    r"what\s+task\s+would\s+you\s+like"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _openai_task_likely_requires_ui_action(goal: str) -> bool:
+    """Return True when the user's wording implies desktop interaction."""
+    return bool(_OPENAI_UI_ACTION_TASK_RE.search(goal or ""))
+
+
+def _openai_final_is_blocker(final_text: str) -> bool:
+    """Acknowledge explicit model handoffs such as "I can't continue"."""
+    return bool(_OPENAI_BLOCKED_FINAL_RE.search(final_text or ""))
+
+
+def _openai_final_is_generic(final_text: str) -> bool:
+    """Detect weak no-op completions like "Ready." or "Done."."""
+    normalized = re.sub(r"[\W_]+", " ", (final_text or "").lower()).strip()
+    if not normalized:
+        return True
+    return normalized in _OPENAI_GENERIC_FINALS
+
+
+def _openai_final_asks_for_task(final_text: str) -> bool:
+    """Detect no-op assistant handbacks after it lost the user's task."""
+    return bool(_OPENAI_NEEDS_USER_INPUT_FINAL_RE.search(final_text or ""))
+
+
+def _openai_final_needs_more_computer_use(
+    goal: str,
+    final_text: str,
+    *,
+    saw_progress_action: bool,
+) -> bool:
+    """Guard against screenshot-only false completions.
+
+    The official Computer Use loop allows a screenshot-first turn. That
+    screenshot is observation, not progress toward a UI task such as
+    opening an app, searching, clicking, or typing.
+    """
+    if _openai_final_is_blocker(final_text):
+        return False
+    if _openai_final_asks_for_task(final_text):
+        return True
+    if saw_progress_action:
+        return False
+    return _openai_task_likely_requires_ui_action(goal) or _openai_final_is_generic(final_text)
+
+
+def _openai_action_is_progress(result: CUActionResult) -> bool:
+    """A screenshot request is normal context gathering, not UI progress."""
+    return bool(result.success and result.name not in _OPENAI_OBSERVATION_ONLY_ACTIONS)
 
 
 def _ensure_openai_ga_model_is_in_registry(model: str) -> None:
@@ -163,13 +245,8 @@ class OpenAICUClient:
         # Official OpenAI Responses API web-search tool (April 2026).
         # When ``use_builtin_search`` is True the adapter appends
         # ``{"type": "web_search"}`` to the tools list and the model
-        # decides per turn whether to invoke it. ``search_max_uses`` is
-        # not part of OpenAI's contract (Anthropic-only) and is
-        # ignored here for parity with the unified factory shape.
+        # decides per turn whether to invoke it.
         use_builtin_search: bool = False,
-        search_max_uses: int | None = None,
-        search_allowed_domains: list[str] | None = None,
-        search_blocked_domains: list[str] | None = None,
         # File-search activation (April 2026 Responses API):
         # https://developers.openai.com/api/docs/guides/tools-file-search
         # When ``attached_file_ids`` is non-empty, the adapter creates a
@@ -217,17 +294,11 @@ class OpenAICUClient:
             model=model,
             use_builtin_search=use_builtin_search,
             reasoning_effort=self._reasoning_effort,
-            search_max_uses=search_max_uses,
-            search_allowed_domains=search_allowed_domains,
-            search_blocked_domains=search_blocked_domains,
         )
         # Web-search wiring (April 2026 Responses API: tool type
         # ``web_search``). Unsupported combinations fail explicitly
         # instead of silently dropping the search tool.
         self._use_builtin_search = bool(use_builtin_search)
-        self._search_allowed_domains = list(search_allowed_domains) if search_allowed_domains else None
-        self._search_blocked_domains = list(search_blocked_domains) if search_blocked_domains else None
-        del search_max_uses  # already validated above
         # Provider-side vector store id, lazily provisioned on the first
         # ``run_loop`` invocation when ``_attached_file_ids`` is non-empty.
         # Re-used across turns; cleaned up at run-loop exit.
@@ -257,18 +328,7 @@ class OpenAICUClient:
             tools: list[dict[str, Any]] = [{"type": "computer"}]
             if self._use_builtin_search:
                 # April 2026 Responses API: ``{"type": "web_search"}``.
-                # Optional ``filters.allowed_domains`` /
-                # ``filters.blocked_domains`` per the Web Search tool
-                # reference. The model decides whether to call it.
-                ws_tool: dict[str, Any] = {"type": "web_search"}
-                filters: dict[str, Any] = {}
-                if self._search_allowed_domains:
-                    filters["allowed_domains"] = self._search_allowed_domains
-                if self._search_blocked_domains:
-                    filters["blocked_domains"] = self._search_blocked_domains
-                if filters:
-                    ws_tool["filters"] = filters
-                tools.append(ws_tool)
+                tools.append({"type": "web_search"})
             # File-search tool, gated by user upload (activation rule
             # per https://developers.openai.com/api/docs/guides/tools-file-search).
             # Vector store is provisioned in ``_ensure_vector_store``
@@ -388,23 +448,26 @@ class OpenAICUClient:
         )
         self._current_screenshot_scale = current_screenshot_scale
 
-        next_input: list[dict[str, Any]] = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "input_text", "text": goal},
-                    {
-                        "type": "input_image",
-                        "image_url": f"data:image/png;base64,{base64.standard_b64encode(prepared_screenshot_bytes).decode()}",
-                        "detail": "original",
-                    },
-                ],
-            }
-        ]
-        # ZDR-safe: never use previous_response_id; always send full context
+        initial_user_input: dict[str, Any] = {
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": goal},
+                {
+                    "type": "input_image",
+                    "image_url": f"data:image/png;base64,{base64.standard_b64encode(prepared_screenshot_bytes).decode()}",
+                    "detail": "original",
+                },
+            ],
+        }
+        # ZDR-safe: never use previous_response_id; manually replay the
+        # conversation from the original user task forward. OpenAI's manual
+        # Responses history guidance requires preserving prior output items
+        # (including reasoning/computer calls) alongside tool outputs.
+        conversation_input: list[dict[str, Any]] = [initial_user_input]
+        next_input: list[dict[str, Any]] = list(conversation_input)
         final_text = ""
         _turn_start: float | None = None
-        saw_computer_action = False
+        saw_progress_action = False
         nudged_for_computer_use = False
 
         for turn in range(turn_limit):
@@ -448,31 +511,39 @@ class OpenAICUClient:
             ]
 
             if not computer_calls:
-                if (self._use_builtin_search or self._vector_store_id is not None) and not saw_computer_action and not nudged_for_computer_use:
+                needs_more_computer_use = _openai_final_needs_more_computer_use(
+                    goal,
+                    turn_text,
+                    saw_progress_action=saw_progress_action,
+                )
+                if needs_more_computer_use and not nudged_for_computer_use:
                     if on_log:
                         on_log(
                             "info",
-                            "OpenAI CU: retrieval-only turn before any computer action; nudging the model to continue with the computer tool.",
+                            "OpenAI CU: model stopped without completing the desktop task; nudging it to continue with the computer tool.",
                         )
                     refreshed_screenshot = await executor.capture_screenshot()
                     prepared_refreshed_screenshot, current_screenshot_scale = _prepare_openai_computer_screenshot(
                         refreshed_screenshot,
                         on_log=on_log,
                     )
-                    next_input = [
+                    conversation_input.extend(
                         _sanitize_openai_response_item_for_replay(item)
                         for item in output_items
-                    ]
-                    next_input.append({
+                    )
+                    conversation_input.append({
                         "role": "user",
                         "content": [
                             {
                                 "type": "input_text",
                                 "text": (
-                                    "Use any retrieved search/file context to continue, but do not stop yet. "
-                                    "This app's purpose is computer use: the task is not complete until you perform "
-                                    "the requested action with the computer tool on the current screen. "
-                                    "Continue with computer actions now."
+                                    f"Active user task: {goal}\n\n"
+                                    "Continue with the computer tool. A screenshot-only turn is only observation; "
+                                    "it does not complete this desktop UI task. The task is not complete until "
+                                    "you perform the requested action with the computer tool. Perform the requested "
+                                    "on-screen action now, such as opening the app, clicking, typing, navigating, "
+                                    "or searching as needed. Stop only after the requested on-screen work is "
+                                    "actually done."
                                 ),
                             },
                             {
@@ -482,8 +553,29 @@ class OpenAICUClient:
                             },
                         ],
                     })
+                    next_input = list(conversation_input)
                     nudged_for_computer_use = True
                     continue
+                if needs_more_computer_use:
+                    final_text = (
+                        "OpenAI stopped before performing any non-screenshot desktop action. "
+                        f"Last model message: {turn_text or 'no final text'}"
+                    )
+                    if on_log:
+                        on_log("error", final_text)
+                    if on_turn:
+                        on_turn(CUTurnRecord(
+                            turn=turn + 1,
+                            model_text=final_text,
+                            actions=[
+                                CUActionResult(
+                                    name="error",
+                                    success=False,
+                                    error=final_text,
+                                ),
+                            ],
+                        ))
+                    raise RuntimeError(final_text)
                 final_text = _append_source_footer(
                     turn_text or "OpenAI completed without a final message.",
                     _extract_openai_sources(output_items),
@@ -493,8 +585,6 @@ class OpenAICUClient:
                 if on_turn:
                     on_turn(CUTurnRecord(turn=turn + 1, model_text=turn_text, actions=[]))
                 break
-
-            saw_computer_action = True
 
             tool_outputs: list[dict[str, Any]] = []
             results: list[CUActionResult] = []
@@ -536,6 +626,8 @@ class OpenAICUClient:
                 for action in actions:
                     result = await self._execute_openai_action(action, executor)
                     results.append(result)
+                    if _openai_action_is_progress(result):
+                        saw_progress_action = True
                     # Inter-action delay matching official CUA sample (120ms)
                     if action is not actions[-1]:
                         await asyncio.sleep(_app_config.screenshot_settle_delay)
@@ -570,17 +662,21 @@ class OpenAICUClient:
             current_screenshot_scale = next_screenshot_scale
             self._current_screenshot_scale = current_screenshot_scale
 
-            # Build next input: include response output items + tool call results
-            # ZDR orgs cannot use previous_response_id, so we replay full context.
-            # Response output items contain output-only fields (e.g. "status"
-            # and "pending_safety_checks") that are NOT accepted as input.
-            # Note: preserve "phase" on message items – GPT-5.5 requires it
-            # when manually replaying assistant commentary/final-answer items.
+            # Build next input: include full manual conversation history.
+            # ZDR orgs cannot use previous_response_id, so we replay from the
+            # original user task through every response output item and tool
+            # result. Response output items contain output-only fields (e.g.
+            # "status" and "pending_safety_checks") that are NOT accepted as
+            # input. Note: preserve "phase" on message items – GPT-5.5
+            # requires it when manually replaying assistant commentary/final-
+            # answer items.
             response_output = list(getattr(response, "output", []) or [])
-            next_input = []
-            for item in response_output:
-                next_input.append(_sanitize_openai_response_item_for_replay(item))
-            next_input.extend(tool_outputs)
+            conversation_input.extend(
+                _sanitize_openai_response_item_for_replay(item)
+                for item in response_output
+            )
+            conversation_input.extend(tool_outputs)
+            next_input = list(conversation_input)
         else:
             final_text = f"OpenAI CU reached the turn limit ({turn_limit}) without a final response."
 

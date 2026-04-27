@@ -53,9 +53,6 @@ async def run(
             excluded_actions=options.get("excluded_actions"),
             system_instruction=options.get("system_prompt"),
             use_builtin_search=provider_tools.web_search,
-            search_max_uses=provider_tools.search_max_uses,
-            search_allowed_domains=provider_tools.search_allowed_domains,
-            search_blocked_domains=provider_tools.search_blocked_domains,
             attached_file_ids=file_ids,
         )
 

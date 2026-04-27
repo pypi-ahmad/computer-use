@@ -85,6 +85,10 @@ def main():
         port=config.port,
         reload=reload_enabled,
         log_level="debug" if config.debug else "info",
+        # The frontend sends an application-level heartbeat and reconnects.
+        # Uvicorn's protocol ping can produce noisy 1011 keepalive timeouts
+        # when a local browser tab or noVNC proxy stalls briefly.
+        ws_ping_interval=None,
     )
 
 

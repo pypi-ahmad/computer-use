@@ -485,26 +485,14 @@ def validate_builtin_search_config(
     model: str,
     use_builtin_search: bool,
     reasoning_effort: str | None = None,
-    search_max_uses: int | None = None,
-    search_allowed_domains: list[str] | None = None,
-    search_blocked_domains: list[str] | None = None,
-    allowed_callers: list[str] | None = None,
 ) -> None:
     """Validate provider-native search settings before any API call is built."""
-    has_domain_filters = bool(search_allowed_domains) or bool(search_blocked_domains)
     if not use_builtin_search:
-        if search_max_uses is not None or has_domain_filters or allowed_callers is not None:
-            raise ValueError("Search options require use_builtin_search=true.")
         return
 
     provider_key = _normalize_search_provider(provider)
 
     if provider_key == "claude":
-        if search_allowed_domains and search_blocked_domains:
-            raise ValueError(
-                "Anthropic web search accepts either search_allowed_domains or "
-                "search_blocked_domains, not both.",
-            )
         return
 
     if provider_key == "gemini":
@@ -512,11 +500,6 @@ def validate_builtin_search_config(
             raise ValueError(
                 "Gemini combined computer_use + google_search is documented only "
                 "for Gemini 3 models.",
-            )
-        if search_max_uses is not None or has_domain_filters or allowed_callers is not None:
-            raise ValueError(
-                "Gemini google_search does not support search_max_uses or domain "
-                "filters in the fetched API docs; allowed_callers is also unsupported.",
             )
         sdk_error = _get_gemini_builtin_search_sdk_error()
         if sdk_error:
@@ -527,12 +510,6 @@ def validate_builtin_search_config(
         openai_effort = (reasoning_effort or "").lower()
         if openai_effort == "none":
             openai_effort = "minimal"
-        if search_max_uses is not None:
-            raise ValueError("OpenAI web_search does not support search_max_uses.")
-        if allowed_callers is not None:
-            raise ValueError(
-                "OpenAI web_search does not support allowed_callers.",
-            )
         if model.startswith("gpt-5") and openai_effort == "minimal":
             raise ValueError(
                 "OpenAI web_search is not supported with gpt-5 models at minimal reasoning.",
@@ -806,10 +783,6 @@ class ComputerUseEngine:
         agent_service_url: str = "http://127.0.0.1:9222",
         reasoning_effort: str | None = None,
         use_builtin_search: bool = False,
-        search_max_uses: int | None = None,
-        search_allowed_domains: list[str] | None = None,
-        search_blocked_domains: list[str] | None = None,
-        allowed_callers: list[str] | None = None,
         attached_files: list[str] | None = None,
     ):
         self.provider = provider
@@ -824,13 +797,10 @@ class ComputerUseEngine:
             from backend.files import GEMINI_CU_FILE_REJECTION
             raise ValueError(GEMINI_CU_FILE_REJECTION)
 
-        # Bundle the optional search options once so each adapter
+        # Bundle the product's web-search toggle once so each adapter
         # receives the same shape via a single kwarg.
         search_kwargs: dict[str, Any] = {
             "use_builtin_search": bool(use_builtin_search),
-            "search_max_uses": search_max_uses,
-            "search_allowed_domains": list(search_allowed_domains) if search_allowed_domains else None,
-            "search_blocked_domains": list(search_blocked_domains) if search_blocked_domains else None,
         }
         # Reference-file activation rule: only attach provider-native
         # document grounding when the user explicitly uploaded files.
@@ -860,7 +830,6 @@ class ComputerUseEngine:
                 system_prompt=system_instruction,
                 tool_version=_tv,
                 beta_flag=_bf,
-                allowed_callers=list(allowed_callers) if allowed_callers is not None else None,
                 **search_kwargs,
                 **file_kwargs,
             )

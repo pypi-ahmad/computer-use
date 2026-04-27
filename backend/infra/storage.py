@@ -12,7 +12,7 @@ appropriate provider-side store:
 * Anthropic: ``beta.files.upload`` (``document`` / inline-text content blocks)
 
 The activation rule is provider-agnostic: when ``attached_files`` is
-empty, no provider-side store, document block, or RAG pre-step is
+empty, no provider-side store or document block is
 created — the agent runs in its normal flow.
 
 Constraints (per the user-facing contract):
