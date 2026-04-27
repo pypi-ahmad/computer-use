@@ -1,27 +1,7 @@
-"""Unified Computer Use engine — native CU protocol for supported providers.
+"""Unified Computer Use engine for Gemini, Claude, and OpenAI.
 
-Replaces ad-hoc text-parsing of model responses with the structured
-``computer_use`` tool protocol that both Gemini 3 Flash and Claude 4.6
-Sonnet support natively.
-
-Architecture
-~~~~~~~~~~~~
-::
-
-    ComputerUseEngine
-    ├── GeminiCUClient   (google-genai  types.Tool(computer_use=...))
-    ├── ClaudeCUClient   (anthropic     computer_2025XXYY tool, registry-backed)
-    └── Executors
-        └── DesktopExecutor     (desktop via agent_service HTTP API → xdotool + scrot)
-
-Usage::
-
-    engine = ComputerUseEngine(
-        provider=Provider.GEMINI,
-        api_key="...",
-        environment=Environment.DESKTOP,
-    )
-    result = await engine.execute_task("Search for ...")
+Provider adapters keep their native tool contracts while sharing the
+desktop executor that talks to the sandbox action service.
 """
 
 from __future__ import annotations
@@ -322,8 +302,7 @@ async def _call_with_retry(
 import re as _re
 
 # Known API-key prefixes / shapes. Anything matching these gets redacted
-# before being persisted into the LangGraph checkpoint or broadcast to
-# the frontend.
+# before being broadcast to the frontend.
 _SECRET_PATTERNS: tuple[tuple[str, "_re.Pattern[str]"], ...] = (
     ("openai",     _re.compile(r"sk-[A-Za-z0-9_\-]{16,}")),
     ("anthropic",  _re.compile(r"sk-ant-[A-Za-z0-9_\-]{16,}")),
@@ -356,11 +335,6 @@ _CLAUDE_MAX_PIXELS = 1_150_000
 # 2025-11-24 computer-use docs.
 _CLAUDE_OPUS_47_MAX_LONG_EDGE = 2576
 _CLAUDE_HIGH_RES_MAX_PIXELS = 3_750_000
-
-
-def _is_opus_47(model_id: str) -> bool:
-    """Return True if *model_id* is a Claude Opus 4.7 variant."""
-    return model_id.startswith("claude-opus-4-7") or model_id.startswith("claude-opus-4.7")
 
 
 def _is_opus_47(model_id: str) -> bool:
@@ -640,25 +614,19 @@ class CUTurnRecord:
 
 
 # ---------------------------------------------------------------------------
-# Graph turn events (PR 7 — inverted control flow)
+# Provider turn events
 # ---------------------------------------------------------------------------
 #
-# Per-engine ``iter_turns`` is an ``AsyncIterator[TurnEvent]``. It is the
-# ground-truth state-machine of a provider run — the outer LangGraph
-# :mod:`backend.agent.graph` drives it one event at a time, deciding per
-# event which graph node to enter (``model_turn``, ``tool_batch``,
-# ``approval_interrupt``, ``finalize``).
-#
-# Scope note: Claude and Gemini yield native per-turn
-# ``ModelTurnStarted`` + ``ToolBatchCompleted`` events. OpenAI still
-# uses the legacy ``run_loop`` shim until its iterator is inverted.
+# Per-engine ``iter_turns`` is an ``AsyncIterator[TurnEvent]`` for code
+# that wants a per-turn provider stream. The default app path drives the
+# native Computer Use client directly through ``execute_task``.
 
 @dataclass
 class ModelTurnStarted:
     """Model call has produced text + pending tool uses for this turn.
 
-    The outer graph enters the ``tool_batch`` node next, which pulls the
-    following ``ToolBatchCompleted`` event off the iterator.
+    Consumers should execute the pending tool uses and then read the
+    following ``ToolBatchCompleted`` event from the iterator.
     """
     turn: int
     model_text: str
@@ -678,9 +646,7 @@ class ToolBatchCompleted:
 class SafetyRequired:
     """The provider asked the client to confirm a require_confirmation action.
 
-    The graph converts this into a LangGraph ``interrupt()`` so the
-    pending approval becomes part of checkpointed state. The decision
-    comes back to ``iter_turns`` via ``agen.asend(bool)``.
+    The decision comes back to ``iter_turns`` via ``agen.asend(bool)``.
     """
     explanation: str
 
@@ -696,8 +662,7 @@ class RunFailed:
     """The provider loop raised a non-retryable error.
 
     Transient retries are handled inside ``_call_with_retry`` before any
-    event is yielded, so reaching this event means we should abort the
-    graph run.
+    event is yielded, so reaching this event means the run should abort.
     """
     error: str
 
@@ -727,9 +692,8 @@ async def iter_turns_via_run_loop(
     turn and a terminal ``RunCompleted`` / ``RunFailed``.
 
     ``on_safety`` is forwarded to ``run_loop`` verbatim — safety
-    approvals for these engines still flow through the legacy
-    ``backend.agent.safety`` asyncio.Event registry. Routing those
-    through a graph-level ``interrupt()`` is a follow-up PR.
+    approvals for these engines flow through the
+    ``backend.agent.safety`` asyncio.Event registry.
     """
     import asyncio as _asyncio
     queue: "_asyncio.Queue[tuple[str, Any]]" = _asyncio.Queue()
@@ -1518,18 +1482,42 @@ class ComputerUseEngine:
         Returns:
             Final text response from the model.
         """
+        from backend.providers import ProviderTools, runner_for
+
         executor = self._build_executor(page)
         self._last_completion_payload = None
         try:
-            final_text = await self._client.run_loop(
-                goal=goal,
+            final_text = ""
+            provider_key = {
+                Provider.GEMINI: "google",
+                Provider.CLAUDE: "anthropic",
+                Provider.OPENAI: "openai",
+            }[self.provider]
+            tools = ProviderTools(
+                web_search=bool(getattr(self._client, "_use_builtin_search", False)),
+                search_allowed_domains=getattr(self._client, "_search_allowed_domains", None),
+                search_blocked_domains=getattr(self._client, "_search_blocked_domains", None),
+                allowed_callers=getattr(self._client, "_allowed_callers", None),
+            )
+            async for event in runner_for(provider_key)(
+                goal,
+                tools=tools,
+                files=self._attached_file_ids,
+                on_event=None,
+                on_safety=on_safety,
                 executor=executor,
                 turn_limit=turn_limit,
-                on_safety=on_safety,
-                on_turn=on_turn,
-                on_log=on_log,
-            )
-            self._last_completion_payload = getattr(self._client, "_last_completion_payload", None)
+                client=self._client,
+            ):
+                if event.type == "turn" and on_turn:
+                    on_turn(event.data)
+                elif event.type == "log" and on_log:
+                    data = event.data or {}
+                    on_log(data.get("level", "info"), data.get("message", ""))
+                elif event.type == "final":
+                    data = event.data or {}
+                    final_text = str(data.get("text") or "")
+                    self._last_completion_payload = data.get("completion_payload") or {}
             return final_text
         finally:
             # Close httpx client to prevent resource leaks
