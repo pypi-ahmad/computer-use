@@ -9,9 +9,6 @@ ultimately handed to the engine adapters which forward the bytes to the
 appropriate provider-side store:
 
 * OpenAI:    ``vector_stores`` + ``vector_stores.files`` (Responses ``file_search`` tool)
-* Gemini:    ``file_search_stores`` + one-shot RAG pre-step (Google's
-    File Search docs forbid sharing ``file_search`` and ``computer_use``
-    in the same call)
 * Anthropic: ``beta.files.upload`` (``document`` / inline-text content blocks)
 
 The activation rule is provider-agnostic: when ``attached_files`` is
@@ -23,8 +20,8 @@ Constraints (per the user-facing contract):
 * Max files per session: 10
 * Max bytes per file: 1 GB
 * Max bytes total per session: 1 GB (cap defended at upload boundary;
-  per-provider API caps may be tighter — Gemini 100 MB/file,
-  Anthropic 500 MB/file — and surface as upstream API errors).
+  per-provider API caps may be tighter, for example Anthropic 500 MB/file,
+  and surface as upstream API errors).
 
 The store lives entirely in memory (metadata) + a temp directory
 (bytes).  An idle GC thread sweeps entries older than 6 hours so a

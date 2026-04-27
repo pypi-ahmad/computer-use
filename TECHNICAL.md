@@ -288,16 +288,11 @@ fall back to the xdotool ``DesktopExecutor``; set
 ``CUA_DISABLE_CDP=1`` on the container to skip the CDP launch when
 debugging the desktop path.
 
-When `attached_file_ids` is non-empty, `_ensure_file_search_store()`
-creates a per-session Gemini File Search store and uploads the selected
-files before the loop starts. Google's File Search docs say
-`file_search` cannot be combined with other tools, so the adapter does
-not attach `Tool(file_search=...)` to the same Computer Use call.
-Instead `_run_file_search_pre_step()` performs a one-shot
-File-Search-only `generate_content()` call, captures the grounded text
-and citations, and prepends that context to the first Computer Use user
-turn. This keeps the loop doc-compliant while preserving the optional
-`google_search` tool during later Computer Use turns when the toggle is on.
+Gemini Computer Use rejects `attached_file_ids`. Google's File Search
+docs say `file_search` cannot be combined with other tools, and Computer
+Use is another tool. The repo therefore keeps reference-file grounding
+to the OpenAI and Anthropic adapters instead of running a Gemini
+file-search pre-step.
 
 `gemini-3.1-pro-preview` and every other non-Flash Gemini id have been
 removed from `backend/models/allowed_models.json`. The repo standardises on
