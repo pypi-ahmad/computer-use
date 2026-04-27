@@ -61,7 +61,7 @@ def test_login_form_denied_without_approval(sqlite_db):
     assert not final_state.get("pending_approval"), (
         "pending_approval must be cleared after resume"
     )
-    assert final_state.get("approval_decision") is False
+    assert final_state.get("final_text") == "Agent terminated: safety confirmation denied."
 
     # Trace must record the approval gate and the denial.
     trace = load_trace_or_fail(SESSION_ID)

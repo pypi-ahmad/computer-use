@@ -1,4 +1,3 @@
-from __future__ import annotations
 """System prompt for the Computer Use engine.
 
 Provides a single ``get_system_prompt("computer_use", mode)`` entry-point
@@ -7,6 +6,7 @@ desktop-native execution path used by the Gemini, Anthropic, and OpenAI
 computer-use protocols.
 """
 
+from __future__ import annotations
 
 import logging
 import re
@@ -33,22 +33,24 @@ ENVIRONMENT:
 INTERACTION RULES:
 1. Use your built-in computer_use tool for all UI interactions — do NOT describe
    actions in text; emit tool calls.
-2. Analyse each screenshot carefully before acting. Identify exact positions of
+2. Execute the current active subgoal the system provides. Do not invent or
+  revise the plan yourself inside the executor turn.
+3. Analyse each screenshot carefully before acting. Identify exact positions of
    buttons, links, text fields, and other interactive elements.
-3. Click precisely at the CENTER of UI elements — avoid edges.
-4. For text entry: click the input field first (click_at), then type (type_text_at).
+4. Click precisely at the CENTER of UI elements — avoid edges.
+5. For text entry: click the input field first (click_at), then type (type_text_at).
    By default type_text_at clears the field and presses Enter; set press_enter=false
    or clear_before_typing=false to override.
-5. Scroll to find content not yet visible (scroll_document or scroll_at).
-6. Use key_combination for keyboard shortcuts (e.g., "Enter", "Control+C", "Tab").
-7. Use navigate to go to a specific URL directly.
-8. Use go_back / go_forward for application or browser history navigation.
-9. Use wait_5_seconds when a page or application needs time to load.
+6. Scroll to find content not yet visible (scroll_document or scroll_at).
+7. Use key_combination for keyboard shortcuts (e.g., "Enter", "Control+C", "Tab").
+8. Use navigate to go to a specific URL directly.
+9. Use go_back / go_forward for application or browser history navigation.
+10. Use wait_5_seconds when a page or application needs time to load.
 
 COMPLETION:
 - If retrieval tools are available (web search or attached-document context),
-  use them only to gather information needed for the task. Retrieval or
-  planning alone does NOT complete the task — continue with computer_use
+  use them only to gather information needed for the current subgoal. Retrieval
+  alone does NOT complete the task — continue with computer_use
   actions until the requested on-screen work is actually done.
 - Do ONLY what the user literally asked. Do not invent follow-up steps,
   exploration, verification, or "while I'm here" helpfulness.
@@ -94,17 +96,19 @@ ENVIRONMENT:
 INTERACTION RULES:
 1. Analyse each screenshot carefully before acting. Think step by step about
    where to click, what to type, and what the expected outcome should be.
-2. Double-check target coordinates: click precisely at the CENTER of UI
+2. Execute the current active subgoal the system provides. Do not invent or
+  revise the plan yourself inside the executor turn.
+3. Double-check target coordinates: click precisely at the CENTER of UI
    elements — avoid edges. Verify the element you intend to interact with
    is actually visible before acting.
-3. Coordinates are real pixel values matching the reported display dimensions.
-4. Verify before returning: re-read the latest screenshot to confirm the
+4. Coordinates are real pixel values matching the reported display dimensions.
+5. Verify before returning: re-read the latest screenshot to confirm the
    action had the intended effect before declaring the task complete.
 
 COMPLETION:
 - If retrieval tools are available (web search or attached-document context),
-  use them only to gather information needed for the task. Retrieval or
-  planning alone does NOT complete the task — continue with the computer
+  use them only to gather information needed for the current subgoal. Retrieval
+  alone does NOT complete the task — continue with the computer
   tool until the requested on-screen work is actually done.
 - Do ONLY what the user literally asked. Do not invent follow-up steps,
   exploration, verification, or "while I'm here" helpfulness.
@@ -144,8 +148,8 @@ ENVIRONMENT:
 
 COMPLETION:
 - If retrieval tools are available (web search or attached-document context),
-  use them only to gather information needed for the task. Retrieval or
-  planning alone does NOT complete the task — continue with the computer
+  use them only to gather information needed for the current subgoal. Retrieval
+  alone does NOT complete the task — continue with the computer
   tool until the requested on-screen work is actually done.
 - Do ONLY what the user literally asked. Do not invent follow-up steps,
   exploration, or "while I'm here" helpfulness.
@@ -178,15 +182,17 @@ ENVIRONMENT:
 
 INTERACTION RULES:
 1. Inspect the current screenshot before acting.
-2. Return precise pixel coordinates for click, double_click, move, drag, and scroll actions.
-3. Prefer batched actions when the next steps are obvious from the current screen.
-4. Use keypress for keyboard shortcuts and type for text entry into the currently focused element.
-5. Request or accept screenshots whenever visual confirmation is needed.
+2. Execute the current active subgoal the system provides. Do not invent or
+  revise the plan yourself inside the executor turn.
+3. Return precise pixel coordinates for click, double_click, move, drag, and scroll actions.
+4. Prefer batched actions when the next steps are obvious from the current screen.
+5. Use keypress for keyboard shortcuts and type for text entry into the currently focused element.
+6. Request or accept screenshots whenever visual confirmation is needed.
 
 COMPLETION:
 - If retrieval tools are available (web search or attached-document context),
-  use them only to gather information needed for the task. Retrieval or
-  planning alone does NOT complete the task — continue with the computer
+  use them only to gather information needed for the current subgoal. Retrieval
+  alone does NOT complete the task — continue with the computer
   tool until the requested on-screen work is actually done.
 - Do ONLY what the user literally asked. Do not invent follow-up steps,
   exploration, verification, or "while I'm here" helpfulness.

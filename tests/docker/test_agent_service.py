@@ -112,6 +112,34 @@ class TestActionGate:
             "message": "Unknown or disabled action: 'run_command'",
         }
 
+    def test_action_id_replay_returns_cached_result_without_redispatch(self, agent_service):
+        agent_service._ACTION_RESULT_CACHE.clear()
+        body = {
+            "action": "click",
+            "mode": "desktop",
+            "coordinates": [10, 20],
+            "action_id": "replay-123:0",
+        }
+
+        first_handler, first_captured = _make_post_handler(agent_service, body)
+        second_handler, second_captured = _make_post_handler(agent_service, body)
+
+        with pytest.MonkeyPatch.context() as mp:
+            calls = {"count": 0}
+
+            def _dispatch(_self, _body):
+                calls["count"] += 1
+                return {"success": True, "message": "Clicked at (10, 20)"}
+
+            mp.setattr(agent_service.AgentHandler, "_dispatch_action", _dispatch)
+            first_handler.do_POST()
+            second_handler.do_POST()
+
+        assert calls["count"] == 1
+        assert first_captured["status"] == 200
+        assert second_captured["status"] == 200
+        assert second_captured["payload"] == first_captured["payload"]
+
 
 class TestDefensesPreserved:
     """The command allowlist and blocked-pattern defenses from PR 05

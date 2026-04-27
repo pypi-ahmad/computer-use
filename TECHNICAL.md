@@ -70,15 +70,18 @@ flowchart TB
   `backend/infra/docker.py::start_container()`.
 4. The backend waits for `docker/agent_service.py` to answer `/health`,
    then creates an `AgentLoop` from `backend/agent/loop.py`. The loop
-   builds a LangGraph `NodeBundle`, wraps it with tracing, and compiles
-   the six-node graph from `backend/agent/graph.py`.
+   builds a LangGraph `NodeBundle`, wraps it with tracing, asks
+   `backend/agent/graph_rollout.py` to choose the graph once per session,
+   and compiles either the legacy six-node graph or the supervisor graph
+   from `backend/agent/graph.py`.
 5. The provider adapter begins the core loop: capture screenshot, call
    provider, translate returned actions, execute them through
    `DesktopExecutor`, capture another screenshot, and yield the next
    `TurnEvent`.
-6. If a provider demands confirmation, the graph moves into
-   `approval_interrupt` and the backend exposes the pause to the UI over
-   `/ws`. The user resolves it through `POST /api/agent/safety-confirm`.
+6. If a provider demands confirmation, the graph moves into the legacy
+  `approval_interrupt` node or the supervisor `escalate_interrupt`
+  node, and the backend exposes the pause to the UI over `/ws`. The
+  user resolves it through `POST /api/agent/safety-confirm`.
 7. The run ends when the provider returns a terminal answer, the user
    stops the session, the graph exhausts retries, or the turn limit is
    hit. The backend broadcasts `agent_finished`, writes the trace sidecar
@@ -92,32 +95,44 @@ here.
 
 ```text
 .
-|-- .github/workflows/ci.yml
 |-- README.md
 |-- USAGE.md
 |-- TECHNICAL.md
+|-- CHANGELOG.md
+|-- docs/
+|   |-- operator-supervisor-graph-migration.md
+|   `-- supervisor-rollout-plan.md
+|-- pyproject.toml
+|-- requirements.txt
+|-- docker-compose.yml
 |-- backend/
 |   |-- main.py
 |   |-- server.py
-|   |-- config.py
-|   |-- docker_manager.py
-|   |-- tracing.py
-|   |-- models.py
-|   |-- _models_loader.py
+|   |-- infra/
+|   |   |-- config.py
+|   |   |-- docker.py
+|   |   |-- observability.py
+|   |   `-- storage.py
+|   |-- models/
+|   |   |-- allowed_models.json
+|   |   |-- engine_capabilities.json
+|   |   |-- registry.py
+|   |   |-- schemas.py
+|   |   `-- validation.py
 |   |-- engine/
 |   |   |-- __init__.py
 |   |   |-- claude.py
 |   |   |-- openai.py
-|   |   `-- gemini.py
-|   |-- agent/
-|   |   |-- loop.py
-|   |   |-- graph.py
-|   |   |-- prompts.py
-|   |   |-- screenshot.py
-|   |   `-- safety.py
-|   |-- engine_capabilities.py
-|   |-- parity_check.py
-|   `-- certifier.py
+|   |   |-- gemini.py
+|   |   |-- grounding.py
+|   |   `-- playwright_executor.py
+|   `-- agent/
+|       |-- loop.py
+|       |-- graph.py
+|       |-- graph_rollout.py
+|       |-- prompts.py
+|       |-- screenshot.py
+|       `-- safety.py
 |-- frontend/src/
 |   |-- api.js
 |   |-- pages/WorkbenchPage.jsx
@@ -178,7 +193,7 @@ the OpenAI replay helpers affect more than one provider at once.
 `anthropic.AsyncAnthropic.beta.messages.create()`. Tool version and beta
 header are resolved from `backend/models/allowed_models.json` when possible,
 then auto-detected from the model id as a fallback. In current code,
-Claude Opus 4.7, Claude Opus 4.6, and Claude Sonnet 4.6 all run on the
+Claude Opus 4.7 and Claude Sonnet 4.6 run on the
 `computer_20251124` path with beta header
 `computer-use-2025-11-24`. Older compatibility ids stay on the
 `computer_20250124` path.
@@ -294,31 +309,38 @@ Flash as the single Gemini CU SKU. See [CHANGELOG.md](CHANGELOG.md).
 
 `backend/agent/graph.py` is the real orchestrator. It defines
 `AgentGraphState`, a process-wide `GraphRuntime` backed by
-`AsyncSqliteSaver`, and a six-node state machine with these nodes:
-`preflight`, `model_turn`, `tool_batch`, `approval_interrupt`,
-`recover_or_retry`, and `finalize`. The graph does not talk to SDKs or
-Docker directly; it consumes a `NodeBundle` supplied by `AgentLoop`.
+`AsyncSqliteSaver`, and two compiled graphs that share the same
+provider-native execution boundary.
 
-`preflight` performs the desktop health check and registers the session's
-provider iterator. `model_turn` advances the iterator until it sees the
-next `TurnEvent`. `tool_batch` expects `ToolBatchCompleted`, emits a
-step, and hands control back to `model_turn`. `approval_interrupt` calls
-LangGraph's `interrupt()` with the safety explanation and forwards the
-resumed boolean back into the iterator via `asend()`.
-`recover_or_retry` applies the retry budget, which is currently two
-retries. `finalize` stores a screenshot-free session snapshot and clears
-the iterator registry entry.
+The legacy graph remains in the codebase and is still the default for new
+sessions. Its shape is:
+`preflight -> model_turn -> policy_gate -> tool_batch -> approval_interrupt -> finalize`.
 
-Two contracts here are easy to miss. First, the iterator registry is
-process-local and not checkpointed. `pending_approval` survives restarts,
-but the live async generator does not. That is why
-`backend/server.py::_try_resume_graph()` can resume a paused approval
-only when a live `AgentLoop` can also rebuild the iterator; otherwise the
-graph will finalize quickly with an error. Second, the graph is native
-only for Claude and Gemini. OpenAI still reaches the graph through
-`iter_turns_via_run_loop()`, and the legacy
-`backend/agent/safety.py` registry remains because older callback-driven
-paths still exist.
+The rollout supervisor graph is selected only when the feature flag is on
+and the kill switch has not tripped. Its shape is:
+`intake -> capability_probe -> planner -> grounding(optional) -> executor -> policy -> desktop_dispatcher -> verifier -> [executor | recovery | finalize]`,
+with recovery able to route back to planner, grounding, policy,
+desktop_dispatcher, `escalate_interrupt`, or finalize.
+
+Both graphs consume the same `NodeBundle` supplied by `AgentLoop`, use the
+same checkpointer, and keep provider adapters unchanged. The graph does
+not talk to SDKs or Docker directly; the actual provider boundary remains
+`advance_provider_turn()` and `dispatch_pending_action_batch()` in
+`backend/agent/persisted_runtime.py`.
+
+`backend/agent/graph_rollout.py` owns the session-start graph selector,
+in-memory rollout metrics, and the automatic kill switch. It records
+per-node latency histograms and failure rates plus supervisor-only
+metrics such as verifier verdict distribution, policy escalation rate,
+recovery classification distribution, and planner memory hit rate.
+`GET /api/agent/graph-rollout` in `backend/server.py` exposes that
+snapshot for operators.
+
+Approval pauses are still checkpoint-backed. The legacy path pauses at
+`approval_interrupt`; the supervisor path pauses at
+`escalate_interrupt`. In both cases `backend/server.py::_try_resume_graph()`
+resumes the checkpointed graph with `Command(resume=decision)` while the
+frontend keeps the WebSocket contract unchanged.
 
 `backend/agent/loop.py` is the bridge between the graph and the rest of
 the application. It builds the `NodeBundle`, maps provider strings to
@@ -388,9 +410,10 @@ stack.
 
 ## 7. Observability and tracing
 
-`backend/tracing.py` records every session as an in-memory event stream
+`backend/infra/observability.py` records every session as an in-memory event stream
 and flushes it to `$CUA_TRACE_DIR/<session_id>.json` on terminal states.
-Tracing is additive: it wraps the `NodeBundle` and provider iterator.
+Tracing is additive: it wraps the `NodeBundle` and provider iterator. The module
+also owns the session-scoped logging context (formerly `backend/logging_ctx.py`).
 
 Traces are separate from the LangGraph checkpoint store. Checkpoints are
 SQLite state snapshots; traces are append-only redacted JSON sidecars.
@@ -400,8 +423,8 @@ status, and no tool batch while approval is pending.
 
 `evals/_harness.py` builds on that trace model by running fake iterators
 through the real graph and approval path. The same module exposes
-`python -m backend.tracing dump <session_id>` and
-`python -m backend.tracing list`.
+`python -m backend.infra.observability dump <session_id>` and
+`python -m backend.infra.observability list`.
 
 ## 8. Configuration surface
 
@@ -429,7 +452,7 @@ that reads them.
 - `HOST` and `PORT` (string/int, defaults `127.0.0.1` and `8100`) are
   read in `backend/infra/config.py` and enforced in `backend/main.py`.
 - `DEBUG`, `LOG_LEVEL`, and `LOG_FORMAT` control backend logging and are
-  read in `backend/infra/config.py` and `backend/logging_ctx.py`.
+  read in `backend/infra/config.py` and `backend/infra/observability.py`.
 - `CUA_RELOAD` (bool, default false) controls hot reload.
 - `CORS_ORIGINS` and `CUA_ALLOWED_HOSTS` are parsed in
   `backend/server.py` for origin and `Host` validation.
@@ -442,7 +465,7 @@ that reads them.
 - `CUA_SESSIONS_MAX_THREADS` (int, default 1000 with floor 50) is read
   in `backend/server.py`.
 - `CUA_TRACE_DIR` (path string, default
-  `~/.computer-use/traces/`) is read in `backend/tracing.py`.
+  `~/.computer-use/traces/`) is read in `backend/infra/observability.py`.
 - `CUA_TEST_MODE` enables test-only behavior in `backend/server.py`.
 - `CUA_DEBUG_TB` re-enables executor tracebacks in
   `backend/engine/__init__.py`.
@@ -639,7 +662,7 @@ invocation because `pyproject.toml` pins `testpaths = ["tests"]`.
 - **Session snapshot**: The screenshot-free session state persisted in
   the LangGraph SQLite checkpoint store.
 - **Trace**: The redacted append-only JSON sidecar written by
-  `backend/tracing.py`.
+  `backend/infra/observability.py`.
 
 ## 14. References
 

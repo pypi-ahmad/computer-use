@@ -318,10 +318,10 @@ Every environment variable the backend reads, grouped by concern. "Where read" n
 
 | Variable | Required | Default | Purpose | Where read |
 |---|---|---|---|---|
-| `ANTHROPIC_API_KEY` | when using Claude | – | Anthropic Messages API key | `backend/config.py` |
-| `OPENAI_API_KEY` | when using OpenAI | – | OpenAI Responses API key | `backend/config.py` |
-| `GOOGLE_API_KEY` | when using Gemini | – | Google Generative AI API key (preferred) | `backend/config.py` |
-| `GEMINI_API_KEY` | when using Gemini | – | Alias accepted as fallback when `GOOGLE_API_KEY` is unset | `backend/config.py` |
+| `ANTHROPIC_API_KEY` | when using Claude | – | Anthropic Messages API key | `backend/infra/config.py` |
+| `OPENAI_API_KEY` | when using OpenAI | – | OpenAI Responses API key | `backend/infra/config.py` |
+| `GOOGLE_API_KEY` | when using Gemini | – | Google Generative AI API key (preferred) | `backend/infra/config.py` |
+| `GEMINI_API_KEY` | when using Gemini | – | Alias accepted as fallback when `GOOGLE_API_KEY` is unset | `backend/infra/config.py` |
 
 Keys resolve in priority order: UI input > `.env` > system env. Keys entered in the UI are sent per-request over loopback only and never written to disk or `localStorage`.
 
@@ -329,10 +329,13 @@ Keys resolve in priority order: UI input > `.env` > system env. Keys entered in 
 
 | Variable | Required | Default | Purpose | Where read |
 |---|---|---|---|---|
-| `HOST` | no | `127.0.0.1` | FastAPI bind host | `backend/config.py`, `backend/main.py` |
-| `PORT` | no | `8100` | FastAPI bind port | `backend/config.py`, `backend/main.py` |
-| `DEBUG` | no | `false` | Verbose logging + full tracebacks | `backend/config.py` |
+| `HOST` | no | `127.0.0.1` | FastAPI bind host | `backend/infra/config.py`, `backend/main.py` |
+| `PORT` | no | `8100` | FastAPI bind port | `backend/infra/config.py`, `backend/main.py` |
+| `DEBUG` | no | `false` | Verbose logging + full tracebacks | `backend/infra/config.py` |
 | `CUA_RELOAD` | no | `false` | uvicorn `--reload`. Off by default; turning it on in non-dev is a footgun | `backend/main.py` |
+| `CUA_USE_SUPERVISOR_GRAPH` | no | `false` | Requests the supervisor graph for new sessions; legacy remains the default until rollout is complete | `backend/infra/config.py`, `backend/agent/loop.py` |
+| `CUA_SUPERVISOR_FAILURE_RATE_THRESHOLD` | no | `0.20` | Kill-switch failure-rate threshold for supervisor nodes | `backend/infra/config.py`, `backend/agent/graph_rollout.py` |
+| `CUA_SUPERVISOR_FAILURE_RATE_MIN_SESSIONS` | no | `100` | Rolling session window before the supervisor kill switch can trip | `backend/infra/config.py`, `backend/agent/graph_rollout.py` |
 | `CUA_WS_TOKEN` | required for non-loopback bind | unset | Shared secret; clients pass `?token=<value>` on `/ws` and `/vnc/websockify` | `backend/server.py` |
 | `CUA_ALLOWED_HOSTS` | no | loopback + configured CORS | Comma-separated `Host`-header allowlist | `backend/server.py` |
 | `CUA_ALLOW_PUBLIC_BIND` | required for non-loopback bind | unset | Guardrail: refuses to start on non-loopback unless also set alongside `CUA_WS_TOKEN` | `backend/main.py` |
@@ -346,10 +349,10 @@ Keys resolve in priority order: UI input > `.env` > system env. Keys entered in 
 | `SCREEN_WIDTH` / `SCREEN_HEIGHT` | no | `1440` / `900` | Xvfb display dimensions | `docker/entrypoint.sh`, `docker/agent_service.py` |
 | `WIDTH` / `HEIGHT` | no | same | Anthropic-compatible aliases | `docker/Dockerfile` |
 | `DISPLAY` | no | `:99` | X11 display number | `docker/entrypoint.sh` |
-| `AGENT_SERVICE_HOST` / `AGENT_SERVICE_PORT` | no | `127.0.0.1` / `9222` | In-container HTTP API address | `backend/config.py`, `docker/agent_service.py` |
+| `AGENT_SERVICE_HOST` / `AGENT_SERVICE_PORT` | no | `127.0.0.1` / `9222` | In-container HTTP API address | `backend/infra/config.py`, `docker/agent_service.py` |
 | `AGENT_SERVICE_TOKEN` | auto-generated | random per-session | Shared secret between host and container's agent service | `backend/docker_manager.py` |
-| `AGENT_MODE` | no | `desktop` | Execution mode selector | `backend/config.py` |
-| `CONTAINER_NAME` | no | `cua-environment` | Docker container name | `backend/config.py` |
+| `AGENT_MODE` | no | `desktop` | Execution mode selector | `backend/infra/config.py` |
+| `CONTAINER_NAME` | no | `cua-environment` | Docker container name | `backend/infra/config.py` |
 | `CUA_WINDOW_X` / `Y` / `W` / `H` | no | – | Optional window normaliser geometry | `docker/agent_service.py` |
 | `CUA_ENABLE_LEGACY_ACTIONS` | no | `0` | Re-enables removed actions (`run_command`, window mgmt, etc.). Off by default | `docker/agent_service.py` |
 
@@ -365,13 +368,13 @@ Keys resolve in priority order: UI input > `.env` > system env. Keys entered in 
 | `CUA_GEMINI_THINKING_LEVEL` | no | `high` | `minimal` / `low` / `medium` / `high` | `backend/engine/gemini.py` |
 | `CUA_GEMINI_RELAX_SAFETY` | no | unset | When `1`: apply `BLOCK_ONLY_HIGH` thresholds; default is Google's own "Off" for Gemini 3 | `backend/engine/gemini.py` |
 | `CUA_GEMINI_USE_PLAYWRIGHT` | no | `1` (default) | When unset or `1`: Gemini browser-mode sessions drive the in-container Chromium via Playwright `connect_over_cdp` against the sandbox's CDP endpoint (`127.0.0.1:9223`, exposed by `docker/entrypoint.sh`). Set to `0` to fall back to the xdotool path | `backend/engine/gemini.py` |
-| `GEMINI_MODEL` | no | `gemini-3-flash-preview` | Default model id when none is passed | `backend/config.py` |
+| `GEMINI_MODEL` | no | `gemini-3-flash-preview` | Default model id when none is passed | `backend/infra/config.py` |
 
 ### Observability + development
 
 | Variable | Required | Default | Purpose | Where read |
 |---|---|---|---|---|
-| `CUA_TRACE_DIR` | no | `~/.computer-use/traces/` | On-disk trace JSON files | `backend/tracing.py` |
+| `CUA_TRACE_DIR` | no | `~/.computer-use/traces/` | On-disk trace JSON files | `backend/infra/observability.py` |
 | `CUA_DEBUG_TB` | no | unset | When `1`: include full tracebacks in executor error logs | `backend/engine/__init__.py` |
 | `CUA_TEST_MODE` | no | unset | Test-harness-only switches | `backend/server.py` |
 | `CUA_SESSIONS_DB` | no | – | Override LangGraph SQLite checkpoint path | `backend/server.py` |
@@ -425,19 +428,33 @@ What to expect: GPT-5.4 batches multiple actions per turn (scroll, read, type) w
 
 ## Observability
 
-Every session produces both a **LangGraph checkpoint** (per-node state, enables restart-resume on approval) and a **session trace** (ordered `TraceEvent` records with redacted payloads).
+Every session produces both a **LangGraph checkpoint** (per-node state,
+enables restart-resume on approval) and a **session trace** (ordered
+`TraceEvent` records with redacted payloads).
 
-- **Live.** The workbench streams `log`, `step`, `screenshot_stream`, `safety_confirmation`, and `agent_finished` events over WebSocket. The Logs panel renders them in real time and supports copy / download / export.
+- **Live.** The workbench streams `log`, `step`, `screenshot`,
+  `screenshot_stream`, `graph_state`, and `agent_finished` events over
+  WebSocket. The Logs panel renders them in real time and supports copy /
+  download / export, while the graph-state stream drives the graph-run panel.
 - **After the run.** Traces land at `$CUA_TRACE_DIR/<session_id>.json` (default `~/.computer-use/traces/`). Inspect with:
 
   ```bash
-  python -m backend.tracing list
-  python -m backend.tracing dump <session_id>
+  python -m backend.infra.observability list
+  python -m backend.infra.observability dump <session_id>
 
   ```
 
   Screenshots in the persisted trace are redacted to `{"sha256": <hex>, "len": <int>}` — the bytes stay on disk only if you asked for them. Free-text fields pass through the same `scrub_secrets` regex that redacts logs.
-- **Restart-resume.** If the backend is killed while a session is paused on `approval_interrupt`, the LangGraph SQLite checkpointer preserves `pending_approval` and the exact graph state. Posting to `/api/agent/safety-confirm` after restart resumes via `graph.ainvoke(Command(resume=decision), config)`. Test coverage: `tests/test_agent_graph_nodes.py::TestApprovalInterruptResume::test_pause_and_resume_across_fresh_runtime`.
+- **Rollout metrics.** `GET /api/agent/graph-rollout` exposes the current
+  graph selection counts, per-node latency histograms and failure rates,
+  verifier verdict distribution, policy escalation rate, recovery
+  classification distribution, planner-stage memory hit rate, and the
+  supervisor kill-switch state.
+- **Restart-resume.** If the backend is killed while a session is paused on
+  legacy `approval_interrupt` or supervisor `escalate_interrupt`, the
+  LangGraph SQLite checkpointer preserves `pending_approval` and the exact
+  graph state. Posting to `/api/agent/safety-confirm` after restart resumes
+  via `graph.ainvoke(Command(resume=decision), config)`.
 
 ## Troubleshooting
 
@@ -462,19 +479,19 @@ No. It is a local research workbench. The REST surface is unauthenticated; the d
 Up to 3, hard-capped by `_MAX_CONCURRENT_SESSIONS` in `backend/server.py`. The 4th returns HTTP 429. Each session gets its own LangGraph checkpoint thread.
 
 **Does it support custom models?**
-Only model IDs in [backend/allowed_models.json](backend/allowed_models.json) are accepted. Add an entry with `supports_computer_use: true` and, for Anthropic, the correct `cu_tool_version` + `cu_betas`.
+Only model IDs in [backend/models/allowed_models.json](backend/models/allowed_models.json) are accepted. Add an entry with `supports_computer_use: true` and, for Anthropic, the correct `cu_tool_version` + `cu_betas`.
 
 **Does it solve CAPTCHAs?**
 No. The system prompt explicitly forbids it, and Anthropic / OpenAI / Google's prompt-injection classifiers trigger `require_confirmation` on CAPTCHA-like prompts. A human must confirm.
 
 **How do I capture a session for a bug report?**
-Export the trace: `python -m backend.tracing dump <session_id> > session.json`. Export the Timeline + Logs from the workbench (Export JSON/HTML buttons). Include the `agent_finished` event data, the model ID, the env vars in use, and the container status at the time of failure.
+Export the trace: `python -m backend.infra.observability dump <session_id> > session.json`. Export the Timeline + Logs from the workbench (Export JSON/HTML buttons). Include the `agent_finished` event data, the model ID, the env vars in use, and the container status at the time of failure.
 
 **Does it work without Docker?**
 No. The sandbox is load-bearing for isolation. The `AGENT_SERVICE_TOKEN` handshake, the `no-new-privileges` flag, the dropped Linux capabilities, the Chrome profile hardening, and the browser subprocess's minimal env all assume a container boundary.
 
 **Why is Gemini 3.1 Pro Preview excluded?**
-Google has not enabled Computer Use on that model. The repo exposes only `gemini-3-flash-preview` for Gemini Computer Use; all other Gemini ids have been removed from `backend/allowed_models.json`. See [CHANGELOG.md](CHANGELOG.md).
+Google has not enabled Computer Use on that model. The repo exposes only `gemini-3-flash-preview` for Gemini Computer Use; all other Gemini ids have been removed from `backend/models/allowed_models.json`. See [CHANGELOG.md](CHANGELOG.md).
 
 ## See also
 
@@ -487,5 +504,5 @@ Google has not enabled Computer Use on that model. The repo exposes only `gemini
 
 File bug reports and usage questions at <https://github.com/pypi-ahmad/computer-use/issues>.
 Include: model ID, provider, session ID, whether on noVNC or Screenshot mode, a trace dump
-from `python -m backend.tracing dump <session_id>`, and `docker logs cua-environment` if
+from `python -m backend.infra.observability dump <session_id>`, and `docker logs cua-environment` if
 the sandbox was involved.

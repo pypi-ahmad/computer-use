@@ -568,7 +568,7 @@ def record(
 def install_bundle(bundle, session_id: str):
     """Return a new :class:`NodeBundle` that records trace events.
 
-    Wraps the bundle's ``emit_step``, ``emit_log``, and ``start_iter``
+    Wraps the bundle's ``emit_step`` and ``emit_log``
     callables so every graph-edge event is captured without touching
     the graph or engine code. Returns the original bundle untouched if
     :mod:`backend.agent.graph` can't be imported (unusual in tests
@@ -579,23 +579,9 @@ def install_bundle(bundle, session_id: str):
     except Exception:
         return bundle
 
-    # Capture a stable ref to the engine iterator's yields. ``start_iter``
-    # returns the async iterator lazily, so the wrapper must forward
-    # *args, *await*, and re-wrap the yielded iterator before returning.
-    orig_start_iter = bundle.start_iter
     orig_emit_step = bundle.emit_step
     orig_emit_log = bundle.emit_log
-    orig_build_snapshot = bundle.build_snapshot
-
-    async def _traced_start_iter(sid: str, task: str, max_steps: int):
-        import asyncio as _asyncio
-        record(
-            session_id, STAGE_PREFLIGHT, "iter_start",
-            {"task": task, "max_steps": max_steps},
-        )
-        result = orig_start_iter(sid, task, max_steps)
-        it = await result if _asyncio.iscoroutine(result) else result
-        return wrap_iterator(it, session_id)
+    record(session_id, STAGE_PREFLIGHT, "graph_session_ready", None)
 
     def _traced_emit_step(event) -> None:
         # Defer the full payload redaction to _redact via record(), but
@@ -623,18 +609,10 @@ def install_bundle(bundle, session_id: str):
         )
         return orig_emit_log(level, message, data)
 
-    def _traced_build_snapshot():
-        snap = orig_build_snapshot()
-        record(session_id, STAGE_FINALIZE, "snapshot_built",
-               {"step_count": len((snap or {}).get("steps", []))})
-        return snap
-
     return NodeBundle(
         check_health=bundle.check_health,
-        start_iter=_traced_start_iter,
         emit_step=_traced_emit_step,
         emit_log=_traced_emit_log,
-        build_snapshot=_traced_build_snapshot,
         stop_requested=bundle.stop_requested,
     )
 
@@ -646,8 +624,7 @@ async def wrap_iterator(it: AsyncIterator, session_id: str):
     driving them. Also supports ``asend`` so approval resume keeps
     working.
 
-    Exposed as public API so the eval harness (which pre-registers its
-    own iterator instead of going through ``start_iter``) can opt in.
+    Exposed as public API so iterator-based eval helpers can opt in.
     """
     # Lazy import — tests that don't use the engine iter_turns may not
     # have the SDKs available at all.

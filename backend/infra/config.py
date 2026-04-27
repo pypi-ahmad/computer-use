@@ -59,6 +59,13 @@ class Config:
     # any non-local setup (watchfiles fires on disk changes). Set
     # ``CUA_RELOAD=1`` explicitly if you want reload.
     reload: bool = False
+    # Supervisor rollout flag. The legacy graph remains the default
+    # until rollout is complete; enabling this switches new sessions
+    # onto the supervisor graph unless the automatic kill switch has
+    # tripped.
+    use_supervisor_graph: bool = False
+    supervisor_failure_rate_threshold: float = 0.20
+    supervisor_failure_rate_min_sessions: int = 100
     # Optional operator override for Anthropic web-search enablement.
     # When True, skip the first-use org-level probe and assume an admin
     # has already enabled the feature in Claude Console.
@@ -130,6 +137,21 @@ class Config:
             port=_clamp_int("PORT", cls.port, lo=1, hi=65535),
             debug=os.getenv("DEBUG", "").lower() in ("1", "true", "yes"),
             reload=os.getenv("CUA_RELOAD", "").lower() in ("1", "true", "yes"),
+            use_supervisor_graph=_env_bool(
+                "CUA_USE_SUPERVISOR_GRAPH", cls.use_supervisor_graph,
+            ),
+            supervisor_failure_rate_threshold=_clamp_float(
+                "CUA_SUPERVISOR_FAILURE_RATE_THRESHOLD",
+                cls.supervisor_failure_rate_threshold,
+                lo=0.01,
+                hi=1.0,
+            ),
+            supervisor_failure_rate_min_sessions=_clamp_int(
+                "CUA_SUPERVISOR_FAILURE_RATE_MIN_SESSIONS",
+                cls.supervisor_failure_rate_min_sessions,
+                lo=1,
+                hi=10000,
+            ),
             anthropic_web_search_enabled=_env_bool(
                 "CUA_ANTHROPIC_WEB_SEARCH_ENABLED", cls.anthropic_web_search_enabled,
             ),

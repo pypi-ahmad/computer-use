@@ -20,6 +20,7 @@ import time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from threading import Lock
+from collections import OrderedDict
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,6 +41,8 @@ except ImportError:
 # ── Globals ───────────────────────────────────────────────────────────────────
 
 _lock = Lock()
+_ACTION_RESULT_CACHE: OrderedDict[str, dict] = OrderedDict()
+_ACTION_RESULT_CACHE_LIMIT = 2048
 
 SCREEN_WIDTH = int(os.environ.get("SCREEN_WIDTH", "1440"))
 SCREEN_HEIGHT = int(os.environ.get("SCREEN_HEIGHT", "900"))
@@ -115,6 +118,26 @@ _LEGACY_ACTIONS: frozenset[str] = frozenset({
 })
 
 LEGACY_ACTIONS_ENABLED = _env_bool("CUA_ENABLE_LEGACY_ACTIONS", False)
+
+
+def _cached_action_result(action_id: str) -> dict | None:
+    if not action_id:
+        return None
+    with _lock:
+        cached = _ACTION_RESULT_CACHE.get(action_id)
+        if cached is None:
+            return None
+        _ACTION_RESULT_CACHE.move_to_end(action_id)
+        return dict(cached)
+
+
+def _remember_action_result(action_id: str, result: dict) -> None:
+    if not action_id or not isinstance(result, dict) or result.get("success") is not True:
+        return
+    _ACTION_RESULT_CACHE[action_id] = dict(result)
+    _ACTION_RESULT_CACHE.move_to_end(action_id)
+    while len(_ACTION_RESULT_CACHE) > _ACTION_RESULT_CACHE_LIMIT:
+        _ACTION_RESULT_CACHE.popitem(last=False)
 
 
 def _is_action_enabled(action: str) -> bool:
@@ -1209,6 +1232,16 @@ class AgentHandler(BaseHTTPRequestHandler):
             # clean "not found" signal instead of a generic failure
             # response. See ``_ENGINE_ACTIONS`` above.
             raw_action = body.get("action", "")
+            action_id = str(body.get("action_id") or "").strip()
+            cached = _cached_action_result(action_id)
+            if cached is not None:
+                logger.info(
+                    "action replay deduped: action=%r action_id=%r",
+                    raw_action,
+                    action_id,
+                )
+                self._respond(200, cached)
+                return
             resolved = resolve_action(raw_action)
             if not _is_action_enabled(resolved):
                 logger.info(
@@ -1241,6 +1274,7 @@ class AgentHandler(BaseHTTPRequestHandler):
             with _lock:
                 try:
                     result = self._dispatch_action(body)
+                    _remember_action_result(action_id, result)
                     self._respond(200, result)
                 except Exception as e:
                     logger.exception("Action failed")
