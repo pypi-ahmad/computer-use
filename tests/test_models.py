@@ -117,9 +117,9 @@ class TestStartTaskRequestNoUnusedFields:
         """StartTaskRequest should NOT have a system_prompt field that is never used."""
         assert "system_prompt" not in StartTaskRequest.model_fields
 
-    def test_no_allowed_domains_field(self):
-        """StartTaskRequest should NOT have an allowed_domains field that is never used."""
-        assert "allowed_domains" not in StartTaskRequest.model_fields
+    def test_no_unused_retrieval_policy_field(self):
+        """StartTaskRequest should expose only the documented retrieval toggle."""
+        assert "retrieval_policy" not in StartTaskRequest.model_fields
 
 # === merged from tests/test_certifier.py ===
 """Regression test for the ``backend.models.validation`` CLI default schema path.

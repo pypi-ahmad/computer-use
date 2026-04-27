@@ -648,10 +648,11 @@ class TestVncWebsockifyTokenGating:
         class _Boom(Exception):
             pass
 
-        with patch("websockets.connect", side_effect=_Boom("no upstream in test")):
+        with patch("websockets.connect", side_effect=_Boom("no upstream in test")) as connect:
             asyncio.run(server.vnc_ws_proxy(ws))
 
         ws.accept.assert_awaited_once()
+        assert connect.call_args.kwargs["ping_interval"] is None
         # close() with 4401 must NOT have been issued on the authorised path
         for call in ws.close.await_args_list:
             assert call.kwargs.get("code") != 4401, (
@@ -891,6 +892,16 @@ class TestPublicBindGuardrail:
         # Operator should still see a loud warning even when allowed.
             assert any("binding externally" in r.getMessage() for r in caplog.records)
 
+    def test_backend_launcher_disables_protocol_ws_ping(self, monkeypatch):
+        from backend import main
+
+        monkeypatch.delenv("CUA_ALLOW_PUBLIC_BIND", raising=False)
+        monkeypatch.delenv("CUA_WS_TOKEN", raising=False)
+        with patch("backend.main.uvicorn.run") as run:
+            main.main()
+
+        assert run.call_args.kwargs["ws_ping_interval"] is None
+
 
 # ── C13 — token env-file ───────────────────────────────────────────────────
 
@@ -1072,7 +1083,7 @@ class TestGeminiNativeAsync:
         assert "aio.models.generate_content" in src
 
     def test_gemini_module_does_not_import_asyncio(self):
-        """``asyncio`` is allowed in :mod:`backend.engine.gemini` only for\n        the file-search blocking-call wrappers (``asyncio.to_thread``\n        for ``create``/``upload``/``delete`` against the synchronous\n        google-genai file-search API per the official April 2026 docs).\n        The ``_generate`` path must remain native-async \u2014 see\n        ``test_no_to_thread_in_generate_source`` for the lock there."""
+        """Gemini CU should remain native-async with no blocking wrappers."""
         import inspect
 
         import backend.engine.gemini as gem_mod
@@ -1081,18 +1092,11 @@ class TestGeminiNativeAsync:
         # ``_generate`` lock: native-async only, no to_thread fallback.
         assert "to_thread(" not in inspect.getsource(GeminiCUClient._generate)
 
-        # Everywhere else ``asyncio.to_thread`` is permitted only for
-        # the documented file-search wrappers.
+        # There should be no ``asyncio.to_thread`` fallback anywhere in the
+        # Gemini Computer Use adapter.
         src = inspect.getsource(gem_mod)
         for occurrence_line in [
             ln.strip() for ln in src.splitlines() if "asyncio.to_thread(" in ln
         ]:
-            assert (
-                "_create_store_blocking" in occurrence_line
-                or "_upload_blocking" in occurrence_line
-                or "_delete_blocking" in occurrence_line
-            ), (
-                "Unexpected asyncio.to_thread use outside the file-search "
-                f"blocking-call wrappers: {occurrence_line!r}"
-            )
+            raise AssertionError(f"Unexpected asyncio.to_thread use: {occurrence_line!r}")
 
