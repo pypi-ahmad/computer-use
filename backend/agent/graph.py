@@ -438,6 +438,47 @@ def _approval_summary(value: Any) -> dict[str, Any] | None:
     }
 
 
+def _first_text(*values: Any) -> str | None:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return None
+
+
+def _recovery_summary(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    failure_context = value.get("failure_context")
+    failure = failure_context if isinstance(failure_context, dict) else {}
+    verification_rationale = _first_text(failure.get("verification_rationale"))
+    evidence_brief = _first_text(failure.get("evidence_brief"))
+    memory_context_brief = _first_text(failure.get("memory_context_brief"))
+    reason = _first_text(
+        verification_rationale,
+        value.get("error"),
+        value.get("error_classification"),
+        value.get("verification_status"),
+        value.get("retry_reason"),
+        value.get("latest_model_text"),
+    )
+    return {
+        "classification": str(value.get("classification") or ""),
+        "retry_reason": str(value.get("retry_reason") or ""),
+        "error": value.get("error"),
+        "error_classification": value.get("error_classification"),
+        "verification_status": value.get("verification_status"),
+        "retry_count": _safe_int(value.get("retry_count")),
+        "replan_count": _safe_int(value.get("replan_count")),
+        "latest_turn": _safe_int(value.get("latest_turn")),
+        "latest_model_text": str(value.get("latest_model_text") or ""),
+        "verification_rationale": verification_rationale,
+        "evidence_brief": evidence_brief,
+        "memory_context_brief": memory_context_brief,
+        "replan_reason": reason,
+    }
+
+
 def _graph_run_snapshot(
     node_name: str,
     state: AgentGraphState,
@@ -452,6 +493,7 @@ def _graph_run_snapshot(
     )
     replan_count = _safe_int(recovery.get("replan_count"))
     verifier_verdict = str(state.get("verification_status") or "").strip()
+    recovery_insight = _recovery_summary(recovery)
     return {
         "session_id": str(state.get("session_id") or ""),
         "node": node_name,
@@ -463,6 +505,15 @@ def _graph_run_snapshot(
         "retry_count": retry_count,
         "replan_count": replan_count,
         "verifier_verdict": verifier_verdict or None,
+        "verification_rationale": _first_text(state.get("verification_rationale")),
+        "completion_criteria": list(state.get("completion_criteria") or []),
+        "unmet_completion_criteria": list(state.get("unmet_completion_criteria") or []),
+        "recovery": recovery_insight,
+        "replan_reason": (
+            recovery_insight.get("replan_reason")
+            if isinstance(recovery_insight, dict)
+            else None
+        ),
         "active_subgoal": _active_subgoal_title(state) or None,
         "pending_approval": _approval_summary(state.get("pending_approval")),
         "updated_at": time.time(),
