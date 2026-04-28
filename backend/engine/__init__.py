@@ -7,7 +7,6 @@ desktop executor that talks to the sandbox action service.
 from __future__ import annotations
 
 import asyncio
-import inspect
 import io
 import logging
 import math
@@ -416,69 +415,6 @@ def _normalize_search_provider(provider: Provider | str) -> str:
     return normalized
 
 
-def _get_gemini_builtin_search_sdk_error() -> str | None:
-    """Return a compatibility error when Gemini combo tooling is unavailable."""
-    try:
-        from google.genai import types as genai_types
-    except Exception:
-        return "Gemini google_search + computer_use requires the google-genai SDK to be installed."
-
-    if getattr(genai_types, "GoogleSearch", None) is None:
-        return (
-            "Gemini google_search was requested but the installed google-genai "
-            "SDK does not expose GoogleSearch."
-        )
-
-    try:
-        params = inspect.signature(genai_types.GenerateContentConfig).parameters
-    except (TypeError, ValueError):
-        params = {}
-    if "include_server_side_tool_invocations" not in params:
-        return (
-            "Gemini google_search + computer_use requires "
-            "include_server_side_tool_invocations=True and "
-            "tool_config.function_calling_config.mode=VALIDATED, but the "
-            "installed google-genai SDK does not expose "
-            "include_server_side_tool_invocations."
-        )
-
-    if "tool_config" not in params:
-        return (
-            "Gemini google_search + computer_use requires "
-            "include_server_side_tool_invocations=True and "
-            "tool_config.function_calling_config.mode=VALIDATED, but the "
-            "installed google-genai SDK does not expose tool_config on "
-            "GenerateContentConfig."
-        )
-
-    if getattr(genai_types, "ToolConfig", None) is None:
-        return (
-            "Gemini google_search + computer_use requires "
-            "include_server_side_tool_invocations=True and "
-            "tool_config.function_calling_config.mode=VALIDATED, but the "
-            "installed google-genai SDK does not expose ToolConfig."
-        )
-
-    if getattr(genai_types, "FunctionCallingConfig", None) is None:
-        return (
-            "Gemini google_search + computer_use requires "
-            "include_server_side_tool_invocations=True and "
-            "tool_config.function_calling_config.mode=VALIDATED, but the "
-            "installed google-genai SDK does not expose FunctionCallingConfig."
-        )
-
-    _mode_enum = getattr(genai_types, "FunctionCallingConfigMode", None)
-    if _mode_enum is None or getattr(_mode_enum, "VALIDATED", None) is None:
-        return (
-            "Gemini google_search + computer_use requires "
-            "include_server_side_tool_invocations=True and "
-            "tool_config.function_calling_config.mode=VALIDATED, but the "
-            "installed google-genai SDK does not expose "
-            "FunctionCallingConfigMode.VALIDATED."
-        )
-    return None
-
-
 def validate_builtin_search_config(
     *,
     provider: Provider | str,
@@ -486,35 +422,20 @@ def validate_builtin_search_config(
     use_builtin_search: bool,
     reasoning_effort: str | None = None,
 ) -> None:
-    """Validate provider-native search settings before any API call is built."""
+    """Validate provider-native web-planning settings before any API call."""
     if not use_builtin_search:
         return
 
+    _ = reasoning_effort
     provider_key = _normalize_search_provider(provider)
-
-    if provider_key == "claude":
-        return
 
     if provider_key == "gemini":
         if not model.startswith("gemini-3"):
             raise ValueError(
-                "Gemini combined computer_use + google_search is documented only "
-                "for Gemini 3 models.",
+                "Gemini Google Search planning is enabled only for Gemini 3 models "
+                "in this app.",
             )
-        sdk_error = _get_gemini_builtin_search_sdk_error()
-        if sdk_error:
-            raise ValueError(sdk_error)
-        return
-
-    if provider_key == "openai":
-        openai_effort = (reasoning_effort or "").lower()
-        if openai_effort == "none":
-            openai_effort = "minimal"
-        if model.startswith("gpt-5") and openai_effort == "minimal":
-            raise ValueError(
-                "OpenAI web_search is not supported with gpt-5 models at minimal reasoning.",
-            )
-        return
+    return
 
 
 # ---------------------------------------------------------------------------
@@ -797,11 +718,12 @@ class ComputerUseEngine:
             from backend.files import GEMINI_CU_FILE_REJECTION
             raise ValueError(GEMINI_CU_FILE_REJECTION)
 
-        # Bundle the product's web-search toggle once so each adapter
-        # receives the same shape via a single kwarg.
-        search_kwargs: dict[str, Any] = {
-            "use_builtin_search": bool(use_builtin_search),
-        }
+        # Web Search ON is implemented as a provider-native planning
+        # phase before the Computer Use loop. The CU clients themselves
+        # stay computer-only so search does not compete with desktop
+        # actions on every turn.
+        planner_use_builtin_search = bool(use_builtin_search)
+        search_kwargs: dict[str, Any] = {"use_builtin_search": False}
         # Reference-file activation rule: only attach provider-native
         # document grounding when the user explicitly uploaded files.
         # Gemini is excluded above because its File Search tool is not
@@ -818,6 +740,7 @@ class ComputerUseEngine:
                 **search_kwargs,
                 **file_kwargs,
             )
+            self._client._planner_use_builtin_search = planner_use_builtin_search
         elif provider == Provider.CLAUDE:
             # Look up tool_version / beta_flag from allowed_models.json
             # so the canonical allowlist drives the Claude CU routing.
@@ -833,6 +756,7 @@ class ComputerUseEngine:
                 **search_kwargs,
                 **file_kwargs,
             )
+            self._client._planner_use_builtin_search = planner_use_builtin_search
         elif provider == Provider.OPENAI:
             self._client = OpenAICUClient(
                 api_key=api_key,
@@ -842,6 +766,7 @@ class ComputerUseEngine:
                 **search_kwargs,
                 **file_kwargs,
             )
+            self._client._planner_use_builtin_search = planner_use_builtin_search
         else:
             raise ValueError(f"Unsupported provider: {provider}")
 
