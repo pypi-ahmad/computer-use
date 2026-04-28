@@ -747,9 +747,7 @@ class TestSearchEnabledRequiresComputerAction:
                 ]
             )
 
-            with patch("google.genai.Client"), \
-                 patch("backend.engine._get_gemini_builtin_search_sdk_error", return_value=None), \
-                 patch("backend.engine.gemini._get_gemini_builtin_search_sdk_error", return_value=None):
+            with patch("google.genai.Client"):
                 from backend.engine import GeminiCUClient
                 client = GeminiCUClient(api_key="k", use_builtin_search=True)
                 client._build_config = lambda: SimpleNamespace()
@@ -1294,7 +1292,7 @@ class TestOpenAIZDRReplay:
         assert "previous_response_id" not in req
 
     @pytest.mark.asyncio
-    async def test_search_enabled_requests_web_search_sources(self):
+    async def test_search_enabled_still_uses_computer_only_request(self):
         from backend.engine import OpenAICUClient
 
         captured_requests: list[dict] = []
@@ -1337,13 +1335,9 @@ class TestOpenAIZDRReplay:
         await client.run_loop("noop", FakeExecutor(), turn_limit=1)
 
         req = captured_requests[0]
-        assert req["include"] == [
-            "reasoning.encrypted_content",
-            "web_search_call.action.sources",
-        ]
-        assert {"type": "web_search"} in req["tools"]
-        assert "Web search is available because the user enabled it" in req["instructions"]
-        assert "proceed directly with the computer tool" in req["instructions"]
+        assert req["include"] == ["reasoning.encrypted_content"]
+        assert req["tools"] == [{"type": "computer"}]
+        assert "web search" not in req.get("instructions", "").lower()
 
 
 # ---------------------------------------------------------------------------
@@ -1566,19 +1560,11 @@ class TestGeminiRequireConfirmation:
             assert final.final_text == "ok"
 
 # === merged from tests/test_websearch_tools.py ===
-"""Hermetic adapter tests for the official provider-native web-search tools.
+"""Hermetic adapter tests for the CU-only execution phase.
 
-Asserts that each provider's ``_build_tools`` / ``_build_config`` emits
-the exact tool shape documented by the provider as of April 2026 when
-``use_builtin_search`` is enabled, and is a no-op otherwise.
-
-Reference shapes:
-    * OpenAI Responses API:  ``{"type": "web_search"}``
-    * Anthropic Messages:    ``{"type": "web_search_20250305", "name": "web_search", "max_uses": N}``
-    * Gemini GenerateContent: ``Tool(google_search=GoogleSearch())`` plus
-      ``include_server_side_tool_invocations=True`` on the config.
-
-All provider SDKs are mocked; no network calls are made.
+Web Search ON now runs as a separate provider-native planning pass before
+Computer Use. These tests assert the low-level Computer Use adapters do
+not attach search tools to their desktop-action loops.
 """
 
 
@@ -1593,7 +1579,7 @@ import pytest
 
 
 class TestOpenAIWebSearch:
-    """OpenAI Responses API web_search tool."""
+    """OpenAI CU requests stay computer-only when web planning is enabled."""
 
     def _make(self, **kwargs):
         from backend.engine import OpenAICUClient
@@ -1605,22 +1591,19 @@ class TestOpenAIWebSearch:
         tools = client._build_tools(1440, 900)
         assert tools == [{"type": "computer"}]
 
-    def test_enabled_appends_web_search_tool(self):
+    def test_enabled_still_emits_only_computer_tool(self):
         client = self._make(use_builtin_search=True)
         tools = client._build_tools(1440, 900)
-        assert {"type": "computer"} in tools
-        assert {"type": "web_search"} in tools
+        assert tools == [{"type": "computer"}]
 
-    def test_enabled_with_file_search_keeps_all_tools(self):
+    def test_enabled_with_file_search_keeps_cu_and_file_tools_only(self):
         client = self._make(use_builtin_search=True)
         client._vector_store_id = "vs_test"
         tools = client._build_tools(1440, 900)
-        assert {"type": "computer"} in tools
-        assert {"type": "web_search"} in tools
-        assert {
-            "type": "file_search",
-            "vector_store_ids": ["vs_test"],
-        } in tools
+        assert tools == [
+            {"type": "computer"},
+            {"type": "file_search", "vector_store_ids": ["vs_test"]},
+        ]
 
     def test_file_search_without_web_search_keeps_computer_tool(self):
         client = self._make(use_builtin_search=False)
@@ -1641,13 +1624,14 @@ class TestOpenAIWebSearch:
         with pytest.raises(ValueError, match="not in the computer-use registry"):
             self._make(model=blocked_model)
 
-    def test_minimal_reasoning_with_search_raises_explicit_error(self):
-        with pytest.raises(ValueError, match="minimal reasoning"):
-            self._make(
-                model="gpt-5.5",
-                use_builtin_search=True,
-                reasoning_effort="minimal",
-            )
+    def test_minimal_reasoning_with_search_is_allowed_for_split_planner(self):
+        client = self._make(
+            model="gpt-5.5",
+            use_builtin_search=True,
+            reasoning_effort="minimal",
+        )
+        assert client._reasoning_effort == "minimal"
+        assert client._build_tools(1440, 900) == [{"type": "computer"}]
 
 
 # ---------------------------------------------------------------------------
@@ -1656,7 +1640,7 @@ class TestOpenAIWebSearch:
 
 
 class TestClaudeWebSearch:
-    """Anthropic web_search_20250305 server tool."""
+    """Claude CU requests stay computer-only when web planning is enabled."""
 
     @pytest.fixture(autouse=True)
     def _clear_web_search_probe_cache(self, monkeypatch):
@@ -1677,19 +1661,17 @@ class TestClaudeWebSearch:
         assert len(tools) == 1
         assert tools[0]["name"] == "computer"
 
-    def test_enabled_appends_web_search_tool(self):
+    def test_enabled_still_emits_only_computer_tool(self):
         client = self._make(use_builtin_search=True)
         tools = client._build_tools(1440, 900)
-        ws = next(t for t in tools if t.get("name") == "web_search")
-        assert ws["type"] == "web_search_20250305"
-        assert ws["max_uses"] == 5  # default
+        assert len(tools) == 1
+        assert tools[0]["name"] == "computer"
 
-    def test_enabled_with_files_keeps_computer_and_web_search_tools(self):
+    def test_enabled_with_files_keeps_computer_tool_only(self):
         client = self._make(use_builtin_search=True, attached_file_ids=["f_doc"])
         tools = client._build_tools(1440, 900)
+        assert len(tools) == 1
         assert tools[0]["name"] == "computer"
-        ws = next(t for t in tools if t.get("name") == "web_search")
-        assert ws["type"] == "web_search_20250305"
 
     @pytest.mark.asyncio
     async def test_probe_success_marks_api_key_as_enabled(self):
@@ -1824,7 +1806,7 @@ class TestClaudeWebSearch:
 
 
 class TestGeminiGoogleSearch:
-    """Gemini google_search grounding tool."""
+    """Gemini CU requests stay computer-only when web planning is enabled."""
 
     def _make(self, **kwargs):
         from backend.engine import GeminiCUClient
@@ -1842,31 +1824,13 @@ class TestGeminiGoogleSearch:
         with pytest.raises(ValueError, match="Gemini File Search cannot be combined with Computer Use"):
             self._make(attached_file_ids=["f_doc"])
 
-    def test_enabled_appends_google_search_tool(self):
-        try:
-            client = self._make(use_builtin_search=True)
-            config = client._build_config()
-        except ValueError as exc:
-            assert "include_server_side_tool_invocations" in str(exc)
-            return
-        # Two tools, one of which has google_search set
-        assert len(config.tools) == 2
-        has_search = any(getattr(t, "google_search", None) is not None for t in config.tools)
-        assert has_search, "google_search tool not present"
+    def test_enabled_still_emits_only_computer_use_tool(self):
+        client = self._make(use_builtin_search=True)
+        config = client._build_config()
+        assert len(config.tools) == 1
+        assert config.tools[0].computer_use is not None
 
-    def test_enabled_sets_include_server_side_tool_invocations(self):
-        try:
-            client = self._make(use_builtin_search=True)
-            config = client._build_config()
-        except ValueError as exc:
-            assert "include_server_side_tool_invocations" in str(exc)
-            return
-        # The flag is required for combined tool execution per Gemini docs.
-        # If the SDK supports the field, it must be True.
-        if hasattr(config, "include_server_side_tool_invocations"):
-            assert config.include_server_side_tool_invocations is True
-
-    def test_enabled_pins_validated_function_calling_mode(self):
+    def test_forced_search_flag_still_keeps_config_cu_only(self):
         client = self._make(use_builtin_search=False)
 
         class _FakeComputerUse:
@@ -1895,16 +1859,7 @@ class TestGeminiGoogleSearch:
                 self.__dict__.update(kwargs)
 
             def model_dump(self, mode="json", exclude_none=True):
-                return {
-                    "include_server_side_tool_invocations": getattr(
-                        self, "include_server_side_tool_invocations", None,
-                    ),
-                    "tool_config": {
-                        "function_calling_config": {
-                            "mode": self.tool_config.function_calling_config.mode,
-                        },
-                    },
-                }
+                return self.__dict__
 
         fake_types = SimpleNamespace(
             Tool=_FakeTool,
@@ -1925,14 +1880,15 @@ class TestGeminiGoogleSearch:
         client._genai = SimpleNamespace(types=fake_types)
         client._use_builtin_search = True
 
-        with patch("backend.engine.gemini._get_gemini_builtin_search_sdk_error", return_value=None):
-            config = client._build_config()
+        config = client._build_config()
 
         body = config.model_dump(mode="json", exclude_none=True)
-        assert body["include_server_side_tool_invocations"] is True
-        assert body["tool_config"]["function_calling_config"]["mode"] == "VALIDATED"
+        assert "include_server_side_tool_invocations" not in body
+        assert "tool_config" not in body
+        assert len(body["tools"]) == 1
+        assert body["tools"][0].computer_use is not None
 
-    def test_non_gemini3_combo_raises_explicit_error(self):
+    def test_non_gemini3_search_planning_raises_explicit_error(self):
         with pytest.raises(ValueError, match="Gemini 3"):
             self._make(
                 model="gemini-2.5-flash",

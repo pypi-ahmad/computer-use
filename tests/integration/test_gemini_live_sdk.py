@@ -1,10 +1,9 @@
-"""Live SDK integration checks for Gemini combined tool mode.
+"""Live SDK integration checks for Gemini computer-only execution mode.
 
 This test intentionally uses the real ``google-genai`` types and a mock
-``httpx`` transport. It verifies that the pinned SDK accepts the exact
-combined-mode config shape emitted by ``GeminiCUClient`` when
-``use_builtin_search=True``. If the SDK rejects that config, that is a
-wrapper bug and this test must fail loudly.
+``httpx`` transport. It verifies that the pinned SDK accepts the
+Computer Use config emitted by ``GeminiCUClient`` even when product-level
+web search is enabled. Search itself runs in a separate planning phase.
 """
 
 from __future__ import annotations
@@ -40,14 +39,11 @@ _MOCK_RESPONSE = {
 }
 
 
-def test_gemini_combined_mode_config_is_accepted_by_live_sdk() -> None:
-    """Exercise the real google-genai schema for the combined-mode config.
+def test_gemini_computer_use_config_is_accepted_by_live_sdk() -> None:
+    """Exercise the real google-genai schema for the CU-only config.
 
     The current adapter emits:
     - ``Tool(computer_use=ComputerUse(...))``
-    - ``Tool(google_search=GoogleSearch())``
-    - ``ToolConfig(FunctionCallingConfig(mode=VALIDATED))``
-    - ``include_server_side_tool_invocations=True``
 
     No real API request is made: the SDK client uses ``httpx.MockTransport``.
     """
@@ -76,21 +72,13 @@ def test_gemini_combined_mode_config_is_accepted_by_live_sdk() -> None:
             config = adapter._build_config()
         except Exception as exc:  # pragma: no cover - exercised in the current failing SDK state
             pytest.fail(
-                "google-genai==1.67.0 rejected the Gemini combined-mode config emitted "
+                "google-genai==1.67.0 rejected the Gemini Computer Use config emitted "
                 f"by GeminiCUClient: {exc}"
             )
 
         assert isinstance(config, types.GenerateContentConfig)
-        assert len(config.tools or []) == 2
+        assert len(config.tools or []) == 1
         assert any(getattr(tool, "computer_use", None) is not None for tool in config.tools)
-        assert any(getattr(tool, "google_search", None) is not None for tool in config.tools)
-        assert config.include_server_side_tool_invocations is True
-        assert config.tool_config is not None
-        assert config.tool_config.function_calling_config is not None
-        assert (
-            config.tool_config.function_calling_config.mode
-            == types.FunctionCallingConfigMode.VALIDATED
-        )
 
         response = adapter._client.models.generate_content(
             model=adapter._model,
@@ -105,4 +93,4 @@ def test_gemini_combined_mode_config_is_accepted_by_live_sdk() -> None:
     tools = body.get("tools")
     assert isinstance(tools, list)
     assert any("computerUse" in tool for tool in tools)
-    assert any("googleSearch" in tool for tool in tools)
+    assert not any("googleSearch" in tool for tool in tools)

@@ -15,7 +15,7 @@ _SPEC.loader.exec_module(_WATCHDOG)
 def test_find_shutdown_announcement_ignores_unrelated_deprecations():
     lines = [
         "April 27, 2026",
-        "Released `gemini-3-flash-preview`, our current combined-tool model.",
+        "Released `gemini-3-flash-preview`, our current Computer Use model.",
         "Deprecation announcement: The `gemini-robotics-er-1.5-preview` model will be shut down on April 30, 2026.",
     ]
 
@@ -64,4 +64,4 @@ def test_build_failure_message_quotes_announcement_and_links_follow_up():
     assert announcement in message
     assert _WATCHDOG.MODELS_URL in message
     assert _WATCHDOG.SUCCESSOR_CHECKLIST_PATH in message
-    assert "Gemini combined-tool allowlist needs updating" in message
+    assert "Gemini model allowlist needs updating" in message

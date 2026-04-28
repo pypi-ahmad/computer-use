@@ -211,7 +211,7 @@ def build_failure_message(
         f"{announcement_text}\n\n"
         f"Review successor candidates at: {MODELS_URL}\n"
         f"Follow the successor evaluation checklist: {SUCCESSOR_CHECKLIST_PATH}\n"
-        "The Gemini combined-tool allowlist needs updating before a replacement model is added."
+        "The Gemini model allowlist needs updating before a replacement model is added."
     )
 
 

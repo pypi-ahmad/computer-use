@@ -16,21 +16,22 @@ Successor discovery starts on the Gemini models overview page:
 - Models overview: https://ai.google.dev/gemini-api/docs/models
 
 The models overview is only for finding candidate replacements. Do not add a
-successor to the combined-tool allowlist until the candidate's individual model
-page shows all required capabilities explicitly.
+successor to the Gemini allowlist until the candidate's individual model page
+shows the required capabilities explicitly.
 
 ## Required checks
 
 1. Open the candidate's individual model page from the models overview.
 2. Inspect the `Capabilities` row on that model page.
 3. Confirm the page explicitly says `Computer use Supported`.
-4. Confirm the page explicitly says `Search grounding Supported`.
+4. Confirm the page explicitly says `Search grounding Supported` if Web Search
+   planning should remain available for the successor.
 5. Confirm the page explicitly says `Function calling Supported`, if Google
    still requires function-call support for Computer Use execution.
 6. Confirm the Computer Use guide or model page does not exclude the candidate
    from Computer Use.
 7. If any required label is missing or marked unsupported, do not add the model
-   to the Gemini combined-tool allowlist.
+   to the Gemini allowlist.
 
 ## File-search rule
 
@@ -45,18 +46,16 @@ updated deliberately.
 - Gemini Computer Use guide: https://ai.google.dev/gemini-api/docs/computer-use
 - Gemini Google Search grounding guide: https://ai.google.dev/gemini-api/docs/google-search
 - Gemini Function calling guide: https://ai.google.dev/gemini-api/docs/function-calling
-- Gemini tool-combination guide: https://ai.google.dev/gemini-api/docs/tool-combination
-
 ## Repo update steps after a candidate passes
 
-1. Update the Gemini combined-tool allowlist in `backend/models/allowed_models.json`.
+1. Update the Gemini allowlist in `backend/models/allowed_models.json`.
 2. Update the Gemini adapter assumptions in `backend/engine/gemini.py` if the successor model id or capability notes changed.
 3. Re-run the Gemini changelog watchdog and the Gemini adapter test slices before merging.
 4. Confirm Gemini file uploads still reject unless the file-search rule above
    has changed with official documentation.
 
 If no individual model page currently shows all three required labels, leave
-the allowlist unchanged and treat the combined-tool path as blocked until Google
+the allowlist unchanged and treat the successor path as blocked until Google
 publishes a compatible successor.
 
 ## Documentation updates after a change
@@ -68,4 +67,4 @@ operator-facing reference in the same change:
 - [USAGE.md](../USAGE.md) model selection table
 - [TECHNICAL.md](../TECHNICAL.md) provider-adapter notes
 - [Computer Use Prompt Guide](computer-use-prompt-guide.md) provider guidance if
-  the prompt shape, tool combination, or file behavior changes
+  the prompt shape, planning behavior, or file behavior changes
