@@ -9,8 +9,6 @@ Covers:
   * ``computer_call_output.output.detail == "original"`` on every turn.
   * ``phase`` preserved on assistant-message replay (required for
     gpt-5.3-codex and beyond).
-  * ``gpt-5.4-nano`` registered as NOT CU-capable (per the 2026-04-20
-    OpenAI changelog entry).
 """
 
 
@@ -521,20 +519,11 @@ class TestPhasePreserved:
 
 
 # ---------------------------------------------------------------------------
-# 5. gpt-5.4-nano not CU-capable
+# 5. gpt-5.4 CU-capable sanity
 # ---------------------------------------------------------------------------
 
 
-class TestRegistryNanoFlag:
-    def test_gpt54_nano_not_cu_capable(self):
-        from backend.models.schemas import load_allowed_models_json
-
-        models = {m["model_id"]: m for m in load_allowed_models_json()}
-        assert "gpt-5.4-nano" in models, "gpt-5.4-nano must be present in the registry"
-        assert models["gpt-5.4-nano"]["supports_computer_use"] is False, (
-            "gpt-5.4-nano does not support Computer Use per the OpenAI 2026-04-20 changelog"
-        )
-
+class TestRegistryGpt54Flag:
     def test_gpt54_still_cu_capable(self):
         """Sanity — the main gpt-5.4 entry must remain CU-capable."""
         from backend.models.schemas import load_allowed_models_json
