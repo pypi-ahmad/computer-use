@@ -244,18 +244,40 @@ class TestAgentStartValidation:
         assert resp.status_code == 200
         assert mock_agent_loop.call_args.kwargs["use_builtin_search"] is True
 
-    def test_openai_minimal_reasoning_search_rejected(self, client):
-        resp = client.post("/api/agent/start", json={
-            "task": "test",
-            "engine": "computer_use",
-            "provider": "openai",
-            "model": "gpt-5.4",
-            "mode": "desktop",
-            "use_builtin_search": True,
-            "reasoning_effort": "minimal",
-        })
-        assert resp.status_code == 400
-        assert "minimal reasoning" in resp.json().get("error", "")
+    def test_openai_minimal_reasoning_search_is_accepted_for_split_planner(self, client):
+        from backend.server import _agent_start_limiter
+
+        _agent_start_limiter._calls.clear()
+        fake_loop = SimpleNamespace(session_id="session-openai-search-1", run=AsyncMock())
+        fake_task = Mock()
+        fake_task.done.return_value = False
+
+        def fake_create_task(coro):
+            coro.close()
+            return fake_task
+
+        with patch.dict("backend.server._active_tasks", {}, clear=True), \
+             patch.dict("backend.server._active_loops", {}, clear=True), \
+             patch("backend.server.resolve_api_key", return_value=("sk-test-openai", "ui")), \
+             patch("backend.server.start_container", new_callable=AsyncMock, return_value=True), \
+             patch("backend.server.get_container_state",
+                   return_value={"container": "running", "agent": "ready",
+                                 "last_health_error": None}), \
+             patch("backend.server.AgentLoop", return_value=fake_loop) as mock_agent_loop, \
+             patch("backend.server.asyncio.create_task", side_effect=fake_create_task):
+            resp = client.post("/api/agent/start", json={
+                "task": "test",
+                "engine": "computer_use",
+                "provider": "openai",
+                "model": "gpt-5.4",
+                "mode": "desktop",
+                "use_builtin_search": True,
+                "reasoning_effort": "minimal",
+            })
+
+        assert resp.status_code == 200
+        assert mock_agent_loop.call_args.kwargs["use_builtin_search"] is True
+        assert mock_agent_loop.call_args.kwargs["reasoning_effort"] == "minimal"
 
     def test_gemini_reference_files_rejected(self, client):
         resp = client.post("/api/agent/start", json={
@@ -269,8 +291,27 @@ class TestAgentStartValidation:
         assert resp.status_code == 400
         assert "Gemini File Search cannot be combined with Computer Use" in resp.json().get("error", "")
 
-    def test_gemini_builtin_search_sdk_support_required(self, client):
-        with patch("backend.engine._get_gemini_builtin_search_sdk_error", return_value="sdk support missing"):
+    def test_gemini_builtin_search_is_accepted_for_split_planner(self, client):
+        from backend.server import _agent_start_limiter
+
+        _agent_start_limiter._calls.clear()
+        fake_loop = SimpleNamespace(session_id="session-gemini-search-1", run=AsyncMock())
+        fake_task = Mock()
+        fake_task.done.return_value = False
+
+        def fake_create_task(coro):
+            coro.close()
+            return fake_task
+
+        with patch.dict("backend.server._active_tasks", {}, clear=True), \
+             patch.dict("backend.server._active_loops", {}, clear=True), \
+             patch("backend.server.resolve_api_key", return_value=("AIza-test", "ui")), \
+             patch("backend.server.start_container", new_callable=AsyncMock, return_value=True), \
+             patch("backend.server.get_container_state",
+                   return_value={"container": "running", "agent": "ready",
+                                 "last_health_error": None}), \
+             patch("backend.server.AgentLoop", return_value=fake_loop) as mock_agent_loop, \
+             patch("backend.server.asyncio.create_task", side_effect=fake_create_task):
             resp = client.post("/api/agent/start", json={
                 "task": "test",
                 "engine": "computer_use",
@@ -279,8 +320,9 @@ class TestAgentStartValidation:
                 "mode": "desktop",
                 "use_builtin_search": True,
             })
-        assert resp.status_code == 400
-        assert resp.json().get("error") == "sdk support missing"
+
+        assert resp.status_code == 200
+        assert mock_agent_loop.call_args.kwargs["use_builtin_search"] is True
 
     def test_openai_model_can_be_selected(self, client):
         models = client.get("/api/models").json()["models"]
