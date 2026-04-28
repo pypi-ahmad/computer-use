@@ -37,7 +37,13 @@ async def run_client(
 ) -> tuple[str, dict[str, Any]]:
     """Run an already-constructed provider client through its provider module."""
     tools = ProviderTools(
-        web_search=bool(getattr(client, "_use_builtin_search", False)),
+        web_search=bool(
+            getattr(
+                client,
+                "_planner_use_builtin_search",
+                getattr(client, "_use_builtin_search", False),
+            )
+        ),
     )
     final_text = ""
     completion_payload: dict[str, Any] = {}
