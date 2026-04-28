@@ -10,6 +10,7 @@ import asyncio
 import base64
 import logging
 import os
+import re
 import time
 from typing import Any, AsyncIterator, Callable
 
@@ -24,13 +25,25 @@ from backend.engine import (
     TurnEvent,
     _call_with_retry,
     _invoke_safety,
-    _get_gemini_builtin_search_sdk_error,
     validate_builtin_search_config,
     DEFAULT_TURN_LIMIT,
     _IMAGE_PNG,
 )
 
 logger = logging.getLogger(__name__)
+
+_GEMINI_UI_ACTION_TASK_RE = re.compile(
+    r"\b(open|launch|start|search|click|type|enter|press|navigate|visit|"
+    r"scroll|fill|select|choose|upload|download|create|delete|rename|"
+    r"move|drag|paste|copy)\b|\bgo\s+to\b",
+    re.IGNORECASE,
+)
+
+
+def _gemini_final_needs_computer_use(goal: str, final_text: str) -> bool:
+    """Return True when a UI task ended before any computer_use action."""
+    _ = final_text
+    return bool(_GEMINI_UI_ACTION_TASK_RE.search(goal or ""))
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +181,7 @@ def _extract_gemini_grounding_payload(response: Any) -> dict[str, Any] | None:
 def _prune_gemini_context(contents: list[Any], max_history_turns: int) -> None:
     """Drop old Gemini history turns atomically while keeping kept turns intact.
 
-    Gemini tool-combination docs require returning all parts, including
+    Gemini tool-calling replay docs require returning all parts, including
     all fields they contain, on each turn:
     https://ai.google.dev/gemini-api/docs/tool-combination
 
@@ -213,7 +226,7 @@ class GeminiCUClient:
 
     History pruning keeps at most ``max_history_turns`` content turns plus
     the most recent assistant turn, and it never strips parts within a kept
-    turn. This follows the Gemini tool-combination docs:
+    turn. This follows Gemini's tool-calling replay docs:
     https://ai.google.dev/gemini-api/docs/tool-combination
     Increase ``max_history_turns`` for long sessions and monitor the
     latency/quality tradeoff.
@@ -234,7 +247,7 @@ class GeminiCUClient:
         system_instruction: str | None = None,
         use_builtin_search: bool = False,
         # Bound replay depth without stripping any fields from retained turns.
-        # Gemini tool-combination docs require replaying all parts/fields
+        # Gemini tool-calling replay docs require replaying all parts/fields
         # intact on each kept turn:
         # https://ai.google.dev/gemini-api/docs/tool-combination
         max_history_turns: int = 10,
@@ -274,13 +287,9 @@ class GeminiCUClient:
         _level = os.getenv("CUA_GEMINI_THINKING_LEVEL", "high").lower()
         self._thinking_level = _level if _level in _allowed_levels else "high"
 
-        # Official Gemini google_search grounding tool (April 2026).
-        # When ``use_builtin_search`` is True the adapter declares
-        # ``Tool(google_search=GoogleSearch())`` alongside the
-        # ``computer_use`` tool and sets
-        # ``include_server_side_tool_invocations=True`` so the
-        # combined-tool execution model documented at
-        # https://ai.google.dev/gemini-api/docs/tool-combination works.
+        # Product-level Web Search ON is handled by backend.providers.planner
+        # before the Computer Use loop. This CU client stays computer-only
+        # so Google Search does not compete with desktop actions every turn.
         self._use_builtin_search = bool(use_builtin_search)
         if attached_file_ids:
             raise ValueError(
@@ -335,20 +344,6 @@ class GeminiCUClient:
                 )
             )
         ]
-        if self._use_builtin_search:
-            # Official Gemini grounding tool. Constructor signature:
-            # ``Tool(google_search=GoogleSearch())``. The model decides
-            # per turn whether to invoke search; results are surfaced
-            # via ``groundingMetadata`` on the candidate.
-            #
-            _GoogleSearch = getattr(types, "GoogleSearch", None)
-            if _GoogleSearch is None:
-                raise ValueError(
-                    "Gemini google_search was requested but the installed "
-                    "google-genai SDK does not expose GoogleSearch.",
-                )
-            tools.append(types.Tool(google_search=_GoogleSearch()))
-
         # Safety-threshold relaxation is opt-in.  Per Google's
         # safety-settings docs (2026-04), the default block threshold
         # on Gemini 2.5 / 3 models is already "Off" when the client
@@ -413,19 +408,6 @@ class GeminiCUClient:
             "tools": tools,
             "thinking_config": _ThinkingConfig(**_thinking_kwargs),
         }
-        if self._use_builtin_search:
-            sdk_error = _get_gemini_builtin_search_sdk_error()
-            if sdk_error:
-                raise ValueError(sdk_error)
-            # Gemini tool-combination docs require VALIDATED mode when
-            # include_server_side_tool_invocations is enabled; AUTO is not
-            # supported in this configuration.
-            kwargs["include_server_side_tool_invocations"] = True
-            kwargs["tool_config"] = types.ToolConfig(
-                function_calling_config=types.FunctionCallingConfig(
-                    mode=types.FunctionCallingConfigMode.VALIDATED,
-                ),
-            )
         if safety_settings:
             kwargs["safety_settings"] = safety_settings
         if self._system_instruction:
@@ -511,7 +493,7 @@ class GeminiCUClient:
                 on_log("info", f"Gemini CU turn {turn + 1}/{turn_limit}")
 
             # Bound context growth without stripping fields from any retained
-            # turn. Gemini tool-combination replay expects each kept turn to
+            # turn. Gemini tool-calling replay expects each kept turn to
             # remain whole.
             _prune_gemini_context(contents, self._max_history_turns)
 
@@ -597,11 +579,11 @@ class GeminiCUClient:
 
             # No function calls → model is done
             if not function_calls:
-                if self._use_builtin_search and not saw_computer_action and not nudged_for_computer_use:
+                if _gemini_final_needs_computer_use(goal, turn_text) and not saw_computer_action and not nudged_for_computer_use:
                     if on_log:
                         on_log(
                             "info",
-                            "Gemini CU: retrieval-only turn before any computer action; nudging the model to continue with the computer_use tool.",
+                            "Gemini CU: model stopped before any computer action; nudging it to continue with the computer_use tool.",
                         )
                     try:
                         retry_ss = await executor.capture_screenshot()
@@ -613,7 +595,7 @@ class GeminiCUClient:
                             parts=[
                                 types.Part(
                                     text=(
-                                        "Use any retrieved search context to continue, but do not stop yet. "
+                                        f"Active user task: {goal}\n\n"
                                         "This app's purpose is computer use: the task is not complete until you perform "
                                         "the requested action with the computer_use tool on the current screen. "
                                         "Continue with computer actions now."

@@ -133,15 +133,15 @@ class StartTaskRequest(BaseModel):
     provider: str = Field(max_length=20)
     execution_target: str = Field(default="docker", max_length=20)  # only "docker" is supported
     reasoning_effort: Optional[str] = Field(default=None, max_length=10)  # OpenAI only: minimal|low|medium|high|xhigh (accepts none as a legacy alias)
-    # Official provider-native web-search tool toggle.
-    # When True, the engine attaches the provider's first-party search
-    # tool to every model call:
+    # Official provider-native web-search toggle.
+    # When True, the engine runs a provider-native planning/search pass
+    # before Computer Use, then sends the resulting execution brief to a
+    # computer-only loop:
     #   * OpenAI Responses API → ``{"type": "web_search"}``
     #   * Anthropic Messages    → ``{"type": "web_search_20250305", ...}``
     #   * Gemini GenerateContent → ``Tool(google_search=GoogleSearch())``
-    # The model still decides whether to invoke search per turn; this
-    # flag only controls availability. Off by default; the frontend
-    # toggle enables the provider-native search tool when requested.
+    # Off by default; the frontend toggle enables this separate planning
+    # phase when requested.
     use_builtin_search: bool = False
     # Server-side file ids previously persisted via POST /api/files/upload.
     # When non-empty the engine adapter creates a provider-side store

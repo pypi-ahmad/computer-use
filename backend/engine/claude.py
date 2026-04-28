@@ -220,10 +220,9 @@ class ClaudeCUClient:
             use_builtin_search=use_builtin_search,
         )
 
-        # Official Anthropic web_search server tool (April 2026:
-        # tool type ``web_search_20250305``). When enabled the adapter
-        # advertises it alongside the computer-use tool and the model
-        # invokes it server-side.
+        # Product-level Web Search ON is handled by backend.providers.planner
+        # before the Computer Use loop. This CU client keeps its action loop
+        # computer-only so web_search does not compete with desktop actions.
         self._use_builtin_search = bool(use_builtin_search)
 
         # Anthropic Files API integration. Per the official Computer
@@ -393,8 +392,6 @@ class ClaudeCUClient:
                 )
                 ClaudeCUClient._caching_logged = True
         tools: list[dict[str, Any]] = [tool]
-        if self._use_builtin_search:
-            tools.append(self._build_web_search_tool())
         return tools
 
     async def iter_turns(
@@ -447,8 +444,6 @@ class ClaudeCUClient:
         scaled_h = int(executor.screen_height * scale)
         if scale < 1.0 and on_log:
             on_log("info", f"Claude screenshot scale={scale:.3f} → {scaled_w}x{scaled_h}")
-
-        await self._ensure_anthropic_web_search_enabled(on_log)
 
         tools = self._build_tools(scaled_w, scaled_h)
 
@@ -602,7 +597,7 @@ class ClaudeCUClient:
                     if on_log:
                         on_log(
                             "info",
-                            "Claude CU: retrieval-only turn before any computer action; nudging the model to continue with the computer tool.",
+                            "Claude CU: context-only turn before any computer action; nudging the model to continue with the computer tool.",
                         )
                     try:
                         refreshed_screenshot = await executor.capture_screenshot()
@@ -617,7 +612,7 @@ class ClaudeCUClient:
                             {
                                 "type": "text",
                                 "text": (
-                                    "Use any retrieved search/file context to continue, but do not stop yet. "
+                                    "Use any planning or attached-file context to continue, but do not stop yet. "
                                     "This app's purpose is computer use: the task is not complete until you perform "
                                     "the requested action with the computer tool on the current screen. "
                                     "Continue with computer actions now."
