@@ -76,6 +76,14 @@ _OPENAI_NEEDS_USER_INPUT_FINAL_RE = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+_OPENAI_WEB_SEARCH_COMPUTER_USE_GUIDANCE = (
+    "Web search is available because the user enabled it, but use it only "
+    "when the task requires current public web facts, external sources, or "
+    "internet research. For local desktop UI tasks such as opening apps, "
+    "creating folders, clicking menus, typing into visible apps, or operating "
+    "the current computer, proceed directly with the computer tool and do not "
+    "spend turns searching or waiting on web search."
+)
 
 
 def _openai_task_likely_requires_ui_action(goal: str) -> bool:
@@ -354,6 +362,15 @@ class OpenAICUClient:
             on_log=on_log,
         )
 
+    def _build_instructions(self) -> str:
+        """Compose provider instructions without changing the advertised tools."""
+        parts: list[str] = []
+        if self._system_prompt:
+            parts.append(self._system_prompt.strip())
+        if self._use_builtin_search:
+            parts.append(_OPENAI_WEB_SEARCH_COMPUTER_USE_GUIDANCE)
+        return "\n\n".join(part for part in parts if part)
+
     async def _ensure_vector_store(
         self,
         *,
@@ -496,8 +513,9 @@ class OpenAICUClient:
                 "store": False,
                 "truncation": "auto",
             }
-            if self._system_prompt:
-                request["instructions"] = self._system_prompt
+            instructions = self._build_instructions()
+            if instructions:
+                request["instructions"] = instructions
 
             response = await self._create_response(on_log=on_log, **request)
             response_error = getattr(response, "error", None)
