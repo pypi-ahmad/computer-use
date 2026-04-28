@@ -17,7 +17,7 @@ import {
 export const PROVIDERS = [
   { value: 'google', label: 'Google Gemini', envVar: 'GOOGLE_API_KEY', placeholder: 'Paste your Google API key' },
   { value: 'anthropic', label: 'Anthropic Claude', envVar: 'ANTHROPIC_API_KEY', placeholder: 'Paste your Anthropic API key' },
-  { value: 'openai', label: 'OpenAI GPT-5.4 / GPT-5.5', envVar: 'OPENAI_API_KEY', placeholder: 'Paste your OpenAI API key' },
+  { value: 'openai', label: 'OpenAI', envVar: 'OPENAI_API_KEY', placeholder: 'Paste your OpenAI API key' },
 ]
 
 export const ICON_SIZE = 14
