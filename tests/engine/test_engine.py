@@ -1341,6 +1341,9 @@ class TestOpenAIZDRReplay:
             "reasoning.encrypted_content",
             "web_search_call.action.sources",
         ]
+        assert {"type": "web_search"} in req["tools"]
+        assert "Web search is available because the user enabled it" in req["instructions"]
+        assert "proceed directly with the computer tool" in req["instructions"]
 
 
 # ---------------------------------------------------------------------------
