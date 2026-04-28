@@ -92,15 +92,16 @@ There is no prompt orchestration layer, no intermediate planning engine, and no 
 
 **Data flow for a single agent turn:**
 
-1. Engine client requests a screenshot from `DesktopExecutor`.
-2. `DesktopExecutor` calls `GET /screenshot` on the container's agent service (port 9222).
-3. The base64 PNG is embedded in the provider's next API request alongside the task and tool definitions.
-4. The provider returns a tool call: a structured action batch (click, type, scroll, etc.).
-5. `DesktopExecutor` translates each action into an `xdotool` command via `POST /action` on the agent service.
-6. A fresh screenshot is captured and fed back to the provider to close the perceive → act loop.
-7. The loop continues until the model declares completion, the step limit is reached, or a stop is requested.
+1. *(Optional)* If `use_builtin_search` is true, a one-shot **planning pass** runs first against the provider's native search tool only (no `computer` tool). It returns a compact execution brief (interpreted task, environment assumptions, step-by-step plan, verification condition, pitfalls).
+2. The CU loop starts. Engine client requests a screenshot from `DesktopExecutor`.
+3. `DesktopExecutor` calls `GET /screenshot` on the container's agent service (port 9222).
+4. The base64 PNG is embedded in the provider's next API request alongside the task (or the merged task + planner brief) and the Computer Use tool definition.
+5. The provider returns a tool call: a structured action batch (click, type, scroll, etc.).
+6. `DesktopExecutor` translates each action into an `xdotool` command via `POST /action` on the agent service.
+7. A fresh screenshot is captured and fed back to the provider to close the perceive → act loop.
+8. The loop continues until the model declares completion, the step limit is reached, or a stop is requested.
 
-The model never has direct socket access to the host machine. All action dispatch goes through the container's HTTP action service, which enforces an explicit allowlist of permitted action names.
+The model never has direct socket access to the host machine. All action dispatch goes through the container's HTTP action service, which enforces an explicit allowlist of permitted action names. During the desktop execution phase, the advertised tool list is computer-only — web search is intentionally not available, so the model cannot stall on irrelevant searches.
 
 ---
 
@@ -125,14 +126,15 @@ computer-use/
 │   │   ├── __init__.py    # ComputerUseEngine facade, shared helpers,
 │   │   │                  #   retry logic, transient-error classification
 │   │   ├── openai.py      # OpenAICUClient: Responses API stateless replay,
-│   │   │                  #   screenshot downscale, web_search guard, file_search
+│   │   │                  #   screenshot downscale, CU-only loop, file_search
 │   │   ├── claude.py      # ClaudeCUClient: Messages beta, registry-backed
 │   │   │                  #   tool-version routing, web-search org probe,
 │   │   │                  #   Files API document blocks
 │   │   └── gemini.py      # GeminiCUClient: GenerateContent, normalized coords,
-│   │                      #   atomic history pruning, google_search grounding
+│   │                      #   atomic history pruning, early-stop guard
 │   ├── providers/
-│   │   ├── _common.py     # ProviderTools dataclass
+│   │   ├── _common.py     # ProviderTools dataclass and stream bridge
+│   │   ├── planner.py     # Optional provider-native Web Search planning pass
 │   │   ├── openai.py      # OpenAI public run() wrapper
 │   │   ├── anthropic.py   # Anthropic public run() wrapper
 │   │   └── gemini.py      # Gemini public run() wrapper
@@ -219,14 +221,14 @@ The model allowlist is the single source of truth at `backend/models/allowed_mod
 
 ## Tool Matrix
 
-The tool set available to the model is determined entirely by two request flags: `use_builtin_search` (boolean) and whether `attached_files` is non-empty.
+Runtime behavior is determined by two request flags: `use_builtin_search` (boolean) and whether `attached_files` is non-empty. Web Search is a separate provider-native planning pass; the Computer Use execution loop stays computer-only.
 
 | Request state | OpenAI | Anthropic | Gemini |
 |---|---|---|---|
 | Web Search off, no files | `computer` | `computer_20251124` | `computer_use` |
-| Web Search on, no files | `computer` + `web_search` | `computer_20251124` + `web_search_20250305` | `computer_use` + `google_search` |
+| Web Search on, no files | planning: `web_search`; execution: `computer` | planning: `web_search_20250305`; execution: `computer_20251124` | planning: `google_search`; execution: `computer_use` |
 | Files + Web Search off | `computer` + `file_search` (vector store) | `computer_20251124` + Files API document blocks | **Rejected** |
-| Files + Web Search on | `computer` + `web_search` + `file_search` | `computer_20251124` + `web_search_20250305` + Files API docs | **Rejected** |
+| Files + Web Search on | planning: `web_search`; execution: `computer` + `file_search` | planning: `web_search_20250305`; execution: `computer_20251124` + Files API docs | **Rejected** |
 
 **Why Gemini file uploads are rejected:** Google's Gemini File Search API is not documented as part of the Computer Use path. Combining them is explicitly excluded from this app's scope. The backend returns a `400` before the provider call.
 
@@ -503,6 +505,26 @@ Optionally pass `?session_id=<id>` to subscribe a screenshot stream for a specif
 
 ## Core Logic
 
+### Two-Phase Web Search Planning (`backend/providers/planner.py`)
+
+When `use_builtin_search` is true, the run is split into two phases instead of advertising web search and computer tools to the same model at the same time.
+
+**Phase 1 — Planning.** A short provider-native call runs with only the search tool exposed:
+
+- OpenAI: `web_search` on the Responses API (with `reasoning.effort="low"` for `gpt-5*` to keep planning latency bounded).
+- Anthropic: `web_search_20250305` on the beta Messages API, gated by the same org-level enablement probe used for inline search.
+- Gemini: `google_search` grounding tool on `GenerateContent`.
+
+The planner asks the model to return a fixed-shape execution brief (interpreted task, environment assumptions, step-by-step plan, verification condition, pitfalls). It must not perform desktop actions in this phase — the computer tool is not advertised.
+
+**Phase 2 — Execution.** The original task and the planner brief are merged via `build_planned_computer_use_task` and handed to the Computer Use loop with `force_computer_only=True`. The advertised tool list contains only the provider's computer tool plus, when files are attached, the OpenAI `file_search` tool or Anthropic Files API document blocks. Web search tools are not advertised to the executing model, so the agent cannot waste turns on irrelevant search calls during desktop work.
+
+This split is implemented entirely in `backend/providers/`:
+
+- `planner.py` — builds the planning prompt and runs the per-provider plan call.
+- `_common.py` — `maybe_plan_with_web_search` runs the planner once and yields its events into the same stream as the CU loop; `stream_client_run_loop` honors the `force_computer_only` flag.
+- `openai.py` / `anthropic.py` / `gemini.py` — thin per-provider `run()` wrappers that call the planner, then drive the CU client.
+
 ### Agent Loop (`backend/loop.py`)
 
 `AgentLoop` is the session bridge between the HTTP layer and the provider engine. It owns:
@@ -521,6 +543,7 @@ Optionally pass `?session_id=<id>` to subscribe a screenshot stream for a specif
 - Uses the Responses API with a stateless replay strategy: the full conversation history is replayed on every request (no `previous_response_id`). This is intentional for ZDR (Zero Data Retention) compatibility.
 - Screenshots are resized before upload if they exceed 10,240,000 pixels or a 6000 px edge (OpenAI's `detail: "original"` ceiling). The resize scale factor is tracked so returned coordinates are remapped back to real screen space.
 - A heuristic guards against false early completions on pure-screenshot first turns where no UI action has yet been taken.
+- The CU loop itself never advertises `web_search`. When the user enables Web Search, the optional planning pass in `backend/providers/planner.py` runs first and feeds its brief into the executing CU run.
 
 **Anthropic (`engine/claude.py`):**
 
@@ -533,8 +556,8 @@ Optionally pass `?session_id=<id>` to subscribe a screenshot stream for a specif
 
 - Uses `google-genai` SDK with `GenerateContent` and the `Tool(computer_use=ComputerUse(...))` documented tool type.
 - Coordinates are in a normalized 0–999 grid, converted to real pixels via `denormalize_x` / `denormalize_y` in `executor.py`.
-- History pruning is atomic: entire turns are dropped (not field-rewritten) to preserve `toolCall`, `toolResponse`, `thoughtSignature`, and related fields required by the Gemini tool-combination spec. Configurable via `max_history_turns` (default 10).
-- Grounding metadata from `google_search` responses is normalized into a structured payload and forwarded to the UI and session state.
+- History pruning is atomic: entire turns are dropped (not field-rewritten) to preserve `toolCall`, `toolResponse`, `thoughtSignature`, and related fields required by Gemini's tool-calling replay rules. Configurable via `max_history_turns` (default 10).
+- Google Search grounding is used only in the provider planning pass when Web Search is on. The Computer Use loop itself receives only `computer_use`.
 
 ### Desktop Executor (`backend/executor.py`)
 
@@ -561,7 +584,7 @@ At session start, `backend/files.py` prepares provider-specific file contexts:
 - **Three-provider Computer Use** — OpenAI GPT-5.5/5.4, Anthropic Claude Opus 4.7/Sonnet 4.6, Google Gemini 3 Flash Preview — from one UI and one codebase.
 - **Isolated sandbox** — all desktop actions execute inside `cua-environment` (Ubuntu 24.04 + XFCE4). The host machine's filesystem, processes, and peripherals are never touched by the agent.
 - **Strict tool contract** — the backend exposes only the documented provider-native tool set. No extra tools, no middleware logic, no agentic orchestration outside the provider's own loop.
-- **Provider-native Web Search** — a single toggle adds the provider's official search tool to the running session: `web_search` for OpenAI, `web_search_20250305` for Anthropic, `google_search` for Gemini.
+- **Provider-native Web Search planning** — a single toggle runs a short provider-native planning/search pass first: `web_search` for OpenAI, `web_search_20250305` for Anthropic, `google_search` for Gemini. The desktop execution phase then runs with only the Computer Use tool.
 - **Reference file retrieval** — upload PDF, TXT, MD, or DOCX files before a session. OpenAI indexes them into a per-run vector store; Anthropic uploads them to the Files API as document blocks.
 - **Real-time streaming** — screenshots, step events, and logs stream over WebSocket throughout the session. Screenshot publishing is deduplicated and suspended when no subscriber is connected.
 - **Stuck-agent detection** — three consecutive identical action fingerprints (action + coordinates + text hash) trigger an automatic stop without waiting for the turn limit.
