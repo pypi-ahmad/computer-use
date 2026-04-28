@@ -27,8 +27,18 @@ from backend.engine import (
 )
 
 
-def _png_bytes(size: tuple[int, int] = (32, 32)) -> bytes:
-    image = Image.new("RGB", size, color=(255, 255, 255))
+def _png_bytes(size: tuple[int, int] = (128, 128)) -> bytes:
+    # Use a non-uniform pattern so PNG compression cannot shrink the
+    # output below the 100-byte "empty screenshot" guard used by the
+    # engine clients. A solid-color 32x32 PNG can compress under 100
+    # bytes on some Pillow builds, which would falsely trip the guard
+    # in tests that mock capture_screenshot with this helper.
+    width, height = size
+    image = Image.new("RGB", (width, height))
+    pixels = image.load()
+    for y in range(height):
+        for x in range(width):
+            pixels[x, y] = ((x * 7) % 256, (y * 11) % 256, ((x + y) * 13) % 256)
     buf = io.BytesIO()
     image.save(buf, format="PNG")
     return buf.getvalue()
