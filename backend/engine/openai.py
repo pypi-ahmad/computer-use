@@ -76,16 +76,6 @@ _OPENAI_NEEDS_USER_INPUT_FINAL_RE = re.compile(
     r")\b",
     re.IGNORECASE,
 )
-_OPENAI_WEB_SEARCH_COMPUTER_USE_GUIDANCE = (
-    "Web search is available because the user enabled it, but use it only "
-    "when the task requires current public web facts, external sources, or "
-    "internet research. For local desktop UI tasks such as opening apps, "
-    "creating folders, clicking menus, typing into visible apps, or operating "
-    "the current computer, proceed directly with the computer tool and do not "
-    "spend turns searching or waiting on web search."
-)
-
-
 def _openai_task_likely_requires_ui_action(goal: str) -> bool:
     """Return True when the user's wording implies desktop interaction."""
     return bool(_OPENAI_UI_ACTION_TASK_RE.search(goal or ""))
@@ -250,10 +240,9 @@ class OpenAICUClient:
         # Callers can still override with ``minimal``/``low``/``medium``/
         # ``high``/``xhigh``.
         reasoning_effort: str | None = None,
-        # Official OpenAI Responses API web-search tool (April 2026).
-        # When ``use_builtin_search`` is True the adapter appends
-        # ``{"type": "web_search"}`` to the tools list and the model
-        # decides per turn whether to invoke it.
+        # Product-level Web Search ON is handled by backend.providers.planner
+        # before the Computer Use loop. This low-level CU client never
+        # advertises web_search in the same request as computer.
         use_builtin_search: bool = False,
         # File-search activation (April 2026 Responses API):
         # https://developers.openai.com/api/docs/guides/tools-file-search
@@ -303,9 +292,9 @@ class OpenAICUClient:
             use_builtin_search=use_builtin_search,
             reasoning_effort=self._reasoning_effort,
         )
-        # Web-search wiring (April 2026 Responses API: tool type
-        # ``web_search``). Unsupported combinations fail explicitly
-        # instead of silently dropping the search tool.
+        # Retained for provider-run compatibility; the provider wrapper
+        # consumes this as "run a web planning phase first" and then forces
+        # the CU loop to computer-only.
         self._use_builtin_search = bool(use_builtin_search)
         # Provider-side vector store id, lazily provisioned on the first
         # ``run_loop`` invocation when ``_attached_file_ids`` is non-empty.
@@ -334,9 +323,6 @@ class OpenAICUClient:
         if any(model.startswith(prefix) for prefix in _OPENAI_GA_COMPUTER_MODEL_PREFIXES):
             # Built-in tool — dimensions inferred from screenshot bytes.
             tools: list[dict[str, Any]] = [{"type": "computer"}]
-            if self._use_builtin_search:
-                # April 2026 Responses API: ``{"type": "web_search"}``.
-                tools.append({"type": "web_search"})
             # File-search tool, gated by user upload (activation rule
             # per https://developers.openai.com/api/docs/guides/tools-file-search).
             # Vector store is provisioned in ``_ensure_vector_store``
@@ -367,8 +353,6 @@ class OpenAICUClient:
         parts: list[str] = []
         if self._system_prompt:
             parts.append(self._system_prompt.strip())
-        if self._use_builtin_search:
-            parts.append(_OPENAI_WEB_SEARCH_COMPUTER_USE_GUIDANCE)
         return "\n\n".join(part for part in parts if part)
 
     async def _ensure_vector_store(
@@ -496,8 +480,6 @@ class OpenAICUClient:
                 on_log("info", f"OpenAI CU turn {turn + 1}/{turn_limit}")
 
             include_fields = ["reasoning.encrypted_content"]
-            if self._use_builtin_search:
-                include_fields.append("web_search_call.action.sources")
 
             request: dict[str, Any] = {
                 "model": self._model,
