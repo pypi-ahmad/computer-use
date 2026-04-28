@@ -8,6 +8,11 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Mapping
 
+from backend.providers.planner import (
+    build_planned_computer_use_task,
+    create_web_execution_brief,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -49,6 +54,69 @@ async def emit_event(event: ProviderEvent, callback: EventCallback | None) -> No
         await result
 
 
+async def maybe_plan_with_web_search(
+    task: str,
+    *,
+    provider: str,
+    client: Any,
+    tools: ProviderTools,
+    on_event: EventCallback | None = None,
+) -> tuple[str, bool, list[ProviderEvent]]:
+    """Run the provider-native web-search planning phase when requested.
+
+    Returns ``(task_for_computer_use, planned, events)``. The returned task is
+    safe to send to a CU-only executor loop; callers should emit/yield the
+    returned events in order.
+    """
+    if not tools.web_search:
+        return task, False, []
+
+    log_events: list[ProviderEvent] = []
+
+    def _on_log(level: str, message: str) -> None:
+        log_events.append(
+            ProviderEvent("log", {"level": str(level), "message": str(message)})
+        )
+
+    brief = await create_web_execution_brief(
+        provider=provider,
+        task=task,
+        client=client,
+        on_log=_on_log,
+    )
+
+    if not brief:
+        event = ProviderEvent(
+            "log",
+            {
+                "level": "warning",
+                "message": (
+                    "Web Search was enabled, but no provider planning brief "
+                    "was produced; continuing with Computer Use only."
+                ),
+            },
+        )
+        log_events.append(event)
+        for emitted in log_events:
+            await emit_event(emitted, on_event)
+        return task, False, log_events
+
+    event = ProviderEvent(
+        "log",
+        {
+            "level": "info",
+            "message": (
+                "Web Search planning phase completed; Computer Use will run "
+                "without the web-search tool."
+            ),
+        },
+    )
+    log_events.append(event)
+    for emitted in log_events:
+        await emit_event(emitted, on_event)
+    return build_planned_computer_use_task(task, brief), True, log_events
+
+
 async def stream_client_run_loop(
     task: str,
     *,
@@ -58,6 +126,7 @@ async def stream_client_run_loop(
     on_event: EventCallback | None,
     on_safety: SafetyCallback | None,
     close_executor: bool,
+    force_computer_only: bool = False,
 ):
     """Bridge an existing provider client's callback loop into a stream.
 
@@ -100,6 +169,10 @@ async def stream_client_run_loop(
         except Exception as exc:
             await queue.put(ProviderEvent("error", exc))
 
+    original_search = getattr(client, "_use_builtin_search", None)
+    if force_computer_only and original_search is not None:
+        setattr(client, "_use_builtin_search", False)
+
     run_task = asyncio.create_task(_runner())
     try:
         while True:
@@ -121,3 +194,5 @@ async def stream_client_run_loop(
                 await executor.aclose()
             except Exception:
                 logger.debug("Error closing provider executor", exc_info=True)
+        if force_computer_only and original_search is not None:
+            setattr(client, "_use_builtin_search", original_search)
