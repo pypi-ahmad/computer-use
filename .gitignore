@@ -61,6 +61,7 @@ pnpm-debug.log*
 test-results/
 test-results/**/*.zip
 *.trace
+pytest_results.txt
 
 # -------------------------
 # IDE / Editor
