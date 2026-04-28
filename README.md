@@ -214,7 +214,6 @@ The model allowlist is the single source of truth at `backend/models/allowed_mod
 | Anthropic | `claude-sonnet-4-6` | Claude Sonnet 4.6 | ✅ | `computer_20251124` tool; beta endpoint required |
 | OpenAI | `gpt-5.5` | GPT-5.5 | ✅ | Default OpenAI CU model as of 2026-04-26 |
 | OpenAI | `gpt-5.4` | GPT-5.4 | ✅ | Responses API `computer` tool |
-| OpenAI | `gpt-5.4-nano` | GPT-5.4 Nano | ❌ | Does not support Computer Use per OpenAI changelog |
 
 ---
 
