@@ -41,13 +41,6 @@
       "display_name": "GPT-5.4",
       "supports_computer_use": true,
       "notes": "OpenAI Responses API built-in computer tool."
-    },
-    {
-      "provider": "openai",
-      "model_id": "gpt-5.4-nano",
-      "display_name": "GPT-5.4 Nano",
-      "supports_computer_use": false,
-      "notes": "Per OpenAI API changelog 2026-04-20: GPT-5.4 nano supports compaction, but does NOT support tool search or computer use. Kept in the registry so non-CU callers can still pick it; excluded from the CU-capable list."
     }
   ]
 }
