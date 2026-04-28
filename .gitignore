@@ -92,6 +92,7 @@ outputs/
 reports/
 logs/
 recordings/
+screenshot/
 screenshots/
 tmp/
 .cache/
