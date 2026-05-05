@@ -39,7 +39,7 @@ export default function formatTime(ts) {
  * Last reviewed: 2026-04-25 against the official provider pricing pages.
  *   - Gemini 3 Flash Preview: https://ai.google.dev/gemini-api/docs/pricing
  *   - Claude Opus 4.7 / Sonnet 4.6: https://platform.claude.com/docs/en/about-claude/pricing
- *   - GPT-5.4: https://openai.com/api/pricing/
+ *   - GPT-5.5 / GPT-5.4: https://developers.openai.com/api/docs/models
  */
 const MODEL_PRICING = {
   // Google — Gemini 3 Flash Preview (paid tier, text/image/video input).
@@ -49,7 +49,8 @@ const MODEL_PRICING = {
   // multipliers from the Anthropic pricing page are not modeled here).
   'claude-opus-4-7': { input: 5.00, output: 25.00 },
   'claude-sonnet-4-6': { input: 3.00, output: 15.00 },
-  // OpenAI — GPT-5.4 standard pricing (cached input is $0.25/M, not modeled).
+  // OpenAI — standard pricing (cached input/tool charges are not modeled).
+  'gpt-5.5': { input: 5.00, output: 30.00 },
   'gpt-5.4': { input: 2.50, output: 15.00 },
 }
 

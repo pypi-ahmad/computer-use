@@ -222,11 +222,11 @@ class OpenAICUClient:
     ``computer_call_output`` items.
     """
 
-    # Canonical values per the OpenAI GPT-5.5 docs (April 2026).
-    VALID_REASONING_EFFORTS = ("minimal", "low", "medium", "high", "xhigh")
-    # Legacy aliases from earlier SDKs — accepted on input and mapped
-    # to the canonical enum before the request leaves the process.
-    _LEGACY_EFFORT_ALIASES = {"none": "minimal"}
+    # Canonical values per the OpenAI GPT-5.5/GPT-5.4 model pages.
+    VALID_REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh")
+    # Older local configs may still use ``minimal``; keep accepting it
+    # and send the currently documented no-reasoning value.
+    _LEGACY_EFFORT_ALIASES = {"minimal": "none"}
 
     def __init__(
         self,
@@ -237,8 +237,9 @@ class OpenAICUClient:
         system_prompt: str | None = None,
         # Defaults are model-specific per OpenAI's model pages:
         # GPT-5.4 defaults to ``none`` and GPT-5.5 defaults to ``medium``.
-        # Callers can still override with ``minimal``/``low``/``medium``/
-        # ``high``/``xhigh``.
+        # Callers can still override with ``none``/``low``/``medium``/
+        # ``high``/``xhigh``. The older ``minimal`` value is accepted as
+        # an alias for ``none``.
         reasoning_effort: str | None = None,
         # Product-level Web Search ON is handled by backend.providers.planner
         # before the Computer Use loop. This low-level CU client never
@@ -275,8 +276,8 @@ class OpenAICUClient:
         _ensure_openai_ga_model_is_in_registry(model)
         default_effort = default_openai_reasoning_effort_for_model(model)
         reasoning_effort = reasoning_effort or default_effort
-        # Map legacy aliases (``none``) → canonical, then fall back to
-        # the doc-backed model default on anything unknown.
+        # Map legacy aliases (``minimal``) to the current model-page value,
+        # then fall back to the doc-backed model default on anything unknown.
         reasoning_effort = self._LEGACY_EFFORT_ALIASES.get(
             reasoning_effort, reasoning_effort,
         )
