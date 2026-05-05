@@ -1002,9 +1002,10 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
     # GPT-5.4 defaults to ``none`` and GPT-5.5 defaults to ``medium``.
     # The env var and per-request override still let operators opt into
     # cheaper or more exhaustive runs.
-    # Canonical values per the OpenAI Responses API (2026-04):
-    # {"minimal","low","medium","high","xhigh"}. ``none`` is kept as
-    # a legacy alias and normalized by ``OpenAICUClient.__init__``.
+    # Canonical values per the OpenAI GPT-5.5/GPT-5.4 model pages:
+    # {"none","low","medium","high","xhigh"}. ``minimal`` is still
+    # accepted for older local configs and normalized by
+    # ``OpenAICUClient.__init__``.
     _VALID_REASONING_EFFORTS = {"minimal", "low", "medium", "high", "none", "xhigh"}
     default_reasoning_effort = _default_openai_reasoning_effort_for_model(req.model)
     reasoning_effort = (req.reasoning_effort or os.getenv("OPENAI_REASONING_EFFORT") or default_reasoning_effort).lower()

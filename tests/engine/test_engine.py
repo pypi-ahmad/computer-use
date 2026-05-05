@@ -790,7 +790,7 @@ class TestOpenAIReasoningEffort:
     """Regression guards for the April 2026 OpenAI reasoning-effort enum.
 
     GPT-5.5 defaults to ``medium`` and accepts ``xhigh`` directly.
-    ``none`` remains a legacy alias for ``minimal``.
+    ``minimal`` remains a legacy alias for ``none``.
     """
 
     def test_default_effort_is_medium(self):
@@ -798,20 +798,17 @@ class TestOpenAIReasoningEffort:
             client = OpenAICUClient(api_key="test-key", model="gpt-5.5")
         assert client._reasoning_effort == "medium"
 
-    def test_gpt54_default_effort_maps_none_to_minimal(self):
+    def test_gpt54_default_effort_is_none(self):
         with patch("openai.AsyncOpenAI"):
             client = OpenAICUClient(api_key="test-key", model="gpt-5.4")
-        assert client._reasoning_effort == "minimal"
+        assert client._reasoning_effort == "none"
 
-    def test_legacy_none_maps_to_minimal(self):
+    def test_none_is_preserved(self):
         with patch("openai.AsyncOpenAI"):
             client = OpenAICUClient(
                 api_key="test-key", model="gpt-5.5", reasoning_effort="none",
             )
-        assert client._reasoning_effort == "minimal", (
-            "Legacy 'none' must be mapped to canonical 'minimal' — "
-            "the adapter keeps it only for wire compatibility."
-        )
+        assert client._reasoning_effort == "none"
 
     def test_xhigh_is_accepted(self):
         with patch("openai.AsyncOpenAI"):
@@ -820,12 +817,12 @@ class TestOpenAIReasoningEffort:
             )
         assert client._reasoning_effort == "xhigh"
 
-    def test_minimal_is_accepted(self):
+    def test_legacy_minimal_maps_to_none(self):
         with patch("openai.AsyncOpenAI"):
             client = OpenAICUClient(
                 api_key="test-key", model="gpt-5.5", reasoning_effort="minimal",
             )
-        assert client._reasoning_effort == "minimal"
+        assert client._reasoning_effort == "none"
 
     def test_unknown_coerces_to_medium(self):
         with patch("openai.AsyncOpenAI"):
@@ -1219,11 +1216,11 @@ class TestOpenAIReasoningEffort:
             c = OpenAICUClient(api_key="k", model="gpt-5.5")
         assert c._reasoning_effort == "medium"
 
-    def test_gpt54_default_reasoning_effort_maps_none_to_minimal(self):
+    def test_gpt54_default_reasoning_effort_is_none(self):
         from backend.engine import OpenAICUClient
         with patch("openai.AsyncOpenAI"):
             c = OpenAICUClient(api_key="k", model="gpt-5.4")
-        assert c._reasoning_effort == "minimal"
+        assert c._reasoning_effort == "none"
 
     def test_invalid_effort_falls_back_to_medium(self):
         from backend.engine import OpenAICUClient
@@ -1243,11 +1240,11 @@ class TestOpenAIReasoningEffort:
             eng = ComputerUseEngine(provider=Provider.OPENAI, api_key="k", model="gpt-5.5")
         assert eng._client._reasoning_effort == "medium"
 
-    def test_facade_gpt54_default_maps_none_to_minimal(self):
+    def test_facade_gpt54_default_is_none(self):
         from backend.engine import ComputerUseEngine, Provider
         with patch("openai.AsyncOpenAI"):
             eng = ComputerUseEngine(provider=Provider.OPENAI, api_key="k", model="gpt-5.4")
-        assert eng._client._reasoning_effort == "minimal"
+        assert eng._client._reasoning_effort == "none"
 
 
 class TestOpenAIZDRReplay:
@@ -1634,13 +1631,13 @@ class TestOpenAIWebSearch:
         with pytest.raises(ValueError, match="not in the computer-use registry"):
             self._make(model=blocked_model)
 
-    def test_minimal_reasoning_with_search_is_allowed_for_split_planner(self):
+    def test_legacy_minimal_reasoning_with_search_maps_to_none(self):
         client = self._make(
             model="gpt-5.5",
             use_builtin_search=True,
             reasoning_effort="minimal",
         )
-        assert client._reasoning_effort == "minimal"
+        assert client._reasoning_effort == "none"
         assert client._build_tools(1440, 900) == [{"type": "computer"}]
 
 

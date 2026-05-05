@@ -132,7 +132,7 @@ class StartTaskRequest(BaseModel):
     engine: str = Field(default="computer_use", max_length=20)
     provider: str = Field(max_length=20)
     execution_target: str = Field(default="docker", max_length=20)  # only "docker" is supported
-    reasoning_effort: Optional[str] = Field(default=None, max_length=10)  # OpenAI only: minimal|low|medium|high|xhigh (accepts none as a legacy alias)
+    reasoning_effort: Optional[str] = Field(default=None, max_length=10)  # OpenAI only: none|low|medium|high|xhigh (accepts minimal as a legacy alias)
     # Official provider-native web-search toggle.
     # When True, the engine runs a provider-native planning/search pass
     # before Computer Use, then sends the resulting execution brief to a
