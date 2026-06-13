@@ -12,12 +12,27 @@
     },
     {
       "provider": "anthropic",
+      "model_id": "claude-opus-4-8",
+      "display_name": "Claude Opus 4.8",
+      "supports_computer_use": true,
+      "cu_tool_version": "computer_20251124",
+      "cu_betas": ["computer-use-2025-11-24"],
+      "high_res": true,
+      "prompt_variant": "lean_modern_opus",
+      "web_search_tool": "web_search_20260209",
+      "notes": "Current GA Opus; inherits Opus 4.7 computer-use surface (computer_20251124, up to 2576px long edge with 1:1 coordinates)."
+    },
+    {
+      "provider": "anthropic",
       "model_id": "claude-opus-4-7",
       "display_name": "Claude Opus 4.7",
       "supports_computer_use": true,
       "cu_tool_version": "computer_20251124",
       "cu_betas": ["computer-use-2025-11-24"],
-      "notes": "Claude Opus 4.7 — most capable model for complex reasoning and agentic coding. Supports up to 2576px long edge with 1:1 coordinates."
+      "high_res": true,
+      "prompt_variant": "lean_modern_opus",
+      "web_search_tool": "web_search_20260209",
+      "notes": "Claude Opus 4.7 — previous-generation Opus. Supports up to 2576px long edge with 1:1 coordinates."
     },
     {
       "provider": "anthropic",
@@ -26,6 +41,9 @@
       "supports_computer_use": true,
       "cu_tool_version": "computer_20251124",
       "cu_betas": ["computer-use-2025-11-24"],
+      "high_res": true,
+      "prompt_variant": "scaffolded",
+      "web_search_tool": "web_search_20260209",
       "notes": "Claude Sonnet 4.6 — requires beta endpoint + computer_20251124 tool."
     },
     {
@@ -33,6 +51,7 @@
       "model_id": "gpt-5.5",
       "display_name": "GPT-5.5",
       "supports_computer_use": true,
+      "reasoning_default": "medium",
       "notes": "OpenAI Responses API GA computer and web_search tools. Default OpenAI Computer Use model as of 2026-04-26."
     },
     {
@@ -40,6 +59,7 @@
       "model_id": "gpt-5.4",
       "display_name": "GPT-5.4",
       "supports_computer_use": true,
+      "reasoning_default": "none",
       "notes": "OpenAI Responses API built-in computer tool."
     }
   ]

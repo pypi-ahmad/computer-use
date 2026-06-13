@@ -19,23 +19,49 @@ import sys
 import time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
-from threading import Lock
+from threading import Lock, local
 from collections import OrderedDict
+
+# Request-scoped correlation. The server is a ThreadingHTTPServer (one thread
+# per request), so threading.local is the correct scope — a ContextVar would
+# not cross the backend↔container process boundary anyway. The backend stamps
+# the same id into ``action_id`` (see backend executor), so operators can join
+# in-container action logs to backend logs on this key.
+_request_ctx = local()
+
+
+class _ActionIdFilter(logging.Filter):
+    """Inject the current request's action_id onto every LogRecord."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.action_id = getattr(_request_ctx, "action_id", "") or "-"
+        return True
+
 
 logging.basicConfig(
     level=logging.INFO,
-    format='{"timestamp": "%(asctime)s", "level": "%(levelname)s", "message": "%(message)s"}',
+    format=(
+        '{"timestamp": "%(asctime)s", "level": "%(levelname)s", '
+        '"action_id": "%(action_id)s", "message": "%(message)s"}'
+    ),
 )
+for _h in logging.getLogger().handlers:
+    _h.addFilter(_ActionIdFilter())
 logger = logging.getLogger("agent_service")
 
 try:
-    from backend.action_aliases import resolve_action
-except ImportError:
-    # Fallback if backend not available (e.g. local dev outside docker)
-    logger.warning("backend.action_aliases not found, alias resolution disabled")
+    from backend.models.registry import resolve_action
+except ImportError as exc:
+    # Fallback if backend not importable (e.g. local dev outside the container).
+    # This is a real defect inside the container, where ``backend`` IS copied in —
+    # log at ERROR so a packaging/rename regression is loud, not silent.
+    logger.error(
+        "backend.models.registry.resolve_action import failed (%s); "
+        "alias resolution disabled (identity fallback)", exc,
+    )
 
     def resolve_action(a):
-        """Identity fallback when backend.tools is unavailable."""
+        """Identity fallback when backend.models.registry is unavailable."""
         return a
 
 # ── Globals ───────────────────────────────────────────────────────────────────
@@ -50,6 +76,8 @@ SERVICE_PORT = int(os.environ.get("AGENT_SERVICE_PORT", "9222"))
 DEFAULT_MODE = os.environ.get("AGENT_MODE", "desktop")
 ACTION_DELAY = float(os.environ.get("ACTION_DELAY", "0.05"))
 AGENT_SERVICE_TOKEN = os.environ.get("AGENT_SERVICE_TOKEN", "").strip()
+# P8 — hard deadline for the open_url window-appearance poll (seconds).
+_BROWSER_WINDOW_POLL_TIMEOUT = float(os.environ.get("CUA_BROWSER_WINDOW_POLL_TIMEOUT", "3.0"))
 
 
 def _env_bool(name: str, default: bool = True) -> bool:
@@ -58,6 +86,12 @@ def _env_bool(name: str, default: bool = True) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+# S1: with no shared secret the /action API is unauthenticated. The service
+# refuses to start unless this explicit dev escape hatch is set, so a
+# misconfigured deploy fails loudly instead of silently exposing the desktop.
+INSECURE_MODE = _env_bool("CUA_AGENT_INSECURE", False)
 
 
 WINDOW_NORMALIZE_ENABLED = _env_bool("CUA_WINDOW_NORMALIZE", True)
@@ -84,8 +118,8 @@ WINDOW_NORMALIZE_H = int(os.environ.get("CUA_WINDOW_H", "760"))
 # DO NOT expand ``_ENGINE_ACTIONS`` without a matching change to the
 # engine adapters and a short note in ``docker/SECURITY_NOTES.md``.
 _ENGINE_ACTIONS: frozenset[str] = frozenset({
-    "click", "double_click", "right_click", "middle_click", "hover",
-    "type", "hotkey", "key", "keydown", "keyup",
+    "click", "double_click", "triple_click", "right_click", "middle_click", "hover",
+    "type", "type_text_at", "hotkey", "key", "keydown", "keyup",
     "scroll", "left_mouse_down", "left_mouse_up", "drag",
     "open_url",
     # ``zoom`` is a ``computer_20251124``-era action (Claude Opus 4.7
@@ -269,7 +303,6 @@ _ALLOWED_COMMANDS = frozenset({
     "pwd", "whoami", "id", "date", "env", "printenv",
     "which", "file", "stat", "df", "du", "free",
     "uname", "hostname", "uptime",
-    "python3", "python", "pip", "pip3", "node", "npm", "npx",
     "xdg-open", "xdotool", "xclip", "scrot", "wmctrl",
     "xfce4-terminal", "xterm",
     # Desktop apps accessible via accessibility / run_command
@@ -285,6 +318,21 @@ _ALLOWED_COMMANDS = frozenset({
     "evince", "gnome-terminal", "flameshot", "xournalpp",
     "htop",
 })
+
+# S6: language interpreters are arbitrary-code-execution primitives that
+# neutralize the run_command allowlist (anything Python/Node can do). They are
+# NO LONGER in the default allowlist; opt in explicitly with
+# CUA_ALLOW_INTERPRETERS=1 (and run_command itself remains a legacy-gated action).
+_INTERPRETER_COMMANDS = frozenset({"python3", "python", "pip", "pip3", "node", "npm", "npx"})
+_INTERPRETERS_ENABLED = _env_bool("CUA_ALLOW_INTERPRETERS", False)
+
+
+def _effective_allowed_commands() -> frozenset[str]:
+    """Return the run_command allowlist, including interpreters only when opted in."""
+    if _INTERPRETERS_ENABLED:
+        return _ALLOWED_COMMANDS | _INTERPRETER_COMMANDS
+    return _ALLOWED_COMMANDS
+
 
 # Ensure DISPLAY is set for all subprocesses (Critical Desktop Fix)
 os.environ["DISPLAY"] = ":99"
@@ -470,11 +518,42 @@ def _xdo_double_click(x: int, y: int) -> dict:
     return {"success": True, "message": f"Double-clicked at ({x}, {y})"}
 
 
+def _xdo_triple_click(x: int, y: int) -> dict:
+    """Triple-click at (x,y) via xdotool (selects a paragraph / line in most apps)."""
+    _xdo(["mousemove", "--sync", str(x), str(y)])
+    _xdo(["click", "--repeat", "3", "--delay", "80", "1"])
+    return {"success": True, "message": f"Triple-clicked at ({x}, {y})"}
+
+
 def _xdo_right_click(x: int, y: int) -> dict:
     """Right-click at (x,y) via xdotool."""
     _xdo(["mousemove", "--sync", str(x), str(y)])
     _xdo(["click", "3"])
     return {"success": True, "message": f"Right-clicked at ({x}, {y})"}
+
+
+def _xdo_type_text_at(x: int, y: int, text: str, *, press_enter: bool = True, clear_before: bool = False) -> dict:
+    """Composite "type at coordinate": click → optionally clear → type → optionally Enter.
+
+    Runs entirely within one /action handler (one ``_lock`` acquisition),
+    replacing the up-to-five separate POSTs the executor used to issue (P2).
+    ``clear_before`` defaults OFF (append, not replace).
+    """
+    _xdo_click(x, y)
+    time.sleep(0.05)
+    if clear_before:
+        _xdo_hotkey(["ctrl", "a"])
+        _xdo_key("BackSpace")
+    try:
+        type_result = _xdo_type(text)
+    except Exception:
+        logger.warning("xdotool type failed in type_text_at, trying paste fallback")
+        type_result = _xdo_paste(text)
+    if not type_result.get("success", True):
+        return type_result
+    if press_enter:
+        _xdo_key("Return")
+    return {"success": True, "message": f"Typed {len(text)} chars at ({x}, {y})"}
 
 
 def _xdo_type(text: str) -> dict:
@@ -593,12 +672,40 @@ def _open_terminal() -> dict:
     return {"success": False, "message": "No terminal emulator available (tried xfce4-terminal, xterm)"}
 
 
-def _xdo_scroll(x: int, y: int, direction: str) -> dict:
-    """Scroll at (x,y) via xdotool button events."""
+# X11 wheel buttons: 4=up, 5=down, 6=left, 7=right.
+_SCROLL_BUTTON: dict[str, str] = {"up": "4", "down": "5", "left": "6", "right": "7"}
+_DEFAULT_SCROLL_REPEAT = 5
+
+
+def _scroll_repeat_from_magnitude(magnitude) -> int:
+    """Map a provider scroll *magnitude* (≈1..999) to a wheel-tick count.
+
+    Providers compute ``magnitude`` (Claude: ``amount * 200``; OpenAI clamps
+    1..999) but it was historically dropped, so every scroll moved a fixed 5
+    ticks. Derive the repeat so a small nudge and a page scroll differ. Falls
+    back to the legacy fixed count when magnitude is absent/invalid.
+    """
+    try:
+        m = float(magnitude)
+    except (TypeError, ValueError):
+        return _DEFAULT_SCROLL_REPEAT
+    if m <= 0:
+        return _DEFAULT_SCROLL_REPEAT
+    return max(1, min(15, round(m / 200)))
+
+
+def _xdo_scroll(x: int, y: int, direction: str, magnitude=None) -> dict:
+    """Scroll at (x,y) via xdotool button events.
+
+    Maps all four directions to the correct wheel button (previously every
+    non-``up`` direction — including ``left``/``right`` — scrolled down) and
+    derives the tick count from ``magnitude`` when provided.
+    """
     _xdo(["mousemove", "--sync", str(x), str(y)])
-    btn = "4" if direction == "up" else "5"
-    _xdo(["click", "--repeat", "5", "--delay", "40", btn])
-    return {"success": True, "message": f"Scrolled {direction} at ({x}, {y})"}
+    btn = _SCROLL_BUTTON.get((direction or "down").lower(), "5")
+    repeat = _scroll_repeat_from_magnitude(magnitude)
+    _xdo(["click", "--repeat", str(repeat), "--delay", "40", btn])
+    return {"success": True, "message": f"Scrolled {direction} at ({x}, {y}) (repeat={repeat})"}
 
 
 def _xdo_scroll_up() -> dict:
@@ -868,8 +975,15 @@ def _open_url_in_browser(url: str) -> dict:
         )
         return {"success": True, "message": f"Opened URL (xdg-open fallback after error): {url}"}
 
-    # Give the browser time to create its window
-    time.sleep(2.0)
+    # P8 — poll for the browser window instead of a flat 2s sleep under the
+    # lock. Break as soon as a window appears; hard deadline so a headless /
+    # no-window launch still returns promptly.
+    _BROWSER_HINTS = ("chrome", "chromium", "firefox", "mozilla", "navigator")
+    _deadline = time.time() + _BROWSER_WINDOW_POLL_TIMEOUT
+    while time.time() < _deadline:
+        if any(_xdo_search_window_ids(h) for h in _BROWSER_HINTS):
+            break
+        time.sleep(0.15)
 
     # Auto-dismiss any first-run / keyring modals
     dismissed = _dismiss_known_modals()
@@ -1192,6 +1306,7 @@ class AgentHandler(BaseHTTPRequestHandler):
         if not self._authorized():
             self._respond(401, {"error": "unauthorized"})
             return
+        _request_ctx.action_id = ""  # GETs carry no action id; reset for symmetry
         if self.path == "/health":
             self._respond(200, {
                 "status": "ok",
@@ -1225,6 +1340,11 @@ class AgentHandler(BaseHTTPRequestHandler):
             self._respond(401, {"error": "unauthorized"})
             return
         body = self._read_body()
+        # Stamp the per-request correlation id so every log line below (replay
+        # dedup, gate rejection, the structured _dispatch_action log) carries
+        # it. Set fresh per request (no try/finally needed — the next request
+        # on this thread overwrites it; do_GET resets to "").
+        _request_ctx.action_id = str(body.get("action_id") or "").strip()
 
         if self.path == "/action":
             # Attack-surface gate: unknown or legacy-disabled actions
@@ -1318,6 +1438,9 @@ class AgentHandler(BaseHTTPRequestHandler):
         coords = body.get("coordinates", [])
         text = body.get("text", "")
         target = body.get("target", "")
+        magnitude = body.get("magnitude")
+        press_enter = bool(body.get("press_enter", True))
+        clear_before = bool(body.get("clear_before", False))
         mode = body.get("mode", DEFAULT_MODE).lower()
 
         x = coords[0] if len(coords) >= 1 else SCREEN_WIDTH // 2
@@ -1338,7 +1461,10 @@ class AgentHandler(BaseHTTPRequestHandler):
                 if mode != "desktop":
                     result = {"success": False, "message": "Browser mode is no longer supported"}
                 else:
-                    result = self._dispatch_desktop(action, x, y, text, coords, target)
+                    result = self._dispatch_desktop(
+                        action, x, y, text, coords, target, magnitude,
+                        press_enter=press_enter, clear_before=clear_before,
+                    )
         except Exception as e:
             logger.exception(f"Action {action} failed")
             result = {"success": False, "message": str(e)}
@@ -1356,13 +1482,15 @@ class AgentHandler(BaseHTTPRequestHandler):
         
         return result
 
-    def _dispatch_desktop(self, action: str, x: int, y: int, text: str, coords: list, target: str = "") -> dict:
+    def _dispatch_desktop(self, action: str, x: int, y: int, text: str, coords: list, target: str = "", magnitude=None, press_enter: bool = True, clear_before: bool = False) -> dict:
         """Dispatch a single action to the xdotool desktop engine."""
         # ── Mouse / Interaction ───────────────────────────────────────
         if action == "click":
             return _xdo_click(x, y)
         elif action == "double_click":
             return _xdo_double_click(x, y)
+        elif action == "triple_click":
+            return _xdo_triple_click(x, y)
         elif action == "right_click":
             return _xdo_right_click(x, y)
         elif action == "middle_click":
@@ -1387,6 +1515,11 @@ class AgentHandler(BaseHTTPRequestHandler):
             except Exception:
                 logger.warning("xdotool type failed, trying paste fallback")
                 return _xdo_paste(text)
+        elif action == "type_text_at":
+            # P2 — composite "click → (optionally clear) → type → (optionally
+            # Enter)" in ONE lock window, replacing up to 5 separate POSTs the
+            # executor used to issue. clear_before defaults OFF (append).
+            return _xdo_type_text_at(x, y, text, press_enter=press_enter, clear_before=clear_before)
         elif action == "key":
             return _xdo_key(text)
         elif action == "keydown":
@@ -1415,7 +1548,7 @@ class AgentHandler(BaseHTTPRequestHandler):
         # ── Scrolling ─────────────────────────────────────────────────
         elif action == "scroll":
             direction = text.lower() if text else "down"
-            return _xdo_scroll(x, y, direction)
+            return _xdo_scroll(x, y, direction, magnitude)
         elif action == "scroll_up":
             return _xdo_scroll_up()
         elif action == "scroll_down":
@@ -1565,8 +1698,8 @@ class AgentHandler(BaseHTTPRequestHandler):
                 return {"success": False, "message": f"Invalid command syntax: {e}"}
             if not args:
                 return {"success": False, "message": "Empty command"}
-            if args[0] not in _ALLOWED_COMMANDS:
-                return {"success": False, "message": f"Command not allowed: {args[0]}. Permitted: {', '.join(sorted(_ALLOWED_COMMANDS))}"}
+            if args[0] not in _effective_allowed_commands():
+                return {"success": False, "message": f"Command not allowed: {args[0]}. Permitted: {', '.join(sorted(_effective_allowed_commands()))}"}
             # Defense-in-depth: even an allowlisted executable can be
             # weaponised via an inline script (``bash -c 'rm -rf /'``,
             # ``python -c "...os.system('shutdown')..."``). Scan the
@@ -1581,7 +1714,7 @@ class AgentHandler(BaseHTTPRequestHandler):
                     "run_command blocked: pattern=%r executable=%s",
                     matched, args[0],
                 )
-                return {"success": False, "message": f"Command not allowed: {args[0]}. Permitted: {', '.join(sorted(_ALLOWED_COMMANDS))}"}
+                return {"success": False, "message": f"Command not allowed: {args[0]}. Permitted: {', '.join(sorted(_effective_allowed_commands()))}"}
             # S5: wrap in prlimit when available so a runaway child
             # can't burn unbounded CPU / memory inside the container.
             # 20 CPU-seconds and 1 GiB address-space is more than
@@ -1641,6 +1774,19 @@ class AgentHandler(BaseHTTPRequestHandler):
 
 def main():
     """Start the HTTP agent service for desktop automation."""
+    # S1: fail closed. An empty AGENT_SERVICE_TOKEN means /action is
+    # unauthenticated; refuse to start unless the operator explicitly opted
+    # into insecure mode. Gated here (not at import) so tests can import the
+    # module without a token.
+    if not AGENT_SERVICE_TOKEN and not INSECURE_MODE:
+        logger.error(
+            "AGENT_SERVICE_TOKEN is empty and CUA_AGENT_INSECURE is not set — "
+            "refusing to start an unauthenticated agent service. Set "
+            "AGENT_SERVICE_TOKEN (recommended) or CUA_AGENT_INSECURE=1 for "
+            "local dev only."
+        )
+        sys.exit(1)
+
     logger.info("Starting agent service on port %d (default_mode=%s)", SERVICE_PORT, DEFAULT_MODE)
 
     # S-B: prlimit is the only thing that bounds CPU/memory of run_command's

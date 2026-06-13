@@ -2,7 +2,7 @@
 
 ![CI](https://github.com/pypi-ahmad/computer-use/actions/workflows/ci.yml/badge.svg?branch=main)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-482%20passing-brightgreen?logo=pytest&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-494%20passing-brightgreen?logo=pytest&logoColor=white)
 ![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-555)
 
@@ -10,7 +10,7 @@
 
 [![Stack](https://skillicons.dev/icons?i=py,fastapi,react,vite,js,html,css,docker,ubuntu,bash,powershell,git,github,vscode)](https://skillicons.dev)
 
-**Providers:** OpenAI GPT-5.4 / 5.5 · Anthropic Claude Opus 4.7 / Sonnet 4.6 · Google Gemini 3 Flash
+**Providers:** OpenAI GPT-5.4 / 5.5 · Anthropic Claude Opus 4.8 / 4.7 / Sonnet 4.6 · Google Gemini 3 Flash
 
 A local, single-user workbench for running **provider-native Computer Use** agents inside a fully isolated Docker desktop sandbox. The model controls the screen; your host machine is never touched.
 
@@ -209,11 +209,12 @@ computer-use/
 
 ## Supported Models
 
-The model allowlist is the single source of truth at `backend/models/allowed_models.json`. The backend reads it at runtime; no code change is needed to add a model.
+The model allowlist is the single source of truth at `backend/models/allowed_models.json`. The backend reads it at runtime; no code change is needed to add a model. _Models/tool versions verified as of 2026-06-13._
 
 | Provider | Model ID | Display Name | Computer Use | Notes |
 |---|---|---|---|---|
 | Google | `gemini-3-flash-preview` | Gemini 3 Flash Preview | ✅ | Only Gemini CU SKU exposed by this app |
+| Anthropic | `claude-opus-4-8` | Claude Opus 4.8 | ✅ | Current GA Opus; inherits Opus 4.7 CU surface (`computer_20251124`, up to 2576 px long edge) |
 | Anthropic | `claude-opus-4-7` | Claude Opus 4.7 | ✅ | `computer_20251124` tool; up to 2576 px long edge |
 | Anthropic | `claude-sonnet-4-6` | Claude Sonnet 4.6 | ✅ | `computer_20251124` tool; beta endpoint required |
 | OpenAI | `gpt-5.5` | GPT-5.5 | ✅ | Default OpenAI CU model as of 2026-04-26 |
@@ -228,9 +229,9 @@ Runtime behavior is determined by two request flags: `use_builtin_search` (boole
 | Request state | OpenAI | Anthropic | Gemini |
 |---|---|---|---|
 | Web Search off, no files | `computer` | `computer_20251124` | `computer_use` |
-| Web Search on, no files | planning: `web_search`; execution: `computer` | planning: `web_search_20250305`; execution: `computer_20251124` | planning: `google_search`; execution: `computer_use` |
+| Web Search on, no files | planning: `web_search`; execution: `computer` | planning: `web_search_20260209`; execution: `computer_20251124` | planning: `google_search`; execution: `computer_use` |
 | Files + Web Search off | `computer` + `file_search` (vector store) | `computer_20251124` + Files API document blocks | **Rejected** |
-| Files + Web Search on | planning: `web_search`; execution: `computer` + `file_search` | planning: `web_search_20250305`; execution: `computer_20251124` + Files API docs | **Rejected** |
+| Files + Web Search on | planning: `web_search`; execution: `computer` + `file_search` | planning: `web_search_20260209`; execution: `computer_20251124` + Files API docs | **Rejected** |
 
 **Why Gemini file uploads are rejected:** Google's Gemini File Search API is not documented as part of the Computer Use path. Combining them is explicitly excluded from this app's scope. The backend returns a `400` before the provider call.
 
@@ -514,7 +515,7 @@ When `use_builtin_search` is true, the run is split into two phases instead of a
 **Phase 1 — Planning.** A short provider-native call runs with only the search tool exposed:
 
 - OpenAI: `web_search` on the Responses API (with `reasoning.effort="low"` for `gpt-5*` to keep planning latency bounded).
-- Anthropic: `web_search_20250305` on the beta Messages API, gated by the same org-level enablement probe used for inline search.
+- Anthropic: `web_search_20260209` on the beta Messages API, gated by the same org-level enablement probe used for inline search.
 - Gemini: `google_search` grounding tool on `GenerateContent`.
 
 The planner asks the model to return a fixed-shape execution brief (interpreted task, environment assumptions, step-by-step plan, verification condition, pitfalls). It must not perform desktop actions in this phase — the computer tool is not advertised.
@@ -583,10 +584,10 @@ At session start, `backend/files.py` prepares provider-specific file contexts:
 
 ## Key Features
 
-- **Three-provider Computer Use** — OpenAI GPT-5.5/5.4, Anthropic Claude Opus 4.7/Sonnet 4.6, Google Gemini 3 Flash Preview — from one UI and one codebase.
+- **Three-provider Computer Use** — OpenAI GPT-5.5/5.4, Anthropic Claude Opus 4.8/4.7/Sonnet 4.6, Google Gemini 3 Flash Preview — from one UI and one codebase.
 - **Isolated sandbox** — all desktop actions execute inside `cua-environment` (Ubuntu 24.04 + XFCE4). The host machine's filesystem, processes, and peripherals are never touched by the agent.
 - **Strict tool contract** — the backend exposes only the documented provider-native tool set. No extra tools, no middleware logic, no agentic orchestration outside the provider's own loop.
-- **Provider-native Web Search planning** — a single toggle runs a short provider-native planning/search pass first: `web_search` for OpenAI, `web_search_20250305` for Anthropic, `google_search` for Gemini. The desktop execution phase then runs with only the Computer Use tool.
+- **Provider-native Web Search planning** — a single toggle runs a short provider-native planning/search pass first: `web_search` for OpenAI, `web_search_20260209` for Anthropic, `google_search` for Gemini. The desktop execution phase then runs with only the Computer Use tool.
 - **Reference file retrieval** — upload PDF, TXT, MD, or DOCX files before a session. OpenAI indexes them into a per-run vector store; Anthropic uploads them to the Files API as document blocks.
 - **Real-time streaming** — screenshots, step events, and logs stream over WebSocket throughout the session. Screenshot publishing is deduplicated and suspended when no subscriber is connected.
 - **Stuck-agent detection** — three consecutive identical action fingerprints (action + coordinates + text hash) trigger an automatic stop without waiting for the turn limit.

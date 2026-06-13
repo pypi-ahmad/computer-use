@@ -30,9 +30,53 @@ from backend.engine import (
     default_openai_reasoning_effort_for_model,
     validate_builtin_search_config,
     DEFAULT_TURN_LIMIT,
+    _CONTEXT_PRUNE_KEEP_RECENT,
 )
 
 logger = logging.getLogger(__name__)
+
+# 1x1 transparent PNG — replaces stripped screenshots so a pruned
+# computer_call_output / input_image item stays structurally valid on replay.
+_PRUNED_IMAGE_STUB = (
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+)
+
+
+def _prune_openai_context(conversation_input: list[dict], keep_recent: int) -> None:
+    """Strip base64 screenshots from older replayed items (P3).
+
+    OpenAI ZDR forbids ``previous_response_id``, so the full history is resent
+    each turn and every ``computer_call_output`` otherwise carries a full PNG.
+    Replace the image in all but the most-recent *keep_recent* items with a 1x1
+    stub (keeps the item valid). Mirrors ``_prune_claude_context`` /
+    ``_prune_gemini_context``; keeps the first item (goal) intact.
+    """
+    if len(conversation_input) <= keep_recent + 1:
+        return
+    prune_end = len(conversation_input) - keep_recent
+    for idx in range(1, prune_end):
+        item = conversation_input[idx]
+        if not isinstance(item, dict):
+            continue
+        out = item.get("output")
+        if (
+            item.get("type") == "computer_call_output"
+            and isinstance(out, dict)
+            and isinstance(out.get("image_url"), str)
+            and out["image_url"] not in ("", _PRUNED_IMAGE_STUB)
+        ):
+            out["image_url"] = _PRUNED_IMAGE_STUB
+        content = item.get("content")
+        if isinstance(content, list):
+            for part in content:
+                if (
+                    isinstance(part, dict)
+                    and part.get("type") == "input_image"
+                    and isinstance(part.get("image_url"), str)
+                    and part["image_url"] not in ("", _PRUNED_IMAGE_STUB)
+                ):
+                    part["image_url"] = _PRUNED_IMAGE_STUB
 
 
 _OPENAI_ORIGINAL_MAX_PIXELS = 10_240_000
@@ -443,9 +487,8 @@ class OpenAICUClient:
                 on_log("error", "Initial screenshot capture failed or returned empty bytes")
             return "Error: Could not capture initial screenshot"
 
-        prepared_screenshot_bytes, current_screenshot_scale = _prepare_openai_computer_screenshot(
-            screenshot_bytes,
-            on_log=on_log,
+        prepared_screenshot_bytes, current_screenshot_scale = await asyncio.to_thread(
+            _prepare_openai_computer_screenshot, screenshot_bytes, on_log=on_log,
         )
         self._current_screenshot_scale = current_screenshot_scale
 
@@ -473,6 +516,12 @@ class OpenAICUClient:
 
         for turn in range(turn_limit):
             self._current_screenshot_scale = current_screenshot_scale
+            # P3: ZDR forbids previous_response_id, so the full history is
+            # resent each turn. Strip base64 screenshots from all but the most
+            # recent items so per-turn upload doesn't grow unbounded (mirrors
+            # the Claude/Gemini prunes).
+            _prune_openai_context(conversation_input, _CONTEXT_PRUNE_KEEP_RECENT)
+            next_input = list(conversation_input)
             if _turn_start is not None and on_log:
                 on_log("info", f"turn_duration_ms={int((time.monotonic()-_turn_start)*1000)} provider=openai model={self._model}")
             _turn_start = time.monotonic()
@@ -523,9 +572,8 @@ class OpenAICUClient:
                             "OpenAI CU: model stopped without completing the desktop task; nudging it to continue with the computer tool.",
                         )
                     refreshed_screenshot = await executor.capture_screenshot()
-                    prepared_refreshed_screenshot, current_screenshot_scale = _prepare_openai_computer_screenshot(
-                        refreshed_screenshot,
-                        on_log=on_log,
+                    prepared_refreshed_screenshot, current_screenshot_scale = await asyncio.to_thread(
+                        _prepare_openai_computer_screenshot, refreshed_screenshot, on_log=on_log,
                     )
                     conversation_input.extend(
                         _sanitize_openai_response_item_for_replay(item)
@@ -623,8 +671,12 @@ class OpenAICUClient:
                     if single_action is not None:
                         actions = [single_action]
 
-                for action in actions:
-                    result = await self._execute_openai_action(action, executor)
+                call_id = getattr(computer_call, "call_id", "") or ""
+                for i, action in enumerate(actions):
+                    result = await self._execute_openai_action(
+                        action, executor,
+                        action_id=f"{call_id}:{i}" if call_id else None,
+                    )
                     results.append(result)
                     if _openai_action_is_progress(result):
                         saw_progress_action = True
@@ -633,9 +685,8 @@ class OpenAICUClient:
                         await asyncio.sleep(_app_config.screenshot_settle_delay)
 
                 screenshot_bytes = await executor.capture_screenshot()
-                prepared_screenshot_bytes, next_screenshot_scale = _prepare_openai_computer_screenshot(
-                    screenshot_bytes,
-                    on_log=on_log,
+                prepared_screenshot_bytes, next_screenshot_scale = await asyncio.to_thread(
+                    _prepare_openai_computer_screenshot, screenshot_bytes, on_log=on_log,
                 )
                 screenshot_b64 = base64.standard_b64encode(prepared_screenshot_bytes).decode()
                 tool_outputs.append(
@@ -688,8 +739,15 @@ class OpenAICUClient:
         self,
         action: Any,
         executor: ActionExecutor,
+        *,
+        action_id: str | None = None,
     ) -> CUActionResult:
-        """Translate OpenAI computer actions to the shared executor contract."""
+        """Translate OpenAI computer actions to the shared executor contract.
+
+        ``action_id`` (``{call_id}:{index}``) is the stable wire idempotency
+        key; it is forwarded to the executor on the scroll path (the one place
+        that builds a mutable args dict).
+        """
         payload = _to_plain_dict(action)
         action_type = str(payload.get("type", ""))
         scale_factor = float(getattr(self, "_current_screenshot_scale", 1.0) or 1.0)
@@ -762,7 +820,7 @@ class OpenAICUClient:
             return CUActionResult(name="wait", extra={"duration_ms": int(duration_ms)})
 
         if action_type == "scroll":
-            return await self._execute_openai_scroll(payload, executor)
+            return await self._execute_openai_scroll(payload, executor, action_id=action_id)
 
         if action_type == "drag":
             path = payload.get("path")
@@ -800,6 +858,8 @@ class OpenAICUClient:
         self,
         payload: dict[str, Any],
         executor: ActionExecutor,
+        *,
+        action_id: str | None = None,
     ) -> CUActionResult:
         """Execute OpenAI pixel scroll actions through the shared executor."""
         scale_factor = float(getattr(self, "_current_screenshot_scale", 1.0) or 1.0)
@@ -840,6 +900,8 @@ class OpenAICUClient:
         if px is not None and py is not None:
             args["x"] = px
             args["y"] = py
+        if action_id:
+            args["action_id"] = action_id
         return await executor.execute("scroll_at", args)
 
     @staticmethod

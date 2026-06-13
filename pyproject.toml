@@ -6,6 +6,7 @@ testpaths = ["tests"]
 addopts = "-m \"not integration\""
 markers = [
     "integration: live SDK / transport integration checks that run separately from the unit suite",
+    "slow: tests that are slow (timing/IO heavy); deselect with -m 'not slow'",
 ]
 
 

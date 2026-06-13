@@ -20,20 +20,24 @@ const Timeline = forwardRef(function Timeline(
       {steps.length === 0 && <p className="wb-empty">Start a task to see the agent's actions here.</p>}
       {steps.map((step, i) => {
         const Icon = getActionIcon(step.action?.action)
+        // U4: key + expansion by stable identity (step_number), not array
+        // index, so the sliding window doesn't remount rows or move the
+        // expanded state to a different step.
+        const stepId = step.step_number != null ? step.step_number : `idx-${i}`
         return (
           <div
-            key={i}
-            className={`wb-timeline-item ${step.error ? 'has-error' : ''} ${expandedStep === i ? 'expanded' : ''}`}
-            onClick={() => setExpandedStep(expandedStep === i ? null : i)}
+            key={stepId}
+            className={`wb-timeline-item ${step.error ? 'has-error' : ''} ${expandedStep === stepId ? 'expanded' : ''}`}
+            onClick={() => setExpandedStep(expandedStep === stepId ? null : stepId)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault()
-                setExpandedStep(expandedStep === i ? null : i)
+                setExpandedStep(expandedStep === stepId ? null : stepId)
               }
             }}
             role="button"
             tabIndex={0}
-            aria-expanded={expandedStep === i}
+            aria-expanded={expandedStep === stepId}
           >
             <div className="wb-timeline-head">
               <span className="wb-step-num">#{step.step_number}</span>
@@ -45,7 +49,7 @@ const Timeline = forwardRef(function Timeline(
               )}
               <span className="wb-step-time">{formatTime(step.timestamp)}</span>
             </div>
-            {expandedStep === i && (
+            {expandedStep === stepId && (
               <div className="wb-timeline-detail">
                 {step.action?.reasoning && <p className="wb-reasoning">{step.action.reasoning}</p>}
                 {!step.action?.reasoning && <p className="wb-reasoning" style={{ fontStyle: 'italic', opacity: 0.6 }}>No explanation provided</p>}
