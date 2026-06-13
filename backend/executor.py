@@ -15,6 +15,7 @@ import os
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Protocol
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -56,6 +57,18 @@ _ALLOWED_KEY_PUNCTUATION: frozenset[str] = frozenset({
 })
 
 
+# Exact-match modifier normalization. Keyed on ``token.lower()`` so a key token
+# that merely *contains* a modifier substring (e.g. a hypothetical "Shifted")
+# is never silently rewritten — unlike the old substring ``.replace()`` chain.
+_MODIFIER_MAP: dict[str, str] = {
+    "control": "ctrl", "ctrl": "ctrl",
+    "alt": "alt", "option": "alt",
+    "shift": "shift",
+    "meta": "super", "super": "super", "cmd": "super",
+    "command": "super", "win": "super", "windows": "super",
+}
+
+
 def _is_allowed_key_token(token: str) -> bool:
     """Return True if *token* is an allowlisted xdotool keysym."""
     t = token.strip()
@@ -71,6 +84,45 @@ def _is_allowed_key_token(token: str) -> bool:
     if lower in {"menu", "prtsc", "prtscr", "printscreen", "capslock", "numlock"}:
         return True
     return False
+
+
+def _validated_http_url(url: str) -> str:
+    """Normalize and validate a navigation URL; reject non-http(s) schemes.
+
+    A bare host (``example.com``) is given an ``https://`` prefix. Anything
+    whose scheme is not http/https (``file:``, ``javascript:``, ``data:``,
+    ``chrome:`` …) raises ``ValueError`` so the executor returns a failed
+    action instead of handing a dangerous URI to the browser (S10).
+    """
+    candidate = (url or "").strip()
+    if not candidate:
+        raise ValueError("empty URL")
+    scheme = urlsplit(candidate).scheme.lower()
+    if not scheme:
+        candidate = "https://" + candidate
+    elif scheme not in {"http", "https"}:
+        raise ValueError(f"unsupported URL scheme: {url!r}")
+    return candidate
+
+
+# P9: adaptive post-action settle. Navigations/typing repaint a lot of UI and
+# need the longer settle; pure pointer moves barely change the screen.
+_NAV_SETTLE_ACTIONS: frozenset[str] = frozenset({
+    "navigate", "open_web_browser", "search", "go_back", "go_forward",
+    "type_text_at", "type_at_cursor", "key_combination",
+})
+_FAST_SETTLE_ACTIONS: frozenset[str] = frozenset({
+    "hover_at", "move", "left_mouse_down", "left_mouse_up",
+})
+
+
+def _settle_delay_for(name: str) -> float:
+    """Return the post-action settle delay appropriate for action *name*."""
+    if name in _NAV_SETTLE_ACTIONS:
+        return _app_config.ui_settle_delay_nav
+    if name in _FAST_SETTLE_ACTIONS:
+        return _app_config.ui_settle_delay_min
+    return _app_config.ui_settle_delay
 
 
 class SafetyDecision(str, Enum):
@@ -301,7 +353,7 @@ class DesktopExecutor:
                     error=extra.get("message", "Action failed"),
                     extra=extra,
                 )
-            await asyncio.sleep(_app_config.ui_settle_delay)
+            await asyncio.sleep(_settle_delay_for(name))
             return CUActionResult(name=name, success=True, extra=extra)
         except Exception as exc:
             if _app_config.debug or os.getenv("CUA_DEBUG_TB") == "1":
@@ -345,11 +397,8 @@ class DesktopExecutor:
 
     async def _act_triple_click(self, a: dict) -> dict:
         px, py = self._px(a["x"], a["y"])
-        await self._post_action({
-            "action": "double_click", "coordinates": [px, py], "mode": "desktop",
-        })
         result = await self._post_action({
-            "action": "click", "coordinates": [px, py], "mode": "desktop",
+            "action": "triple_click", "coordinates": [px, py], "mode": "desktop",
         })
         return {"pixel_x": px, "pixel_y": py, **result}
 
@@ -364,44 +413,38 @@ class DesktopExecutor:
         return await self._act_hover_at(a)
 
     async def _act_type_text_at(self, a: dict) -> dict:
+        # P2: one composite POST (the agent_service performs click → optional
+        # clear → type → optional Enter inside a single lock window) instead of
+        # up to five separate round trips.
         px, py = self._px(a["x"], a["y"])
         text = a["text"]
         press_enter = a.get("press_enter", True)
         clear_before = a.get("clear_before_typing", True)
         await self._post_action({
-            "action": "click", "coordinates": [px, py], "mode": "desktop",
+            "action": "type_text_at",
+            "coordinates": [px, py],
+            "text": text,
+            "press_enter": press_enter,
+            "clear_before": clear_before,
+            "mode": "desktop",
         })
-        if clear_before:
-            await self._post_action({
-                "action": "hotkey", "text": "ctrl+a", "mode": "desktop",
-            })
-            await self._post_action({
-                "action": "key", "text": "BackSpace", "mode": "desktop",
-            })
-        await self._post_action({
-            "action": "type", "text": text, "mode": "desktop",
-        })
-        if press_enter:
-            await self._post_action({
-                "action": "key", "text": "Return", "mode": "desktop",
-            })
         return {"pixel_x": px, "pixel_y": py, "text": text}
 
     async def _act_key_combination(self, a: dict) -> dict:
         keys = a["keys"]
-        xdo_keys = (
-            keys.replace("Control", "ctrl")
-            .replace("Alt", "alt")
-            .replace("Shift", "shift")
-            .replace("Meta", "super")
-        )
+        # Split on '+' FIRST, then map each token by exact (lowercased) match.
+        # The previous substring ``.replace()`` chain could corrupt any token
+        # that merely contained "Control"/"Alt"/"Shift"/"Meta".
         normalized = []
-        for part in xdo_keys.split("+"):
+        for part in keys.split("+"):
             stripped = part.strip()
-            if len(stripped) == 1 and stripped.isalpha():
+            lower = stripped.lower()
+            if lower in _MODIFIER_MAP:
+                normalized.append(_MODIFIER_MAP[lower])
+            elif len(stripped) == 1 and stripped.isalpha():
                 normalized.append(stripped.lower())
-            elif stripped.lower() in _XDOTOOL_SPECIAL_KEYS:
-                normalized.append(stripped)
+            elif lower in _XDOTOOL_SPECIAL_KEYS:
+                normalized.append(lower)
             else:
                 normalized.append(stripped)
         for part in normalized:
@@ -418,9 +461,11 @@ class DesktopExecutor:
 
     async def _act_scroll_document(self, a: dict) -> dict:
         direction = a["direction"]
-        await self._post_action({
-            "action": "scroll", "text": direction, "mode": "desktop",
-        })
+        payload = {"action": "scroll", "text": direction, "mode": "desktop"}
+        magnitude = a.get("magnitude")
+        if magnitude is not None:
+            payload["magnitude"] = int(magnitude)
+        await self._post_action(payload)
         return {"direction": direction}
 
     async def _act_left_mouse_down(self, a: dict) -> dict:
@@ -448,12 +493,16 @@ class DesktopExecutor:
     async def _act_scroll_at(self, a: dict) -> dict:
         px, py = self._px(a["x"], a["y"])
         direction = a["direction"]
-        await self._post_action({
+        payload = {
             "action": "scroll",
             "coordinates": [px, py],
             "text": direction,
             "mode": "desktop",
-        })
+        }
+        magnitude = a.get("magnitude")
+        if magnitude is not None:
+            payload["magnitude"] = int(magnitude)
+        await self._post_action(payload)
         return {"pixel_x": px, "pixel_y": py, "direction": direction}
 
     async def _act_drag_and_drop(self, a: dict) -> dict:
@@ -465,7 +514,7 @@ class DesktopExecutor:
         return {"from": (sx, sy), "to": (dx, dy)}
 
     async def _act_navigate(self, a: dict) -> dict:
-        url = a["url"]
+        url = _validated_http_url(a["url"])
         await self._post_action({
             "action": "open_url", "text": url, "mode": "desktop",
         })

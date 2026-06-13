@@ -156,7 +156,12 @@ class TestDesktopExecutorIdempotency:
         monkeypatch.setattr("backend.engine._app_config.ui_settle_delay", 0.0)
         monkeypatch.setattr(executor, "_get_client", AsyncMock(return_value=_FakeClient()))
 
-        result = await executor.execute("triple_click", {"x": 44, "y": 55, "action_id": "replay-123"})
+        # ``hold_key`` issues two sequential POSTs (keydown, keyup), exercising
+        # the deterministic substep counter. (``triple_click`` is now a single
+        # native xdotool POST, so it no longer multi-dispatches.)
+        result = await executor.execute(
+            "hold_key", {"key": "shift", "duration": 0, "action_id": "replay-123"}
+        )
 
         assert result.success is True
         assert [payload["action_id"] for payload in captured_payloads] == [
@@ -164,8 +169,8 @@ class TestDesktopExecutorIdempotency:
             "replay-123:1",
         ]
         assert [payload["action"] for payload in captured_payloads] == [
-            "double_click",
-            "click",
+            "keydown",
+            "keyup",
         ]
 
 
@@ -692,7 +697,10 @@ class TestSearchEnabledRequiresComputerAction:
             async for event in client.iter_turns("Learn first, then create the Projects folder", executor):
                 events.append(event)
 
-            assert executor.calls == [("double_click", {"x": 120, "y": 220})]
+            assert len(executor.calls) == 1
+            _name, _args = executor.calls[0]
+            assert _name == "double_click"
+            assert _args["x"] == 120 and _args["y"] == 220  # tolerate threaded action_id
             assert isinstance(events[-1], RunCompleted)
             assert events[-1].final_text == "Done"
 
@@ -770,7 +778,10 @@ class TestSearchEnabledRequiresComputerAction:
                 async for event in client.iter_turns("Learn first, then create the Projects folder", executor):
                     events.append(event)
 
-                assert executor.calls == [("double_click", {"x": 120, "y": 220})]
+                assert len(executor.calls) == 1
+                _name, _args = executor.calls[0]
+                assert _name == "double_click"
+                assert _args["x"] == 120 and _args["y"] == 220  # tolerate threaded action_id
                 assert isinstance(events[-1], RunCompleted)
                 assert events[-1].final_text == "Done"
 

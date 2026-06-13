@@ -52,7 +52,62 @@ _CU_ACTION_MAP: dict[str, ActionType] = {
     "scroll": ActionType.SCROLL, "drag": ActionType.DRAG,
     "wait": ActionType.WAIT, "screenshot": ActionType.SCREENSHOT,
     "done": ActionType.DONE, "error": ActionType.ERROR,
+    # Reuse existing enum members (no schema change): zoom returns a region
+    # screenshot; mouse-down/up are click primitives; hold_key is a key event.
+    "zoom": ActionType.SCREENSHOT,
+    "left_mouse_down": ActionType.CLICK, "left_mouse_up": ActionType.CLICK,
+    "hold_key": ActionType.KEY,
 }
+
+
+def _scrub_grounding(payload: dict | None) -> dict | None:
+    """Scrub secret-shaped tokens from a Gemini grounding dict before broadcast.
+
+    ``gemini_grounding`` (shape produced by
+    ``backend.engine.gemini._extract_gemini_grounding_payload``) is the one
+    completion field that flows to the browser unscrubbed; ``renderedContent``
+    is model/provider HTML, and chunk/segment text can echo on-screen content.
+    """
+    if not isinstance(payload, dict):
+        return payload
+    out = dict(payload)
+    rc = out.get("renderedContent")
+    if isinstance(rc, str):
+        out["renderedContent"] = _scrub_secrets(rc) or rc
+    chunks = out.get("groundingChunks")
+    if isinstance(chunks, list):
+        new_chunks = []
+        for c in chunks:
+            if isinstance(c, dict) and isinstance(c.get("web"), dict):
+                web = dict(c["web"])
+                for key in ("uri", "title"):
+                    if isinstance(web.get(key), str):
+                        web[key] = _scrub_secrets(web[key]) or web[key]
+                new_chunks.append({**c, "web": web})
+            else:
+                new_chunks.append(c)
+        out["groundingChunks"] = new_chunks
+    supports = out.get("groundingSupports")
+    if isinstance(supports, list):
+        new_supports = []
+        for s in supports:
+            if (
+                isinstance(s, dict)
+                and isinstance(s.get("segment"), dict)
+                and isinstance(s["segment"].get("text"), str)
+            ):
+                seg = dict(s["segment"])
+                seg["text"] = _scrub_secrets(seg["text"]) or seg["text"]
+                new_supports.append({**s, "segment": seg})
+            else:
+                new_supports.append(s)
+        out["groundingSupports"] = new_supports
+    queries = out.get("webSearchQueries")
+    if isinstance(queries, list):
+        out["webSearchQueries"] = [
+            (_scrub_secrets(q) or q) if isinstance(q, str) else q for q in queries
+        ]
+    return out
 
 
 class AgentLoop:
@@ -135,7 +190,10 @@ class AgentLoop:
             try:
                 self._on_log(entry)
             except Exception:
-                pass
+                # Log delivery must stay non-fatal to the loop, but a silently
+                # swallowed callback error hides frontend-delivery breakage —
+                # surface it (mirrors _fire_callback).
+                logger.warning("on_log callback %r raised", self._on_log, exc_info=True)
 
     def _make_structured_error(
         self,
@@ -172,7 +230,7 @@ class AgentLoop:
         except Exception as exc:
             self._emit_log("error", f"Agent run failed: {exc}")
             self.session.status = SessionStatus.ERROR
-            self.session.final_text = str(exc)
+            self.session.final_text = _scrub_secrets(str(exc)) or str(exc)
         finally:
             self._run_task = None
             # Always drop safety-registry state for this session.
@@ -265,6 +323,7 @@ class AgentLoop:
             """Map CU turn records to session step records + broadcast."""
             # Build an AgentAction from the first CU action in this turn
             agent_action = None
+            step_error: str | None = None
             if record.actions:
                 first = record.actions[0]
                 action_type = _CU_ACTION_MAP.get(first.name)
@@ -288,6 +347,22 @@ class AgentLoop:
                         "warning",
                         f"Unmapped CU action '{first.name}' — not in ActionType enum",
                     )
+                # E1: surface executor action failure that was previously dropped.
+                # CUActionResult.success/.error were never read, so a failing
+                # action rendered as a normal step. Now emit an error log, a
+                # StructuredError, and mark the step.
+                if first.success is False:
+                    self._consecutive_errors += 1
+                    step_error = _scrub_secrets(first.error) or first.error or "action failed"
+                    self._emit_log("error", f"Action {first.name!r} failed: {step_error}")
+                    self._make_structured_error(
+                        step=record.turn,
+                        action=first.name,
+                        errorCode="action_failed",
+                        message=step_error,
+                    )
+                else:
+                    self._consecutive_errors = 0
             elif record.model_text:
                 scrubbed_text = _scrub_secrets(record.model_text[:500])
                 terminal_action = (
@@ -304,6 +379,7 @@ class AgentLoop:
                 screenshot_b64=record.screenshot_b64,
                 raw_model_response=_scrub_secrets(record.model_text),
                 action=agent_action,
+                error=step_error,
             )
             self.session.steps.append(step)
             self._fire_callback(self._on_step, step)
@@ -345,16 +421,18 @@ class AgentLoop:
             TOS requirement to never silently proceed on
             ``require_confirmation``.
             """
+            from backend import safety as safety_registry
+            sid = self.session.session_id
+            # B2: arm (create a fresh cleared event + mint a nonce) BEFORE
+            # broadcasting, so a client confirmation can only ever .set() an
+            # already-armed event — no clear/set race that silently denies.
+            nonce, evt = safety_registry.arm(sid)
             self._emit_log(
                 "warning",
                 f"Safety confirmation required: {explanation}",
                 data={"type": "safety_confirmation", "explanation": explanation,
-                      "session_id": self.session.session_id},
+                      "session_id": sid, "nonce": nonce},
             )
-            from backend import safety as safety_registry
-            sid = self.session.session_id
-            evt = safety_registry.get_or_create_event(sid)
-            evt.clear()
             try:
                 await asyncio.wait_for(evt.wait(), timeout=60.0)
                 decision = bool(safety_registry.decisions.pop(sid, False))
@@ -389,9 +467,11 @@ class AgentLoop:
                     else "Agent cancelled."
                 )
                 self._emit_log("info", final_text)
-            self.session.final_text = final_text
+            self.session.final_text = _scrub_secrets(final_text) or final_text
             completion_payload = engine.last_completion_payload or {}
-            self.session.gemini_grounding = completion_payload.get("gemini_grounding")
+            self.session.gemini_grounding = _scrub_grounding(
+                completion_payload.get("gemini_grounding")
+            )
             self._emit_log("info", f"CU engine completed: {final_text[:300]}")
             self.session.status = (
                 SessionStatus.STOPPED
@@ -400,7 +480,7 @@ class AgentLoop:
             )
         except Exception as exc:
             self._emit_log("error", f"CU engine failed: {exc}")
-            self.session.final_text = str(exc)
+            self.session.final_text = _scrub_secrets(str(exc)) or str(exc)
             self.session.status = SessionStatus.ERROR
         finally:
             self._run_task = None

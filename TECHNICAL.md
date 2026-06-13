@@ -119,7 +119,7 @@ the agent service, which enforces an allowlist before invoking `xdotool`,
 | File | Responsibility |
 |---|---|
 | `_common.py` | Shared types: `ProviderTools`, `ProviderEvent`, `EventCallback`, `SafetyCallback`. Shared helpers: `normalize_tools`, `emit_event`, `maybe_plan_with_web_search`, `stream_client_run_loop`. |
-| `planner.py` | Provider-native Web Search planning pass. `create_web_execution_brief` runs OpenAI `web_search`, Anthropic `web_search_20250305`, or Gemini `google_search` without the computer tool, then `build_planned_computer_use_task` merges the brief into the executing task. |
+| `planner.py` | Provider-native Web Search planning pass. `create_web_execution_brief` runs OpenAI `web_search`, Anthropic `web_search_20260209`, or Gemini `google_search` without the computer tool, then `build_planned_computer_use_task` merges the brief into the executing task. |
 | `openai.py` | OpenAI `run(task, *, tools, files, on_event, on_safety, executor, **options)`. Builds a CU client if needed, runs the optional planner, streams the CU loop. |
 | `anthropic.py` | Anthropic equivalent of the OpenAI wrapper. |
 | `gemini.py` | Gemini equivalent. Rejects `files` non-empty before any provider call. |
@@ -335,7 +335,7 @@ the application name, OS behavior, or current public web facts.
 | Provider | Planner tool | SDK shape |
 |---|---|---|
 | OpenAI | `[{"type": "web_search"}]` | `client.responses.create(...)` with `tools=[{"type":"web_search"}]`, `parallel_tool_calls=False`, `include=["web_search_call.action.sources"]`. For `gpt-5*` models the call sets `reasoning.effort="low"` so the planning pass stays bounded. |
-| Anthropic | `web_search_20250305` (`max_uses=3`) | `client.beta.messages.create(...)` with `max_tokens=2048` and a system prompt instructing the model to produce a brief only. The org-level web-search probe is reused. |
+| Anthropic | `web_search_20260209` (`max_uses=3`) | `client.beta.messages.create(...)` with `max_tokens=2048` and a system prompt instructing the model to produce a brief only. The org-level web-search probe is reused. |
 | Gemini | `Tool(google_search=GoogleSearch())` | `client.aio.models.generate_content(...)` with no computer tool. |
 
 Each planning helper extracts the brief from the SDK response and returns a

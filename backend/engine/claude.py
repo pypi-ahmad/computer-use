@@ -24,6 +24,7 @@ from backend.engine import (
     TurnEvent,
     _call_with_retry,
     _is_opus_47,
+    claude_web_search_tool_version,
     get_claude_scale_factor,
     resize_screenshot_for_claude,
     _append_source_footer,
@@ -128,6 +129,17 @@ try:
     _CLAUDE_MAX_TOKENS = max(1024, min(int(_os.getenv("CUA_CLAUDE_MAX_TOKENS", "32768")), 65536))
 except ValueError:
     _CLAUDE_MAX_TOKENS = 32768
+
+def _claude_caching_on() -> bool:
+    """Return True when Claude prompt caching is enabled.
+
+    P7: kept OPT-IN (set CUA_CLAUDE_CACHING=1) to preserve the deliberate
+    "zero-risk at deploy" default and avoid a silent billing/wire-shape change
+    for every user. When enabled, caching now also covers the trailing system
+    block (previously tool-def only) — that's the gap this fix closes.
+    """
+    return os.environ.get("CUA_CLAUDE_CACHING") == "1"
+
 
 # ---------------------------------------------------------------------------
 # Claude Computer Use Client
@@ -356,14 +368,23 @@ class ClaudeCUClient:
             on_log=on_log,
         )
 
-    def _build_web_search_tool(self, *, max_uses: int | None = None) -> dict[str, Any]:
-        """Build the Anthropic web_search server-tool definition."""
-        ws_tool: dict[str, Any] = {
-            "type": _ANTHROPIC_WEB_SEARCH_BASIC_TOOL,
+    def build_web_search_tool(self, *, max_uses: int | None = None) -> dict[str, Any]:
+        """Build the Anthropic web_search server-tool definition (public protocol).
+
+        D3: the tool version is resolved per-model from the registry —
+        ``web_search_20260209`` for the 4.6+ family, legacy
+        ``web_search_20250305`` otherwise. D6: public so the planner no longer
+        reaches into a private method via ``getattr``.
+        """
+        return {
+            "type": claude_web_search_tool_version(self._model),
             "name": "web_search",
             "max_uses": 5 if max_uses is None else max_uses,
         }
-        return ws_tool
+
+    def _build_web_search_tool(self, *, max_uses: int | None = None) -> dict[str, Any]:
+        """Private back-compat alias for internal callers and existing tests."""
+        return self.build_web_search_tool(max_uses=max_uses)
 
     def _build_tools(self, sw: int, sh: int) -> list[dict]:
         """Build the Claude computer-use tool definition with display dimensions."""
@@ -376,19 +397,17 @@ class ClaudeCUClient:
         # Enable zoom action for computer_20251124 tool version
         if self._tool_version == "computer_20251124":
             tool["enable_zoom"] = True
-        # Optional prompt caching on the tool definition.  Anthropic caches
-        # the tool block across turns when cache_control is present, cutting
-        # repeated tool-def tokens to ~10% of first-turn cost on multi-turn
-        # sessions.  Opt-in via env var to stay zero-risk at deploy; emit a
-        # one-shot INFO log the first time it takes effect per process so
-        # operators can confirm.  System-prompt caching is a separate,
-        # larger follow-up (different test requirements).
-        if os.environ.get("CUA_CLAUDE_CACHING") == "1":
+        # Prompt caching (P7). Opt-in via CUA_CLAUDE_CACHING=1 (unchanged
+        # default-off contract). When enabled, Anthropic caches the tool block
+        # AND — new in this fix — the trailing system block across turns,
+        # cutting repeated tokens to ~10% of first-turn cost on multi-turn
+        # sessions. Emit a one-shot INFO so operators can confirm.
+        if _claude_caching_on():
             tool["cache_control"] = {"type": "ephemeral"}
             if not ClaudeCUClient._caching_logged:
                 logger.info(
                     "Claude CU prompt caching enabled (CUA_CLAUDE_CACHING=1); "
-                    "tool definition marked ephemeral.",
+                    "tool definition + system prompt marked ephemeral.",
                 )
                 ClaudeCUClient._caching_logged = True
         tools: list[dict[str, Any]] = [tool]
@@ -456,7 +475,9 @@ class ClaudeCUClient:
                 on_log("error", "Initial screenshot capture failed or returned empty bytes")
             yield RunCompleted(final_text="Error: Could not capture initial screenshot")
             return
-        screenshot_bytes, _, _ = resize_screenshot_for_claude(screenshot_bytes, scale)
+        screenshot_bytes, _, _ = await asyncio.to_thread(
+            resize_screenshot_for_claude, screenshot_bytes, scale,
+        )
         screenshot_b64 = base64.standard_b64encode(screenshot_bytes).decode()
 
         # Initial user content: goal text (with any inline-only
@@ -523,11 +544,20 @@ class ClaudeCUClient:
             _betas = [self._beta_flag]
             if self._attached_file_ids:
                 _betas.append("files-api-2025-04-14")
+            # P7: cache the (stable) system prompt as a trailing breakpoint when
+            # caching is on; fall back to the plain string otherwise.
+            _system_param: Any = self._system_prompt
+            if self._system_prompt and _claude_caching_on():
+                _system_param = [{
+                    "type": "text",
+                    "text": self._system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }]
             response = await _call_with_retry(
                 lambda: self._client.beta.messages.create(
                     model=self._model,
                     max_tokens=_CLAUDE_MAX_TOKENS,
-                    system=self._system_prompt,
+                    system=_system_param,
                     tools=tools,
                     messages=messages,
                     betas=_betas,
@@ -603,8 +633,8 @@ class ClaudeCUClient:
                         refreshed_screenshot = await executor.capture_screenshot()
                     except Exception:
                         refreshed_screenshot = screenshot_bytes
-                    refreshed_screenshot, _, _ = resize_screenshot_for_claude(
-                        refreshed_screenshot, scale,
+                    refreshed_screenshot, _, _ = await asyncio.to_thread(
+                        resize_screenshot_for_claude, refreshed_screenshot, scale,
                     )
                     messages.append({
                         "role": "user",
@@ -657,13 +687,13 @@ class ClaudeCUClient:
 
             for tu in tool_uses:
                 result = await self._execute_claude_action(
-                    tu.input, executor, scale_factor=scale,
+                    tu.input, executor, scale_factor=scale, action_id=tu.id,
                 )
                 results.append(result)
 
                 screenshot_bytes = await executor.capture_screenshot()
-                screenshot_bytes, _, _ = resize_screenshot_for_claude(
-                    screenshot_bytes, scale,
+                screenshot_bytes, _, _ = await asyncio.to_thread(
+                    resize_screenshot_for_claude, screenshot_bytes, scale,
                 )
                 screenshot_b64 = base64.standard_b64encode(screenshot_bytes).decode()
 
@@ -742,7 +772,7 @@ class ClaudeCUClient:
 
     async def _execute_claude_action(
         self, action_input: dict, executor: ActionExecutor,
-        *, scale_factor: float = 1.0,
+        *, scale_factor: float = 1.0, action_id: str | None = None,
     ) -> CUActionResult:
         """Map Claude computer tool actions to executor calls.
 
@@ -766,15 +796,19 @@ class ClaudeCUClient:
                 return coord
             return [int(c / scale_factor) for c in coord]
 
-        # Build args in the CU format the executor expects
+        # Build args in the CU format the executor expects. The stable
+        # provider tool-use id rides along in ``action_id`` (added only when
+        # present; the executor pops it and stamps the wire idempotency key).
         coord = _upscale_coord(action_input.get("coordinate"))
         args: dict[str, Any] = {}
+        if action_id:
+            args["action_id"] = action_id
 
         if action in ("click", "double_click", "right_click", "triple_click", "middle_click"):
             if coord:
                 args["x"], args["y"] = coord[0], coord[1]
             if action in ("double_click", "right_click", "triple_click", "middle_click"):
-                return await self._special_click(action, coord, executor)
+                return await self._special_click(action, coord, executor, action_id=action_id)
             return await executor.execute("click_at", args)
 
         elif action == "type":
@@ -880,11 +914,15 @@ class ClaudeCUClient:
 
     async def _special_click(
         self, action: str, coord: list[int] | None, executor: ActionExecutor,
+        *, action_id: str | None = None,
     ) -> CUActionResult:
         """Handle double_click, right_click, triple_click, and middle_click."""
         x, y = (coord[0], coord[1]) if coord else (0, 0)
+        click_args: dict[str, Any] = {"x": x, "y": y}
+        if action_id:
+            click_args["action_id"] = action_id
         try:
-            return await executor.execute(action, {"x": x, "y": y})
+            return await executor.execute(action, click_args)
         except Exception as exc:
             return CUActionResult(name=action, success=False, error=str(exc))
 

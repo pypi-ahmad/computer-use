@@ -226,12 +226,19 @@ export default function Workbench() {
     fetchKeys()
   }, [provider])
 
-  // Auto-scroll timeline / logs.
+  // Auto-scroll timeline / logs — U6: only follow when the user is already
+  // near the bottom, so reviewing earlier steps/logs isn't interrupted.
   useEffect(() => {
-    if (timelineRef.current) timelineRef.current.scrollTop = timelineRef.current.scrollHeight
+    const el = timelineRef.current
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 80) {
+      el.scrollTop = el.scrollHeight
+    }
   }, [steps])
   useEffect(() => {
-    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
+    const el = logRef.current
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 80) {
+      el.scrollTop = el.scrollHeight
+    }
   }, [logs])
 
   // Sync model when provider changes or when the fetched model list arrives.

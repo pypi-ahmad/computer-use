@@ -45,6 +45,7 @@ logger = logging.getLogger(__name__)
 # ── Limits ────────────────────────────────────────────────────────────────────
 ALLOWED_EXTS: frozenset[str] = frozenset({".md", ".txt", ".pdf", ".docx"})
 MAX_FILE_BYTES: int = 1 * 1024 * 1024 * 1024  # 1 GB per file
+MAX_FILES_PER_STORE: int = 10  # S9: per-store file-count cap (also bounds memory)
 
 # How long an upload survives if no agent run picks it up.  Long enough
 # to absorb a slow user, short enough that abandoned uploads can't pile
@@ -142,7 +143,6 @@ class FileStore:
 
         file_id = "f_" + secrets.token_urlsafe(18)
         path = self._root / file_id
-        path.write_bytes(data)
         rec = UploadedFile(
             file_id=file_id,
             filename=Path(filename).name,
@@ -152,6 +152,15 @@ class FileStore:
             path=path,
         )
         async with self._lock:
+            # S9: enforce per-store count + aggregate-byte caps atomically
+            # (check, write, and insert under the same lock) so two concurrent
+            # uploads cannot both pass the check and overshoot the limit.
+            if len(self._files) >= MAX_FILES_PER_STORE:
+                raise ValueError(f"session file limit reached ({MAX_FILES_PER_STORE} files)")
+            current_bytes = sum(r.size_bytes for r in self._files.values())
+            if current_bytes + size > MAX_FILE_BYTES:
+                raise ValueError("session storage limit reached (1 GB total)")
+            path.write_bytes(data)
             self._files[file_id] = rec
         return rec
 
