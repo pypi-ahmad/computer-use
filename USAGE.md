@@ -876,8 +876,8 @@ python -m pytest tests/test_provider_run_contract.py --tb=short
 # File store and per-provider preparation
 python -m pytest tests/test_files.py --tb=short
 
-# Schema, rate-limit, and host-allowlist validation
-python -m pytest tests/test_server_validation.py --tb=short
+# Server endpoints + schema, rate-limit, and host-allowlist validation
+python -m pytest tests/test_server.py --tb=short
 
 # Engine client unit tests
 python -m pytest tests/engine/test_openai.py tests/engine/test_claude.py tests/engine/test_gemini.py --tb=short
@@ -1089,10 +1089,11 @@ Each provider has small idiosyncrasies operators benefit from knowing.
 
 ### Anthropic
 
-- **Beta endpoint.** All Anthropic Computer Use traffic goes through
-  `client.beta.messages.create()` with the `computer-use-2025-11-24`
-  beta header. If your API key is on a strictly stable channel without
-  this beta enabled, the run fails with a `403`.
+- **Beta endpoint (streamed).** Anthropic Computer Use turns are streamed via
+  `client.beta.messages.stream(...).get_final_message()` with the
+  `computer-use-2025-11-24` beta header (streaming avoids the SDK HTTP-timeout
+  guard at the 32K `max_tokens` budget). If your API key is on a strictly
+  stable channel without this beta enabled, the run fails with a `403`.
 - **Web search probe.** The first session per API key per 24 hours that
   enables Web Search runs a tiny probe call to confirm the org has
   access to `web_search_20260209`. Cached for 24 hours after success.
