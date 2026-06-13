@@ -962,7 +962,7 @@ class _FakeExecutor:
 
 async def _capture_create_kwargs(model: str) -> dict:
     """Drive ``iter_turns`` for one turn and return the kwargs passed
-    to ``client.beta.messages.create``."""
+    to ``client.beta.messages.stream`` (the turn is streamed; see D2)."""
     from backend.engine import ClaudeCUClient
 
     captured: dict = {}

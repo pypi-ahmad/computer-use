@@ -215,10 +215,20 @@ class TestClaudeRefusalBranch:
             stop_reason="refusal",
         )
 
+        class _RefusalStream:  # D2: client.beta.messages.stream(...) stand-in
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def get_final_message(self):
+                return fake_response
+
         with patch("anthropic.Anthropic"):
             client = ClaudeCUClient(api_key="test", model="claude-sonnet-4-6")
             client._client = MagicMock()
-            client._client.beta.messages.create = MagicMock(return_value=fake_response)
+            client._client.beta.messages.stream = lambda **kwargs: _RefusalStream()
 
             # Bypass resize to keep the test free of PIL decoding.
             # After Q2 the class lives in ``backend.engine.claude`` and

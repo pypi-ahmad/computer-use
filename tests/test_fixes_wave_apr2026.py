@@ -36,6 +36,22 @@ from backend.engine import (
 )
 
 
+class _FakeMessageStream:
+    """Async-CM stand-in for ``client.beta.messages.stream(...)`` (D2)."""
+
+    def __init__(self, message):
+        self._message = message
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def get_final_message(self):
+        return self._message
+
+
 # ---------------------------------------------------------------------------
 # Shared fake executor helpers
 # ---------------------------------------------------------------------------
@@ -148,6 +164,10 @@ class TestClaudeInitialScreenshotGuard:
         class FakeMessages:
             create = staticmethod(fake_create)
 
+            def stream(self, **kwargs):
+                captured.update(kwargs)
+                return _FakeMessageStream(FakeResponse())
+
         class FakeBeta:
             messages = FakeMessages()
 
@@ -196,6 +216,10 @@ class TestClaudeThinkingMode:
 
         class FakeMessages:
             create = staticmethod(fake_create)
+
+            def stream(self, **kwargs):
+                captured.update(kwargs)
+                return _FakeMessageStream(FakeResponse())
 
         class FakeBeta:
             messages = FakeMessages()

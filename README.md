@@ -2,7 +2,7 @@
 
 ![CI](https://github.com/pypi-ahmad/computer-use/actions/workflows/ci.yml/badge.svg?branch=main)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-494%20passing-brightgreen?logo=pytest&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-474%20passing-brightgreen?logo=pytest&logoColor=white)
 ![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-555)
 
@@ -70,7 +70,7 @@ There is no prompt orchestration layer, no intermediate planning engine, and no 
                          │ REST + WebSocket  (port 3000 → 8100)
 ┌────────────────────────▼────────────────────────────────────────┐
 │  FastAPI backend  (port 8100)                                   │
-│  server.py — HTTP routes, WS broadcast, rate limiting           │
+│  server/ — package: routes, WS broadcast, rate limiting, schema │
 │  loop.py   — AgentLoop: session lifecycle bridge                │
 │  files.py  — upload store, provider file prep                   │
 │  safety.py — operator safety confirmation registry              │
@@ -112,8 +112,9 @@ The model never has direct socket access to the host machine. All action dispatc
 ```
 computer-use/
 ├── backend/
-│   ├── server.py          # FastAPI app: all HTTP endpoints, WebSocket fan-out,
+│   ├── server/            # FastAPI app package: HTTP endpoints, WebSocket fan-out,
 │   │                      #   rate limiting, CORS/CSP/Host-allowlist hardening
+│   │                      #   (__init__.py app + ws_schema.py submodule)
 │   ├── loop.py            # AgentLoop: request → provider run bridge,
 │   │                      #   step recording, stuck-agent detection, callbacks
 │   ├── executor.py        # ActionExecutor protocol + DesktopExecutor impl;
@@ -184,8 +185,7 @@ computer-use/
 │   ├── engine/            # ClaudeCUClient, GeminiCUClient, OpenAICUClient unit tests
 │   ├── docker/            # agent_service contract tests
 │   ├── integration/       # Live SDK transport tests (marked integration, excluded by default)
-│   ├── test_server.py     # FastAPI endpoint tests
-│   ├── test_server_validation.py  # Schema, rate-limit, host-allowlist validation
+│   ├── test_server.py     # FastAPI endpoint + schema/rate-limit/host-allowlist tests
 │   ├── test_provider_run_contract.py  # Provider run() public contract
 │   ├── test_files.py      # File store + provider prep
 │   ├── test_executor_split.py         # DesktopExecutor action dispatch
@@ -550,7 +550,7 @@ This split is implemented entirely in `backend/providers/`:
 
 **Anthropic (`engine/claude.py`):**
 
-- Uses `client.beta.messages.create()` (beta endpoint required for Computer Use).
+- Streams each turn via `client.beta.messages.stream(...).get_final_message()` (beta endpoint required for Computer Use; streaming avoids the SDK HTTP-timeout guard at the 32K `max_tokens` budget). One screenshot is captured per turn — bundled into the action's `/action` response when possible, else a single follow-up capture.
 - Tool version (`computer_20251124`) and beta flag (`computer-use-2025-11-24`) are resolved from `allowed_models.json` registry metadata, not from model-name substrings.
 - Web-search org-level enablement is probed once per API key on first use, then cached for 24 hours. `CUA_ANTHROPIC_WEB_SEARCH_ENABLED=1` skips the probe.
 - Files API upload and document-block injection is handled turn-by-turn with a per-session cache to avoid re-uploading the same file.
@@ -657,8 +657,8 @@ python -m pytest tests/test_provider_run_contract.py --tb=short
 # File store + provider file prep
 python -m pytest tests/test_files.py --tb=short
 
-# Schema and server validation
-python -m pytest tests/test_server_validation.py --tb=short
+# Server endpoints + schema / rate-limit / host-allowlist validation
+python -m pytest tests/test_server.py --tb=short
 
 # Engine client unit tests
 python -m pytest tests/engine/test_openai.py tests/engine/test_claude.py tests/engine/test_gemini.py --tb=short
@@ -674,8 +674,7 @@ tests/
 ├── engine/            # Per-provider CU client unit tests
 ├── docker/            # agent_service contract tests
 ├── integration/       # Live SDK tests (requires real API keys; excluded by default)
-├── test_server.py     # HTTP endpoint integration tests
-├── test_server_validation.py   # Security, rate-limiting, schema validation
+├── test_server.py     # HTTP endpoint + security/rate-limit/schema validation tests
 ├── test_provider_run_contract.py  # Public run() shape contract
 ├── test_files.py      # File store and provider file prep
 ├── test_executor_split.py  # DesktopExecutor dispatch
