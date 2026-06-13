@@ -4,7 +4,7 @@ Deep architecture reference for contributors. This document is the source of
 truth for module boundaries, runtime contracts, threading rules, and provider
 behavior. It is intentionally exhaustive: a senior engineer should be able to
 read this once and understand the full execution model without diving into
-`server.py` first.
+the `backend/server/` package first.
 
 The repo is intentionally small in concept:
 
@@ -98,7 +98,7 @@ the agent service, which enforces an allowlist before invoking `xdotool`,
 | File | Responsibility |
 |---|---|
 | `main.py` | uvicorn entry point. Reads `Config`, builds the FastAPI app, binds to `HOST:PORT`. |
-| `server.py` | All HTTP routes, the WebSocket endpoint, security middleware (Host allowlist, Origin gate, body size cap, security headers), per-IP rate limiter, session registry, container lifecycle proxies. |
+| `server/` (package) | All HTTP routes, the WebSocket endpoint, security middleware (Host allowlist, Origin gate, body size cap, security headers), per-IP rate limiter, session registry, container lifecycle proxies. `__init__.py` exposes `app` + the route/handler/broadcast/publisher code; the outbound WS-event schema lives in the `ws_schema.py` submodule. |
 | `loop.py` | `AgentLoop` — turns a UI request into one provider Computer Use run. Owns step recording, stuck-agent detection, safety relay, and the `on_step` / `on_log` / `on_screenshot` callbacks. |
 | `executor.py` | `ActionExecutor` protocol, `DesktopExecutor` HTTP client, `CUActionResult`, `SafetyDecision`, key allowlist, Gemini coordinate denormalization, shared agent-service connection pool. |
 | `files.py` | Provider-aware preparation of uploaded files: OpenAI vector store creation, Anthropic Files API uploads, Gemini rejection. |
@@ -425,8 +425,12 @@ replay.
 
 ### Anthropic engine — `backend/engine/claude.py`
 
-`ClaudeCUClient` uses `client.beta.messages.create()` (the beta endpoint is
-required for Computer Use).
+`ClaudeCUClient` streams each turn via
+`client.beta.messages.stream(...).get_final_message()` (the beta endpoint is
+required for Computer Use; streaming avoids the SDK's >16K-`max_tokens` HTTP
+timeout guard at the 32K budget). It captures one screenshot per turn —
+bundled into the last action's `/action` response when available (`include_screenshot`),
+otherwise via a single follow-up capture.
 
 - **Tool version routing.** The advertised tool name (`computer_20251124`)
   and the beta header (`computer-use-2025-11-24`) are read from
@@ -862,8 +866,7 @@ tests/
 │   └── test_agent_service.py            # Action allowlist, key-token validation
 ├── integration/
 │   └── test_gemini_live_sdk.py          # Live SDK transport (excluded by default)
-├── test_server.py                       # HTTP endpoint integration tests
-├── test_server_validation.py            # Schema, rate limit, host allowlist, body cap
+├── test_server.py                       # HTTP endpoints + schema/rate-limit/host-allowlist/body-cap
 ├── test_provider_run_contract.py        # ProviderTools / run() public contract
 ├── test_files.py                        # FileStore + provider preparation helpers
 ├── test_executor_split.py               # DesktopExecutor dispatch and key allowlist
@@ -908,7 +911,7 @@ Focused checks:
 
 ```powershell
 python -m pytest tests/test_provider_run_contract.py --tb=short
-python -m pytest tests/test_server_validation.py --tb=short
+python -m pytest tests/test_server.py --tb=short
 python -m pytest tests/engine/test_openai.py tests/engine/test_claude.py tests/engine/test_gemini.py --tb=short
 python -m pytest -m integration --tb=short                # opt-in live tests
 ```
