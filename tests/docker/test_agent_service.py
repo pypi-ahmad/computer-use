@@ -57,8 +57,8 @@ class TestEngineActionSet:
     ``_ENGINE_ACTIONS``) or the gate drifted from the engine."""
 
     EXPECTED = frozenset({
-        "click", "double_click", "right_click", "middle_click", "hover",
-        "type", "hotkey", "key", "keydown", "keyup",
+        "click", "double_click", "triple_click", "right_click", "middle_click", "hover",
+        "type", "type_text_at", "hotkey", "key", "keydown", "keyup",
         "scroll", "left_mouse_down", "left_mouse_up", "drag",
         "open_url",
         # ``zoom`` is a ``computer_20251124``-era action (Opus 4.7):
@@ -532,3 +532,55 @@ class TestDockerManagerSecurity:
         assert "--memory=4g" in source
         assert "--cpus=2" in source
 
+
+
+class TestInContainerAliasContract:
+    """T2 — lock the B3 fix: in-container resolve_action must be the real
+    registry function, not the identity fallback that a broken import installs.
+    This test was RED before the import fix (resolve_action('press') == 'press')
+    and is GREEN after (-> 'key')."""
+
+    def test_resolve_action_is_registry_function(self, agent_service):
+        import backend.models.registry as registry
+        assert agent_service.resolve_action is registry.resolve_action
+
+    def test_aliases_resolve_to_canonical(self, agent_service):
+        assert agent_service.resolve_action("press") == "key"
+        assert agent_service.resolve_action("left_click") == "click"
+        assert agent_service.resolve_action("navigate") == "open_url"
+
+
+class TestScrollMappingAndMagnitude:
+    """WS3 — 4-way wheel mapping + magnitude→repeat (previously every
+    non-'up' direction scrolled DOWN, and magnitude was dropped)."""
+
+    def test_scroll_directions_map_to_correct_buttons(self, agent_service, monkeypatch):
+        calls = []
+        monkeypatch.setattr(agent_service, "_xdo", lambda args: calls.append(args) or "")
+        for direction, btn in (("up", "4"), ("down", "5"), ("left", "6"), ("right", "7")):
+            calls.clear()
+            agent_service._xdo_scroll(100, 200, direction, 600)
+            click = [c for c in calls if c and c[0] == "click"][0]
+            assert click[-1] == btn, f"{direction} -> {click[-1]} (expected {btn})"
+
+    def test_magnitude_derives_repeat(self, agent_service, monkeypatch):
+        calls = []
+        monkeypatch.setattr(agent_service, "_xdo", lambda args: calls.append(args) or "")
+        agent_service._xdo_scroll(0, 0, "up", 600)
+        click = [c for c in calls if c and c[0] == "click"][0]
+        assert click[click.index("--repeat") + 1] == "3"  # round(600/200)
+        calls.clear()
+        agent_service._xdo_scroll(0, 0, "up", None)  # legacy fallback
+        click = [c for c in calls if c and c[0] == "click"][0]
+        assert click[click.index("--repeat") + 1] == "5"
+
+
+class TestTripleClick:
+    """Q5 — native triple_click (was emulated as double_click + click)."""
+
+    def test_triple_click_single_native_repeat(self, agent_service, monkeypatch):
+        calls = []
+        monkeypatch.setattr(agent_service, "_xdo", lambda args: calls.append(args) or "")
+        agent_service._xdo_triple_click(10, 20)
+        click = [c for c in calls if c and c[0] == "click"][0]
+        assert click[click.index("--repeat") + 1] == "3"

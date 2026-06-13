@@ -43,7 +43,7 @@ export default function ScreenView({ screenshot, containerRunning, setScreenshot
     <div className="screen-container" style={{ position: 'relative' }}>
       {screenshot && (
         <img
-          src={`data:image/png;base64,${screenshot}`}
+          src={screenshot.startsWith('data:') ? screenshot : `data:image/png;base64,${screenshot}`}
           alt="Agent screen"
           draggable={false}
           style={{

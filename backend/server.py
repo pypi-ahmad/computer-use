@@ -17,6 +17,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.websockets import WebSocketState
 
 from backend.infra.config import config, get_all_key_statuses, resolve_api_key
 from backend.engine import default_openai_reasoning_effort_for_model as _default_openai_reasoning_effort_for_model
@@ -101,6 +102,7 @@ async def _lifespan(_app: FastAPI):
         _active_tasks.clear()
         _active_loops.clear()
         _broadcast_tasks.clear()
+        _ws_send_locks.clear()
         _screenshot_subscribers.clear()
         _screenshot_subscribers_by_session.clear()
         _ws_screenshot_sessions.clear()
@@ -354,6 +356,37 @@ def _ws_token_ok(ws: WebSocket) -> bool:
     return bool(supplied) and _consteq(supplied, _WS_AUTH_TOKEN)
 
 
+def _rest_token_ok(request: Request) -> bool:
+    """Shared-secret gate for state-changing REST endpoints (S4).
+
+    Reuses ``CUA_WS_TOKEN`` (no second secret): main.py's public-bind
+    guardrail already mandates it for non-loopback binds, so the most
+    powerful/billable endpoints (agent start, container, files) are no longer
+    protected by Origin alone. Default-open when the token is unset, preserving
+    loopback dev. Accepts ``?token=`` or the ``X-CUA-Token`` header.
+    """
+    if not _WS_AUTH_TOKEN:
+        return True
+    supplied = request.query_params.get("token", "") or request.headers.get("x-cua-token", "")
+    return bool(supplied) and _consteq(supplied, _WS_AUTH_TOKEN)
+
+
+def _require_rest_auth(request: Request) -> Response:
+    """Guard: ``None`` proceeds, a 401 ``Response`` short-circuits.
+
+    Applied AFTER :func:`_require_origin` so an origin failure still surfaces
+    as 403 first (matching ``/api/screenshot``).
+    """
+    if not _rest_token_ok(request):
+        logger.warning(
+            "Rejected REST %s %s: missing/invalid CUA_WS_TOKEN (ip=%r)",
+            request.method, request.url.path,
+            request.client.host if request.client else "",
+        )
+        return _error_response(401, "Unauthorized")
+    return None  # type: ignore[return-value]
+
+
 # Hosts that may embed or connect to this backend in addition to the CORS
 # origins. ``null`` origins (e.g. the noVNC iframe in a sandboxed context,
 # or an origin-less ``file://`` page) are accepted only when the
@@ -518,6 +551,13 @@ _active_tasks: dict[str, asyncio.Task] = {}
 # avoids mutation-during-iteration when two broadcasts interleave.
 _ws_clients: set[WebSocket] = set()
 
+# B1: one lock per connection. Starlette's WebSocket.send_text does not
+# serialize concurrent callers, so the step/screenshot double-fire plus the
+# screenshot publisher could interleave ASGI sends on the same socket and
+# corrupt frames. All send sites funnel through _send_to_ws, which holds this
+# lock across the single await.
+_ws_send_locks: dict[WebSocket, asyncio.Lock] = {}
+
 # ── P-PUB — shared screenshot publisher ──────────────────────────────
 #
 # Previously every ``/ws`` client spawned its own ``_stream_screenshots``
@@ -612,6 +652,51 @@ _MAX_SESSION_BROADCAST_BACKLOG = max(
 )
 
 
+def _ws_lock(ws: WebSocket) -> asyncio.Lock:
+    """Return (lazily creating) the per-connection send lock."""
+    lock = _ws_send_locks.get(ws)
+    if lock is None:
+        lock = asyncio.Lock()
+        _ws_send_locks[ws] = lock
+    return lock
+
+
+def _ws_is_terminal(ws: WebSocket) -> bool:
+    """True if the socket is known-disconnected (defensive getattr for test doubles)."""
+    return (
+        getattr(ws, "application_state", None) == WebSocketState.DISCONNECTED
+        or getattr(ws, "client_state", None) == WebSocketState.DISCONNECTED
+    )
+
+
+async def _send_to_ws(ws: WebSocket, msg: str) -> str:
+    """Serialized single-frame send. Returns 'ok' | 'transient' | 'terminal'.
+
+    Holds the per-connection lock across the await so concurrent writers can't
+    interleave on the wire (B1). Distinguishes a terminal disconnect (caller
+    evicts) from a transient send error (caller skips and keeps the client) so
+    a momentary hiccup no longer permanently unsubscribes a healthy client (E6).
+    """
+    try:
+        async with _ws_lock(ws):
+            await ws.send_text(msg)
+        return "ok"
+    except WebSocketDisconnect:
+        return "terminal"
+    except RuntimeError as exc:
+        # Starlette raises RuntimeError("... after sending 'websocket.close' ...")
+        # / "response already completed" once the socket is gone.
+        if "close" in str(exc).lower() or "complete" in str(exc).lower() or _ws_is_terminal(ws):
+            return "terminal"
+        logger.debug("Transient WS send error (kept client): %s", exc)
+        return "transient"
+    except Exception as exc:  # noqa: BLE001 — classify, don't crash the fan-out
+        if _ws_is_terminal(ws):
+            return "terminal"
+        logger.debug("Transient WS send error (kept client): %s", exc)
+        return "transient"
+
+
 async def _broadcast(event: str, data: dict) -> None:
     """Send a JSON message to all connected WebSocket clients."""
     # Validate against backend/ws_schema.py so a rename / missing field
@@ -622,16 +707,19 @@ async def _broadcast(event: str, data: dict) -> None:
     if err:
         logger.warning("WS event %s failed schema validation: %s", event, err)
     msg = json.dumps({"event": event, **data})
-    stale: list[WebSocket] = []
-    # Snapshot so concurrent broadcasts don't observe mutation.
-    for ws in list(_ws_clients):
-        try:
-            await ws.send_text(msg)
-        except Exception:
-            stale.append(ws)
-    for ws in stale:
-        _unsubscribe_screenshots(ws)
-        _ws_clients.discard(ws)
+    # P10: fan out concurrently (snapshot so concurrent broadcasts don't
+    # observe mutation). Per-connection locks inside _send_to_ws still serialize
+    # each socket's own frames; only a 'terminal' result evicts (E6).
+    clients = list(_ws_clients)
+    results = await asyncio.gather(
+        *(_send_to_ws(ws, msg) for ws in clients),
+        return_exceptions=True,
+    )
+    for ws, result in zip(clients, results):
+        if result == "terminal" or isinstance(result, Exception):
+            _unsubscribe_screenshots(ws)
+            _ws_clients.discard(ws)
+            _ws_send_locks.pop(ws, None)
 
 
 def _schedule_broadcast(event: str, data: dict, *, session_id: str | None = None) -> None:
@@ -779,6 +867,9 @@ async def set_agent_mode(body: dict, request: Request):
     forbidden = _require_origin(request)
     if forbidden is not None:
         return forbidden
+    unauth = _require_rest_auth(request)
+    if unauth is not None:
+        return unauth
     mode = body.get("mode", "desktop")
     if mode != "desktop":
         return _error_response(400, "Browser mode is no longer supported. Use mode='desktop'.")
@@ -800,6 +891,9 @@ async def api_start_container(request: Request):
     forbidden = _require_origin(request)
     if forbidden is not None:
         return forbidden
+    unauth = _require_rest_auth(request)
+    if unauth is not None:
+        return unauth
     success = await start_container()
     return {"success": success}
 
@@ -810,6 +904,9 @@ async def api_stop_container(request: Request):
     forbidden = _require_origin(request)
     if forbidden is not None:
         return forbidden
+    unauth = _require_rest_auth(request)
+    if unauth is not None:
+        return unauth
     for sid in list(_active_tasks.keys()):
         await _stop_agent(sid)
     success = await stop_container()
@@ -822,6 +919,9 @@ async def api_build_image(request: Request):
     forbidden = _require_origin(request)
     if forbidden is not None:
         return forbidden
+    unauth = _require_rest_auth(request)
+    if unauth is not None:
+        return unauth
     success = await build_image()
     return {"success": success}
 
@@ -857,11 +957,9 @@ async def api_screenshot(request: Request):
     """
     if not _rest_origin_ok(request):
         return _error_response(403, "Forbidden")
-    if _WS_AUTH_TOKEN:
-        supplied = request.query_params.get("token", "") or \
-            request.headers.get("x-cua-token", "")
-        if not supplied or not _consteq(supplied, _WS_AUTH_TOKEN):
-            return _error_response(401, "Unauthorized")
+    unauth = _require_rest_auth(request)
+    if unauth is not None:
+        return unauth
     try:
         b64 = await capture_screenshot()
         return {"screenshot": b64}
@@ -891,6 +989,9 @@ async def api_upload_file(request: Request):
     forbidden = _require_origin(request)
     if forbidden is not None:
         return forbidden
+    unauth = _require_rest_auth(request)
+    if unauth is not None:
+        return unauth
 
     # Rate-limit uploads per IP using the same bucket as agent/start
     # so a script can't burn through disk by hammering the endpoint.
@@ -947,6 +1048,9 @@ async def api_delete_file(file_id: str, request: Request):
     forbidden = _require_origin(request)
     if forbidden is not None:
         return forbidden
+    unauth = _require_rest_auth(request)
+    if unauth is not None:
+        return unauth
     ok = await file_registry.delete_file(file_id)
     if not ok:
         return _error_response(404, f"file_id not found: {file_id}")
@@ -961,6 +1065,9 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
     forbidden = _require_origin(request)
     if forbidden is not None:
         return forbidden
+    unauth = _require_rest_auth(request)
+    if unauth is not None:
+        return unauth
 
     # ── Rate limit (per-IP) ─────────────────────────────────
     if not _agent_start_limiter.allow(_client_ip(request)):
@@ -1127,6 +1234,9 @@ async def api_stop_agent(session_id: str, request: Request):
     forbidden = _require_origin(request)
     if forbidden is not None:
         return forbidden
+    unauth = _require_rest_auth(request)
+    if unauth is not None:
+        return unauth
     if not _is_valid_uuid(session_id):
         return _error_response(400, "Invalid session_id")
     return await _stop_agent(session_id)
@@ -1185,6 +1295,10 @@ class SafetyConfirmRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     session_id: str
     confirm: bool = False
+    # S7: per-prompt nonce (broadcast in the safety_confirmation WS payload).
+    # Required to resolve a prompt, so an unrelated caller can't confirm/deny
+    # another session's safety gate.
+    nonce: str = ""
 
 
 class ValidateKeyRequest(BaseModel):
@@ -1203,6 +1317,9 @@ async def api_validate_key(req: ValidateKeyRequest, request: Request):
     forbidden = _require_origin(request)
     if forbidden is not None:
         return forbidden
+    unauth = _require_rest_auth(request)
+    if unauth is not None:
+        return unauth
     if not _validate_key_limiter.allow(_client_ip(request)):
         return _error_response(429, "Rate limit exceeded — max 20 validations per minute")
 
@@ -1264,14 +1381,24 @@ async def api_agent_safety_confirm(req: SafetyConfirmRequest, request: Request):
     forbidden = _require_origin(request)
     if forbidden is not None:
         return forbidden
+    unauth = _require_rest_auth(request)
+    if unauth is not None:
+        return unauth
     sid = req.session_id
     if not _is_valid_uuid(sid):
         return _error_response(400, "Invalid session_id")
     if sid not in _active_loops:
         return _error_response(404, "Session not found")
 
+    # S7: only the holder of the per-prompt nonce may resolve this prompt.
+    if not safety_registry.verify_nonce(sid, req.nonce):
+        logger.warning("AUDIT safety_confirm REJECTED — bad nonce session_id=%s", sid)
+        return _error_response(403, "Invalid or missing confirmation nonce")
+
     safety_registry.decisions[sid] = req.confirm
-    safety_registry.get_or_create_event(sid).set()
+    # set_decision only signals an already-armed event (never resurrects one
+    # the loop isn't awaiting). verify_nonce above already guarantees armed.
+    safety_registry.set_decision(sid)
 
     logger.info("AUDIT safety_confirm — session_id=%s confirm=%s", sid, req.confirm)
     return {"session_id": sid, "confirmed": req.confirm}
@@ -1453,7 +1580,7 @@ async def websocket_endpoint(ws: WebSocket):
                 msg = json.loads(data)
                 mtype = msg.get("type")
                 if mtype == "ping":
-                    await ws.send_text(json.dumps({"event": "pong"}))
+                    await _send_to_ws(ws, json.dumps({"event": "pong"}))
                 elif mtype == "screenshot_mode":
                     # P-PUB — client tells us whether it currently
                     # needs the fallback screenshot stream. ``on`` /
@@ -1480,6 +1607,32 @@ async def websocket_endpoint(ws: WebSocket):
         _unsubscribe_screenshots(ws)
         if ws in _ws_clients:
             _ws_clients.discard(ws)
+        _ws_send_locks.pop(ws, None)
+
+
+def _transcode_preview_frame(png_b64: str) -> tuple[str, str]:
+    """Downscale + JPEG-transcode a PNG preview frame. Returns ``(b64, format)``.
+
+    P4: the live preview fans a full-resolution PNG (often 300KB–1MB) to every
+    subscriber. The model-fidelity path uses its own capture, so the preview
+    can be lossy. Falls back to the original PNG on any transcode error.
+    """
+    try:
+        import io
+        from PIL import Image
+        raw = base64.b64decode(png_b64)
+        img = Image.open(io.BytesIO(raw)).convert("RGB")
+        max_edge = config.preview_max_edge
+        w, h = img.size
+        longest = max(w, h)
+        if longest > max_edge:
+            ratio = max_edge / longest
+            img = img.resize((max(1, int(w * ratio)), max(1, int(h * ratio))))
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=config.preview_jpeg_quality)
+        return base64.b64encode(buf.getvalue()).decode("ascii"), "jpeg"
+    except Exception:
+        return png_b64, "png"
 
 
 async def _screenshot_publisher_loop():
@@ -1510,6 +1663,10 @@ async def _screenshot_publisher_loop():
     error_reported = False
     last_hash: str | None = _last_screenshot_frame[1] if _last_screenshot_frame else None
     logger.info("Screenshot publisher started (cadence=%.2fs)", config.ws_screenshot_interval)
+    # P4: exponential backoff on consecutive capture failures (was a flat 2s
+    # busy-retry that hammered a down container forever).
+    _backoff_base = 2.0
+    backoff = _backoff_base
     try:
         while True:
             try:
@@ -1532,6 +1689,7 @@ async def _screenshot_publisher_loop():
                 _screenshot_capture_count += 1
                 auth_reported = False
                 error_reported = False
+                backoff = _backoff_base  # reset on a successful capture
 
                 try:
                     frame_hash = hashlib.blake2b(
@@ -1551,16 +1709,25 @@ async def _screenshot_publisher_loop():
                     continue
                 last_hash = frame_hash
 
-                msg = json.dumps({"event": "screenshot_stream", "screenshot": b64})
-                stale: list[WebSocket] = []
-                for ws in list(_screenshot_subscribers):
-                    try:
-                        await ws.send_text(msg)
-                    except Exception:
-                        stale.append(ws)
-                for ws in stale:
-                    _unsubscribe_screenshots(ws)
-                    _ws_clients.discard(ws)
+                # P4: downscale + JPEG-transcode the preview frame off the loop.
+                preview_b64, preview_fmt = await asyncio.to_thread(_transcode_preview_frame, b64)
+                msg = json.dumps({
+                    "event": "screenshot_stream",
+                    "screenshot": preview_b64,
+                    "format": preview_fmt,
+                })
+                # P10: fan out concurrently; per-connection locks (inside
+                # _send_to_ws) still serialize each socket's own frames.
+                subscribers = list(_screenshot_subscribers)
+                results = await asyncio.gather(
+                    *(_send_to_ws(ws, msg) for ws in subscribers),
+                    return_exceptions=True,
+                )
+                for ws, result in zip(subscribers, results):
+                    if result == "terminal" or isinstance(result, Exception):
+                        _unsubscribe_screenshots(ws)
+                        _ws_clients.discard(ws)
+                        _ws_send_locks.pop(ws, None)
             except asyncio.CancelledError:
                 raise
             except httpx.HTTPStatusError as exc:
@@ -1579,16 +1746,15 @@ async def _screenshot_publisher_loop():
                                    "Restart the backend to pick up the current container token.",
                     })
                     for ws in list(_screenshot_subscribers):
-                        try:
-                            await ws.send_text(notice)
-                        except Exception:
-                            pass
-                await asyncio.sleep(2)
+                        await _send_to_ws(ws, notice)  # best-effort; serialized
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, config.ws_screenshot_backoff_cap)
             except Exception as exc:
                 if not error_reported:
                     error_reported = True
                     logger.warning("Screenshot publisher error: %s", exc)
-                await asyncio.sleep(2)
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, config.ws_screenshot_backoff_cap)
     except asyncio.CancelledError:
         logger.info("Screenshot publisher stopped")
         raise
@@ -1652,8 +1818,10 @@ def _subscribe_screenshots(ws: WebSocket, session_id: str) -> None:
     if _last_screenshot_frame is not None:
         b64, _ = _last_screenshot_frame
         try:
+            # Route through _send_to_ws so this replay frame can't interleave
+            # with a concurrent publisher send to the same socket.
             asyncio.get_running_loop().create_task(
-                ws.send_text(json.dumps({"event": "screenshot_stream", "screenshot": b64}))
+                _send_to_ws(ws, json.dumps({"event": "screenshot_stream", "screenshot": b64}))
             )
         except RuntimeError:
             pass

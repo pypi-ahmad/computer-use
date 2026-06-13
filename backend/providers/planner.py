@@ -165,7 +165,10 @@ async def _anthropic_web_plan(
             if original_search is not None:
                 setattr(client, "_use_builtin_search", original_search)
 
-    build_tool = getattr(client, "_build_web_search_tool", None)
+    # D6: use the public protocol method (was a reach into a private one). The
+    # tool it returns carries the model-appropriate version
+    # (web_search_20260209 for the 4.6+ family), resolved inside the client.
+    build_tool = getattr(client, "build_web_search_tool", None)
     if build_tool is None:
         return None
 
