@@ -12,14 +12,23 @@ services:
       - SCREEN_DEPTH=24
       - AGENT_SERVICE_PORT=9222
       - AGENT_MODE=desktop
-      - CUA_ALLOW_NOPW=1
-      # - VNC_PASSWORD=changeme   # uncomment to require VNC auth
+      # S1 — shared secret between backend and the in-container agent service.
+      # REQUIRED: compose refuses to start without it (mirrors the agent
+      # service's own fail-closed gate). Set in .env.
+      - AGENT_SERVICE_TOKEN=${AGENT_SERVICE_TOKEN:?set AGENT_SERVICE_TOKEN in .env}
+      # S3 — VNC password is REQUIRED by default. For an explicitly-insecure
+      # local debug session set CUA_ALLOW_NOPW=1 in .env instead.
+      - VNC_PASSWORD=${VNC_PASSWORD:?set VNC_PASSWORD in .env (or set CUA_ALLOW_NOPW=1 for insecure local debug)}
     ports:
       - "127.0.0.1:5900:5900"
       - "127.0.0.1:6080:6080"
       - "127.0.0.1:9222:9222"
     shm_size: "2gb"
     init: true
+    # Enforce the PID cap on plain ``docker compose up`` too — deploy.resources
+    # .limits.pids (below) only applies under Swarm. Kept equal to the
+    # docker.py --pids-limit and the drift test.
+    pids_limit: 256
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true

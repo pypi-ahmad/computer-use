@@ -180,8 +180,9 @@ async def test_anthropic_planner_probes_search_even_when_cu_client_is_computer_o
             assert self._use_builtin_search is True
             self.probed = True
 
-        def _build_web_search_tool(self, max_uses=None):
-            return {"type": "web_search_20250305", "name": "web_search", "max_uses": max_uses}
+        def build_web_search_tool(self, max_uses=None):
+            # D6: planner now resolves the PUBLIC protocol method.
+            return {"type": "web_search_20260209", "name": "web_search", "max_uses": max_uses}
 
     client = FakeAnthropicClient()
     brief = await create_web_execution_brief(

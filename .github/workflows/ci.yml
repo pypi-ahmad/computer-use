@@ -53,8 +53,32 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest pytest-asyncio pytest-cov
-      - name: Run tests
-        run: python -m pytest -p no:warnings --tb=short
+      - name: Run tests (with coverage gate)
+        # T5: coverage is now measured AND gated (pytest-cov was installed but
+        # never used). Floor set conservatively below the current ~66% so
+        # matrix jitter doesn't flake; ratchet upward over time.
+        run: >-
+          python -m pytest -p no:warnings --tb=short
+          --cov=backend --cov-report=term-missing --cov-fail-under=60
+
+  evals:
+    name: Evals (runtime boundary, Python 3.11)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio
+      - name: Run evals
+        # addopts overridden to '' so the suite-default ``-m "not integration"``
+        # marker filter doesn't deselect everything here.
+        run: python -m pytest -p no:warnings --tb=short -o addopts='' evals/
 
   integration-gemini-live-sdk:
     name: Gemini live SDK integration (Python 3.11)
@@ -123,6 +147,9 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install dependencies
         run: npm ci || npm install
+      - name: Test (Vitest)
+        # T1: hard gate (no `|| true`). Fails fast on a broken unit test.
+        run: npm run test:run
       - name: Build
         run: npm run build
       - name: npm audit (advisory)

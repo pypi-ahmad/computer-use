@@ -154,7 +154,7 @@ class TestActionsArray:
             client = OpenAICUClient(api_key="k", model="gpt-5.4")
 
             # Stub per-action dispatch so we don't need a real executor.
-            async def fake_exec(action, _executor):
+            async def fake_exec(action, _executor, **_kwargs):
                 dispatched.append(getattr(action, "type", "?"))
                 return CUActionResult(name=getattr(action, "type", "?"))
 
@@ -215,7 +215,7 @@ class TestActionsArray:
             AA.return_value = FakeClient()
             client = OpenAICUClient(api_key="k", model="gpt-5.4")
 
-            async def fake_exec(action, _executor):
+            async def fake_exec(action, _executor, **_kwargs):
                 dispatched.append(getattr(action, "type", "?"))
                 return CUActionResult(name=getattr(action, "type", "?"))
 
@@ -264,7 +264,7 @@ class TestActionsArray:
             AA.return_value = FakeClient()
             client = OpenAICUClient(api_key="k", model="gpt-5.4")
 
-            async def fake_exec(action, _executor):
+            async def fake_exec(action, _executor, **_kwargs):
                 return CUActionResult(name=getattr(action, "type", "?"))
 
             monkeypatch.setattr(client, "_execute_openai_action", fake_exec)
@@ -324,7 +324,7 @@ class TestActionsArray:
             AA.return_value = FakeClient()
             client = OpenAICUClient(api_key="k", model="gpt-5.4")
 
-            async def fake_exec(action, _executor):
+            async def fake_exec(action, _executor, **_kwargs):
                 return CUActionResult(name=getattr(action, "type", "?"))
 
             monkeypatch.setattr(client, "_execute_openai_action", fake_exec)
@@ -377,7 +377,7 @@ class TestActionsArray:
             AA.return_value = FakeClient()
             client = OpenAICUClient(api_key="k", model="gpt-5.4")
 
-            async def fake_exec(action, _executor):
+            async def fake_exec(action, _executor, **_kwargs):
                 return CUActionResult(name=getattr(action, "type", "?"))
 
             monkeypatch.setattr(client, "_execute_openai_action", fake_exec)

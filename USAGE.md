@@ -62,6 +62,14 @@ to a network you don't trust without first reading
 [Configuration Reference](#configuration-reference) and the security
 sections of `TECHNICAL.md`.
 
+> **WS/VNC token transport (U10).** When `CUA_WS_TOKEN` is set, the frontend
+> passes it in the URL query string (`?token=…`) for `/ws` and the noVNC proxy.
+> This is acceptable **only on loopback** — query strings leak via proxy/access
+> logs and browser history. For any non-loopback exposure, terminate at a
+> reverse proxy that injects the secret via the `Sec-WebSocket-Protocol`
+> subprotocol or an `Authorization` header (and never logs the query string)
+> rather than relying on the query-string token.
+
 ## Installation
 
 Two paths are supported: a one-command bootstrap and a manual install.
@@ -258,6 +266,7 @@ Currently shipped Computer-Use-capable models:
 |---|---|---|---|
 | OpenAI | `gpt-5.5` | GPT-5.5 | Default OpenAI CU model. |
 | OpenAI | `gpt-5.4` | GPT-5.4 | Original CU release. |
+| Anthropic | `claude-opus-4-8` | Claude Opus 4.8 | `computer_20251124` tool, beta endpoint required; current GA Opus. |
 | Anthropic | `claude-opus-4-7` | Claude Opus 4.7 | `computer_20251124` tool, beta endpoint required. |
 | Anthropic | `claude-sonnet-4-6` | Claude Sonnet 4.6 | `computer_20251124` tool, beta endpoint required. |
 | Google | `gemini-3-flash-preview` | Gemini 3 Flash Preview | Only Gemini CU SKU exposed by this app. |
@@ -303,7 +312,7 @@ advertised tool list is computer-only; nothing else is exposed. When
 | Provider | Planning tool | Execution tool |
 |---|---|---|
 | OpenAI | `web_search` (Responses API) | `computer` |
-| Anthropic | `web_search_20250305` | `computer_20251124` |
+| Anthropic | `web_search_20260209` | `computer_20251124` |
 | Google | `google_search` grounding | `computer_use` |
 
 Turning Web Search on costs one extra provider request (the planning
@@ -788,7 +797,7 @@ that launched the backend.
 ### "Web Search is not enabled for this organization" (Anthropic)
 
 The org-level probe found that your Anthropic API key is not entitled
-to use `web_search_20250305`. Two options:
+to use `web_search_20260209`. Two options:
 
 - Disable Web Search for the session.
 - Enable it on the Anthropic console for your org. After confirming, set
@@ -1086,7 +1095,7 @@ Each provider has small idiosyncrasies operators benefit from knowing.
   this beta enabled, the run fails with a `403`.
 - **Web search probe.** The first session per API key per 24 hours that
   enables Web Search runs a tiny probe call to confirm the org has
-  access to `web_search_20250305`. Cached for 24 hours after success.
+  access to `web_search_20260209`. Cached for 24 hours after success.
 - **Document blocks.** PDFs and TXTs are uploaded as Anthropic Files
   and inlined as `document` content blocks. Markdown and DOCX are
   inlined as plain text. There is no provider-side vector store.

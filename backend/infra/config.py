@@ -76,8 +76,19 @@ class Config:
 
     # Engine action timings (seconds)
     ui_settle_delay: float = 0.3
+    # P9 — adaptive post-action settle: navigations/typing need more time for
+    # the UI to repaint; pure mouse moves/hover need very little.
+    ui_settle_delay_min: float = 0.05
+    ui_settle_delay_nav: float = 0.6
     screenshot_settle_delay: float = 0.12
     post_action_screenshot_delay: float = 5.0
+
+    # P4 — live preview stream: downscale + JPEG-transcode the fan-out frame
+    # (the model fidelity path uses its own capture) and back off on repeated
+    # capture failures instead of a flat 2s busy-retry.
+    preview_max_edge: int = 960
+    preview_jpeg_quality: int = 60
+    ws_screenshot_backoff_cap: float = 30.0
 
     # Container readiness (D-READY) — total budget for the in-container
     # agent service's ``/health`` endpoint to respond with 200 after
@@ -141,6 +152,21 @@ class Config:
             ),
             ui_settle_delay=_clamp_float(
                 "CUA_UI_SETTLE_DELAY", cls.ui_settle_delay, lo=0.0, hi=30.0,
+            ),
+            ui_settle_delay_min=_clamp_float(
+                "CUA_UI_SETTLE_DELAY_MIN", cls.ui_settle_delay_min, lo=0.0, hi=5.0,
+            ),
+            ui_settle_delay_nav=_clamp_float(
+                "CUA_UI_SETTLE_DELAY_NAV", cls.ui_settle_delay_nav, lo=0.0, hi=30.0,
+            ),
+            preview_max_edge=_clamp_int(
+                "CUA_PREVIEW_MAX_EDGE", cls.preview_max_edge, lo=240, hi=4096,
+            ),
+            preview_jpeg_quality=_clamp_int(
+                "CUA_PREVIEW_JPEG_QUALITY", cls.preview_jpeg_quality, lo=10, hi=95,
+            ),
+            ws_screenshot_backoff_cap=_clamp_float(
+                "CUA_WS_SCREENSHOT_BACKOFF_CAP", cls.ws_screenshot_backoff_cap, lo=1.0, hi=120.0,
             ),
             screenshot_settle_delay=_clamp_float(
                 "CUA_SCREENSHOT_SETTLE_DELAY", cls.screenshot_settle_delay, lo=0.0, hi=30.0,

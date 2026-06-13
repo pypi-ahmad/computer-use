@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -40,6 +41,24 @@ export default defineConfig(({ mode }) => {
         target: httpTarget,
         changeOrigin: true,
       },
+    },
+  },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: ['./src/test/setup.js'],
+    css: false,
+    restoreMocks: true,
+    clearMocks: true,
+    include: ['src/**/*.{test,spec}.{js,jsx}'],
+    coverage: {
+      provider: 'v8',
+      include: [
+        'src/components/CompletionBanner.jsx',
+        'src/hooks/useWebSocket.js',
+        'src/hooks/useSessionController.js',
+      ],
+      reporter: ['text', 'lcov'],
     },
   },
   }

@@ -10,6 +10,12 @@ export default class ErrorBoundary extends Component {
     return { hasError: true }
   }
 
+  componentDidCatch(error, info) {
+    // U7: surface swallowed render errors instead of silently showing the
+    // fallback. (Forward to a telemetry sink here if/when one exists.)
+    console.error('[ErrorBoundary] render error', error, info?.componentStack)
+  }
+
   render() {
     if (this.state.hasError) {
       return (

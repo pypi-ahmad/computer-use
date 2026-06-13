@@ -128,10 +128,15 @@ function GeminiGroundingResult({ text, grounding }) {
       {renderedContent && (
         <div className="completion-grounding-card">
           <div className="completion-grounding-label">Google Search Suggestions</div>
+          {/* U1: strictest empty sandbox — no scripts, no popups, no
+              popup-escape. The provider-supplied HTML renders inert, so an
+              anchor/meta-refresh can no longer open un-sandboxed windows.
+              (Kept as an iframe rather than removed to preserve Google's
+              rendered Search-Suggestions widget for grounding compliance.) */}
           <iframe
             className="completion-grounding-frame"
             title="Google Search suggestions"
-            sandbox="allow-popups allow-popups-to-escape-sandbox"
+            sandbox=""
             referrerPolicy="no-referrer"
             srcDoc={renderedContent}
           />

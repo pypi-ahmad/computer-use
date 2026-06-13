@@ -43,6 +43,27 @@ _readiness_state: dict[str, str | None] = {
 }
 
 
+# S2: single source of truth for the sandbox hardening flags. The path users
+# actually hit (POST /api/agent/start → docker run) previously carried only
+# shm/no-new-privileges/memory/cpus, while docker-compose.yml carried the full
+# set — so the two profiles drifted. Both now derive from the same posture
+# (a drift test asserts docker-compose.yml matches these values). Note: docker
+# ``--tmpfs`` syntax differs from compose ``tmpfs:``; the numeric values
+# (size/mode, nofile soft:hard, pids) are kept byte-for-byte identical.
+_CONTAINER_HARDENING_ARGS: list[str] = [
+    "--security-opt=no-new-privileges:true",
+    "--cap-drop=ALL",
+    "--pids-limit=256",
+    "--ulimit", "nofile=1024:2048",
+    "--memory=4g",
+    "--cpus=2",
+    "--shm-size=2g",
+    "--tmpfs", "/tmp:rw,size=512m,mode=1777",
+    "--tmpfs", "/var/run:rw,size=16m,mode=1777",
+    "--init",
+]
+
+
 def _ensure_agent_token() -> str:
     """Return (and lazily generate) the shared secret used between host and
     the in-container agent service. The token is stored in the process
@@ -195,10 +216,7 @@ async def _start_container_locked(container: str) -> bool:
         "-p", "127.0.0.1:5900:5900",
         "-p", "127.0.0.1:6080:6080",
         "-p", f"127.0.0.1:{config.agent_service_port}:{config.agent_service_port}",
-        "--shm-size=2g",
-        "--security-opt=no-new-privileges:true",
-        "--memory=4g",
-        "--cpus=2",
+        *_CONTAINER_HARDENING_ARGS,
         config.container_image,
     ]
     logger.info("Starting container: %s", container)

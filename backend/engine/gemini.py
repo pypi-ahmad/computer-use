@@ -25,6 +25,7 @@ from backend.engine import (
     TurnEvent,
     _call_with_retry,
     _invoke_safety,
+    _to_plain_dict,
     validate_builtin_search_config,
     DEFAULT_TURN_LIMIT,
     _IMAGE_PNG,
@@ -51,28 +52,8 @@ def _gemini_final_needs_computer_use(goal: str, final_text: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _to_plain_dict(value: Any) -> dict[str, Any]:
-    def _to_plain_value(item: Any) -> Any:
-        if isinstance(item, dict):
-            return {key: _to_plain_value(val) for key, val in item.items()}
-        if isinstance(item, list):
-            return [_to_plain_value(val) for val in item]
-        if isinstance(item, tuple):
-            return [_to_plain_value(val) for val in item]
-        if hasattr(item, "model_dump"):
-            return _to_plain_value(item.model_dump())
-        if hasattr(item, "dict"):
-            return _to_plain_value(item.dict())
-        if hasattr(item, "__dict__"):
-            return {
-                key: _to_plain_value(val)
-                for key, val in vars(item).items()
-                if not key.startswith("_")
-            }
-        return item
-
-    plain = _to_plain_value(value)
-    return plain if isinstance(plain, dict) else {}
+# Q2: ``_to_plain_dict`` was duplicated here verbatim; it now lives once in
+# backend.engine and is imported above.
 
 
 def _extract_gemini_grounding_payload(response: Any) -> dict[str, Any] | None:
@@ -630,8 +611,11 @@ class GeminiCUClient:
             results: list[CUActionResult] = []
             terminated = False
 
-            for fc in function_calls:
+            for idx, fc in enumerate(function_calls):
                 args = dict(fc.args) if fc.args else {}
+                # google-genai FunctionCall has no reliable id for CU, so
+                # synthesize a deterministic per-turn composite as the wire
+                # idempotency key (set after the safety pop, below).
 
                 # Extract safety_decision BEFORE passing args to executor.
                 # This ensures the acknowledgement is tracked regardless of
@@ -650,6 +634,7 @@ class GeminiCUClient:
                             break
                         safety_confirmed = True
 
+                args["action_id"] = f"{turn + 1}:{idx}"
                 result = await executor.execute(fc.name, args)
                 # Stamp safety metadata so FunctionResponse includes
                 # safety_acknowledgement when the user confirmed.

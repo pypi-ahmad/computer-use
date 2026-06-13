@@ -199,6 +199,21 @@ from typing import Any, Callable, Iterable, Optional
 
 logger = logging.getLogger(__name__)
 
+# Resolve the canonical scrubber once at import with a guarded identity
+# fallback. The previous per-call lazy import in ``_redact`` had no fallback,
+# so an import failure mid-trace would raise inside the hot path; importing
+# ``backend.engine`` here is safe (no engine→observability cycle).
+try:
+    from backend.engine import scrub_secrets as _scrub_secrets
+except Exception:  # pragma: no cover — defensive: degrade redaction, don't crash
+    logger.warning(
+        "backend.engine.scrub_secrets unavailable; trace redaction degraded to identity",
+        exc_info=True,
+    )
+
+    def _scrub_secrets(text):
+        return text
+
 
 # ---------------------------------------------------------------------------
 # Event model
@@ -297,12 +312,6 @@ def _redact(payload: Any, *, _depth: int = 0) -> Any:
     """
     if _depth > 8:
         return "<max-depth>"
-    # Import lazily — keeps import-time cycles out of the way and lets
-    # tests stub ``backend.engine`` without paying for its transitive
-    # dependencies (httpx, anthropic SDK, etc.) just to exercise the
-    # recorder.
-    from backend.engine import scrub_secrets
-
     if isinstance(payload, dict):
         out: dict[str, Any] = {}
         for k, v in payload.items():
@@ -316,7 +325,7 @@ def _redact(payload: Any, *, _depth: int = 0) -> Any:
     if isinstance(payload, str):
         # Cap serialized free-text fields so a runaway model dump can't
         # inflate trace files beyond a reasonable size.
-        scrubbed = scrub_secrets(payload) or payload
+        scrubbed = _scrub_secrets(payload) or payload
         if len(scrubbed) > 4096:
             return scrubbed[:4096] + f"…<truncated {len(scrubbed) - 4096}>"
         return scrubbed

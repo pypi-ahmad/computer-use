@@ -38,36 +38,55 @@ logger = logging.getLogger(__name__)
 # Helpers
 # ---------------------------------------------------------------------------
 
+def get_model_capabilities(model_id: str, provider: str | None = None) -> dict:
+    """Return the allowed_models.json entry for *model_id* as a plain dict.
+
+    A2: single source of truth for per-model capability metadata
+    (cu_tool_version, cu_betas, high_res, prompt_variant, web_search_tool,
+    reasoning_default). Returns ``{}`` when the model isn't registered.
+    """
+    try:
+        for m in _load_allowed_models_json():
+            if m.get("model_id") == model_id and (provider is None or m.get("provider") == provider):
+                return dict(m)
+    except Exception:
+        pass
+    return {}
+
+
 def _lookup_claude_cu_config(model_id: str) -> tuple[str | None, str | None]:
     """Look up cu_tool_version / cu_betas from allowed_models.json.
 
     Returns (tool_version, beta_flag) or (None, None) if the model is
     absent or does not declare Anthropic computer-use metadata.
     """
-    try:
-        for m in _load_allowed_models_json():
-            if m.get("model_id") == model_id and m.get("provider") == "anthropic":
-                tv = m.get("cu_tool_version")
-                betas = m.get("cu_betas")
-                bf = betas[0] if isinstance(betas, list) and betas else None
-                if tv and bf:
-                    return tv, bf
-    except Exception:
-        pass
+    m = get_model_capabilities(model_id, "anthropic")
+    tv = m.get("cu_tool_version")
+    betas = m.get("cu_betas")
+    bf = betas[0] if isinstance(betas, list) and betas else None
+    if tv and bf:
+        return tv, bf
     return None, None
 
 
-def default_openai_reasoning_effort_for_model(model: str) -> str:
-    """Return the doc-backed OpenAI reasoning default for a model slug.
+def claude_web_search_tool_version(model_id: str) -> str:
+    """Return the registry-declared Anthropic web-search tool version.
 
-    OpenAI's GPT-5.4 model page says ``reasoning.effort`` defaults to
-    ``none``. OpenAI's GPT-5.5 model page and latest-model guide say the
-    default is ``medium``.
+    D3: the 4.6/4.7/4.8 family uses ``web_search_20260209`` (dynamic
+    filtering); falls back to the legacy ``web_search_20250305`` for any
+    model that doesn't declare one.
     """
-    model = str(model or "").lower()
-    if model == "gpt-5.4" or re.match(r"^gpt-5\.4-\d{4}-\d{2}-\d{2}$", model):
-        return "none"
-    return "medium"
+    return get_model_capabilities(model_id, "anthropic").get("web_search_tool") or "web_search_20250305"
+
+
+def default_openai_reasoning_effort_for_model(model: str) -> str:
+    """Return the OpenAI reasoning default for a model slug, from registry metadata.
+
+    D5: sourced from ``reasoning_default`` in allowed_models.json (gpt-5.4 →
+    ``none``, gpt-5.5 → ``medium``) instead of a hardcoded date-regex.
+    """
+    entry = get_model_capabilities(str(model or ""), "openai")
+    return entry.get("reasoning_default") or "medium"
 
 
 def _to_plain_dict(value: Any) -> dict[str, Any]:
@@ -249,16 +268,23 @@ def _collect_transient_error_types() -> tuple[type[BaseException], ...]:
         classes += [_httpx.TimeoutException, _httpx.ConnectError]
     except Exception as exc:
         logger.warning("httpx transient-error classes unavailable: %s", exc)
-    if not classes:  # pragma: no cover
-        logger.error(
-            "No transient-error classes resolved; LLM retries disabled "
-            "(falling back to broad Exception catch)."
-        )
-        classes = [Exception]
+    # Intentionally NO ``[Exception]`` fallback: a broad catch would retry
+    # non-transient 4xx (auth / bad-request) — the exact anti-pattern the
+    # comment above warns against. An empty tuple in ``except ()`` legally
+    # catches nothing, and ``_call_with_retry`` forces a single attempt when
+    # ``_RETRY_DISABLED`` is set, so a degenerate all-imports-failed env fails
+    # fast instead of silently retrying client errors.
     return tuple(classes)
 
 
 _TRANSIENT_ERRORS: tuple[type[BaseException], ...] = _collect_transient_error_types()
+# Startup assertion: if NO vendor transient classes resolved, retries are off.
+_RETRY_DISABLED: bool = not _TRANSIENT_ERRORS
+if _RETRY_DISABLED:  # pragma: no cover — only when all vendor SDK imports fail
+    logger.error(
+        "No transient-error SDK classes resolved at import; LLM retries DISABLED "
+        "(attempts forced to 1). Check anthropic/openai/httpx versions."
+    )
 
 
 async def _call_with_retry(
@@ -276,6 +302,10 @@ async def _call_with_retry(
     underlying HTTP request is re-issued, not replayed.
     """
     import random
+
+    # When no transient classes resolved, run exactly once — never broad-catch.
+    if _RETRY_DISABLED:
+        attempts = 1
 
     last_exc: BaseException | None = None
     for attempt in range(1, attempts + 1):
@@ -317,6 +347,13 @@ _SECRET_PATTERNS: tuple[tuple[str, "_re.Pattern[str]"], ...] = (
     # role/instance/user/etc.) — the prior pattern only matched ``AKIA``.
     ("aws-access", _re.compile(r"(?:AKIA|ASIA|AROA|AIDA|AIPA|ANPA|ANVA|ABIA|ACCA)[0-9A-Z]{16}")),
     ("slack",      _re.compile(r"xox[aboprs]-[A-Za-z0-9\-]{10,}")),
+    # Generic JWT / OAuth access tokens (base64url ``eyJ`` header.payload[.sig]).
+    # Covers GCP/service-account JWTs and any Bearer token the model might echo
+    # from a captured request header. Listed before ``bearer`` so the raw token
+    # is redacted even when it appears bare (no ``Bearer`` prefix).
+    ("jwt",        _re.compile(r"eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+(?:\.[A-Za-z0-9_\-]+)?")),
+    # Generic ``Bearer <token>`` / ``Authorization`` header values.
+    ("bearer",     _re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._\-]{20,}")),
 )
 
 
@@ -342,22 +379,44 @@ _CLAUDE_OPUS_47_MAX_LONG_EDGE = 2576
 _CLAUDE_HIGH_RES_MAX_PIXELS = 3_750_000
 
 
-def _is_opus_47(model_id: str) -> bool:
-    """Return True if *model_id* is a Claude Opus 4.7 variant."""
-    return model_id.startswith("claude-opus-4-7") or model_id.startswith("claude-opus-4.7")
+def _is_modern_opus(model_id: str) -> bool:
+    """True for models using the lean modern-Opus prompt variant (Opus 4.7/4.8).
+
+    D1/A2: registry-driven (``prompt_variant == 'lean_modern_opus'``) so a new
+    Opus SKU is picked up by adding a registry entry — no code change and no
+    string-prefix that silently excludes 4.8.
+    """
+    return get_model_capabilities(model_id, "anthropic").get("prompt_variant") == "lean_modern_opus"
 
 
-# Models that use the higher resolution limit (no downscaling needed
-# at typical screen resolutions). All models on the ``computer_20251124``
-# tool version (Opus 4.7 / Opus 4.6 / Sonnet 4.6) receive real pixel
-# coordinates with the 2576 px long-edge / ~3.75 MP budget per
-# Anthropic's 2025-11-24 computer-use docs. Older models continue on
-# the legacy 1568 px / scale-factor path.
-_CLAUDE_HIGH_RES_MODELS = (
+# Back-compat alias: callers and tests still import ``_is_opus_47``. It now
+# resolves the whole modern-Opus family (4.7 + 4.8) via the registry.
+_is_opus_47 = _is_modern_opus
+
+
+def _registry_high_res_models() -> tuple[str, ...]:
+    """Anthropic model_ids declaring ``high_res: true`` in the registry."""
+    out: list[str] = []
+    try:
+        for m in _load_allowed_models_json():
+            if m.get("provider") == "anthropic" and m.get("high_res") and m.get("model_id"):
+                out.append(m["model_id"])
+    except Exception:
+        pass
+    return tuple(out)
+
+
+# Models that use the higher resolution limit (no downscaling needed at typical
+# screen resolutions): the ``computer_20251124`` family receives real pixel
+# coordinates with the 2576 px long-edge / ~3.75 MP budget. Derived from the
+# registry (so claude-opus-4-8 is included automatically) UNION the legacy
+# literals so nothing regresses for unregistered/dotted ids.
+_CLAUDE_HIGH_RES_MODELS = tuple(dict.fromkeys((
+    *_registry_high_res_models(),
     "claude-opus-4-7", "claude-opus-4.7",
     "claude-opus-4-6", "claude-opus-4.6",
     "claude-sonnet-4-6", "claude-sonnet-4.6",
-)
+)))
 
 
 def _uses_claude_20251124(
@@ -924,6 +983,11 @@ __all__ = [
     "_build_openai_computer_call_output",
     "_sanitize_openai_response_item_for_replay",
     "_lookup_claude_cu_config",
+    "get_model_capabilities",
+    "claude_web_search_tool_version",
+    "_is_modern_opus",
+    "_is_opus_47",
+    "default_openai_reasoning_effort_for_model",
     "_call_with_retry",
     "scrub_secrets",
     "close_shared_executor_clients",

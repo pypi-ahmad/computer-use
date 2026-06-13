@@ -16,6 +16,24 @@ const WS_URL = (() => {
   return WS_TOKEN ? `${base}?token=${encodeURIComponent(WS_TOKEN)}` : base
 })()
 
+/** Max accepted base64 screenshot length (~6 MB encoded) — reject junk/oversized frames. */
+const MAX_SCREENSHOT_CHARS = 8_000_000
+
+/**
+ * U5: lightweight shape/size guard so a malformed or oversized frame can't put
+ * junk (or a huge string) into React state. Permissive by design — only
+ * rejects clearly-malformed payloads.
+ */
+function isPlausibleWsMessage(msg) {
+  if (!msg || typeof msg !== 'object' || typeof msg.event !== 'string') return false
+  if ('screenshot' in msg && (typeof msg.screenshot !== 'string' || msg.screenshot.length > MAX_SCREENSHOT_CHARS)) {
+    return false
+  }
+  if ('log' in msg && (typeof msg.log !== 'object' || msg.log === null)) return false
+  if ('step' in msg && (typeof msg.step !== 'object' || msg.step === null)) return false
+  return true
+}
+
 /**
  * React hook that maintains a persistent WebSocket connection to the backend.
  * Provides real-time agent screenshots, logs, step timeline, and finish events.
@@ -34,6 +52,12 @@ export default function useWebSocket() {
   const reconnectAttempts = useRef(0)
   const screenshotModeRef = useRef('off')
   const screenshotSessionIdRef = useRef(null)
+  // U3: suppress reconnects once the hook has been torn down, so a backoff
+  // timer that fires between close and cleanup can't reopen a dead socket.
+  const closedByUnmountRef = useRef(false)
+  // U4: monotonic client id so LogsPanel can key by identity (logs have no
+  // server id and the sliding window would otherwise churn index keys).
+  const logSeq = useRef(0)
 
   const sendScreenshotMode = useCallback((socket, mode, sessionId) => {
     if (!socket || socket.readyState !== WebSocket.OPEN) return
@@ -54,7 +78,12 @@ export default function useWebSocket() {
   }, [])
 
   const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return
+    // U3: bail if a socket is already OPEN or CONNECTING (StrictMode
+    // mount/unmount/remount would otherwise open a second socket).
+    const rs = wsRef.current?.readyState
+    if (rs === WebSocket.OPEN || rs === WebSocket.CONNECTING) return
+    clearTimeout(reconnectTimer.current)
+    closedByUnmountRef.current = false
 
     const ws = new WebSocket(WS_URL)
     wsRef.current = ws
@@ -75,11 +104,17 @@ export default function useWebSocket() {
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data)
+        if (!isPlausibleWsMessage(msg)) return
 
         switch (msg.event) {
           case 'screenshot':
           case 'screenshot_stream':
-            setLastScreenshot(msg.screenshot)
+            // Guard payload type (avoid setting non-string state) and honor
+            // the preview's image format (the live stream may send JPEG).
+            if (typeof msg.screenshot === 'string') {
+              const fmt = msg.format === 'jpeg' ? 'jpeg' : 'png'
+              setLastScreenshot(`data:image/${fmt};base64,${msg.screenshot}`)
+            }
             break
           case 'log':
             // Check if this log carries a safety_confirmation payload
@@ -87,10 +122,11 @@ export default function useWebSocket() {
               setSafetyPrompt({
                 sessionId: msg.log.data.session_id,
                 explanation: msg.log.data.explanation,
+                nonce: msg.log.data.nonce,
                 timestamp: Date.now(),
               })
             }
-            setLogs((prev) => [...prev.slice(-200), msg.log])
+            setLogs((prev) => [...prev.slice(-200), { ...msg.log, _cid: logSeq.current++ }])
             break
           case 'step':
             setSteps((prev) => [...prev.slice(-500), msg.step])
@@ -113,12 +149,15 @@ export default function useWebSocket() {
       setConnected(false)
       clearInterval(ws._pingInterval)
       ws._pingInterval = null
-      // U2 — exponential backoff with jitter capped at 30s. The jitter
-      // factor (0.5–1.0) prevents synchronized reconnect storms across
-      // multiple tabs/clients when the backend restarts.
+      // U3: don't reconnect after the hook has been unmounted.
+      if (closedByUnmountRef.current) return
+      // Exponential backoff with jitter capped at 30s. The jitter factor
+      // (0.5–1.0) prevents synchronized reconnect storms across multiple
+      // tabs/clients when the backend restarts.
       const attempt = reconnectAttempts.current++
       const base = Math.min(2000 * Math.pow(2, attempt), 30000)
       const delay = base * (0.5 + Math.random() * 0.5)
+      clearTimeout(reconnectTimer.current)
       reconnectTimer.current = setTimeout(connect, delay)
     }
 
@@ -136,6 +175,7 @@ export default function useWebSocket() {
   useEffect(() => {
     connect()
     return () => {
+      closedByUnmountRef.current = true  // U3: suppress reconnect after teardown
       clearTimeout(reconnectTimer.current)
       if (wsRef.current) {
         wsRef.current.close()

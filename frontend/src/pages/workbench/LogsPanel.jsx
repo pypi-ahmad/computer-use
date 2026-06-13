@@ -46,7 +46,7 @@ const LogsPanel = forwardRef(function LogsPanel(
         <div className="wb-logs" ref={ref}>
           {logs.length === 0 && <p className="wb-empty">Logs will appear here once a task is running.</p>}
           {logs.map((log, i) => (
-            <div key={i} className="wb-log-entry">
+            <div key={log._cid ?? i} className="wb-log-entry">
               <span className="wb-log-time">{formatTime(log.timestamp)}</span>
               <span className={`wb-log-level ${log.level}`}>
                 {log.level === 'info' ? 'Info' : log.level === 'error' ? 'Error' : log.level === 'warning' ? 'Warning' : log.level === 'debug' ? 'Debug' : log.level}

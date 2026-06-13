@@ -196,12 +196,13 @@ export async function getModels(signal) {
  * Responds to a safety confirmation prompt for a running session.
  * @param {string} sessionId - Session ID.
  * @param {boolean} confirm - True to approve, false to deny.
+ * @param {string} [nonce] - Per-prompt nonce from the safety_confirmation event (required by the backend).
  * @param {AbortSignal} [signal]
  */
-export async function confirmSafety(sessionId, confirm, signal) {
+export async function confirmSafety(sessionId, confirm, nonce = '', signal) {
   return request('/agent/safety-confirm', {
     method: 'POST',
-    body: JSON.stringify({ session_id: sessionId, confirm }),
+    body: JSON.stringify({ session_id: sessionId, confirm, nonce }),
     signal,
   })
 }
