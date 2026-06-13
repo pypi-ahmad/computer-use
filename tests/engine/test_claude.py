@@ -10,6 +10,27 @@ import pytest
 from backend.engine import ClaudeCUClient, CUActionResult
 
 
+class _FakeMessageStream:
+    """Async-CM stand-in for ``client.beta.messages.stream(...)`` (D2).
+
+    ``get_final_message()`` returns the same fake response the old
+    ``messages.create()`` fakes returned, so existing assertions on the
+    captured request kwargs / response are unchanged.
+    """
+
+    def __init__(self, message):
+        self._message = message
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def get_final_message(self):
+        return self._message
+
+
 class FakeExecutor:
     """Minimal executor stub used to verify Claude action translation."""
 
@@ -638,6 +659,10 @@ class TestOpus47HiresEnvFlag:
         class FakeMessages:
             create = staticmethod(fake_create)
 
+            def stream(self, **kwargs):
+                captured.update(kwargs)
+                return _FakeMessageStream(FakeResponse())
+
         class FakeBeta:
             messages = FakeMessages()
 
@@ -835,6 +860,10 @@ class TestSonnet46HiresFlagIgnored:
         class FakeMessages:
             create = staticmethod(fake_create)
 
+            def stream(self, **kwargs):
+                captured.update(kwargs)
+                return _FakeMessageStream(FakeResponse())
+
         class FakeBeta:
             messages = FakeMessages()
 
@@ -948,6 +977,10 @@ async def _capture_create_kwargs(model: str) -> dict:
 
     class FakeMessages:
         create = staticmethod(fake_create)
+
+        def stream(self, **kwargs):
+            captured.update(kwargs)
+            return _FakeMessageStream(FakeResponse())
 
     class FakeBeta:
         messages = FakeMessages()

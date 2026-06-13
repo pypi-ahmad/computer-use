@@ -286,6 +286,10 @@ class DesktopExecutor:
         self._container = container_name
         self._current_action_id: str | None = None
         self._current_action_substep: int = 0
+        # P1: when set for the current execute(), the /action POST asks the
+        # agent_service to bundle a post-action screenshot in its response so
+        # the engine can skip the separate GET /screenshot round trip.
+        self._include_screenshot: bool = False
 
     def _px(self, x: int, y: int) -> tuple[int, int]:
         """Convert raw coordinates to pixel values, denormalizing if needed."""
@@ -315,6 +319,8 @@ class DesktopExecutor:
         if self._current_action_id:
             final_payload["action_id"] = f"{self._current_action_id}:{self._current_action_substep}"
             self._current_action_substep += 1
+        if self._include_screenshot:
+            final_payload["include_screenshot"] = 1
         resp = await client.post(
             f"{self._service_url}/action",
             json=final_payload,
@@ -339,13 +345,16 @@ class DesktopExecutor:
             handler_args = dict(args or {})
             previous_action_id = self._current_action_id
             previous_substep = self._current_action_substep
+            previous_include = self._include_screenshot
             self._current_action_id = str(handler_args.pop("action_id", "") or "") or None
             self._current_action_substep = 0
+            self._include_screenshot = bool(handler_args.pop("include_screenshot", False))
             try:
                 extra = await handler(handler_args) or {}
             finally:
                 self._current_action_id = previous_action_id
                 self._current_action_substep = previous_substep
+                self._include_screenshot = previous_include
             if isinstance(extra, dict) and extra.get("success") is False:
                 return CUActionResult(
                     name=name,

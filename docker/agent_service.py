@@ -1394,6 +1394,15 @@ class AgentHandler(BaseHTTPRequestHandler):
             with _lock:
                 try:
                     result = self._dispatch_action(body)
+                    # P1: bundle the post-action screenshot in the SAME lock
+                    # window when the caller asks, so the engine skips the
+                    # separate GET /screenshot round trip. zoom already returns
+                    # its own image; don't overwrite it.
+                    if body.get("include_screenshot") and "screenshot" not in result:
+                        try:
+                            result["screenshot"] = _screenshot_desktop()
+                        except Exception:
+                            logger.warning("include_screenshot capture failed; client will re-capture")
                     _remember_action_result(action_id, result)
                     self._respond(200, result)
                 except Exception as e:

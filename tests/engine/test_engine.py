@@ -679,12 +679,28 @@ class TestSearchEnabledRequiresComputerAction:
                 content=[SimpleNamespace(type="text", text="Done")],
             )
 
+            _claude_responses = iter([first_response, second_response, third_response])
+            _stream_calls: list[dict] = []
+
+            class _Stream:  # D2: stand-in for client.beta.messages.stream(...)
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, *exc):
+                    return False
+
+                async def get_final_message(self):
+                    return next(_claude_responses)
+
+            def _make_stream(**kwargs):
+                _stream_calls.append(kwargs)
+                return _Stream()
+
             with patch("anthropic.AsyncAnthropic") as mock_client:
-                create = AsyncMock(side_effect=[first_response, second_response, third_response])
                 mock_client.return_value.messages.create = AsyncMock(
                     return_value=SimpleNamespace(content=[SimpleNamespace(type="text", text="ok")])
                 )
-                mock_client.return_value.beta.messages.create = create
+                mock_client.return_value.beta.messages.stream = _make_stream
                 from backend.engine import ClaudeCUClient
                 client = ClaudeCUClient(
                     api_key="k",
@@ -704,7 +720,7 @@ class TestSearchEnabledRequiresComputerAction:
             assert isinstance(events[-1], RunCompleted)
             assert events[-1].final_text == "Done"
 
-            second_request = create.call_args_list[1].kwargs
+            second_request = _stream_calls[1]
             assert any(
                 message.get("role") == "user"
                 and isinstance(message.get("content"), list)
@@ -1170,8 +1186,22 @@ class TestClaudeThinkingMode:
             captured.update(kwargs)
             return FakeResponse()
 
+        class _FakeStream:  # D2: client.beta.messages.stream(...) stand-in
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def get_final_message(self):
+                return FakeResponse()
+
         class FakeMessages:
             create = staticmethod(fake_create)
+
+            def stream(self, **kwargs):
+                captured.update(kwargs)
+                return _FakeStream()
 
         class FakeBeta:
             messages = FakeMessages()
