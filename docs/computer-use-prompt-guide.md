@@ -231,6 +231,11 @@ Stop before the final confirmation button. Do not submit the change unless I
 approve it in the app.
 ```
 
+When a provider raises a safety check, the app surfaces an in-app approval
+modal (Deny is the focused default) bound to that session by a one-time token,
+and **denies automatically if you don't respond within the timeout** — so an
+unattended run never proceeds through a consequential gate on its own.
+
 ## Quick Checklist
 
 Before starting a run, ask:
