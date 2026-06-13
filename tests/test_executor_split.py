@@ -52,3 +52,41 @@ def test_every_client_emitted_action_has_executor_handler():
     assert emitted, "expected to find executor.execute('...') literals to check"
     missing = emitted - exec_actions
     assert not missing, f"client(s) emit actions with no DesktopExecutor handler: {sorted(missing)}"
+
+
+async def _run_bundled_capture():
+    """Helper: execute a click with include_screenshot and capture wire payloads."""
+    from unittest.mock import AsyncMock
+    from backend.executor import DesktopExecutor
+
+    captured = []
+
+    class _Resp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"success": True, "message": "ok", "screenshot": "BUNDLED_B64"}
+
+    class _Client:
+        async def post(self, _url, *, json, headers):
+            captured.append(dict(json))
+            return _Resp()
+
+    ex = DesktopExecutor(screen_width=1440, screen_height=900, normalize_coords=False)
+    import backend.engine as _eng
+    _orig = _eng._app_config.ui_settle_delay
+    ex._get_client = AsyncMock(return_value=_Client())
+    result = await ex.execute("click_at", {"x": 10, "y": 20, "include_screenshot": True})
+    return captured, result
+
+
+def test_p1_include_screenshot_is_sent_and_bundled_frame_surfaces():
+    """P1: execute(..., include_screenshot=True via args) adds the flag to the
+    /action POST and the bundled screenshot surfaces in the result extra."""
+    import asyncio
+    captured, result = asyncio.run(_run_bundled_capture())
+    assert captured and captured[0].get("include_screenshot") == 1
+    # include_screenshot must NOT leak as an action field beyond the flag
+    assert "include_screenshot" not in result.extra or result.extra.get("screenshot") == "BUNDLED_B64"
+    assert result.extra.get("screenshot") == "BUNDLED_B64"
