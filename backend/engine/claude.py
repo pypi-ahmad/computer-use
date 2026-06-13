@@ -553,8 +553,13 @@ class ClaudeCUClient:
                     "text": self._system_prompt,
                     "cache_control": {"type": "ephemeral"},
                 }]
-            response = await _call_with_retry(
-                lambda: self._client.beta.messages.create(
+            # D2: stream the turn. ``_CLAUDE_MAX_TOKENS`` (32768) exceeds the
+            # SDK's ~16K non-streaming HTTP-timeout guidance, so use the beta
+            # streaming context manager and resolve the terminal message — the
+            # BetaMessage returned by ``get_final_message()`` is identical to
+            # what ``create()`` returned, so downstream parsing is unchanged.
+            async def _stream_final():
+                async with self._client.beta.messages.stream(
                     model=self._model,
                     max_tokens=_CLAUDE_MAX_TOKENS,
                     system=_system_param,
@@ -562,7 +567,11 @@ class ClaudeCUClient:
                     messages=messages,
                     betas=_betas,
                     thinking=thinking_cfg,
-                ),
+                ) as stream:
+                    return await stream.get_final_message()
+
+            response = await _call_with_retry(
+                _stream_final,
                 provider="anthropic",
                 on_log=on_log,
             )
@@ -685,30 +694,51 @@ class ClaudeCUClient:
             tool_result_parts: list[dict[str, Any]] = []
             results: list[CUActionResult] = []
 
-            for tu in tool_uses:
+            # P5: execute every action first, then capture ONE screenshot for
+            # the turn (was N captures, one per tool_use). P1: request the
+            # post-action frame bundled in the LAST action's /action response so
+            # we can skip the separate GET /screenshot when it's available.
+            last_idx = len(tool_uses) - 1
+            for idx, tu in enumerate(tool_uses):
                 result = await self._execute_claude_action(
                     tu.input, executor, scale_factor=scale, action_id=tu.id,
+                    include_screenshot=(idx == last_idx),
                 )
                 results.append(result)
 
+            bundled = results[-1].extra.get("screenshot") if results else None
+            if bundled:
+                screenshot_bytes = base64.b64decode(bundled)
+            else:
                 screenshot_bytes = await executor.capture_screenshot()
-                screenshot_bytes, _, _ = await asyncio.to_thread(
-                    resize_screenshot_for_claude, screenshot_bytes, scale,
-                )
-                screenshot_b64 = base64.standard_b64encode(screenshot_bytes).decode()
+            screenshot_bytes, _, _ = await asyncio.to_thread(
+                resize_screenshot_for_claude, screenshot_bytes, scale,
+            )
+            screenshot_b64 = base64.standard_b64encode(screenshot_bytes).decode()
 
+            # Anthropic requires one tool_result per tool_use_id. Attach the
+            # single fresh screenshot to the LAST result; earlier results in a
+            # multi-action batch get a short text note (text-only content is
+            # allowed and the prior frames were near-identical anyway).
+            for idx, tu in enumerate(tool_uses):
+                result = results[idx]
                 content: list[dict] = []
                 if result.error:
                     content.append({"type": "text", "text": f"Error: {result.error}"})
-                content.append({
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": _IMAGE_PNG,
-                        "data": screenshot_b64,
-                    },
-                })
-
+                if idx == last_idx:
+                    content.append({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": _IMAGE_PNG,
+                            "data": screenshot_b64,
+                        },
+                    })
+                elif not result.error:
+                    content.append({
+                        "type": "text",
+                        "text": "[screenshot attached to the final tool result in this batch]",
+                    })
                 tool_result_parts.append({
                     "type": "tool_result",
                     "tool_use_id": tu.id,
@@ -773,6 +803,7 @@ class ClaudeCUClient:
     async def _execute_claude_action(
         self, action_input: dict, executor: ActionExecutor,
         *, scale_factor: float = 1.0, action_id: str | None = None,
+        include_screenshot: bool = False,
     ) -> CUActionResult:
         """Map Claude computer tool actions to executor calls.
 
@@ -803,6 +834,10 @@ class ClaudeCUClient:
         args: dict[str, Any] = {}
         if action_id:
             args["action_id"] = action_id
+        if include_screenshot:
+            # P1: request the bundled post-action screenshot (single-POST,
+            # coordinate/key/scroll actions ride the shared args dict).
+            args["include_screenshot"] = True
 
         if action in ("click", "double_click", "right_click", "triple_click", "middle_click"):
             if coord:
