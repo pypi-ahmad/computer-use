@@ -919,3 +919,86 @@ class TestValidationUniques:
 
         assert resp.status_code == 200
         assert mock_agent_loop.call_args.kwargs["reasoning_effort"] == "none"
+
+
+class TestFileUploadEndpoint:
+    """Streaming file-upload path should route through upload_file_stream."""
+
+    @pytest.mark.asyncio
+    async def test_upload_uses_streaming_file_registry_path(self):
+        import backend.server as server
+
+        class _Upload:
+            filename = "notes.txt"
+
+            async def read(self, _size=-1):
+                return b"hello world"
+
+        async def _form():
+            return {"file": _Upload()}
+
+        request = SimpleNamespace(
+            method="POST",
+            url=SimpleNamespace(path="/api/files/upload"),
+            headers={"content-length": "11"},
+            query_params={},
+            client=SimpleNamespace(host="testclient"),
+            form=_form,
+        )
+
+        fake_rec = SimpleNamespace(
+            file_id="f_stream_1",
+            filename="notes.txt",
+            size_bytes=11,
+            mime_type="text/plain",
+            extension=".txt",
+        )
+
+        with patch("backend.server._require_origin", return_value=None), \
+             patch("backend.server._require_rest_auth", return_value=None), \
+             patch.object(server._agent_start_limiter, "allow", return_value=True), \
+             patch("backend.server.file_registry.upload_file_stream", new=AsyncMock(return_value=fake_rec)) as mock_upload:
+            payload = await server.api_upload_file(request)
+
+        assert payload["file_id"] == "f_stream_1"
+        assert payload["filename"] == "notes.txt"
+        assert payload["size_bytes"] == 11
+        assert payload["mime_type"] == "text/plain"
+        mock_upload.assert_awaited_once()
+        kwargs = mock_upload.await_args.kwargs
+        assert kwargs["filename"] == "notes.txt"
+        assert hasattr(kwargs["stream"], "read")
+
+    @pytest.mark.asyncio
+    async def test_upload_streaming_validation_error_returns_400(self):
+        import backend.server as server
+
+        class _Upload:
+            filename = "paper.pdf"
+
+            async def read(self, _size=-1):
+                return b"not-a-pdf"
+
+        async def _form():
+            return {"file": _Upload()}
+
+        request = SimpleNamespace(
+            method="POST",
+            url=SimpleNamespace(path="/api/files/upload"),
+            headers={"content-length": "9"},
+            query_params={},
+            client=SimpleNamespace(host="testclient"),
+            form=_form,
+        )
+
+        with patch("backend.server._require_origin", return_value=None), \
+             patch("backend.server._require_rest_auth", return_value=None), \
+             patch.object(server._agent_start_limiter, "allow", return_value=True), \
+             patch(
+                 "backend.server.file_registry.upload_file_stream",
+                 new=AsyncMock(side_effect=ValueError("file content does not match .pdf format")),
+             ):
+            resp = await server.api_upload_file(request)
+
+        assert resp.status_code == 400
+        assert "does not match .pdf" in resp.body.decode("utf-8")

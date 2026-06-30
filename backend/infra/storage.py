@@ -36,6 +36,7 @@ import secrets
 import shutil
 import tempfile
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -103,6 +104,7 @@ class FileStore:
         self._root = Path(root) if root else Path(tempfile.gettempdir()) / "cua-uploads"
         self._root.mkdir(parents=True, exist_ok=True)
         self._files: dict[str, UploadedFile] = {}
+        self._total_bytes: int = 0
         self._lock = asyncio.Lock()
 
     # ── Lifecycle ─────────────────────────────────────────────────────
@@ -157,12 +159,92 @@ class FileStore:
             # uploads cannot both pass the check and overshoot the limit.
             if len(self._files) >= MAX_FILES_PER_STORE:
                 raise ValueError(f"session file limit reached ({MAX_FILES_PER_STORE} files)")
-            current_bytes = sum(r.size_bytes for r in self._files.values())
-            if current_bytes + size > MAX_FILE_BYTES:
+            if self._total_bytes + size > MAX_FILE_BYTES:
                 raise ValueError("session storage limit reached (1 GB total)")
             path.write_bytes(data)
             self._files[file_id] = rec
+            self._total_bytes += size
         return rec
+
+    async def add_stream(
+        self,
+        *,
+        filename: str,
+        read: Callable[[int], Awaitable[bytes]],
+        chunk_size: int = 1024 * 1024,
+    ) -> UploadedFile:
+        """Persist an uploaded file by reading it in chunks.
+
+        This avoids materializing the entire payload in memory while preserving
+        the same extension/size/magic validation contract as :meth:`add`.
+        """
+        if not filename or len(filename) > 255:
+            raise ValueError("filename must be 1-255 characters")
+        if any(c in filename for c in ('\x00', '/', '\\')):
+            raise ValueError("filename contains forbidden characters")
+
+        ext = Path(filename).suffix.lower()
+        if ext not in ALLOWED_EXTS:
+            raise ValueError(
+                f"unsupported extension {ext!r}; allowed: "
+                + ", ".join(sorted(ALLOWED_EXTS))
+            )
+        if chunk_size <= 0:
+            chunk_size = 1024 * 1024
+
+        file_id = "f_" + secrets.token_urlsafe(18)
+        final_path = self._root / file_id
+        part_path = self._root / f"{file_id}.part"
+        size = 0
+        head = bytearray()
+
+        try:
+            with open(part_path, "wb") as fh:
+                while True:
+                    chunk = await read(chunk_size)
+                    if not chunk:
+                        break
+                    if not isinstance(chunk, (bytes, bytearray)):
+                        raise ValueError("upload stream yielded non-bytes data")
+                    chunk_bytes = bytes(chunk)
+                    if len(head) < 8:
+                        head.extend(chunk_bytes[: 8 - len(head)])
+                    size += len(chunk_bytes)
+                    if size > MAX_FILE_BYTES:
+                        raise ValueError(
+                            f"file exceeds {MAX_FILE_BYTES} bytes "
+                            f"({size / (1024 * 1024):.1f} MB > 1 GB)"
+                        )
+                    fh.write(chunk_bytes)
+
+            if size <= 0:
+                raise ValueError("file is empty")
+            if not _validate_magic(ext, bytes(head)):
+                raise ValueError(f"file content does not match {ext} format")
+
+            rec = UploadedFile(
+                file_id=file_id,
+                filename=Path(filename).name,
+                extension=ext,
+                mime_type=_mime_for(ext),
+                size_bytes=size,
+                path=final_path,
+            )
+            async with self._lock:
+                if len(self._files) >= MAX_FILES_PER_STORE:
+                    raise ValueError(f"session file limit reached ({MAX_FILES_PER_STORE} files)")
+                if self._total_bytes + size > MAX_FILE_BYTES:
+                    raise ValueError("session storage limit reached (1 GB total)")
+                part_path.replace(final_path)
+                self._files[file_id] = rec
+                self._total_bytes += size
+            return rec
+        except Exception:
+            try:
+                part_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
 
     async def get(self, file_id: str) -> Optional[UploadedFile]:
         """Return the metadata for *file_id* or ``None`` if unknown."""
@@ -178,6 +260,8 @@ class FileStore:
         """Remove an upload from disk + registry.  Returns True on success."""
         async with self._lock:
             rec = self._files.pop(file_id, None)
+            if rec is not None:
+                self._total_bytes = max(0, self._total_bytes - rec.size_bytes)
         if rec is None:
             return False
         try:
@@ -207,6 +291,7 @@ class FileStore:
             for fid in stale:
                 rec = self._files.pop(fid, None)
                 if rec is not None:
+                    self._total_bytes = max(0, self._total_bytes - rec.size_bytes)
                     try:
                         rec.path.unlink(missing_ok=True)
                     except OSError:
@@ -217,6 +302,7 @@ class FileStore:
         """Wipe the entire upload root.  Wired into FastAPI shutdown."""
         async with self._lock:
             self._files.clear()
+            self._total_bytes = 0
         try:
             shutil.rmtree(self._root, ignore_errors=True)
         except Exception:

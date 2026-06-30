@@ -1,0 +1,509 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Zero to Hero Study Handbook: computer-use</title>
+<style>
+body { font-family: Arial, sans-serif; line-height: 1.35; margin: 28px; color: #111; }
+h1, h2, h3, h4 { margin-top: 1.2em; margin-bottom: 0.5em; }
+code, pre { font-family: "Courier New", monospace; }
+pre { white-space: pre-wrap; border: 1px solid #ddd; padding: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 11px; }
+th, td { border: 1px solid #bbb; padding: 6px; vertical-align: top; }
+ul, ol { margin-top: 0.2em; margin-bottom: 0.6em; }
+</style>
+</head>
+<body>
+<h1>Zero to Hero Study Handbook: computer-use</h1>
+<h2>Module 1: Foundations and Architecture</h2>
+<ul>
+<li>What this project does: <code>computer-use</code> is a local full-stack workbench for provider-native Computer Use agents (Google Gemini, Anthropic Claude, OpenAI) running against a Dockerized Linux desktop.</li>
+<li>Primary use cases: browser automation, desktop app automation, screenshot-driven task execution, optional provider-native web-search planning, and optional document-grounded runs.</li>
+</ul>
+<h3>Core paradigms and patterns used in this repo</h3>
+<ul>
+<li>Adapter pattern: provider differences are normalized behind shared interfaces in <code>backend/providers/*.py</code> and <code>backend/engine/*</code>.</li>
+<li>Orchestrator loop pattern: one session loop (<code>backend/loop.py::AgentLoop</code>) controls lifecycle, state transitions, callbacks, and termination.</li>
+<li>Event-driven architecture: backend broadcasts real-time events (<code>log</code>, <code>step</code>, <code>screenshot</code>, <code>agent_finished</code>) over <code>/ws</code>; frontend reacts via <code>useWebSocket</code>.</li>
+<li>Protocol translation layer: model tool actions are translated into desktop operations through <code>DesktopExecutor</code>, then sent to <code>docker/agent_service.py</code>.</li>
+<li>Schema-first validation: Pydantic request/response models in <code>backend/models/schemas.py</code> plus runtime checks in API handlers.</li>
+<li>Defense in depth: host allowlist, origin checks, optional shared token (<code>CUA_WS_TOKEN</code>), request size limits, action allowlists.</li>
+</ul>
+<h3>Architecture components and interactions</h3>
+<ul>
+<li>Frontend: React + Vite SPA in <code>frontend/src/pages/WorkbenchPage.jsx</code>.</li>
+<li>Backend API: FastAPI app in <code>backend/server/__init__.py</code> exposing REST, WebSocket, and noVNC proxy routes.</li>
+<li>Session orchestrator: <code>AgentLoop</code> in <code>backend/loop.py</code>.</li>
+<li>Provider engine: <code>ComputerUseEngine</code> in <code>backend/engine/__init__.py</code> plus provider clients.</li>
+<li>Provider wrapper layer: <code>backend/providers/*</code> with uniform <code>run(...)</code> contracts.</li>
+<li>Desktop action executor: <code>backend/executor.py::DesktopExecutor</code>.</li>
+<li>Sandbox runtime: Docker container lifecycle in <code>backend/infra/docker.py</code>; in-container control plane in <code>docker/agent_service.py</code>.</li>
+<li>File pipeline: upload store in <code>backend/infra/storage.py</code> and provider-specific prep in <code>backend/files.py</code>.</li>
+</ul>
+<h3>Main flow diagram</h3>
+<pre><code class="language-text">User (Browser)
+   |
+   v
+Workbench UI (frontend/src/pages/WorkbenchPage.jsx)
+   |  REST: /api/agent/start, /api/files/upload, /api/container/*
+   |  WS:   /ws
+   v
+FastAPI Server (backend/server/__init__.py)
+   |
+   +--&gt; AgentLoop (backend/loop.py)
+   |      |
+   |      v
+   |   ComputerUseEngine (backend/engine/__init__.py)
+   |      |
+   |      +--&gt; Provider run wrapper (backend/providers/*.py)
+   |      |       |
+   |      |       +--&gt; optional planning (backend/providers/planner.py)
+   |      |       +--&gt; provider client loop (backend/engine/openai.py|claude.py|gemini.py)
+   |      |
+   |      v
+   |   DesktopExecutor (backend/executor.py)
+   |      |
+   |      v
+   +--&gt; In-container Agent Service (docker/agent_service.py) via /action and /screenshot
+          |
+          v
+      Xvfb + XFCE desktop + browsers/apps (docker/entrypoint.sh, docker/Dockerfile)
+
+Realtime back-channel:
+AgentLoop -&gt; FastAPI WS broadcast -&gt; useWebSocket hook -&gt; UI updates
+</code></pre>
+<h2>Module 2: Repository Map</h2>
+<table>
+<thead>
+<tr>
+<th>File/Directory Path</th>
+<th>Primary Responsibility</th>
+<th>Key Classes/Functions</th>
+<th>Important Configs/Variables</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>backend/main.py</code></td>
+<td>Backend entrypoint and Uvicorn launch</td>
+<td><code>main()</code>, <code>_enforce_public_bind_guardrail()</code></td>
+<td><code>HOST</code>, <code>PORT</code>, <code>CUA_RELOAD</code>, <code>CUA_ALLOW_PUBLIC_BIND</code>, <code>CUA_WS_TOKEN</code></td>
+</tr>
+<tr>
+<td><code>backend/server/__init__.py</code></td>
+<td>FastAPI app, middleware, auth/origin guards, REST + WS endpoints</td>
+<td><code>api_start_agent()</code>, <code>websocket_endpoint()</code>, <code>vnc_ws_proxy()</code>, <code>_require_origin()</code>, <code>_require_rest_auth()</code></td>
+<td><code>_MAX_CONCURRENT_SESSIONS</code>, <code>_MAX_STEPS_HARD_CAP</code>, <code>CUA_MAX_BODY_BYTES</code>, <code>CUA_ALLOWED_HOSTS</code>, <code>_WS_AUTH_TOKEN</code></td>
+</tr>
+<tr>
+<td><code>backend/models/schemas.py</code></td>
+<td>Typed API/session contracts</td>
+<td><code>StartTaskRequest</code>, <code>TaskStatusResponse</code>, <code>AgentSession</code>, <code>StepRecord</code>, <code>ActionType</code></td>
+<td><code>ConfigDict(extra="forbid")</code>, <code>max_steps &lt;= 200</code>, <code>attached_files</code> max 10</td>
+</tr>
+<tr>
+<td><code>backend/loop.py</code></td>
+<td>Session orchestration and callback wiring</td>
+<td><code>AgentLoop.run()</code>, <code>_run_computer_use_engine()</code>, <code>request_stop()</code></td>
+<td><code>_CU_ACTION_MAP</code>, stuck-agent detection</td>
+</tr>
+<tr>
+<td><code>backend/engine/__init__.py</code></td>
+<td>Unified engine facade + provider construction</td>
+<td><code>ComputerUseEngine.execute_task()</code>, <code>validate_builtin_search_config()</code></td>
+<td><code>Provider</code>, <code>Environment</code>, reasoning defaults</td>
+</tr>
+<tr>
+<td><code>backend/engine/openai.py</code></td>
+<td>OpenAI Computer Use client logic</td>
+<td><code>OpenAICUClient.run_loop()</code>, <code>_execute_openai_action()</code></td>
+<td>Responses API tool config, reasoning effort</td>
+</tr>
+<tr>
+<td><code>backend/engine/claude.py</code></td>
+<td>Anthropic Computer Use client logic</td>
+<td><code>ClaudeCUClient.run_loop()</code>, <code>iter_turns()</code>, <code>build_web_search_tool()</code></td>
+<td>Claude tool version and beta flags</td>
+</tr>
+<tr>
+<td><code>backend/engine/gemini.py</code></td>
+<td>Gemini Computer Use client logic</td>
+<td><code>GeminiCUClient.run_loop()</code>, <code>iter_turns()</code></td>
+<td>Normalized coordinates</td>
+</tr>
+<tr>
+<td><code>backend/providers/__init__.py</code></td>
+<td>Provider runtime dispatch</td>
+<td><code>runner_for()</code>, <code>run_client()</code></td>
+<td>Provider alias normalization</td>
+</tr>
+<tr>
+<td><code>backend/providers/_common.py</code></td>
+<td>Shared provider utilities</td>
+<td><code>stream_client_run_loop()</code>, <code>maybe_plan_with_web_search()</code></td>
+<td><code>ProviderTools.web_search</code></td>
+</tr>
+<tr>
+<td><code>backend/providers/planner.py</code></td>
+<td>Optional web-search planning phase</td>
+<td><code>create_web_execution_brief()</code>, <code>build_planned_computer_use_task()</code></td>
+<td><code>_PLANNER_PROMPT</code></td>
+</tr>
+<tr>
+<td><code>backend/executor.py</code></td>
+<td>Action translation into in-container API</td>
+<td><code>DesktopExecutor.execute()</code>, <code>_post_action()</code>, <code>capture_screenshot()</code></td>
+<td><code>_MODIFIER_MAP</code>, <code>_validated_http_url()</code></td>
+</tr>
+<tr>
+<td><code>backend/files.py</code></td>
+<td>Provider-aware file attachment bridge</td>
+<td><code>validate_attached_files()</code>, <code>prepare_openai_file_search()</code>, <code>prepare_anthropic_documents()</code></td>
+<td><code>GEMINI_CU_FILE_REJECTION</code></td>
+</tr>
+<tr>
+<td><code>backend/infra/storage.py</code></td>
+<td>Upload persistence and lifecycle</td>
+<td><code>FileStore.add_stream()</code>, <code>gc()</code>, <code>extract_text()</code></td>
+<td><code>ALLOWED_EXTS</code>, <code>MAX_FILE_BYTES=1GB</code>, <code>MAX_FILES_PER_STORE=10</code>, <code>UPLOAD_TTL_SECONDS=6h</code></td>
+</tr>
+<tr>
+<td><code>backend/infra/config.py</code></td>
+<td>Environment config and key resolution</td>
+<td><code>Config.from_env()</code>, <code>resolve_api_key()</code>, <code>get_all_key_statuses()</code></td>
+<td><code>AGENT_SERVICE_HOST/PORT</code>, <code>SCREEN_WIDTH/HEIGHT</code>, provider key env vars</td>
+</tr>
+<tr>
+<td><code>backend/infra/docker.py</code></td>
+<td>Docker build/start/stop/readiness</td>
+<td><code>start_container()</code>, <code>_wait_for_service()</code>, <code>get_container_status()</code></td>
+<td><code>_CONTAINER_HARDENING_ARGS</code>, readiness cache</td>
+</tr>
+<tr>
+<td><code>backend/safety.py</code></td>
+<td>Safety confirmation handshake registry</td>
+<td><code>arm()</code>, <code>verify_nonce()</code>, <code>set_decision()</code>, <code>clear()</code></td>
+<td><code>events</code>, <code>decisions</code>, <code>nonces</code></td>
+</tr>
+<tr>
+<td><code>docker/agent_service.py</code></td>
+<td>In-container desktop control API</td>
+<td><code>AgentHandler.do_GET()</code>, <code>do_POST()</code>, <code>_dispatch_action()</code>, <code>_dispatch_desktop()</code></td>
+<td><code>_ENGINE_ACTIONS</code>, <code>AGENT_SERVICE_TOKEN</code>, <code>CUA_ENABLE_LEGACY_ACTIONS</code></td>
+</tr>
+<tr>
+<td><code>docker/entrypoint.sh</code></td>
+<td>Container desktop bootstrap sequence</td>
+<td>Startup flow for Xvfb, XFCE, VNC, websockify, agent service</td>
+<td><code>DISPLAY</code>, <code>SCREEN_WIDTH/HEIGHT</code>, <code>VNC_PASSWORD</code></td>
+</tr>
+<tr>
+<td><code>frontend/src/pages/WorkbenchPage.jsx</code></td>
+<td>Main UI composition and handlers</td>
+<td><code>handleStart()</code>, <code>handleStartContainer()</code>, <code>handleValidateKey()</code></td>
+<td>provider/model/task/maxSteps/reasoning/search/files state</td>
+</tr>
+<tr>
+<td><code>frontend/src/hooks/useSessionController.js</code></td>
+<td>Session lifecycle coordinator</td>
+<td><code>start()</code>, <code>stop()</code>, <code>finalizeAgentRun()</code></td>
+<td><code>AMBIGUOUS_STOP_ERROR</code>, poll fallback</td>
+</tr>
+<tr>
+<td><code>frontend/src/hooks/useWebSocket.js</code></td>
+<td>WS connection and stream handling</td>
+<td><code>connect()</code>, <code>setScreenshotMode()</code>, <code>isPlausibleWsMessage()</code></td>
+<td><code>VITE_WS_TOKEN</code>, reconnect backoff</td>
+</tr>
+<tr>
+<td><code>frontend/src/api.js</code></td>
+<td>REST client wrappers</td>
+<td><code>startAgent()</code>, <code>stopAgent()</code>, <code>uploadFile()</code>, <code>confirmSafety()</code></td>
+<td>Payload key mapping (<code>api_key</code>, <code>execution_target</code>, etc.)</td>
+</tr>
+<tr>
+<td><code>setup.sh</code></td>
+<td>One-command bootstrap + launch</td>
+<td>script flow</td>
+<td><code>--clean</code>, <code>--bootstrap-only</code></td>
+</tr>
+<tr>
+<td><code>dev.py</code></td>
+<td>Daily local orchestrator</td>
+<td><code>_compose_restart()</code>, <code>_spawn_services()</code>, <code>main()</code></td>
+<td>default ports <code>8100</code> and <code>3000</code></td>
+</tr>
+<tr>
+<td><code>.env.example</code></td>
+<td>Runtime env template</td>
+<td>env keys for local config</td>
+<td><code>AGENT_SERVICE_TOKEN</code>, <code>VNC_PASSWORD</code>, provider API keys</td>
+</tr>
+<tr>
+<td><code>docker-compose.yml</code></td>
+<td>Local service definition</td>
+<td>service <code>cua-environment</code></td>
+<td>required env expansions, loopback-bound ports</td>
+</tr>
+</tbody>
+</table>
+<h2>Module 3: Core Execution Flows</h2>
+<h3>Flow A: Start agent from UI to running session</h3>
+<ol>
+<li><code>WorkbenchPage.handleStart()</code> builds payload from selected UI state (<code>provider</code>, <code>model</code>, <code>task</code>, <code>maxSteps</code>, optional reasoning/search/files).</li>
+<li><code>useSessionController.start()</code> calls <code>frontend/src/api.js::startAgent()</code>.</li>
+<li><code>startAgent()</code> sends <code>POST /api/agent/start</code> with backend field names (<code>api_key</code>, <code>max_steps</code>, <code>execution_target</code>, etc.).</li>
+<li><code>backend/server/__init__.py::api_start_agent()</code> validates:</li>
+<li><code>engine == "computer_use"</code></li>
+<li><code>execution_target == "docker"</code></li>
+<li>provider/model against <code>backend/models/allowed_models.json</code></li>
+<li><code>max_steps</code> hard cap</li>
+<li>attachments via <code>backend/files.py::validate_attached_files()</code></li>
+<li>reasoning/search config via <code>validate_builtin_search_config()</code></li>
+<li>API key via <code>resolve_api_key()</code></li>
+<li>Backend starts/checks sandbox via <code>backend/infra/docker.py::start_container()</code>.</li>
+<li>Backend creates <code>AgentLoop(...)</code>, stores it in <code>_active_loops</code>, and schedules <code>_run_and_notify()</code>.</li>
+<li>API returns session handle.</li>
+</ol>
+<p>Start request body shape:</p>
+<pre><code class="language-json">{
+  &quot;task&quot;: &quot;string&quot;,
+  &quot;api_key&quot;: &quot;string|null&quot;,
+  &quot;model&quot;: &quot;string&quot;,
+  &quot;max_steps&quot;: 50,
+  &quot;engine&quot;: &quot;computer_use&quot;,
+  &quot;provider&quot;: &quot;google|anthropic|openai&quot;,
+  &quot;execution_target&quot;: &quot;docker&quot;,
+  &quot;reasoning_effort&quot;: &quot;none|minimal|low|medium|high|xhigh&quot;,
+  &quot;use_builtin_search&quot;: true,
+  &quot;attached_files&quot;: [&quot;f_...&quot;]
+}
+</code></pre>
+<p>Start response shape:</p>
+<pre><code class="language-json">{
+  &quot;session_id&quot;: &quot;uuid&quot;,
+  &quot;status&quot;: &quot;running&quot;,
+  &quot;engine&quot;: &quot;computer_use&quot;,
+  &quot;provider&quot;: &quot;google|anthropic|openai&quot;
+}
+</code></pre>
+<h3>Flow B: Session loop and provider execution</h3>
+<ol>
+<li><code>AgentLoop.run()</code> sets status to <code>RUNNING</code>.</li>
+<li><code>AgentLoop._run_computer_use_engine()</code> maps provider and builds prompt via <code>backend/prompts.py::get_system_prompt(...)</code>.</li>
+<li><code>ComputerUseEngine.execute_task()</code> delegates to <code>backend/providers/run_client(...)</code>.</li>
+<li>Provider wrapper (<code>backend/providers/openai.py</code>, <code>anthropic.py</code>, <code>gemini.py</code>) can run <code>maybe_plan_with_web_search(...)</code> first.</li>
+<li>Provider client emits turn records/logs; <code>AgentLoop._on_turn()</code> maps action data to <code>StepRecord</code>.</li>
+<li>Backend broadcasts <code>step</code> events to WebSocket clients.</li>
+<li>Session ends as <code>COMPLETED</code>, <code>STOPPED</code>, or <code>ERROR</code>; backend broadcasts <code>agent_finished</code>.</li>
+</ol>
+<p>Step record shape:</p>
+<pre><code class="language-json">{
+  &quot;step_number&quot;: 1,
+  &quot;timestamp&quot;: &quot;ISO-8601&quot;,
+  &quot;screenshot_b64&quot;: &quot;base64 png|null&quot;,
+  &quot;action&quot;: {
+    &quot;action&quot;: &quot;ActionType&quot;,
+    &quot;coordinates&quot;: [x, y],
+    &quot;text&quot;: &quot;optional&quot;,
+    &quot;reasoning&quot;: &quot;optional&quot;
+  },
+  &quot;raw_model_response&quot;: &quot;optional&quot;,
+  &quot;error&quot;: &quot;optional&quot;
+}
+</code></pre>
+<h3>Flow C: Tool action translation to desktop operations</h3>
+<ol>
+<li>Provider action reaches <code>DesktopExecutor.execute(name, args)</code>.</li>
+<li>Executor maps to handlers like <code>_act_click_at</code>, <code>_act_type_text_at</code>, <code>_act_scroll_at</code>.</li>
+<li>Handler posts <code>/action</code> to in-container service.</li>
+<li><code>docker/agent_service.py::AgentHandler.do_POST()</code> validates auth and action allowlist, then dispatches via <code>_dispatch_action()</code> and <code>_dispatch_desktop()</code>.</li>
+<li>xdotool/scrot operations run and return structured result.</li>
+<li>Executor wraps result as <code>CUActionResult</code> and returns it upstream.</li>
+</ol>
+<p>Example <code>/action</code> payload:</p>
+<pre><code class="language-json">{
+  &quot;action&quot;: &quot;type_text_at&quot;,
+  &quot;coordinates&quot;: [640, 360],
+  &quot;text&quot;: &quot;hello world&quot;,
+  &quot;press_enter&quot;: true,
+  &quot;clear_before&quot;: true,
+  &quot;mode&quot;: &quot;desktop&quot;,
+  &quot;action_id&quot;: &quot;uuid:0&quot;,
+  &quot;include_screenshot&quot;: 1
+}
+</code></pre>
+<h3>Flow D: WebSocket stream and screenshot mode</h3>
+<ol>
+<li>Frontend opens <code>/ws</code> in <code>useWebSocket.connect()</code>.</li>
+<li>Client sends heartbeat pings every 15 seconds.</li>
+<li>Client sends <code>screenshot_mode</code> messages based on <code>ScreenView</code> mode (interactive noVNC vs screenshot fallback).</li>
+<li>Backend validates origin/token and manages subscriber sets.</li>
+<li>Backend emits events validated by <code>backend/server/ws_schema.py</code>.</li>
+</ol>
+<p>Consumed events:
+- <code>screenshot</code>
+- <code>screenshot_stream</code>
+- <code>log</code>
+- <code>step</code>
+- <code>agent_finished</code>
+- <code>pong</code></p>
+<h3>Flow E: File upload and provider-specific attachment handling</h3>
+<ol>
+<li><code>ControlPanelView</code> uploads files via <code>uploadFile(file)</code> to <code>POST /api/files/upload</code>.</li>
+<li>Backend streams files into <code>FileStore.add_stream()</code>.</li>
+<li>Response includes <code>file_id</code>; frontend sends these in <code>attached_files</code> during start.</li>
+<li><code>validate_attached_files(provider, file_ids)</code> enforces format/existence/dedup and provider compatibility.</li>
+<li>Provider paths:</li>
+<li>OpenAI: <code>prepare_openai_file_search()</code> creates vector store and uploads files.</li>
+<li>Anthropic: <code>prepare_anthropic_documents()</code> uploads PDF/TXT as Files API docs; MD/DOCX are extracted and inlined.</li>
+<li>Gemini: rejected for CU with files (<code>GEMINI_CU_FILE_REJECTION</code>).</li>
+</ol>
+<p>Upload response shape:</p>
+<pre><code class="language-json">{
+  &quot;file_id&quot;: &quot;f_...&quot;,
+  &quot;filename&quot;: &quot;doc.pdf&quot;,
+  &quot;size_bytes&quot;: 12345,
+  &quot;mime_type&quot;: &quot;application/pdf&quot;
+}
+</code></pre>
+<h3>Flow F: Safety confirmation handshake</h3>
+<ol>
+<li>Provider requests confirmation; <code>AgentLoop._on_safety()</code> calls <code>safety_registry.arm(session_id)</code>.</li>
+<li>Backend emits a log event with <code>type: "safety_confirmation"</code>, <code>session_id</code>, <code>nonce</code>, and <code>explanation</code>.</li>
+<li><code>SafetyModal</code> calls <code>confirmSafety(sessionId, confirm, nonce)</code>.</li>
+<li>Backend verifies nonce with <code>safety_registry.verify_nonce(...)</code>, sets decision, and unblocks the loop.</li>
+<li>Timeout path auto-denies.</li>
+</ol>
+<h2>Module 4: Setup and Run Guide</h2>
+<h3>Prerequisites</h3>
+<ul>
+<li>Docker daemon and Docker Compose.</li>
+<li>Python 3.11+ (checked by setup scripts).</li>
+<li>Node.js (for Vite/React frontend).</li>
+</ul>
+<h3>Environment setup</h3>
+<ol>
+<li>Copy <code>.env.example</code> to <code>.env</code>.</li>
+<li>Set required compose keys:</li>
+<li><code>AGENT_SERVICE_TOKEN=...</code></li>
+<li><code>VNC_PASSWORD=...</code></li>
+<li>Set at least one provider API key:</li>
+<li><code>GOOGLE_API_KEY</code> or <code>GEMINI_API_KEY</code></li>
+<li><code>ANTHROPIC_API_KEY</code></li>
+<li><code>OPENAI_API_KEY</code></li>
+<li>Optional:</li>
+<li><code>OPENAI_BASE_URL</code></li>
+<li><code>HOST</code>, <code>PORT</code></li>
+<li><code>CUA_WS_TOKEN</code> and <code>CUA_ALLOW_PUBLIC_BIND=1</code> for external binding</li>
+<li><code>CORS_ORIGINS</code>, <code>CUA_ALLOWED_HOSTS</code>, <code>CUA_MAX_BODY_BYTES</code></li>
+</ol>
+<h3>Typical command sequences</h3>
+<p>Path A: one-command bootstrap and launch</p>
+<pre><code class="language-bash">bash setup.sh
+</code></pre>
+<p>Path B: manual daily startup</p>
+<pre><code class="language-bash">uv sync
+cd frontend &amp;&amp; npm install &amp;&amp; cd ..
+docker compose up -d
+python dev.py
+</code></pre>
+<h3>Runtime access</h3>
+<ul>
+<li>UI: <code>http://localhost:3000</code></li>
+<li>Backend default port: <code>8100</code></li>
+<li>API docs via proxied <code>/docs</code></li>
+<li>noVNC via <code>/vnc/vnc.html?...</code></li>
+</ul>
+<h3>Database/external seeding</h3>
+<ul>
+<li>No database migration or seeding step exists in this repository.</li>
+<li>External runtime dependency is the Dockerized desktop service plus upstream provider APIs.</li>
+</ul>
+<h3>PDF export command</h3>
+<pre><code class="language-bash">pandoc -f gfm -t pdf docs/zero-to-hero-study-handbook.md -o docs/zero-to-hero-study-handbook.pdf
+</code></pre>
+<h2>Module 5: Study Plan and Practice Exercises</h2>
+<h3>Ordered study plan</h3>
+<ol>
+<li>Read <code>backend/models/schemas.py</code> to lock in data contracts.</li>
+<li>Read <code>backend/server/__init__.py</code>, especially <code>/api/agent/start</code>, <code>/ws</code>, <code>/api/files/upload</code>.</li>
+<li>Read <code>backend/loop.py</code> for session lifecycle.</li>
+<li>Read <code>backend/engine/__init__.py</code> and one provider file (<code>backend/engine/openai.py</code>).</li>
+<li>Read <code>backend/executor.py</code> and <code>docker/agent_service.py</code> together.</li>
+<li>Read <code>frontend/src/api.js</code>, <code>useSessionController.js</code>, and <code>useWebSocket.js</code>.</li>
+<li>Read <code>frontend/src/pages/WorkbenchPage.jsx</code> and <code>ControlPanelView.jsx</code>.</li>
+<li>Read infra files: <code>backend/infra/config.py</code>, <code>backend/infra/docker.py</code>, <code>.env.example</code>, <code>docker-compose.yml</code>.</li>
+<li>Review tests: <code>tests/test_server.py</code>, <code>tests/test_provider_run_contract.py</code>, <code>tests/docker/test_agent_service.py</code>.</li>
+<li>Revisit <code>backend/providers/planner.py</code>, <code>backend/files.py</code>, and <code>backend/infra/storage.py</code>.</li>
+</ol>
+<h3>Practice exercises with model answer outlines</h3>
+<ol>
+<li>Trace how <code>useBuiltinSearch</code> changes behavior end-to-end.</li>
+<li>Files: <code>WorkbenchPage.jsx</code>, <code>api.js</code>, <code>backend/server/__init__.py</code>, <code>backend/providers/_common.py</code>, <code>backend/providers/planner.py</code>.</li>
+<li>
+<p>Outline: UI toggle sets payload key; backend validates; provider wrapper runs planning; planner brief is appended into CU task text.</p>
+</li>
+<li>
+<p>Explain why <code>/api/agent/start</code> can return <code>409</code> even when container exists.</p>
+</li>
+<li>Files: <code>backend/server/__init__.py</code>, <code>backend/infra/docker.py</code>.</li>
+<li>
+<p>Outline: container process can exist while agent service is <code>unready</code>; backend re-checks readiness state before session creation.</p>
+</li>
+<li>
+<p>Map one <code>click_at</code> action from model output to final execution.</p>
+</li>
+<li>Files: <code>backend/loop.py</code>, <code>backend/executor.py</code>, <code>docker/agent_service.py</code>.</li>
+<li>
+<p>Outline: turn action mapped to executor handler; executor posts <code>/action</code>; agent service dispatches to <code>_xdo_click</code>.</p>
+</li>
+<li>
+<p>Explain the safety nonce handshake and anti-replay guard.</p>
+</li>
+<li>Files: <code>backend/loop.py</code>, <code>backend/safety.py</code>, <code>SafetyModal.jsx</code>, <code>api.js</code>, <code>backend/server/__init__.py</code>.</li>
+<li>
+<p>Outline: backend arms nonce and event, frontend echoes nonce, backend verifies nonce before setting decision.</p>
+</li>
+<li>
+<p>Show how unsupported provider/model combinations are blocked.</p>
+</li>
+<li>Files: <code>backend/models/allowed_models.json</code>, <code>backend/server/__init__.py</code>, <code>WorkbenchPage.jsx</code>.</li>
+<li>
+<p>Outline: frontend filters model dropdown; backend enforces allowlist and rejects invalid combos.</p>
+</li>
+<li>
+<p>Explain screenshot-load optimization when noVNC is active.</p>
+</li>
+<li>Files: <code>ScreenView.jsx</code>, <code>useWebSocket.js</code>, <code>backend/server/__init__.py</code>.</li>
+<li>
+<p>Outline: UI switches screenshot mode off in interactive mode, backend unsubscribes stream demand and can suspend publisher loop.</p>
+</li>
+<li>
+<p>Compare OpenAI vs Anthropic file attachment ingestion.</p>
+</li>
+<li>Files: <code>backend/files.py</code>, <code>backend/engine/openai.py</code>, <code>backend/engine/claude.py</code>.</li>
+<li>
+<p>Outline: OpenAI uses vector store/file search; Anthropic uses Files API docs for PDF/TXT and inline extraction for MD/DOCX.</p>
+</li>
+<li>
+<p>List three backend hardening controls.</p>
+</li>
+<li>Files: <code>backend/main.py</code>, <code>backend/server/__init__.py</code>, <code>.env.example</code>.</li>
+<li>Outline: external bind guardrail; host allowlist middleware; token-gated WS/REST mutation routes.</li>
+</ol>
+<h2>Understanding Verification Checklist</h2>
+<ul>
+<li>Can you explain <code>POST /api/agent/start</code> from UI payload to <code>AgentLoop</code> creation?</li>
+<li>Can you explain how <code>AgentLoop</code> transforms provider turns into <code>StepRecord</code> timeline events?</li>
+<li>Can you map provider tool actions to <code>DesktopExecutor</code> and then to <code>_dispatch_desktop()</code> in <code>docker/agent_service.py</code>?</li>
+<li>Can you explain WS event production and consumption (<code>/ws</code>, <code>validate_outbound</code>, <code>useWebSocket</code>)?</li>
+<li>Can you explain provider-specific file handling and why Gemini rejects <code>attached_files</code> for CU runs?</li>
+<li>Can you explain the safety nonce handshake and timeout behavior end-to-end?</li>
+<li>Can you list required <code>.env</code> keys for a secure local compose path?</li>
+<li>Can you explain where and why <code>400</code>, <code>401</code>, <code>403</code>, <code>409</code>, <code>429</code>, and <code>503</code> appear in core flows?</li>
+<li>Can you identify where model allowlists and capability constraints are defined and enforced?</li>
+<li>Can you narrate the architecture from <code>backend/main.py</code> to frontend completion events without skipping major modules?</li>
+</ul>
+</body>
+</html>
