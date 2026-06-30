@@ -749,6 +749,14 @@ class TestAgentServiceSubprocessTimeout:
 
 
 class TestRateLimiterEviction:
+    def test_bucket_storage_uses_deque(self):
+        from collections import deque
+        from backend.server import _RateLimiter
+
+        limiter = _RateLimiter(max_calls=3, window_seconds=60.0)
+        assert limiter.allow("ip-1") is True
+        assert isinstance(limiter._calls["ip-1"], deque)
+
     def test_evict_to_is_tightened(self):
         from backend.server import _RateLimiter
 
@@ -1144,4 +1152,3 @@ class TestComposeHardening:
         assert any("/tmp" in entry for entry in tmpfs), (
             "D4: /tmp must be mounted as tmpfs for read-only image tolerance"
         )
-

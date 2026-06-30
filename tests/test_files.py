@@ -86,3 +86,45 @@ async def test_anthropic_files_api_and_inline_text_are_distinct(monkeypatch, tmp
         "title": "source.txt",
     }]
     assert inline_pairs == [("guide.md", "# Guide\n\nUse this.")]
+
+
+class _ChunkedUpload:
+    """Minimal UploadFile-like async reader used for chunked upload tests."""
+
+    def __init__(self, chunks: list[bytes]):
+        self._chunks = list(chunks)
+        self._idx = 0
+
+    async def read(self, _size: int = -1) -> bytes:
+        if self._idx >= len(self._chunks):
+            return b""
+        chunk = self._chunks[self._idx]
+        self._idx += 1
+        return chunk
+
+
+@pytest.mark.asyncio
+async def test_chunked_upload_stream_persists_file(monkeypatch, tmp_path):
+    import backend.files as files
+
+    file_store = FileStore(tmp_path)
+    monkeypatch.setattr(files, "store", file_store)
+    upload = _ChunkedUpload([b"hello ", b"world"])
+
+    rec = await files.upload_file_stream(filename="notes.txt", stream=upload)
+
+    assert rec.filename == "notes.txt"
+    assert rec.size_bytes == 11
+    assert rec.read_bytes() == b"hello world"
+
+
+@pytest.mark.asyncio
+async def test_chunked_upload_stream_validates_magic(monkeypatch, tmp_path):
+    import backend.files as files
+
+    file_store = FileStore(tmp_path)
+    monkeypatch.setattr(files, "store", file_store)
+    upload = _ChunkedUpload([b"not-a-pdf"])
+
+    with pytest.raises(ValueError, match=r"does not match .pdf"):
+        await files.upload_file_stream(filename="paper.pdf", stream=upload)

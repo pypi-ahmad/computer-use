@@ -18,7 +18,7 @@
  * WS/REST contract are unchanged.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, Copy, HelpCircle, History, Moon, Sun } from 'lucide-react'
 
 import {
@@ -130,17 +130,17 @@ export default function Workbench() {
 
   // --- Config form state --------------------------------------------------
 
-  const saved = loadSettings()
-  const [provider, setProvider] = useState(saved.provider || 'google')
+  const [savedSettings] = useState(() => loadSettings())
+  const [provider, setProvider] = useState(savedSettings.provider || 'google')
   const [model, setModel] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [keySource, setKeySource] = useState('ui')
   const [keyStatuses, setKeyStatuses] = useState({})
   const [task, setTask] = useState('')
-  const [maxSteps, setMaxSteps] = useState(saved.maxSteps || 50)
-  const [reasoningEffort, setReasoningEffort] = useState(saved.reasoningEffort || '')
+  const [maxSteps, setMaxSteps] = useState(savedSettings.maxSteps || 50)
+  const [reasoningEffort, setReasoningEffort] = useState(savedSettings.reasoningEffort || '')
   const [useBuiltinSearch, setUseBuiltinSearch] = useState(
-    typeof saved.useBuiltinSearch === 'boolean' ? saved.useBuiltinSearch : false,
+    typeof savedSettings.useBuiltinSearch === 'boolean' ? savedSettings.useBuiltinSearch : false,
   )
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [keyValidation, setKeyValidation] = useState(null)
@@ -163,13 +163,19 @@ export default function Workbench() {
   const [fetchedModels, setFetchedModels] = useState([])
   const [modelsLoaded, setModelsLoaded] = useState(false)
   const [modelsLoading, setModelsLoading] = useState(true)
-  const toModelOption = (m) => ({ value: m.model_id, label: m.display_name })
-  const modelsByProvider = fetchedModels.reduce((acc, item) => {
-    acc[item.provider] = (acc[item.provider] || []).concat(toModelOption(item))
-    return acc
-  }, {})
-  const models = modelsByProvider[provider] || []
-  const providerMeta = PROVIDERS.find(item => item.value === provider) || PROVIDERS[0]
+  const modelsByProvider = useMemo(() => {
+    const grouped = {}
+    fetchedModels.forEach((item) => {
+      if (!grouped[item.provider]) grouped[item.provider] = []
+      grouped[item.provider].push({ value: item.model_id, label: item.display_name })
+    })
+    return grouped
+  }, [fetchedModels])
+  const models = useMemo(() => modelsByProvider[provider] || [], [modelsByProvider, provider])
+  const providerMeta = useMemo(
+    () => PROVIDERS.find(item => item.value === provider) || PROVIDERS[0],
+    [provider],
+  )
 
   // --- Scroll refs --------------------------------------------------------
 

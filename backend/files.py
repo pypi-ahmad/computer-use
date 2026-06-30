@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from backend.infra.storage import (
     MAX_FILE_BYTES,
@@ -18,10 +19,39 @@ GEMINI_CU_FILE_REJECTION = (
     "sessions only; Gemini File Search cannot be combined with Computer Use."
 )
 
+__all__ = [
+    "MAX_FILE_BYTES",
+    "GEMINI_CU_FILE_REJECTION",
+    "upload_file",
+    "upload_file_stream",
+    "delete_file",
+    "close_store",
+    "validate_attached_files",
+    "resolve_uploaded_files",
+    "prepare_openai_file_search",
+    "cleanup_openai_vector_store",
+    "prepare_anthropic_documents",
+    "upload_to_anthropic",
+]
+
 
 async def upload_file(*, filename: str, data: bytes) -> UploadedFile:
     """Persist an uploaded reference file and return its opaque handle."""
     return await store.add(filename=filename, data=data)
+
+
+async def upload_file_stream(*, filename: str, stream: Any) -> UploadedFile:
+    """Persist an uploaded file by reading from an async stream in chunks."""
+    if stream is None or not hasattr(stream, "read"):
+        raise ValueError("upload stream must expose an async .read() method")
+
+    async def _read(chunk_size: int) -> bytes:
+        data = await stream.read(chunk_size)
+        if data is None:
+            return b""
+        return data
+
+    return await store.add_stream(filename=filename, read=_read)
 
 
 async def delete_file(file_id: str) -> bool:
