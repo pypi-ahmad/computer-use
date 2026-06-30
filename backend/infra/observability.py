@@ -126,7 +126,13 @@ def install(root_logger: logging.Logger | None = None) -> None:
     """
     root_logger = root_logger or logging.getLogger()
     for handler in root_logger.handlers:
-        if not any(isinstance(f, SessionIdFilter) for f in handler.filters):
+        # Keep exactly one session-id filter per handler, even if prior
+        # startup paths attached duplicates.
+        session_filters = [f for f in handler.filters if isinstance(f, SessionIdFilter)]
+        if len(session_filters) > 1:
+            for extra in session_filters[1:]:
+                handler.removeFilter(extra)
+        if not session_filters:
             handler.addFilter(SessionIdFilter())
 
 
@@ -650,4 +656,3 @@ def _cli(argv: list[str]) -> int:
 if __name__ == "__main__":  # pragma: no cover — entry point only
     import sys
     raise SystemExit(_cli(sys.argv[1:]))
-
