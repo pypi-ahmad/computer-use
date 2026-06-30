@@ -12,6 +12,7 @@ import os
 import re
 import time
 import uuid
+from collections import deque
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
@@ -492,17 +493,18 @@ class _RateLimiter:
         """Configure the limiter with *max_calls* per *window_seconds* per key."""
         self._max = max_calls
         self._window = window_seconds
-        self._calls: dict[str, list[float]] = {}
+        self._calls: dict[str, deque[float]] = {}
 
     def allow(self, key: str = "_global") -> bool:
         """Return True and record a call if *key* is under the rate limit."""
         now = time.monotonic()
-        bucket = [t for t in self._calls.get(key, []) if now - t < self._window]
+        bucket = self._calls.setdefault(key, deque())
+        cutoff = now - self._window
+        while bucket and bucket[0] < cutoff:
+            bucket.popleft()
         if len(bucket) >= self._max:
-            self._calls[key] = bucket
             return False
         bucket.append(now)
-        self._calls[key] = bucket
         # Bounded-memory eviction. First try the cheap filter (idle-key
         # drop), then apply a hard ceiling so a spoofed-IP flood can't
         # sustain high-volume entries indefinitely — we keep the
@@ -1018,12 +1020,7 @@ async def api_upload_file(request: Request):
         return _error_response(413, "File exceeds 1 GB limit")
 
     try:
-        data = await upload.read()
-    except Exception:
-        return _error_response(400, "Could not read upload payload")
-
-    try:
-        rec = await file_registry.upload_file(filename=filename, data=data)
+        rec = await file_registry.upload_file_stream(filename=filename, stream=upload)
     except ValueError as exc:
         return _error_response(400, str(exc))
     except Exception:
