@@ -333,13 +333,33 @@ a ``reasons`` list when any of them fails.
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
+from backend.server import _mount_production_frontend, app
 
 
 @pytest.fixture(scope="module")
 def client() -> TestClient:
-    from backend.server import app
     return TestClient(app)
+
+
+def test_production_frontend_mount_is_optional(tmp_path):
+    application = FastAPI()
+    assert _mount_production_frontend(application, tmp_path) is False
+
+
+def test_production_frontend_mount_serves_assets_and_spa_routes(tmp_path):
+    (tmp_path / "index.html").write_text("<main>CUA v2</main>", encoding="utf-8")
+    (tmp_path / "asset.js").write_text("export {}", encoding="utf-8")
+    application = FastAPI()
+    assert _mount_production_frontend(application, tmp_path) is True
+
+    mounted = TestClient(application)
+    assert mounted.get("/").text == "<main>CUA v2</main>"
+    assert mounted.get("/audit/session-1").text == "<main>CUA v2</main>"
+    assert mounted.get("/asset.js").text == "export {}"
+    assert mounted.get("/api/missing").status_code == 404
 
 
 class TestHealthLiveness:

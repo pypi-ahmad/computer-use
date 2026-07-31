@@ -1,140 +1,61 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  lint-backend:
-    name: Lint + type-check (Python)
+  python-quality:
+    name: Python quality
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
         with:
-          python-version: '3.11'
-          cache: pip
-      - name: Install lint/type tools
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install ruff mypy
-      - name: Ruff check
-        # Advisory until the existing 200+ legacy lint findings are
-        # cleaned up in a dedicated pass (tracked separately). The
-        # ratchet plan: turn this strict once `ruff check .` is
-        # clean, then add new rule categories one at a time.
-        run: ruff check . || true
-      - name: Ruff format (check only)
-        # Advisory for the same reason — formatting cleanup will be
-        # done in a single dedicated commit so review diffs stay
-        # readable. Strict on new files via pre-commit (local).
-        run: ruff format --check . || true
-      - name: mypy (advisory)
-        # Advisory until the codebase is fully annotated — non-blocking.
-        run: mypy backend || true
+          version: 0.11.29
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Ruff
+        run: uv run ruff check .
+      - name: Ruff format
+        run: uv run ruff format --check .
+      - name: mypy
+        run: uv run mypy
+      - name: Locked dependency audit
+        run: uv run pip-audit
 
-  test-backend:
-    name: Backend tests (Python ${{ matrix.python-version }})
+  python-tests:
+    name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ['3.11', '3.13']
+        python-version: ['3.12', '3.13', '3.14']
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
         with:
+          version: 0.11.29
           python-version: ${{ matrix.python-version }}
-          cache: pip
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-asyncio pytest-cov
-      - name: Run tests (with coverage gate)
-        # T5: coverage is now measured AND gated (pytest-cov was installed but
-        # never used). Floor set conservatively below the current ~66% so
-        # matrix jitter doesn't flake; ratchet upward over time.
-        run: >-
-          python -m pytest -p no:warnings --tb=short
-          --cov=backend --cov-report=term-missing --cov-fail-under=60
-
-  evals:
-    name: Evals (runtime boundary, Python 3.11)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: pip
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-asyncio
-      - name: Run evals
-        # addopts overridden to '' so the suite-default ``-m "not integration"``
-        # marker filter doesn't deselect everything here.
-        run: python -m pytest -p no:warnings --tb=short -o addopts='' evals/
-
-  integration-gemini-live-sdk:
-    name: Gemini live SDK integration (Python 3.11)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: pip
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-asyncio pytest-cov
-      - name: Run Gemini integration marker
-        run: python -m pytest -p no:warnings --tb=short -o addopts='' -m integration tests/integration/test_gemini_live_sdk.py
-
-  security:
-    name: Security audit
-    runs-on: ubuntu-latest
-    # Don't fail the overall CI on advisories — surface them as a separate
-    # job result so a CVE on a pinned dep shows up without blocking PRs
-    # that didn't touch dependencies.
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: pip
-      - name: Install audit tooling
-        run: |
-          python -m pip install --upgrade pip
-          pip install pip-audit
-      - name: pip-audit (backend deps)
-        run: pip-audit -r requirements.txt --ignore-vuln PYSEC-0 --progress-spinner off
-      - name: Trivy — filesystem scan
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          severity: 'HIGH,CRITICAL'
-          exit-code: '0'
-      - name: Hadolint — Dockerfile lint
-        uses: hadolint/hadolint-action@v1.7.0
-        with:
-          dockerfile: docker/Dockerfile
-          failure-threshold: warning
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Backend contracts and unit tests
+        run: uv run pytest -p no:warnings --tb=short --cov=backend --cov-report=term-missing --cov-fail-under=60
+      - name: Offline evals
+        run: uv run pytest -p no:warnings --tb=short -o addopts='' evals/
 
   frontend:
-    name: Frontend (Node ${{ matrix.node-version }})
+    name: Frontend
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: ['20']
     defaults:
       run:
         working-directory: frontend
@@ -142,15 +63,39 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Install dependencies
-        run: npm ci || npm install
-      - name: Test (Vitest)
-        # T1: hard gate (no `|| true`). Fails fast on a broken unit test.
-        run: npm run test:run
-      - name: Build
-        run: npm run build
-      - name: npm audit (advisory)
-        run: npm audit --audit-level=high || true
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test:run
+      - run: npm run build
+      - run: npm audit --audit-level=high
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          if-no-files-found: error
+
+  container:
+    name: Container build and scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: false
+          load: true
+          tags: computer-use-sandbox:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: computer-use-sandbox:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'

@@ -46,19 +46,13 @@ if errorlevel 1 (
   exit /b 1
 )
 
-where python >nul 2>&1
+where uv >nul 2>&1
 if errorlevel 1 (
-  echo [ERROR] Python not found.
+  echo [ERROR] uv not found. Install it from https://docs.astral.sh/uv/.
   exit /b 1
 )
 
-REM Floor: 3.11 — matches tooling (ruff target-version, mypy python_version)
-REM and the lower bound of the CI test matrix.
-python -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)"
-if errorlevel 1 (
-  echo [ERROR] Python 3.11+ is required.
-  exit /b 1
-)
+uv python install 3.12
 
 where node >nul 2>&1
 if errorlevel 1 (
@@ -100,16 +94,7 @@ if errorlevel 1 (
 echo [INFO] Docker image built successfully.
 
 echo [INFO] Installing Python dependencies...
-if not exist ".venv" (
-  python -m venv .venv
-)
-call .venv\Scripts\activate.bat
-python -m pip install --upgrade pip
-if errorlevel 1 (
-  echo [ERROR] Failed to upgrade pip.
-  exit /b !errorlevel!
-)
-python -m pip install -r requirements.txt
+uv sync --frozen
 if errorlevel 1 (
   echo [ERROR] Failed to install Python dependencies.
   exit /b !errorlevel!
@@ -118,7 +103,7 @@ echo [INFO] Python dependencies installed.
 
 echo [INFO] Installing frontend dependencies...
 pushd frontend >nul
-call npm install
+call npm ci
 if errorlevel 1 (
   popd >nul
   echo [ERROR] Failed to install frontend dependencies.
@@ -131,7 +116,7 @@ echo.
 echo === Setup complete! ===
 if "%BOOTSTRAP_ONLY%"=="1" (
   echo [INFO] Bootstrap-only mode requested; not launching dev.py.
-  echo [INFO] Run "python dev.py" for day-to-day startup.
+  echo [INFO] Run "uv run python dev.py" for day-to-day startup.
   echo.
   endlocal
   exit /b 0
@@ -139,7 +124,7 @@ if "%BOOTSTRAP_ONLY%"=="1" (
 
 echo [INFO] Launching the full stack...
 echo [INFO] The browser UI will be available at http://localhost:3000 once Vite is ready.
-python "%~dp0dev.py"
+uv run --frozen python "%~dp0dev.py"
 set "EXIT_CODE=%ERRORLEVEL%"
 
 endlocal
