@@ -1,5 +1,7 @@
 FROM ubuntu:24.04
 
+COPY --from=ghcr.io/astral-sh/uv:0.11.29 /uv /uvx /bin/
+
 # hadolint global ignore=DL3008
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -148,12 +150,11 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && rm -rf /var/lib/apt/lists/*
 RUN node -v && npm -v && npx -v
 
-# Create application venv and install Python dependencies
-RUN python3 -m venv /opt/venv \
- && /opt/venv/bin/pip install --no-cache-dir --upgrade pip
-
-COPY requirements.txt /tmp/requirements.txt
-RUN /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt
+# Create the application environment from the checked lockfile. The project
+# package itself is copied later; the sandbox only needs runtime dependencies.
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv
+COPY pyproject.toml uv.lock README.md /app/
+RUN uv sync --frozen --no-dev --no-install-project
 
 # --- Google Chrome (item 1) ---
 RUN curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google.gpg \

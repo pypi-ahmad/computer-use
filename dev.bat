@@ -1,4 +1,4 @@
 @echo off
 setlocal
-python "%~dp0dev.py" %*
+uv run --frozen python "%~dp0dev.py" %*
 endlocal

@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.0] - 2026-07-23
+
+### Added
+
+- Versioned Computer Use-only model catalog with transport-specific identifiers, coordinate spaces, limits, and lifecycle metadata.
+- `/api/v2` sessions, credential sessions, provider readiness, workflows, analytics, cursor-paginated audit records, and structured errors.
+- Deterministic primary/fallback routing, transient retry, per-route circuit breaking, and provider-neutral checkpoints.
+- SQLite WAL session/action/event/metric persistence and bounded audit-frame retention.
+- Coalesced frame capture, canonical full-frame inference input, ROI supplements, compressed previews, and binary `CUAF` WebSocket frames.
+- Five-tab TypeScript dashboard for live execution, audit history, workflows, providers, and analytics.
+- Locked uv project, Python 3.12–3.14 CI, strict frontend checks, dependency audits, image scanning, release packaging, deployment, migration, and rollback guides.
+
+### Changed
+
+- Production FastAPI serves the built React SPA when `frontend/dist` exists.
+- Provider credentials use environment variables or non-persistent credential sessions with an eight-hour maximum lifetime.
+- Provider selection is explicit and deterministic; there is no implicit price/latency router.
+- Direct OpenAI, Anthropic, and Google routes execute. Azure OpenAI, Bedrock, Vertex Gemini, and Vertex Claude are visible but unavailable until verified execution bridges ship.
+
+### Removed
+
+- v1 request/WebSocket compatibility and inline `api_key` session payloads.
+- OpenAI `computer-use-preview`, GPT-5.5 Pro, GPT-5.4 Nano, Gemini 2.5 Computer Use Preview, Gemini 3.5 Flash-Lite, and retired/non-CU Claude entries.
+- OpenRouter integration; its documented API does not expose a vendor-native Computer Use protocol.
+
+### Security
+
+- Secrets are never persisted or returned, uncertain OS actions are not replayed during failover, and release CI blocks on high/critical dependency and image findings.
+
 ## [Unreleased]
 
 ### Added
