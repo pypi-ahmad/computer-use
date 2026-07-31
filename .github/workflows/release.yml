@@ -1,0 +1,47 @@
+name: Release v2
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Verified tag to publish
+        required: true
+        default: v2.0.0
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    if: startsWith(github.event.inputs.tag, 'v2.')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag }}
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
+        with:
+          version: 0.11.29
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+      - run: uv run pytest -p no:warnings --tb=short
+      - run: uv run pytest -p no:warnings --tb=short -o addopts='' evals/
+      - run: uv run python scripts/build_release.py
+      - name: Verify checksums
+        working-directory: dist/release
+        run: sha256sum --check SHA256SUMS.txt
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2.6.2
+        with:
+          tag_name: ${{ github.event.inputs.tag }}
+          body_path: docs/release-notes-v2.0.0.md
+          files: |
+            dist/release/computer-use-v2.0.0.zip
+            dist/release/SHA256SUMS.txt

@@ -2,4 +2,4 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-python3 "$SCRIPT_DIR/dev.py" "$@"
+uv run --frozen python "$SCRIPT_DIR/dev.py" "$@"

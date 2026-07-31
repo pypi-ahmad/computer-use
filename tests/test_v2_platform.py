@@ -1,0 +1,216 @@
+from __future__ import annotations
+
+import asyncio
+import struct
+import time
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+from fastapi.testclient import TestClient
+
+from backend.v2.adapters import (
+    ProtocolActionError,
+    parse_anthropic_action,
+    parse_gemini_action,
+    parse_openai_action,
+)
+from backend.v2.credentials import CredentialVault
+from backend.v2.frames import (
+    CUAF_MAGIC,
+    BinaryFrame,
+    FrameBroker,
+    FrameCodec,
+    pack_cuaf_frame,
+    unpack_cuaf_frame,
+)
+from backend.v2.models import ModelCatalog
+from backend.v2.orchestrator import ExecutionOutcome
+from backend.v2.persistence import SqliteStore
+from backend.v2.routing import CircuitBreaker, RouteFailure, RouteSpec, run_with_fallback
+
+
+def test_model_catalog_is_transport_aware_and_computer_use_only() -> None:
+    catalog = ModelCatalog.load()
+    models = catalog.models()
+    assert models
+    assert all(model.supports_computer_use for model in models)
+    assert catalog.get("gpt-5.6-terra").routes[0].transport == "OPENAI_RESPONSES"
+    assert "computer-use-preview" not in {model.logical_id for model in models}
+    assert "gemini-2.5-computer-use-preview" not in {model.logical_id for model in models}
+
+
+def test_sqlite_store_persists_session_actions_events_metrics_and_workflow_versions() -> None:
+    store = SqliteStore(":memory:")
+    assert store.journal_mode in {"memory", "wal"}
+    workflow = store.create_workflow("checkout", "Checkout", {"type": "object"}, ["Open cart"])
+    second = store.create_workflow_version(workflow.id, ["Open cart", "Pay"])
+    session = store.create_session("buy coffee", "gpt-5.6-terra", "openai-direct")
+    store.append_action(session.id, 1, "CLICK", {"x": 10, "y": 20}, confirmed=True)
+    store.append_event(session.id, "ROUTE_SELECTED", {"routeId": "openai-direct"})
+    store.append_metric(session.id, "INFERENCE", 125.5, 32, 8)
+    checkpoint = store.save_checkpoint(session.id, "buy coffee", 1, "frame-sha", {"approved": True})
+
+    assert second.version == 2
+    assert store.list_actions(session.id)[0]["isConfirmed"] is True
+    assert store.list_events(session.id)[0]["type"] == "ROUTE_SELECTED"
+    assert store.list_metrics(session.id)[0]["durationMs"] == 125.5
+    assert checkpoint.last_confirmed_action == 1
+
+
+def test_route_fallback_skips_open_circuit_and_retries_transient_failures() -> None:
+    calls: list[str] = []
+    primary = RouteSpec("primary", "OPENAI", "gpt", max_attempts=2)
+    fallback = RouteSpec("fallback", "AZURE_OPENAI", "gpt", max_attempts=1)
+    breaker = CircuitBreaker(failure_threshold=1, recovery_seconds=60)
+
+    async def invoke(route: RouteSpec) -> str:
+        calls.append(route.id)
+        if route.id == "primary":
+            raise RouteFailure("rate limited", retryable=True, status_code=429)
+        return "ok"
+
+    result = asyncio.run(run_with_fallback([primary, fallback], invoke, breaker, sleep=lambda _: asyncio.sleep(0)))
+    assert result.value == "ok"
+    assert result.route_id == "fallback"
+    assert calls == ["primary", "fallback"]
+
+
+def test_credential_vault_never_serializes_secrets_and_expires() -> None:
+    now = [100.0]
+    vault = CredentialVault(max_ttl_seconds=10, clock=lambda: now[0])
+    session = vault.create({"OPENAI": "sk-secret"}, ttl_seconds=5)
+    assert session.model_dump()["providers"] == ["OPENAI"]
+    assert "secret" not in str(session.model_dump()).lower()
+    assert vault.resolve(session.id, "OPENAI").get_secret_value() == "sk-secret"
+    now[0] = 106.0
+    assert vault.resolve(session.id, "OPENAI") is None
+
+
+def test_cuaf_binary_frame_round_trip() -> None:
+    data = b"webp-image"
+    packed = pack_cuaf_frame(7, 1440, 900, 123456, FrameCodec.WEBP, data)
+    assert packed.startswith(CUAF_MAGIC)
+    frame = unpack_cuaf_frame(packed)
+    assert (frame.sequence, frame.width, frame.height, frame.payload) == (7, 1440, 900, data)
+    assert struct.calcsize(">4sBBQIIQ") < len(packed)
+
+
+def test_frame_broker_coalesces_concurrent_capture() -> None:
+    calls = 0
+
+    async def capture() -> tuple[bytes, int, int, FrameCodec]:
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0)
+        return b"png", 1440, 900, FrameCodec.PNG
+
+    async def exercise() -> None:
+        broker = FrameBroker(capture)
+        first, second = await asyncio.gather(broker.capture(), broker.capture())
+        assert first is second
+        assert first.payload == b"png"
+        assert (first.width, first.height) == (1440, 900)
+        assert calls == 1
+
+    asyncio.run(exercise())
+
+
+def test_v2_api_contract(monkeypatch) -> None:
+    monkeypatch.setenv("CUA_V2_DB_PATH", ":memory:")
+    from backend.server import app
+    from backend.v2.orchestrator import orchestrator
+
+    orchestrator.configure(
+        AsyncMock(return_value=ExecutionOutcome("execution-1", "COMPLETED", (), 1.0))
+    )
+
+    with TestClient(app) as client:
+        models = client.get("/api/v2/models")
+        assert models.status_code == 200
+        assert models.json()["data"][0]["logicalId"]
+
+        credential = client.post(
+            "/api/v2/credential-sessions", json={"credentials": {"OPENAI": "sk-secret", "AZURE_OPENAI": "azure-secret"}, "ttlSeconds": 60}
+        )
+        assert credential.status_code == 201
+        assert "sk-secret" not in credential.text
+
+        credential_id = credential.json()["id"]
+        workflow = client.post(
+            "/api/v2/workflows",
+            json={"slug": "checkout", "name": "Checkout", "variablesSchema": {"type": "object"}, "steps": ["Open cart"]},
+        )
+        assert workflow.status_code == 201
+
+        invalid = client.post("/api/v2/sessions", json={"task": "x", "model": "obsolete"})
+        assert invalid.status_code == 422
+        envelope = invalid.json()["error"]
+        assert envelope["code"] == "VALIDATION_ERROR"
+        assert envelope["requestId"]
+
+        created = client.post("/api/v2/sessions", json={"task": "open browser", "model": "gpt-5.6-terra", "credentialSessionId": credential_id})
+        assert created.status_code == 201
+        session_id = created.json()["id"]
+        assert client.get(f"/api/v2/sessions/{session_id}").status_code == 200
+        stopped = client.patch(f"/api/v2/sessions/{session_id}", json={"status": "STOPPING"})
+        assert stopped.json()["status"] == "STOPPING"
+        assert client.get("/api/v2/analytics").json()["sampleCount"] >= 1
+
+        fallback = client.post(
+            "/api/v2/sessions",
+            json={"task": "fallback", "model": "gpt-5.6-terra", "primaryRoute": "azure-openai", "fallbackRoutes": ["openai-direct"], "credentialSessionId": credential_id},
+        )
+        assert fallback.status_code == 201
+        assert fallback.json()["activeRoute"] == "gpt-5.6-terra@azure-openai"
+        fallback_id = fallback.json()["id"]
+        for _ in range(20):
+            events = client.get(f"/api/v2/sessions/{fallback_id}/events").json()["data"]
+            if any(event["type"] == "ROUTE_SUCCEEDED" for event in events):
+                break
+            time.sleep(0.01)
+        assert any(
+            event["payload"].get("route") == "gpt-5.6-terra@openai-direct"
+            for event in events
+            if event["type"] == "ROUTE_SUCCEEDED"
+        )
+
+        malformed = client.post("/api/v2/sessions", json={})
+        assert malformed.status_code == 422
+        assert malformed.json()["error"]["code"] == "VALIDATION_ERROR"
+
+        forbidden = client.post(
+            "/api/v2/workflows",
+            headers={"Origin": "https://attacker.invalid"},
+            json={"slug": "blocked", "name": "Blocked", "steps": ["No"]},
+        )
+        assert forbidden.status_code == 403
+
+        import backend.server as server
+
+        monkeypatch.setattr(
+            server,
+            "_v2_frame_broker",
+            SimpleNamespace(capture=AsyncMock(return_value=BinaryFrame(9, 2, 1, 1000, FrameCodec.WEBP, b"frame"))),
+        )
+        monkeypatch.setattr(
+            server,
+            "_v2_frame_retention",
+            SimpleNamespace(put=lambda *_: None, is_enabled=lambda *_: False),
+        )
+        with client.websocket_connect("/api/v2/ws/execution-1") as websocket:
+            assert websocket.receive_json()["event"] == "SESSION_STREAM_READY"
+            assert websocket.receive_json()["event"] == "FRAME"
+            binary = websocket.receive_bytes()
+        assert unpack_cuaf_frame(binary).sequence == 9
+
+
+def test_vendor_protocol_adapters_validate_and_canonicalize() -> None:
+    assert parse_openai_action({"action": {"type": "click", "x": 12, "y": 34}}).type.value == "CLICK"
+    assert parse_anthropic_action({"input": {"action": "type", "text": "hello"}}).text == "hello"
+    assert parse_gemini_action({"functionCall": {"name": "scroll_at", "args": {"x": 1, "y": 2, "delta_y": 50}}}).delta_y == 50
+    try:
+        parse_openai_action({"action": {"type": "click", "x": -1, "y": 0}})
+    except ProtocolActionError:
+        pass
+    else:
+        raise AssertionError("negative coordinates must be rejected")
