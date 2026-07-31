@@ -1,19 +1,46 @@
 # USAGE
 
-Operator guide for `computer-use`. This document is written for someone who
-will run the app every day, hand it real tasks, and need to reason about what
-went wrong when something fails. It covers installation, daily operation,
-each piece of the workbench UI, prompt shape, file uploads, the API
-surface for scripted runs, configuration knobs, troubleshooting, and
-recovery procedures. Everything is grounded in the current code on this
-branch — no behavior is described that isn't actually implemented.
+Operator guide for `computer-use` — written so both a non-technical
+reader (what is this, why would I use it) and a technical operator
+(exact commands, exact env vars, exact API shapes) can get what they
+need from the same document. Everything here is grounded in the current
+code on this branch; no behavior is described that isn't actually
+implemented, and any feature gap is called out explicitly rather than
+glossed over.
 
-The app runs provider-native Computer Use against a Docker desktop. Web
-Search is implemented as a separate provider-native planning pass; the
-Computer Use loop itself only ever sees the computer tool. Reference-file
-retrieval is an optional request-time addition that uses each provider's
-documented retrieval contract (vector store for OpenAI, Files API for
-Anthropic, rejected for Gemini).
+## What This App Does (read this first if you're new)
+
+In plain language: this app lets an AI model **operate a real desktop
+computer for you** — open apps, click buttons, type text, fill in forms,
+browse the web — the same way a person would, by looking at the screen
+and deciding what to do next, one action at a time. You give it a task
+in plain English ("open the file manager and confirm it's visible"),
+it looks at a screenshot, decides on one action, and repeats until it
+either finishes, gets stuck, or hits a step limit you control.
+
+The "desktop" it operates is not your real computer — it's an isolated,
+disposable virtual desktop running inside Docker, specifically so that
+whatever the model does stays contained. You watch it work in real time
+through a browser dashboard.
+
+**Who this is for:** anyone who wants to prototype or evaluate
+AI-driven desktop automation locally — no cloud account, no
+multi-user setup, single operator on a single machine.
+
+**What it is not:** a production, multi-tenant, internet-facing service.
+There is no login system. Anyone who can reach the backend's port can
+use it. Keep it on `127.0.0.1` unless you've read
+[Network hardening](#networking) and deliberately opted in to exposing it.
+
+**Two ways to use it**, both fully working today:
+
+1. **The dashboard** (`http://localhost:3000`) — a five-tab web UI. This
+   is what most people mean by "using the app." It talks to the newer,
+   typed `/api/v2` backend surface.
+2. **Direct API calls** (curl, scripts, `wscat`) — the original REST +
+   WebSocket surface, still fully implemented, with a couple of features
+   (Web Search, file attachments) that the dashboard doesn't expose yet.
+   See [Feature Availability](#feature-availability-dashboard-vs-rest-api).
 
 ## Table of Contents
 
@@ -21,354 +48,292 @@ Anthropic, rejected for Gemini).
 2. [Installation](#installation)
 3. [First Run](#first-run)
 4. [Daily Operation](#daily-operation)
-5. [The Workbench UI](#the-workbench-ui)
-6. [Provider, Model, and Reasoning Effort](#provider-model-and-reasoning-effort)
-7. [Web Search Toggle](#web-search-toggle)
-8. [Reference Files](#reference-files)
+5. [The Dashboard — Five Tabs In Depth](#the-dashboard--five-tabs-in-depth)
+6. [Provider, Model, and Routing](#provider-model-and-routing)
+7. [Credential Sessions (API Keys)](#credential-sessions-api-keys)
+8. [Safety Confirmations](#safety-confirmations)
 9. [Writing Effective Tasks](#writing-effective-tasks)
-10. [Running, Watching, and Stopping](#running-watching-and-stopping)
-11. [Safety Confirmations](#safety-confirmations)
-12. [Sessions, History, and Export](#sessions-history-and-export)
-13. [API Keys and Resolution Order](#api-keys-and-resolution-order)
-14. [Configuration Reference](#configuration-reference)
-15. [Scripting via REST and WebSocket](#scripting-via-rest-and-websocket)
-16. [Troubleshooting](#troubleshooting)
-17. [Tests and Verification](#tests-and-verification)
-18. [Uninstall and Clean Reset](#uninstall-and-clean-reset)
+10. [Feature Availability: Dashboard vs. REST API](#feature-availability-dashboard-vs-rest-api)
+11. [Scripting via REST and WebSocket](#scripting-via-rest-and-websocket)
+12. [Configuration Reference](#configuration-reference)
+13. [Troubleshooting](#troubleshooting)
+14. [Tests and Verification](#tests-and-verification)
+15. [Uninstall and Clean Reset](#uninstall-and-clean-reset)
 
 ## Prerequisites
 
 | Requirement | Version | Why |
 |---|---|---|
-| Docker Desktop or Docker Engine | 24+ | Runs the `cua-environment` sandbox. |
-| Python | 3.11+ | Backend uses 3.11 typing features and asyncio task groups. |
-| Node.js | 20+ | Vite 6 dev server requires Node 20. |
-| Provider API key | OpenAI, Anthropic, or Google AI | At least one is required. The UI lets you switch per-session. |
-
-Check versions:
-
-```powershell
-docker --version
-python --version
-node --version
-```
-
-A working `docker compose` (the v2 plugin, not the legacy `docker-compose`
-binary) is required. The setup scripts call `docker compose` directly.
+| Docker Desktop or Docker Engine | 24+ | Runs the `cua-environment` sandbox (the virtual desktop). |
+| Python | 3.12–3.14 | Backend runtime, managed via `uv`. |
+| Node.js | 22+ | Vite 6 dashboard build/dev server. |
+| Provider API key | OpenAI, Anthropic, or Google AI Studio | At least one is required — this is the "brain" that decides what to click. |
+| [`uv`](https://docs.astral.sh/uv/) | latest | Python package/venv manager this project uses instead of raw `pip`. |
 
 The app is a single-user localhost workbench. There is no built-in
-authentication. Do not expose the backend (port 8100) or noVNC (port 6080)
-to a network you don't trust without first reading
-[Configuration Reference](#configuration-reference) and the security
-sections of `TECHNICAL.md`.
+authentication. Do not expose the backend (port `8100`) or noVNC
+(port `6080`) to a network you don't trust without first reading
+[Networking](#networking) below and the security sections of
+`TECHNICAL.md`.
 
-> **WS/VNC token transport (U10).** When `CUA_WS_TOKEN` is set, the frontend
-> passes it in the URL query string (`?token=…`) for `/ws` and the noVNC proxy.
-> This is acceptable **only on loopback** — query strings leak via proxy/access
-> logs and browser history. For any non-loopback exposure, terminate at a
-> reverse proxy that injects the secret via the `Sec-WebSocket-Protocol`
-> subprotocol or an `Authorization` header (and never logs the query string)
-> rather than relying on the query-string token.
+> **WS/VNC token transport.** When `CUA_WS_TOKEN` is set, the frontend
+> passes it in the URL query string (`?token=…`) for `/ws`, `/api/v2/ws/*`,
+> and the noVNC proxy. This is acceptable **only on loopback** — query
+> strings leak via proxy/access logs and browser history. For any
+> non-loopback exposure, terminate at a reverse proxy that injects the
+> secret via a header or the `Sec-WebSocket-Protocol` subprotocol instead.
 
 ## Installation
-
-Two paths are supported: a one-command bootstrap and a manual install.
-
-### One-command bootstrap
 
 ```powershell
 git clone https://github.com/pypi-ahmad/computer-use.git
 cd computer-use
-cp .env.example .env
-# add OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY/GOOGLE_API_KEY
-python dev.py --bootstrap
+Copy-Item .env.example .env
+# edit .env: add OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY / GEMINI_API_KEY
+
+uv sync --frozen
+Set-Location frontend; npm ci; Set-Location ..
 ```
 
-`dev.py --bootstrap` performs:
+Two launch paths from here:
 
-1. Creates a Python virtualenv at `.venv` if missing.
-2. Activates the venv and runs `pip install -r requirements.txt`.
-3. Runs `npm install` inside `frontend/`.
-4. Builds the Docker image `cua-ubuntu:latest` and starts the
-   `cua-environment` container via `docker compose up -d`.
-5. Waits up to `CUA_CONTAINER_READY_TIMEOUT` seconds (default 30) for the
-   in-container agent service on port 9222 to report healthy.
-
-Bootstrap is idempotent: re-running it on an already-installed checkout is
-safe. It skips steps that are already satisfied and reports which ones it
-ran.
-
-### Manual install
-
-If you want to control each step (or the bootstrap script fails on your
-platform), the equivalent manual steps are:
+**Path A — one-command bootstrap** (also builds the Docker image and
+starts the sandbox for you):
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1   # Linux/macOS: source .venv/bin/activate
-
-pip install -r requirements.txt
-
-cd frontend
-npm install
-cd ..
-
-docker compose up -d
+setup.bat            # Windows
+bash setup.sh         # Linux/macOS
 ```
 
-After the container is running, start the backend and the frontend in
-separate terminals:
+`setup.sh`/`setup.bat` checks Docker and `uv` are installed, installs
+Python 3.12 via `uv python install 3.12`, builds the sandbox image
+(`docker compose build --no-cache`), installs Python deps
+(`uv sync --frozen`) and frontend deps (`npm ci`), then launches the app.
+Add `--bootstrap-only` to prepare everything without launching, or
+`--clean` for a from-scratch Docker rebuild (destructive — removes
+existing containers/images first).
+
+**Path B — manual, day-to-day startup** (once dependencies are already
+installed):
 
 ```powershell
-# Terminal 1 — backend
-.\.venv\Scripts\Activate.ps1
-python -m backend.main
+.\dev.bat             # Windows — wraps: uv run --frozen python dev.py
+bash dev.sh           # Linux/macOS
 ```
 
+`dev.py` (invoked by either wrapper) does three things every time you run
+it: frees ports `8100`/`3000`/`6080`/`9222` if a previous crashed run left
+them held, makes sure the `cua-environment` container is running and
+healthy (starting it via `docker compose up -d` if not), then launches
+the FastAPI backend and the Vite dev server as subprocesses, streaming
+their logs to your terminal. `Ctrl+C` stops both processes but leaves the
+Docker container running so the next launch is fast.
+
 ```powershell
-# Terminal 2 — frontend
-cd frontend
-npm run dev
+docker compose down   # stop the sandbox container too
 ```
 
 ### Environment file
 
-Copy the example and edit it:
-
-```powershell
-cp .env.example .env
-```
-
-The file is heavily commented. The settings you usually need are:
+The settings you'll actually touch:
 
 ```dotenv
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
 GOOGLE_API_KEY=AIza...
-# GEMINI_API_KEY= (also accepted as an alias for GOOGLE_API_KEY)
+# GEMINI_API_KEY=            # accepted as an alias for GOOGLE_API_KEY
 
-OPENAI_REASONING_EFFORT=low
+AGENT_SERVICE_TOKEN=...      # generate a unique random value
+VNC_PASSWORD=...             # generate a unique random value
 SCREEN_WIDTH=1440
 SCREEN_HEIGHT=900
 MAX_STEPS=50
 ```
 
+`AGENT_SERVICE_TOKEN` and `VNC_PASSWORD` are required sandbox secrets —
+generate real random values, don't leave them blank or copy an example.
 If you intend to bind the backend to a non-loopback address, also set
-`CUA_ALLOW_PUBLIC_BIND=1` and `CUA_WS_TOKEN=<secret>`. Without both, the
+`CUA_ALLOW_PUBLIC_BIND=1` and `CUA_WS_TOKEN=<secret>`; without both, the
 process refuses to start when `HOST != 127.0.0.1`.
 
 ## First Run
 
-After installation, the first session is a useful smoke test. Open
-`http://localhost:3000` and run:
+Open `http://localhost:3000`. On the **Live session** tab, type:
 
 > Open the file manager. Stop when the file manager window is visible.
 
-This task is purely local — no web search needed, no files attached. It
-exercises the screenshot capture path, action dispatch, and the WebSocket
-event stream end to end. If the agent opens the file manager and the
-"Environment Ready" badge stays green throughout, the install is working.
-
-If the run fails before the first screenshot, see
-[Troubleshooting](#troubleshooting).
+This is purely local — no web search, no files — so it's a clean smoke
+test of screenshot capture, action dispatch, and the live stream end to
+end. If the viewport shows the file manager opening and the session
+status badge reaches `COMPLETED`, the install is working. If the run
+fails before the first frame appears, see [Troubleshooting](#troubleshooting).
 
 ## Daily Operation
 
-Once installed, daily use is one command:
-
 ```powershell
-python dev.py
+.\dev.bat        # or: bash dev.sh
 ```
 
-`dev.py` (no flags) does three things in this order:
+then open `http://localhost:3000`. The Vite dev server proxies `/api`
+and `/api/v2/ws` to the backend, so you don't deal with CORS during
+normal use.
 
-1. **Port cleanup.** Kills any process listening on 8100 (backend), 3000
-   (frontend), 6080 (noVNC), or 9222 (agent service). This recovers from
-   crashed previous runs without manual `kill` commands.
-2. **Sandbox check.** Confirms the `cua-environment` container is
-   running and healthy. If not, it starts it via `docker compose up -d`
-   and waits for the agent service to come up.
-3. **Process launch.** Spawns the FastAPI backend and the Vite dev
-   server as subprocesses, forwarding their stdout and stderr to the
-   current terminal.
+## The Dashboard — Five Tabs In Depth
 
-The tool keeps running until you press `Ctrl+C`. On exit, it stops the
-launched subprocesses but leaves the Docker container running so the next
-launch is fast. To stop the container too:
+The left sidebar has five workspaces. Each is a separate page; switching
+tabs doesn't lose the state of the others.
 
-```powershell
-docker compose down
-```
+### 1. Live session
 
-The launcher accepts a few flags:
+This is the one you'll use most. It's split into two halves:
 
-| Flag | Effect |
-|---|---|
-| `--bootstrap` | Run the full one-command setup before launching. |
-| `--no-frontend` | Start only the backend. Useful when running the production frontend build behind a proxy. |
-| `--no-backend` | Start only the frontend. Useful when developing the UI against a remote backend. |
-| `--rebuild` | Force `docker compose up -d --build` before launch. |
+- **Left (Mission control):** a task text box, a Computer Use model
+  dropdown, and a primary route dropdown (which provider/transport
+  actually executes the model — see
+  [Provider, Model, and Routing](#provider-model-and-routing)). Below
+  that, a **Start run** button, or **Stop run** once one is active.
+- **Right (Viewport):** the live screenshot the model itself is seeing,
+  updated in real time over a binary WebSocket stream. Above it, a
+  five-stage pipeline indicator (capture → encode → infer → validate →
+  act) highlights whichever stage the current turn is in.
 
-### Open the workbench
+If the model raises a safety-sensitive action, an amber "Approval
+required" banner appears above the viewport with the provider's
+explanation text (see [Safety Confirmations](#safety-confirmations) for
+what this can and can't do right now).
 
-Navigate to:
+A small status badge next to the viewport tracks the session through its
+lifecycle: `PENDING` → `RUNNING` → `COMPLETED` / `STOPPED` / `ERROR`.
 
-```text
-http://localhost:3000
-```
+### 2. Audit trail
 
-The Vite dev server proxies `/api`, `/ws`, and `/vnc/*` to the backend on
-port 8100, so you do not need to deal with CORS during normal use.
+Every session you've ever run (this process's lifetime — see the
+[Configuration](#configuration-reference) note on `CUA_V2_DB_PATH`) is
+listed in a dropdown at the top of this tab. Pick one to see:
 
-## The Workbench UI
+- **Confirmed action journal** — every action the model actually took,
+  in order, with its type and raw payload. This is a durable record
+  written to disk as the session ran, not something reconstructed
+  afterward.
+- **Recent events** — the last few lifecycle events for that session
+  (e.g. `SESSION_STARTED`, `ROUTE_ATTEMPTED`, `ROUTE_SUCCEEDED`,
+  `SESSION_FAILED`), each with a timestamp.
 
-The single-page workbench has four primary regions:
+This is the tab to use when you want to know, after the fact, exactly
+what an agent did and in what order — useful for compliance review or
+for debugging a run that didn't go as expected.
 
-1. **Control Panel** (left side): provider, model, API key, task box,
-   advanced settings drawer, file uploads, Web Search toggle, Start /
-   Stop buttons.
-2. **Live Screen** (top right): the current screenshot, with a switch
-   between deduplicated screenshots and the noVNC iframe view.
-3. **Timeline** (right column): a step-by-step list of the model's actions
-   with reasoning. Each entry shows the action name, coordinates, and
-   the post-action screenshot.
-4. **Logs Panel** (bottom): structured log output streamed over the
-   WebSocket. Filterable by level. Has copy and download buttons.
+### 3. Workflow library
 
-Two secondary regions appear contextually:
+A **workflow** here is a saved, reusable, named sequence of plain-English
+instructions (e.g. "Weekly access review": *Open the admin portal → Export
+active accounts → Save the report*) — not a low-code visual builder, just
+an ordered list of steps you write once and reuse. Existing workflows are
+shown as cards with their name and version number; the form on the right
+creates a new one. Each edit to a workflow's steps creates a new version
+rather than overwriting the old one, so you can always see what a
+previous run actually used.
 
-- **Safety Modal**: opens when a provider raises a `require_confirmation`
-  event. Blocks the run until you click Confirm or Deny. See
-  [Safety Confirmations](#safety-confirmations).
-- **History Drawer**: a scrollable list of the last 50 sessions stored
-  in `localStorage`. Click an entry to load its task back into the
-  Control Panel.
+*(Compiling a workflow — substituting variables like `${account_name}`
+into its steps and handing the result to a Live session run — exists as
+a backend endpoint, `POST /api/v2/workflows/{id}/compile`, but is not yet
+wired into the dashboard UI. Today it's reachable via
+[direct API calls](#scripting-via-rest-and-websocket).)*
 
-The header carries the **Environment Status** badge:
+### 4. Providers
 
-| Badge | Meaning |
-|---|---|
-| Environment Ready (green) | Container is running, agent service responding, at least one provider key resolved. |
-| Starting (amber) | Container is up but the agent service has not yet reported healthy. |
-| Container Down (red) | `cua-environment` is not running. Click the badge to start it. |
-| Build Required (red) | Docker image is missing. Click the badge to run `docker compose up -d --build`. |
+This is where you tell the app which AI account to use, without ever
+typing a permanent secret. Pick a provider (OpenAI/Anthropic/Google),
+paste in an API key, and click **Create credential session**. See
+[Credential Sessions](#credential-sessions-api-keys) for exactly what
+happens to that key and how long it lasts.
 
-## Provider, Model, and Reasoning Effort
+The same tab also lists every configured **route** (a provider +
+transport + auth-mode combination — e.g. "OpenAI via the direct Responses
+API" vs. "the same model via Azure") with a status badge showing whether
+it's configured (has credentials available) and its current circuit
+state (`CLOSED` = healthy, `OPEN` = temporarily skipped after repeated
+failures — see [Provider, Model, and Routing](#provider-model-and-routing)).
 
-The Provider dropdown lists the three supported providers: OpenAI,
-Anthropic, and Google (Gemini). Selection sets the relevant `OPENAI_API_KEY`,
-`ANTHROPIC_API_KEY`, or `GOOGLE_API_KEY` env-var hint and filters the Model
-dropdown to the matching entries from `allowed_models.json`.
+### 5. Analytics
 
-Currently shipped Computer-Use-capable models:
+Four running totals across every session this process has executed:
+session count, action count, number of latency samples recorded, and
+average latency per recorded stage. Below the tiles, the same numbers
+appear as a raw JSON object — useful if you're eyeballing whether a
+particular provider/route combination is meaningfully slower than
+another over time.
 
-| Provider | Model ID | Display Name | Notes |
-|---|---|---|---|
-| OpenAI | `gpt-5.5` | GPT-5.5 | Default OpenAI CU model. |
-| OpenAI | `gpt-5.4` | GPT-5.4 | Original CU release. |
-| Anthropic | `claude-opus-4-8` | Claude Opus 4.8 | `computer_20251124` tool, beta endpoint required; current GA Opus. |
-| Anthropic | `claude-opus-4-7` | Claude Opus 4.7 | `computer_20251124` tool, beta endpoint required. |
-| Anthropic | `claude-sonnet-4-6` | Claude Sonnet 4.6 | `computer_20251124` tool, beta endpoint required. |
-| Google | `gemini-3-flash-preview` | Gemini 3 Flash Preview | Only Gemini CU SKU exposed by this app. |
+## Provider, Model, and Routing
 
-The list is the runtime allowlist; the backend will reject any model not
-in `backend/models/allowed_models.json`.
+**Provider** = which company's AI you're using (OpenAI, Anthropic,
+Google). **Model** = which specific version of that company's AI (e.g.
+Claude Opus 4.8 vs. Claude Sonnet 5 — bigger/smaller, different
+cost/speed/quality tradeoffs). **Route** = the specific technical path a
+model call takes to reach that provider — most models expose a `-direct`
+route (calling the vendor's own API straight), and some also list
+catalogued-but-not-yet-executable routes through Azure, AWS Bedrock, or
+Google Vertex (shown in the Providers tab as configured/present but not
+selectable as a Live session's active route in this release — see
+`docs/research-audit-2026-07-23.md` for exactly which routes are
+executable today).
 
-### OpenAI reasoning effort
+When you start a Live session, you pick a **primary route**. If you
+don't pick one, the app defaults to the first route the model exposes.
+There is no automatic "pick the cheapest/fastest" behavior — routing is
+always the operator's explicit choice, which is a deliberate design
+decision so you always know exactly which vendor is handling your task
+and your data.
 
-For OpenAI models, the Advanced Settings drawer exposes a `reasoning_effort`
-selector. The valid values are `minimal`, `low`, `medium`, `high`, and
-`xhigh`. Defaults are model-specific:
+If a route starts failing repeatedly, its **circuit** opens (visible on
+the Providers tab as `OPEN` instead of `CLOSED`) and the app stops trying
+it for a short cooldown window, so a single flaky route can't make every
+subsequent run slow or hang. It recovers to `CLOSED` on its own once the
+cooldown passes and a call succeeds again.
 
-- `gpt-5.4` defaults to `none`.
-- `gpt-5.5` defaults to `medium`.
+## Credential Sessions (API Keys)
 
-Higher effort improves multi-step reliability but costs more tokens and
-takes longer per turn. `low` is a good baseline for desktop tasks; bump to
-`medium` or `high` for ambiguous or long-horizon work.
+Instead of typing your API key into every request, the Providers tab
+lets you create a **credential session**: paste your key once, and the
+app hands you back an opaque, short-lived reference (never the key
+itself) that Live session runs can use going forward.
 
-### `max_steps`
+What actually happens to the key you paste:
 
-The Advanced Settings drawer also exposes a `max_steps` slider. The
-backend hard-caps this at 200. Most desktop tasks finish in fewer than 30
-steps; raise the cap only when you have a specific reason to.
+- It's held **only in the backend process's memory** — never written to
+  disk, never included in any log line, never stored in the audit
+  database.
+- It automatically expires **8 hours after creation at the absolute
+  latest** (shorter if you configure a smaller TTL via the API), whether
+  you're actively using it or not.
+- If a session's credential has expired, gone missing, or simply wasn't
+  supplied, the app falls back to whatever provider API key is set in
+  your `.env`/system environment for that provider — so a stale or
+  expired credential session never silently uses the *wrong* key,
+  it only ever falls back to your own already-configured one.
+- Deleting the credential session (the trash icon next to "Credential
+  session active") removes it from memory immediately, before its TTL
+  would otherwise expire.
 
-## Web Search Toggle
+If you'd rather not use the Providers tab at all, simply configure your
+key(s) in `.env` — every route will resolve credentials from there
+automatically with no credential session needed.
 
-Web Search is a single boolean per session. When **off**, the model's
-advertised tool list is computer-only; nothing else is exposed. When
-**on**, the run is split into two phases:
+## Safety Confirmations
 
-1. **Planning phase.** The provider's documented search tool runs first
-   without the computer tool. The prompt asks the model to return a
-   compact execution brief with five fixed sections (interpreted task,
-   environment assumptions, step-by-step execution brief, verification
-   condition, pitfalls).
-2. **Execution phase.** The original task is merged with the planner
-   brief. The Computer Use loop then runs with the computer tool only
-   (and `file_search` if files are attached). The model cannot call web
-   search during this phase.
+Some actions a model can propose — submitting a form, an irreversible
+delete, a payment — are risky enough that the backend pauses the run
+and asks a human before executing them.
 
-| Provider | Planning tool | Execution tool |
-|---|---|---|
-| OpenAI | `web_search` (Responses API) | `computer` |
-| Anthropic | `web_search_20260209` | `computer_20251124` |
-| Google | `google_search` grounding | `computer_use` |
-
-Turning Web Search on costs one extra provider request (the planning
-call) and adds a few seconds of latency. Use it when the task involves:
-
-- Current public web facts (releases, prices, names that change).
-- An app or workflow you want the model to be confident about before
-  acting (the brief makes the steps explicit).
-- A URL or service whose location is non-obvious.
-
-Do **not** turn it on for purely local desktop work. Saying "open the file
-manager" does not need a web search to interpret.
-
-## Reference Files
-
-The Files panel of the Control Panel accepts up to 10 files per session,
-1 GB per file, with these extensions:
-
-| Extension | Provider behavior |
-|---|---|
-| `.pdf` | OpenAI: vector-store `file_search`. Anthropic: `document` content blocks. Gemini: rejected. |
-| `.txt` | OpenAI: vector-store. Anthropic: `document` blocks. Gemini: rejected. |
-| `.md` | OpenAI: vector-store. Anthropic: extracted to inline text. Gemini: rejected. |
-| `.docx` | OpenAI: vector-store. Anthropic: extracted to inline text. Gemini: rejected. |
-
-The upload flow:
-
-1. Drag a file onto the upload zone (or click to browse).
-2. The frontend POSTs to `/api/files/upload`. The backend validates the
-   extension, cross-checks magic bytes, and persists the file to the
-   process-scoped temp store. It returns an opaque local file id.
-3. The id appears as a chip in the Files panel. The chip shows the file
-   name and size.
-4. When you press Start, the local file ids are sent to the backend in
-   the `attached_files` field. The backend prepares the provider-specific
-   retrieval shape (vector store, document blocks, or rejects).
-
-Removing a file chip deletes the upload from the local store. Files that
-are not removed are GC'd after 6 hours by the backend's idle sweeper.
-
-### File preparation per provider
-
-- **OpenAI** creates a per-run `vector_store` and uploads each file with
-  `purpose="user_data"`. The Computer Use run advertises both the
-  computer tool and a `file_search` tool whose `vector_store_ids` points
-  at this store. After the session ends, the store and its file objects
-  are deleted in a best-effort cleanup pass.
-- **Anthropic** uploads PDFs and TXTs through the Files API and emits
-  `document` content blocks for them. Markdown and DOCX cannot be sent as
-  document blocks under the Computer Use beta, so they are extracted to
-  plain text and inlined as `text` content blocks.
-- **Gemini** raises a `400` with a structured error before the provider
-  call. Gemini File Search is not part of this app's Computer Use path.
-
-The frontend disables the file upload zone when the selected provider is
-Gemini.
+**Honest current state:** the Live session tab *displays* this pause (the
+amber "Approval required" banner with the provider's explanation), so you
+always know when a run is blocked and why — but the dashboard does not
+yet have a button to answer it. Today, resolving a paused confirmation
+and the older provider-scripting confirmation flow both go through the
+[REST API directly](#scripting-via-rest-and-websocket) (`POST
+/api/agent/safety-confirm` for the v1 surface). A confirmation that's
+never answered auto-denies after a timeout, and the run continues from
+there marked as failed for that step — it does not hang forever.
 
 ## Writing Effective Tasks
 
@@ -379,24 +344,23 @@ worked-out examples; this section gives the operating principles.
 ### Always include
 
 - **Outcome.** What does success look like? "The file manager window is
-  visible" not "explore the desktop".
+  visible" not "explore the desktop."
 - **Starting point.** Where should the agent begin? "Open the browser
-  and go to <url>" instead of "research <topic>".
-- **Allowed evidence.** Which sources or apps may the agent use? Cuts
-  meandering.
-- **Constraints.** Things the agent must not do: "do not sign in", "do
-  not submit forms", "do not download anything".
-- **Stop condition.** A precise observable state.
+  and go to `<url>`" instead of "research `<topic>`."
+- **Constraints.** Things the agent must not do: "do not sign in," "do
+  not submit forms," "do not download anything."
+- **Stop condition.** A precise, observable state.
 - **Final answer format.** Tell the model whether you want a sentence,
-  a bullet list, or a JSON object.
+  a bullet list, or a specific fact quoted back.
 
 ### Avoid
 
-- Hard-coded pixel coordinates. They break across providers (Gemini uses
-  a normalized 0–999 grid) and across screen sizes.
+- Hard-coded pixel coordinates in your instructions — they mean
+  different things across providers (Gemini's internal grid is
+  normalized 0–999) and across screen sizes.
 - Passive verbs ("the page should be opened"). Use imperative.
-- Tasks that require credentials the agent does not have. The agent
-  cannot guess passwords or 2FA codes.
+- Tasks that need credentials the agent doesn't have — it cannot guess
+  passwords or 2FA codes.
 
 ### Examples
 
@@ -404,251 +368,58 @@ worked-out examples; this section gives the operating principles.
 
 ```text
 Open the calculator app. Type "2 + 2" and press Enter.
-Stop when the display shows "4".
-Tell me the displayed result.
+Stop when the display shows "4". Tell me the displayed result.
 ```
 
-**Web research without files:**
+**Web research (via the v1 REST surface, which supports web search —
+see the feature-availability note below):**
 
 ```text
 Open the browser and go to the official OpenAI docs.
-Find the Computer Use guide.
-Do not sign in or change any settings.
+Find the Computer Use guide. Do not sign in or change any settings.
 Stop when the guide page is visible.
 Tell me the page title and the first section heading.
-```
-
-**With files:**
-
-```text
-Use the attached product notes as the source of truth.
-Open the browser and compare the visible pricing page against the attached notes.
-Do not submit forms or start purchases.
-Stop after you identify any mismatch.
-Return a short list of differences.
 ```
 
 **Multi-step with verification:**
 
 ```text
-Open VS Code.
-Create a new file called notes.txt on the desktop.
+Open VS Code. Create a new file called notes.txt on the desktop.
 Type "hello world" into it and save.
 Stop when you can see notes.txt as an open tab in VS Code.
 Confirm you saved the file by quoting the file path.
 ```
 
-## Running, Watching, and Stopping
+## Feature Availability: Dashboard vs. REST API
 
-After filling the Control Panel, click **Start**. The UI:
+The five-tab dashboard and the original REST/WebSocket surface aren't
+feature-identical yet. Use this table to decide which surface a task
+needs:
 
-1. Disables the Start button and clears the Timeline and Logs.
-2. Sends `POST /api/agent/start`.
-3. Subscribes to the WebSocket and forwards `screenshot_subscribe` for
-   the new session.
-4. Renders incoming `step`, `log`, `screenshot`, and `safety_prompt`
-   events.
-
-The Timeline shows each step's action (click, type, scroll, etc.), its
-target coordinates, the model's reasoning text if any, and the screenshot
-captured immediately after the action. Hover any entry to expand the full
-reasoning.
-
-The Logs panel shows structured log lines. A level dropdown filters to
-INFO / WARN / ERROR / DEBUG.
-
-### Stopping
-
-Press **Stop** at any time. The frontend issues
-`POST /api/agent/stop/{session_id}`, which:
-
-1. Cancels the in-flight provider task.
-2. Closes the executor's HTTP client.
-3. Marks the session row as `stopped`.
-4. Emits `agent_finished` with `status="stopped"`.
-
-Stop is **immediate** and **safe**: the agent service refuses any further
-actions for the dead session, and any retry happening in the engine
-client is cancelled with `asyncio.CancelledError`.
-
-### Stuck-agent detection
-
-If the model issues three consecutive identical actions (same name, same
-coordinates, same text payload), the backend stops the run automatically
-without waiting for the step limit. The reason ("stuck-agent detector")
-appears in the Logs and `agent_finished` payload.
-
-Identical here means after coordinate normalization. A click that misses
-by a single pixel does not count as identical.
-
-### Step limit
-
-When the run reaches `max_steps` without completing, the engine returns
-the latest assistant text and emits `agent_finished` with
-`status="max_steps_reached"`. Re-run with a higher cap or a more focused
-task.
-
-## Safety Confirmations
-
-When a provider model invokes a `require_confirmation`-style action
-(typically: form submission, payment, irreversible file deletion), the
-backend pauses the run and the UI opens a modal:
-
-- **Prompt.** The provider-supplied human-readable description.
-- **Buttons.** Confirm or Deny.
-
-The provider call awaits your decision via a backend event. The watchdog
-auto-denies after 60 seconds, after which the run is marked as failed
-and the Logs show `safety_timeout`.
-
-You can stop the run instead of answering. Stop takes priority over the
-pending safety prompt.
-
-The safety pipeline is provider-side: the UI cannot fabricate a safety
-prompt, and the backend never decides without operator input. See the
-"Safety Confirmation Pipeline" section in `TECHNICAL.md` for the full
-state machine.
-
-## Sessions, History, and Export
-
-The frontend persists the last 50 sessions to `localStorage` under
-`cua_session_history_v1`. Each entry includes:
-
-- Task text
-- Provider and model
-- Step count
-- Final status
-- Final answer (truncated)
-- Start and end timestamps
-
-Click a row in the History Drawer to load its task and settings back
-into the Control Panel. This is for quick re-runs of similar tasks; the
-session itself is **not** restored on the backend (the in-memory
-session row is gone after the process restarts or after the agent
-finishes).
-
-### Exporting a session
-
-While viewing a finished session, the Export menu offers:
-
-- **HTML** — a self-contained file with the timeline, logs, and embedded
-  screenshots. Good for sharing.
-- **JSON** — the raw event stream including step records and provider
-  metadata. Good for programmatic post-processing.
-- **TXT** — a flat human-readable transcript.
-
-If `CUA_TRACE_DIR` is set in the backend env, the server also writes a
-JSON trace file per session under that directory. The trace file matches
-the JSON export shape but is captured server-side without depending on
-the browser staying open.
-
-## API Keys and Resolution Order
-
-The backend resolves API keys in this priority order:
-
-1. **UI input.** Whatever you typed in the API key box of the Control
-   Panel for the current session.
-2. **Request body.** If a scripted client passes `api_key` in the
-   `POST /api/agent/start` body.
-3. **`.env` file.** `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and
-   `GOOGLE_API_KEY` (or `GEMINI_API_KEY`).
-4. **System environment.** The corresponding env var in the calling
-   shell.
-
-If none of the above is set for the selected provider, the request
-returns `400` with a `MISSING_API_KEY` structured error.
-
-The frontend never persists the API key to localStorage. Reloading the
-page clears it from the form.
-
-### Validating a key
-
-The Control Panel has a "Validate" button that calls
-`POST /api/keys/validate`. The backend makes a minimal documented
-validation call against the provider:
-
-| Provider | Validation call |
-|---|---|
-| OpenAI | `client.models.list()` |
-| Anthropic | `client.beta.messages.create()` with a 1-token budget |
-| Google | `client.models.list()` via `google-genai` |
-
-The backend caches successful validations for 5 minutes per key hash so
-repeat validations are cheap.
-
-## Configuration Reference
-
-All configuration is via environment variables. The complete list lives
-in `.env.example`; this section calls out the ones operators usually
-need to know.
-
-### Networking
-
-| Variable | Default | Notes |
+| Feature | Dashboard (`/api/v2`) | Direct REST API (v1, `/api/agent/*`) |
 |---|---|---|
-| `HOST` | `127.0.0.1` | Backend bind. Setting to anything else requires `CUA_ALLOW_PUBLIC_BIND=1` and `CUA_WS_TOKEN`. |
-| `PORT` | `8100` | Backend port. |
-| `CUA_ALLOW_PUBLIC_BIND` | unset | Explicit opt-in for non-loopback `HOST`. The process refuses to start without this when `HOST != 127.0.0.1`. |
-| `CUA_WS_TOKEN` | unset | Shared secret for `/ws` and `/vnc/*`. Required for non-loopback bind. |
-| `CUA_ALLOWED_HOSTS` | derived from CORS | Extra Host headers to allow. |
-| `CORS_ORIGINS` | localhost:3000/5173 | Comma-separated allowlist. |
+| Start/stop a Computer Use run | ✅ Live session tab | ✅ `POST /api/agent/start` / `/stop` |
+| Choose provider/model/route explicitly | ✅ Live session tab | ✅ request body fields |
+| Ordered fallback routes | ✅ (`fallbackRoutes`, currently API-only for customizing beyond the default) | — (no fallback concept in v1) |
+| Persistent, queryable session history | ✅ Audit trail tab (SQLite-backed) | — (in-memory only; lost on restart) |
+| Credential vault (paste-once API keys) | ✅ Providers tab | — (pass `api_key` per request, or rely on `.env`) |
+| **Web Search planning pass** | ❌ not yet wired into the UI or `SessionInput` contract | ✅ `use_builtin_search: true` |
+| **File attachments** (`.pdf`/`.txt`/`.md`/`.docx`) | ❌ not yet wired into the UI or `SessionInput` contract | ✅ `POST /api/files/upload` + `attached_files` |
+| **Answering a safety confirmation** | ❌ display-only (see above) | ✅ `POST /api/agent/safety-confirm` |
+| Reusable named workflows | ✅ Workflow library tab | — (no workflow concept in v1) |
+| Aggregate latency/usage analytics | ✅ Analytics tab | — |
 
-### Sandbox and screen
-
-| Variable | Default | Notes |
-|---|---|---|
-| `CONTAINER_NAME` | `cua-environment` | Docker container name. |
-| `SCREEN_WIDTH` / `SCREEN_HEIGHT` | `1440` / `900` | Virtual display geometry. Must match the Dockerfile if you change it. |
-| `AGENT_SERVICE_HOST` / `AGENT_SERVICE_PORT` | `127.0.0.1` / `9222` | Where the in-container action service listens. |
-| `AGENT_SERVICE_TOKEN` | unset | Optional bearer token enforced by the agent service. |
-| `CUA_CONTAINER_READY_TIMEOUT` | `30.0` | Seconds to wait for the agent service after `docker compose up`. |
-| `CUA_ENABLE_LEGACY_ACTIONS` | `0` | Re-enable shell/clipboard/window-management actions inside the container. **Do not** enable this when binding non-loopback. |
-
-### Agent runtime
-
-| Variable | Default | Notes |
-|---|---|---|
-| `MAX_STEPS` | `50` | Default `max_steps` slider value. Hard cap is 200. |
-| `STEP_TIMEOUT` | `30.0` | Seconds before a single action is considered hung. |
-| `OPENAI_REASONING_EFFORT` | model-specific | Default reasoning effort if not specified per session. |
-| `OPENAI_BASE_URL` | OpenAI default | Override for regional or proxy deployments. |
-| `CUA_CLAUDE_MAX_TOKENS` | `32768` | Per-turn `max_tokens` budget for Claude. |
-| `CUA_ANTHROPIC_WEB_SEARCH_ENABLED` | `0` | Skip the org-level web-search probe. Set when you've confirmed the key has access. |
-
-### Streaming
-
-| Variable | Default | Notes |
-|---|---|---|
-| `CUA_WS_SCREENSHOT_INTERVAL` | `1.5` | Screenshot publish interval in seconds. |
-| `CUA_WS_SCREENSHOT_SUSPEND_WHEN_IDLE` | `1` | Pause screenshot capture when no subscriber is connected. |
-
-### Limits
-
-| Variable | Default | Notes |
-|---|---|---|
-| `CUA_MAX_BODY_BYTES` | `262144` | Reject HTTP bodies over this size. |
-
-### Logging and tracing
-
-| Variable | Default | Notes |
-|---|---|---|
-| `LOG_FORMAT` | `console` | Set to `json` for one JSON line per log record. |
-| `LOG_LEVEL` | `INFO` | Standard Python log level. |
-| `DEBUG` | `0` | Set to `1` to switch the backend to debug verbosity. |
-| `CUA_TRACE_DIR` | `~/.computer-use/traces/` | Directory for per-session JSON trace files. |
-| `CUA_UPLOAD_DIR` | system temp | Override the file upload store directory. |
-
-A change to any of these variables takes effect on the next backend
-start. The frontend has no env-var configuration; it reads runtime data
-from the backend's `/api/*` endpoints.
+If your task needs Web Search, file attachments, or answering a safety
+prompt programmatically, use the REST API directly for now — see the
+next section.
 
 ## Scripting via REST and WebSocket
 
-The full HTTP API is documented in `README.md` and exhaustively in
-`TECHNICAL.md`. This section is the operator-friendly walkthrough of
-common scripting patterns.
+The full HTTP API is documented exhaustively in `TECHNICAL.md` and via
+the live OpenAPI document at `/docs`. This section is the
+operator-friendly walkthrough of common patterns for both surfaces.
 
-### Quick start a session from a script
+### v1 — quick-start a session with Web Search and files
 
 ```bash
 curl -X POST http://localhost:8100/api/agent/start \
@@ -665,65 +436,128 @@ curl -X POST http://localhost:8100/api/agent/start \
   }'
 ```
 
-The response contains a `session_id`. Use it to poll status:
+The response contains a `session_id`. Poll status, or stop it:
 
 ```bash
 curl http://localhost:8100/api/agent/status/<session_id>
-```
-
-To stop:
-
-```bash
 curl -X POST http://localhost:8100/api/agent/stop/<session_id>
 ```
 
-### Stream events with `wscat`
+Upload a file first if you need `attached_files`:
+
+```bash
+curl -X POST http://localhost:8100/api/files/upload -F file=@./notes.pdf
+```
+
+Stream events over `/ws` (append `?token=$CUA_WS_TOKEN` if that's set):
 
 ```bash
 wscat -c ws://localhost:8100/ws
-{"event":"screenshot_subscribe","session_id":"<session_id>"}
 ```
 
-The connection then receives `step`, `log`, `screenshot`, and
-`agent_finished` events as JSON.
-
-If `CUA_WS_TOKEN` is set, append the token to the URL:
+Answer a safety confirmation (must respond within the timeout window,
+using the `nonce` the `safety_confirmation` event carried):
 
 ```bash
-wscat -c "ws://localhost:8100/ws?token=$CUA_WS_TOKEN"
-```
-
-### Upload a file from a script
-
-```bash
-curl -X POST http://localhost:8100/api/files/upload \
-  -F file=@./notes.pdf
-```
-
-The response includes `file_id`. Pass that id in the `attached_files`
-list of the next `/api/agent/start` request.
-
-### Submitting a safety confirmation
-
-If the model raises a safety prompt, your script must answer within the
-60-second window:
-
-```bash
-curl -X POST http://localhost:8100/api/safety/confirm \
+curl -X POST http://localhost:8100/api/agent/safety-confirm \
   -H "Content-Type: application/json" \
-  -d '{"session_id": "<session_id>", "confirmed": true}'
+  -d '{"session_id": "<session_id>", "confirm": true, "nonce": "<nonce>"}'
 ```
+
+### v2 — the dashboard's own API
+
+```bash
+# List available models and routes
+curl http://localhost:8100/api/v2/models
+curl http://localhost:8100/api/v2/provider-routes
+
+# Create a credential session (returns an opaque id, never the key)
+curl -X POST http://localhost:8100/api/v2/credential-sessions \
+  -H "Content-Type: application/json" \
+  -d '{"credentials": {"OPENAI": "sk-..."}, "ttlSeconds": 3600}'
+
+# Start a session using that credential session
+curl -X POST http://localhost:8100/api/v2/sessions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task": "Open the calculator and compute 2 + 2.",
+    "model": "gpt-5.6-terra",
+    "primaryRoute": "openai-direct",
+    "fallbackRoutes": [],
+    "credentialSessionId": "<id from above>",
+    "maxSteps": 30,
+    "retainAuditFrames": true
+  }'
+
+# List/query, stop
+curl http://localhost:8100/api/v2/sessions
+curl -X PATCH http://localhost:8100/api/v2/sessions/<id> \
+  -H "Content-Type: application/json" -d '{"status": "STOPPING"}'
+```
+
+Both `/api/v2/sessions` and `/api/v2/credential-sessions` (and every
+other mutating `/api/v2/*` route) enforce the same origin/token gate as
+the v1 endpoints — see [Networking](#networking).
 
 ### Forbidden fields and rate limiting
 
-Schemas use `extra="forbid"`. Any unknown field returns 422 with a
-structured error. The rate limiter is per-IP sliding window:
+Both surfaces use `extra="forbid"` schemas — an unknown field returns a
+structured `422`. The v1 rate limiter is a per-IP sliding window: 10
+agent starts per minute, 3 concurrent sessions, 20 key validations per
+minute. Hitting a limit returns `429`.
 
-- 10 agent starts per minute
-- 3 concurrent sessions
-- 20 key validations per minute
+## Configuration Reference
 
-Hitting a limit returns 429 with a `Retry-After` header.
+All configuration is via environment variables; the complete list lives
+in `.env.example`. This section calls out the ones operators usually
+need.
+
+### Networking
+
+| Variable | Default | Notes |
+|---|---|---|
+| `HOST` | `127.0.0.1` | Backend bind. Anything else requires `CUA_ALLOW_PUBLIC_BIND=1` and `CUA_WS_TOKEN`. |
+| `PORT` | `8100` | Backend port. |
+| `CUA_ALLOW_PUBLIC_BIND` | unset | Explicit opt-in for non-loopback `HOST`. |
+| `CUA_WS_TOKEN` | unset | Shared secret gating `/ws`, `/api/v2/ws/*`, `/vnc/*`, and every mutating REST route. |
+| `CUA_ALLOWED_HOSTS` | derived from CORS | Extra Host headers to allow. |
+| `CORS_ORIGINS` | `localhost:3000`/`5173` | Comma-separated allowlist. |
+
+### Sandbox and screen
+
+| Variable | Default | Notes |
+|---|---|---|
+| `CONTAINER_NAME` | `cua-environment` | Docker container name. |
+| `SCREEN_WIDTH` / `SCREEN_HEIGHT` | `1440` / `900` | Virtual display geometry — restart the backend if you change these. |
+| `AGENT_SERVICE_HOST` / `AGENT_SERVICE_PORT` | `127.0.0.1` / `9222` | Where the in-container action service listens. |
+| `AGENT_SERVICE_TOKEN` | required | Bearer token enforced by the in-container agent service. |
+| `CUA_ENABLE_LEGACY_ACTIONS` | `0` | Re-enables shell/clipboard/window-management actions inside the sandbox. Do not enable when binding non-loopback. |
+
+### Agent runtime
+
+| Variable | Default | Notes |
+|---|---|---|
+| `MAX_STEPS` | `50` | Default step budget. Hard cap is 200. |
+| `STEP_TIMEOUT` | `30.0` | Seconds before a single action is considered hung. |
+
+### v2 persistence and streaming
+
+| Variable | Default | Notes |
+|---|---|---|
+| `CUA_V2_DB_PATH` | `data/computer-use-v2.sqlite3` | SQLite WAL database backing the Audit trail and Analytics tabs. |
+| `CUA_FRAME_DIR` | `data/frames` | On-disk retention root for audit screenshot frames (7-day / 1 GiB default eviction). |
+
+### Logging
+
+| Variable | Default | Notes |
+|---|---|---|
+| `LOG_FORMAT` | `console` | Set to `json` for one JSON line per log record. |
+| `LOG_LEVEL` | `INFO` | Standard Python log level. |
+| `DEBUG` | `0` | Set to `1` for debug verbosity. |
+
+A change to any of these takes effect on the next backend start. The
+frontend has no build-time config beyond `VITE_WS_TOKEN` and
+`VITE_API_PORT` (both optional, read at dev-server start).
 
 ## Troubleshooting
 
@@ -733,113 +567,54 @@ Hitting a limit returns 429 with a `Retry-After` header.
 docker compose ps
 docker logs cua-environment
 docker compose down
-docker compose up -d
-```
-
-If `docker compose up -d` fails on the build step, run with `--build` and
-inspect the output for missing system packages:
-
-```powershell
 docker compose up -d --build
 ```
 
-### Container starts but the badge stays "Starting"
-
-The backend is waiting for the agent service inside the container.
-Check:
+### Container starts but the sandbox never becomes ready
 
 ```powershell
 curl http://127.0.0.1:9222/health
 ```
 
-If this fails, the agent service did not boot. Look at:
-
-```powershell
-docker logs cua-environment | Select-String -Pattern "agent" -SimpleMatch
-```
-
-The most common causes are:
-
-- A stale `:99` X server lock from a previous container. `docker
-  compose down && docker compose up -d` clears it.
-- A custom `SCREEN_WIDTH`/`SCREEN_HEIGHT` that does not match the
-  Dockerfile geometry. Reset to `1440x900`.
+If this fails, the in-container agent service didn't boot. Check
+`docker logs cua-environment` for startup errors. Common causes: a stale
+X server lock from a previous container (`docker compose down && docker
+compose up -d` clears it), or a custom `SCREEN_WIDTH`/`SCREEN_HEIGHT`
+that doesn't match the Dockerfile's expectations — reset to `1440x900`.
 
 ### Backend will not start
 
-`HOST != 127.0.0.1` without `CUA_ALLOW_PUBLIC_BIND=1` and `CUA_WS_TOKEN`
-makes the process exit with a clear error. Read the `.env` again. If
-you genuinely want non-loopback, set both variables.
-
-A missing dependency manifests as `ModuleNotFoundError`. Reinstall:
-
-```powershell
-pip install -r requirements.txt
-```
+`HOST != 127.0.0.1` without both `CUA_ALLOW_PUBLIC_BIND=1` and
+`CUA_WS_TOKEN` set makes the process exit with a clear error — this is
+intentional, not a bug. A missing dependency shows as
+`ModuleNotFoundError`; reinstall with `uv sync --frozen`.
 
 ### Frontend will not start
 
 ```powershell
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
-If `npm install` fails on a corporate network, point npm at your proxy
-and retry. The dev server requires Node 20+.
+Requires Node 22+. If `npm ci` fails on a corporate network, point npm
+at your proxy and retry.
 
-### "MISSING_API_KEY" when starting a session
+### A route shows as configured but every session on it fails
 
-The backend could not find a key for the selected provider. Either type
-one into the API key box, fill `.env`, or set the env var in the shell
-that launched the backend.
+Check the Providers tab's circuit-state badge — if it shows `OPEN`, the
+route is being temporarily skipped after repeated failures and will
+recover automatically after its cooldown window.
 
-### "Web Search is not enabled for this organization" (Anthropic)
+### Files attached or Web Search requested but nothing happens
 
-The org-level probe found that your Anthropic API key is not entitled
-to use `web_search_20260209`. Two options:
-
-- Disable Web Search for the session.
-- Enable it on the Anthropic console for your org. After confirming, set
-  `CUA_ANTHROPIC_WEB_SEARCH_ENABLED=1` and restart the backend to skip
-  the probe on subsequent starts.
-
-### Files attached but Gemini selected
-
-Gemini File Search is not part of this app's Computer Use path. Switch
-to OpenAI or Anthropic for runs that need file retrieval, or remove the
-files.
-
-### Run hangs at "starting"
-
-Check the Logs for an error. The most common causes:
-
-- Provider rate limit (429). The retry decorator backs off, so wait a
-  minute or switch keys.
-- Provider auth (401). Re-validate the key.
-- Container restart in progress. Wait for the badge to go green.
-
-### "Stuck-agent detector" tripped early
-
-The model is repeating an identical action. Either:
-
-- The task is ambiguous and the model is stuck on a single screen.
-  Tighten the prompt.
-- A UI element does not exist where the model thinks it does. Try a
-  different starting URL or app.
-- `max_steps` is set very low and the model has not had a chance to
-  recover.
-
-### Screenshot stream stops updating
-
-Click the **Live Screen** view to refresh the WebSocket subscription. If
-that does not help, refresh the browser tab; the session continues
-server-side.
+These two features aren't wired into the dashboard's session contract
+yet — see [Feature Availability](#feature-availability-dashboard-vs-rest-api)
+and use the v1 REST API directly for now.
 
 ### Port already in use
 
-`dev.py` clears default ports automatically. If you bypassed it, free
-the port manually:
+`dev.py` clears default ports automatically. If you bypassed it:
 
 ```powershell
 Get-NetTCPConnection -LocalPort 8100 | Select-Object OwningProcess
@@ -848,383 +623,202 @@ Stop-Process -Id <pid>
 
 ### Full reset
 
-If multiple things are off, the cheapest reset is:
-
 ```powershell
 docker compose down --remove-orphans
-python dev.py --bootstrap
+setup.bat --clean
 ```
-
-This rebuilds the image, restarts the container, reinstalls Python and
-Node dependencies, and boots the app.
 
 ## Tests and Verification
 
-The project ships an extensive test suite. After significant config
-changes (or before opening a PR), run:
-
 ```powershell
-python -m pytest -p no:cacheprovider tests evals --tb=short
+uv run pytest -p no:warnings --tb=short
+uv run pytest -p no:warnings --tb=short -o addopts='' evals/
 ```
 
-For focused checks:
+Focused checks:
 
 ```powershell
-# Provider run() contract
-python -m pytest tests/test_provider_run_contract.py --tb=short
-
-# File store and per-provider preparation
-python -m pytest tests/test_files.py --tb=short
-
-# Server endpoints + schema, rate-limit, and host-allowlist validation
-python -m pytest tests/test_server.py --tb=short
-
-# Engine client unit tests
-python -m pytest tests/engine/test_openai.py tests/engine/test_claude.py tests/engine/test_gemini.py --tb=short
-
-# Action dispatch
-python -m pytest tests/test_executor_split.py --tb=short
+uv run pytest tests/test_v2_platform.py --tb=short          # v2 platform contract
+uv run pytest tests/test_provider_run_contract.py --tb=short
+uv run pytest tests/test_server.py --tb=short
+uv run pytest tests/engine/test_openai.py tests/engine/test_claude.py tests/engine/test_gemini.py --tb=short
+uv run pytest tests/docker/test_agent_service.py --tb=short  # in-container service; no Docker needed
 ```
 
-Live SDK integration tests are gated behind the `integration` marker:
+Live SDK integration tests are gated behind the `integration` marker and
+excluded from the default run (they need a real provider key and
+outbound network access):
 
 ```powershell
-python -m pytest -m integration --tb=short
+uv run pytest -m integration --tb=short
 ```
 
-These require a real provider key and outbound network access. They are
-excluded from the default run.
-
-The agent service inside the container has its own contract tests in
-`tests/docker/test_agent_service.py`. They run against a stub HTTP layer
-and do not require Docker.
-
-### Frontend build sanity check
+Frontend:
 
 ```powershell
 cd frontend
-npm run build
+npm run lint
+npm run typecheck
+npm run test:run
+npm run build          # emits frontend/dist/ — also the production bundle FastAPI serves
 ```
-
-This emits a static bundle to `frontend/dist/`. Failures here are
-usually caused by a Node version below 20 or a missing dependency.
 
 ## Uninstall and Clean Reset
 
-To remove the running services without deleting data:
-
 ```powershell
-docker compose down
+docker compose down             # stop services, keep the image and data
+docker compose down --rmi all   # also remove the built image
+docker compose down -v          # also remove any Docker volumes you've added
 ```
 
-The `cua-environment` image stays on disk. To remove the image too:
-
-```powershell
-docker compose down --rmi all
-```
-
-To remove the Docker volumes (none are mounted by default, but if you
-added some, this is how you wipe them):
-
-```powershell
-docker compose down -v
-```
-
-To remove uploaded files cached on the host:
-
-```powershell
-Remove-Item -Recurse -Force "$env:TEMP/cua-uploads"
-```
-
-To reset the Python virtualenv:
+Reset the Python environment:
 
 ```powershell
 Remove-Item -Recurse -Force .venv
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+uv sync --frozen
 ```
 
-To reset the frontend cache:
+Reset the frontend:
 
 ```powershell
 cd frontend
 Remove-Item -Recurse -Force node_modules, dist
-npm install
+npm ci
 ```
 
-To clear browser-side history and theme:
-
-- Open the History Drawer and click "Clear all" (the action removes
-  `cua_session_history_v1` from `localStorage`).
-- Or use the browser's site-data clear for `localhost:3000`.
-
-After any of these, `python dev.py --bootstrap` reboots from a clean
-state.
+Clear v2's persisted history: stop the backend, then delete
+`CUA_V2_DB_PATH` (default `data/computer-use-v2.sqlite3`) along with its
+`-wal`/`-shm` files, and `CUA_FRAME_DIR` (default `data/frames`) if you
+also want to drop retained audit screenshots.
 
 ---
 
 For a deeper look at the runtime contracts and module boundaries, read
-`TECHNICAL.md`. For prompt patterns and anti-patterns, read
-`docs/computer-use-prompt-guide.md`. For changelog and release notes,
-read `CHANGELOG.md`.
+`TECHNICAL.md` or the [Zero to Hero Study Handbook](docs/zero-to-hero-study-handbook.md).
+For prompt patterns, read `docs/computer-use-prompt-guide.md`. For
+changelog and release notes, read `CHANGELOG.md`.
 
 ## Appendix A — Operating Patterns
 
-This appendix collects patterns that show up repeatedly in real
-sessions. None of them are required reading for first-time use, but
-they make daily operation noticeably smoother.
+Patterns that show up repeatedly in real sessions.
 
-### Use the noVNC view to debug, then switch back to screenshots
+### Pin reasoning effort per task class (v1 REST; not yet in the dashboard)
 
-The Live Screen panel toggles between two render modes:
-
-- **Screenshot stream.** The backend captures one frame at the
-  configured `CUA_WS_SCREENSHOT_INTERVAL` (default 1.5 seconds), the
-  publisher deduplicates by content hash, and the WebSocket pushes the
-  resulting base64 PNG. The view shows what the model itself sees on
-  every turn — the same frames the provider receives.
-- **noVNC iframe.** The frontend embeds the in-container noVNC client
-  on port 6080. This is a continuous render of the actual XFCE
-  framebuffer at native frame rate.
-
-Use the noVNC view when:
-
-- A drag operation is failing and you want to see whether the cursor
-  moved at all.
-- You suspect a modal or transient menu appeared between screenshots
-  and was missed.
-- A keyboard input does not seem to register.
-
-Switch back to the screenshot view for normal operation. The screenshot
-view matches the model's perception, which is what you want when you're
-debugging the model's reasoning rather than the desktop itself.
-
-### Pin reasoning effort per task class
-
-Bias toward lower reasoning effort and raise it only for tasks that
-need it. A rough decision table:
-
-| Task class | OpenAI reasoning effort | Notes |
+| Task class | Suggested effort | Notes |
 |---|---|---|
-| Open / close a single app | `minimal` or `low` | Pure UI navigation. |
-| Single-app multi-step (file edit, save) | `low` | Default for most desktop work. |
-| Cross-app workflow (browser → editor → save) | `medium` | The model needs to keep more state. |
-| Research-and-act with web search planning | `medium` or `high` | Brief is non-trivial; execution must follow it. |
-| Diagnose a failure or recover from a stuck state | `high` | The model needs more deliberation per turn. |
+| Open/close a single app | `minimal` or `low` | Pure UI navigation. |
+| Single-app multi-step (edit, save) | `low` | Default for most desktop work. |
+| Cross-app workflow | `medium` | The model needs to keep more state. |
+| Research-and-act with web search | `medium` or `high` | The planning brief is non-trivial; execution must follow it. |
+| Diagnosing a failure / recovering a stuck state | `high` | More deliberation per turn helps. |
 
-Whatever you pick, watch the per-turn latency. If a task that should
-take 30 seconds is taking minutes per step, the effort level is too
-high for the work.
+Watch per-turn latency regardless of setting — if a 30-second task is
+taking minutes per step, the effort level is too high for the work.
 
 ### Prefer URLs to navigation prompts
 
-When a task needs the browser, give the URL directly. "Open the
-browser and go to https://example.com" is shorter and more reliable
-than "Open the browser, search for example, and click the first result".
-The latter is a much longer chain that can fail at any step; the former
-is one navigation.
+"Open the browser and go to `https://example.com`" is one navigation and
+far more reliable than "open the browser, search for example, click the
+first result," which is a longer chain that can fail at any link.
 
 ### Constrain the workspace
 
 Most desktop tasks misbehave because the model has too much room to
-explore. Cut the search space:
+explore. Name the exact app ("Open VS Code" not "open a code editor"),
+say what's off-limits ("do not modify any other open file"), and say
+whether to close things when done.
 
-- Tell the model the exact app to use ("Open VS Code" not "open a code
-  editor").
-- Tell it which files or windows are off limits ("do not modify any
-  other open file").
-- Tell it whether to close apps when done ("leave VS Code open" or
-  "close all windows").
-
-The provider documentation calls these "guardrails". They are the
-single largest lever you have.
-
-### Capture the final answer
-
-Always end the prompt with an explicit final-answer instruction:
+### Capture the final answer explicitly
 
 ```text
 Stop when the file manager is visible.
 Tell me the title bar text and the first three folder names you see.
 ```
 
-This forces the model to produce a structured final response rather
-than just declaring success. The text appears in `agent_finished` and
-in the session export.
+This forces a structured final response rather than a vague "done."
 
 ### Re-run with a tighter prompt instead of a longer step budget
 
-If a run hits `max_steps`, the temptation is to raise the cap. Try the
-opposite first: tighten the prompt. A tighter prompt reaches the goal
-faster more reliably than a looser prompt with more budget.
-
-### Use the History Drawer for prompt iteration
-
-The History Drawer makes it easy to iterate on a single task across
-runs. Run, observe, click the entry, edit the task in the Control
-Panel, run again. The previous task is preserved in history; you do
-not lose your previous wording.
+If a run hits `max_steps`, tighten the prompt before raising the cap — a
+tighter prompt reaches the goal faster and more reliably than a looser
+one with more budget.
 
 ## Appendix B — Provider-Specific Behavior
-
-Each provider has small idiosyncrasies operators benefit from knowing.
 
 ### OpenAI
 
 - **Replay model.** Every Computer Use turn replays the full
-  conversation history. This is intentional for ZDR compatibility; it
-  also means OpenAI bills for the full history every turn. Token usage
-  on long sessions is not linear.
-- **Screenshot resize.** The Responses API caps `detail: "original"`
-  images at 10,240,000 pixels and a 6000 px long edge. Screenshots
-  beyond this are downscaled before upload, and pixel coordinates the
-  model returns are remapped back to real screen space.
-- **Web search sources.** When the planning pass uses `web_search`, the
-  session export includes the source URLs the model consulted under
-  `completion_payload.sources`.
-- **Reasoning effort defaults.** `gpt-5.4` defaults to `none`, `gpt-5.5`
-  defaults to `medium`. The Advanced Settings drawer override applies
-  only to the current session.
+  conversation history (intentional, for ZDR compatibility) — billing
+  and latency both scale with session length, not linearly with turn
+  count.
+- **Screenshot resize.** Images beyond 10,240,000 pixels or a 6000px
+  long edge are downscaled before upload; returned pixel coordinates are
+  remapped back to real screen space automatically.
+- **Reasoning effort defaults.** `gpt-5.4` defaults to `none`; `gpt-5.5`
+  defaults to `medium`.
 
 ### Anthropic
 
-- **Beta endpoint (streamed).** Anthropic Computer Use turns are streamed via
-  `client.beta.messages.stream(...).get_final_message()` with the
-  `computer-use-2025-11-24` beta header (streaming avoids the SDK HTTP-timeout
-  guard at the 32K `max_tokens` budget). If your API key is on a strictly
-  stable channel without this beta enabled, the run fails with a `403`.
+- **Streamed turns.** Turns stream via the beta Messages API with the
+  `computer-use-2025-11-24` header to avoid the SDK's HTTP-timeout guard
+  at the configured `max_tokens` budget.
 - **Web search probe.** The first session per API key per 24 hours that
-  enables Web Search runs a tiny probe call to confirm the org has
-  access to `web_search_20260209`. Cached for 24 hours after success.
-- **Document blocks.** PDFs and TXTs are uploaded as Anthropic Files
-  and inlined as `document` content blocks. Markdown and DOCX are
-  inlined as plain text. There is no provider-side vector store.
-- **`max_tokens`.** Set per turn from `CUA_CLAUDE_MAX_TOKENS` (default
-  32,768). If a turn truncates because of `max_tokens`, you see an
-  explicit error rather than a silent cut-off.
+  enables Web Search runs a small probe call confirming the org has
+  access; cached for 24 hours after success.
+- **Document handling.** PDFs/TXTs upload via the Files API as document
+  blocks; Markdown/DOCX are extracted and inlined as plain text — there
+  is no Anthropic-side vector store equivalent.
 
 ### Google Gemini
 
 - **Coordinate grid.** Gemini emits coordinates on a 0–999 normalized
-  grid. The executor denormalizes to real pixels using the configured
-  `SCREEN_WIDTH` / `SCREEN_HEIGHT`. If you change those env vars,
-  restart the backend so the executor picks up the new geometry.
-- **History pruning.** Gemini sessions prune to a sliding window of 10
-  turns (configurable via the engine code). Pruning drops entire turns
-  to preserve the `toolCall` / `toolResponse` / `thoughtSignature`
-  invariants Gemini documents; field-level rewrites would break replay.
-- **Files rejected.** Uploads with provider Gemini fail at start.
-  Switch provider or remove files.
-- **Grounding metadata.** When Web Search is on, the planning pass'
-  Google Search grounding payload is normalized and attached to the
-  final `agent_finished` event for inspection.
+  grid; the executor denormalizes to real pixels using the configured
+  `SCREEN_WIDTH`/`SCREEN_HEIGHT`. Restart the backend after changing
+  those so the executor picks up the new geometry.
+- **History pruning.** Sessions prune to a sliding window of recent
+  turns rather than rewriting fields on older ones, to preserve the
+  `toolCall`/`toolResponse` invariants Gemini's API documents.
+- **Files rejected for Computer Use.** Gemini File Search cannot be
+  combined with the Computer Use tool in this app — attaching files with
+  Gemini selected fails at session start.
 
 ## Appendix C — Resource Profile
 
-Approximate steady-state resource usage for one running session:
+Approximate steady-state usage for one running session:
 
 | Component | CPU | Memory |
 |---|---|---|
-| FastAPI backend | <5 % single-core | ~150–250 MB |
-| Vite dev server | <2 % single-core | ~120–200 MB |
-| Docker container | 1–2 cores burst | up to 4 GB cap (`docker-compose.yml`) |
-| Browser tab (workbench) | 1 core during render | 200–400 MB |
+| FastAPI backend | <5% single-core | ~150–250 MB |
+| Vite dev server | <2% single-core | ~120–200 MB |
+| Docker sandbox | 1–2 cores burst | up to the cap set in `docker-compose.yml` |
+| Browser tab (dashboard) | ~1 core during render | 200–400 MB |
 
-Disk usage:
-
-- Docker image: ~3.5 GB after first build (Ubuntu base + browsers +
-  LibreOffice + VS Code).
-- Per-session uploads: capped at 1 GB per file × 10 files = 10 GB
-  worst case. The GC sweeper deletes uploads after 6 hours.
-- Trace files (if `CUA_TRACE_DIR` is set): ~100 KB to ~5 MB per
-  session depending on screenshot count and size.
-- Session history (browser): bounded to 50 entries, stored as JSON in
-  `localStorage`.
-
-If you regularly run long sessions or attach many files, consider
-pointing `CUA_UPLOAD_DIR` at a fast local disk with sufficient space.
+Disk: the sandbox image is several GB after first build (Ubuntu base +
+browsers + LibreOffice + VS Code + GIMP/Inkscape). v2 audit frames are
+bounded to 7 days or 1 GiB by default under `CUA_FRAME_DIR`; the SQLite
+database at `CUA_V2_DB_PATH` grows with session/action/event history and
+has no automatic eviction — prune it manually if it grows large.
 
 ## Appendix D — Privacy Notes
 
 The app keeps everything local by default:
 
-- API keys are never sent to anyone except the chosen provider's
-  endpoint. The frontend does not persist them.
-- Screenshots stay on the host except when sent to the provider as
-  part of the Computer Use loop.
-- Uploaded files are sent to the provider only when a session is
-  started with `attached_files`. They are also sent to the provider's
-  Files API or vector-store API; you should treat them with the same
-  privacy posture as any other content you send to that provider.
-- Logs and traces stay on the host. Set `CUA_TRACE_DIR` to a directory
-  you can audit and rotate.
-- The session history in `localStorage` includes the task text, model,
-  step count, and a truncated final answer. Clear it from the History
-  Drawer when you want to remove that data.
+- API keys are sent only to the chosen provider's own endpoint. Neither
+  the v1 in-request key nor a v2 credential-session key is ever written
+  to disk, logged, or included in the audit database.
+- Screenshots stay on the host except when sent to the provider as part
+  of the Computer Use loop itself; v2 audit frames retained under
+  `CUA_FRAME_DIR` are also local-only.
+- Uploaded files (v1 REST path) are sent to the provider's Files
+  API/vector-store only when a session actually attaches them — treat
+  them with the same privacy posture as anything else you send that
+  provider.
+- Logs stay on the host. Set `LOG_FORMAT=json` if you want to pipe them
+  into a log-aggregation tool you control.
 
-The provider call pipelines are the only outbound traffic the backend
-makes during normal operation. The agent service inside the container
-does not call out to the network on its own; the model's
-browser/desktop actions inside the sandbox can of course initiate
-arbitrary outbound traffic from inside the container.
-
-## Appendix E — Quick Reference
-
-### One-line bootstrap
-
-```powershell
-python dev.py --bootstrap
-```
-
-### Daily run
-
-```powershell
-python dev.py
-```
-
-### Stop everything
-
-```powershell
-docker compose down
-```
-
-### Open the workbench
-
-```text
-http://localhost:3000
-```
-
-### Open the live desktop directly (no UI)
-
-```text
-http://localhost:6080/vnc.html?autoconnect=true&resize=scale
-```
-
-### Tail backend logs
-
-If you launched via `dev.py`, the backend logs are in the same
-terminal. Otherwise:
-
-```powershell
-docker logs -f cua-environment           # sandbox logs
-```
-
-### Run all tests
-
-```powershell
-python -m pytest -p no:cacheprovider tests evals --tb=short
-```
-
-### Rebuild the Docker image
-
-```powershell
-docker compose up -d --build
-```
-
-### Reset a stuck environment
-
-```powershell
-docker compose down --remove-orphans
-python dev.py --bootstrap
-```
+The provider call itself is the only outbound traffic the backend makes
+during normal operation. The in-container agent service does not call
+out to the network on its own — but the model's own browser/desktop
+actions inside the sandbox can of course initiate arbitrary outbound
+traffic from inside that container, since that's the whole point of
+letting it operate a browser.
