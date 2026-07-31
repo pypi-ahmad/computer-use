@@ -1,62 +1,57 @@
-# computer-use
+# Computer Use Workbench
 
-## Overview
+A local, single-user workbench for provider-native Computer Use agents. v2 adds a typed `/api/v2` contract, deterministic route fallback, SQLite audit history, binary frame streaming, declarative workflows, and a five-tab React dashboard.
 
-**Providers:** OpenAI GPT-5.4 / 5.5 · Anthropic Claude Opus 4.8 / 4.7 / Sonnet 4.6 · Google Gemini 3 Flash
+> Computer Use can execute destructive actions. Run the sandbox with test accounts and non-sensitive data. This project is not a multi-tenant service and does not make model actions safe by itself.
 
-## Tech Stack
+## Supported execution routes
 
-- Python (pyproject/uv managed)
+OpenAI, Anthropic, and Google direct routes are executable. Azure OpenAI, AWS Bedrock, Vertex Gemini, and Vertex Claude are catalogued and contract-validated, but their execution bridges are intentionally reported as unavailable in v2.0.0. OpenRouter is omitted because its documented generic tool routing is not a vendor-native Computer Use protocol.
 
-## Repository Structure
+The dated model and deprecation evidence is in [the July 23 research audit](docs/research-audit-2026-07-23.md).
 
-- `.coverage`
-- `.dockerignore`
-- `.env.example`
-- `.gitattributes`
-- `.github/`
-- `.gitignore`
-- `.mypy_cache/`
-- `.pymarkdown.json`
-- `.pytest_cache/`
-- `.ruff_cache/`
-- `.venv/`
-- `assets/`
-- ... and 24 more entries
+## Quick start
 
-## Getting Started
+Requirements: Docker Desktop, Node.js 22, and [uv](https://docs.astral.sh/uv/).
 
-### Prerequisites
-
-- Git
-- Runtime dependencies for this project's stack
-
-### Installation
-
-```bash
-uv sync
+```powershell
+Copy-Item .env.example .env
+uv sync --frozen
+Set-Location frontend; npm ci; Set-Location ..
+.\dev.bat
 ```
 
-## Usage
+Set at least one of `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `GOOGLE_API_KEY` in the process environment or `.env`. Generate `AGENT_SERVICE_TOKEN` and `VNC_PASSWORD` before starting Compose. Secrets entered in the v2 Provider Manager remain in memory and expire after at most eight hours.
 
-Use the project's documented entrypoint (CLI/app script) from this repository.
+Open `http://127.0.0.1:3000` for development. For a production-style single-process build, see [Deployment](docs/deployment.md).
 
-## Testing
+## Commands
 
-Run tests with `uv run pytest` from repository root.
+| Command | Purpose |
+|---|---|
+| `uv sync --frozen` | Install the exact Python environment |
+| `uv run python dev.py` | Start backend, frontend, and sandbox |
+| `uv run pytest` | Run offline backend tests |
+| `uv run pytest -o addopts='' evals/` | Run offline evals |
+| `uv run ruff check .` | Lint Python |
+| `uv run mypy` | Type-check Python |
+| `npm --prefix frontend run typecheck` | Type-check React |
+| `npm --prefix frontend run test:run` | Run frontend tests |
+| `npm --prefix frontend run build` | Build the production UI |
+| `uv run python scripts/build_release.py` | Build release archive and checksums |
 
-## Security
+## Architecture
 
-Please review [SECURITY.md](SECURITY.md) for reporting and handling security issues.
+- FastAPI owns REST, WebSocket events, orchestration, and production static serving.
+- SQLite WAL persists sessions, actions, events, metrics, workflow versions, and checkpoints.
+- A bounded filesystem store retains audit frames for seven days or one GiB by default.
+- The sandbox is an isolated Ubuntu/XFCE container exposing authenticated screenshot and input endpoints.
+- React consumes generated-style camelCase contracts and the `CUAF` binary-frame protocol.
 
-## Contributing
+See [TECHNICAL.md](TECHNICAL.md), [Migration](docs/migration-v2.md), [Rollback](docs/rollback-v2.md), and [Security](SECURITY.md).
 
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) before opening issues or pull requests.
+## Verification status
 
-## Changelog
+Release publication is gated by `.github/workflows/ci.yml`: Ruff, formatting, mypy, Python 3.12–3.14 tests, evals, frontend lint/typecheck/tests/build, dependency audits, sandbox image build, and a blocking high/critical image scan. Live provider smoke tests are conditional and must be recorded in the release verification matrix; missing credentials are disclosed, never treated as a pass.
 
-Ongoing changes are tracked in [CHANGELOG.md](CHANGELOG.md).
-
-## License
-
-This project is licensed under the terms described in [LICENSE](LICENSE).
+Licensed under MIT.

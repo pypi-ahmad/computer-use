@@ -14,10 +14,14 @@ import time
 import uuid
 from collections import deque
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocketState
 
 from backend.infra.config import config, get_all_key_statuses, resolve_api_key
@@ -46,6 +50,13 @@ from backend.infra.docker import (
     stop_container,
 )
 from backend.models.validation import validate_tool_parity
+from backend.v2.api import router as v2_router
+from backend.v2.api import error_response as _v2_error_response
+from backend.v2.frames import FrameBroker, FrameCodec, pack_cuaf_frame
+from backend.v2.orchestrator import ExecutionRequest as V2ExecutionRequest
+from backend.v2.orchestrator import ExecutionOutcome as V2ExecutionOutcome
+from backend.v2.orchestrator import orchestrator as _v2_orchestrator
+from backend.v2.retention import frame_retention
 
 import httpx
 
@@ -135,6 +146,14 @@ async def _lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="CUA — Computer Using Agent", version="1.0.0", lifespan=_lifespan)
+app.include_router(v2_router)
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error_handler(request: Request, exc: RequestValidationError):
+    if request.url.path.startswith("/api/v2/"):
+        return _v2_error_response(request, 422, "VALIDATION_ERROR", "Request validation failed", details=exc.errors())
+    return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
 # CORS: restrict to local dev origins by default; override with CORS_ORIGINS env var.
 #
@@ -209,6 +228,10 @@ _SECURITY_HEADERS = {
     # any host, which defeats the directive's whole purpose.
     "Content-Security-Policy": (
         "default-src 'none'; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' blob: data:; "
         "connect-src 'self'; "
         "frame-ancestors 'none'"
     ),
@@ -462,6 +485,19 @@ def _require_origin(request: Request) -> Response:
         )
         return _error_response(403, "Forbidden")
     return None  # type: ignore[return-value]
+
+
+@app.middleware("http")
+async def _guard_v2_mutations(request: Request, call_next):
+    """Apply the existing localhost origin/token boundary to every v2 mutation."""
+    if request.url.path.startswith("/api/v2/") and request.method in {"POST", "PATCH", "DELETE"}:
+        forbidden = _require_origin(request)
+        if forbidden is not None:
+            return _v2_error_response(request, 403, "FORBIDDEN", "Origin is not allowed")
+        unauthorized = _require_rest_auth(request)
+        if unauthorized is not None:
+            return _v2_error_response(request, 401, "UNAUTHORIZED", "Authentication failed")
+    return await call_next(request)
 
 
 # ── Allowed models (single source of truth: backend/allowed_models.json) ──────
@@ -1225,6 +1261,45 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
     }
 
 
+async def _start_v2_execution(req: V2ExecutionRequest) -> V2ExecutionOutcome:
+    """Run and observe an AgentLoop so runtime failure can trigger fallback."""
+    if not await start_container() or get_container_state().get("agent") != "ready":
+        raise RuntimeError("Sandbox is not ready")
+    loop = AgentLoop(
+        task=req.task,
+        api_key=req.api_key,
+        model=req.model_id,
+        max_steps=req.max_steps,
+        provider=req.provider,
+        reasoning_effort=req.reasoning_effort if req.provider == "openai" else None,
+    )
+    _active_loops[loop.session_id] = loop
+    started_at = time.perf_counter()
+    current_task = asyncio.current_task()
+    if current_task is not None:
+        _active_tasks[loop.session_id] = current_task
+    try:
+        session = await loop.run()
+        if session.status == SessionStatus.ERROR:
+            raise RuntimeError("Computer Use loop completed with an error")
+        actions = tuple(
+            step.action.model_dump(mode="json")
+            for step in session.steps
+            if step.action is not None
+        )
+        return V2ExecutionOutcome(
+            session_id=loop.session_id,
+            status=session.status.value.upper(),
+            actions=actions,
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+        )
+    finally:
+        _cleanup_session(loop.session_id)
+
+
+_v2_orchestrator.configure(_start_v2_execution)
+
+
 @app.post("/api/agent/stop/{session_id}")
 async def api_stop_agent(session_id: str, request: Request):
     """Stop a running agent session by ID."""
@@ -1540,6 +1615,88 @@ async def vnc_http_proxy(path: str):
 
 # ── WebSocket ─────────────────────────────────────────────────────────────────
 
+_v2_frame_retention = frame_retention
+_v2_latest_canonical_frame: tuple[bytes, int, int, int] | None = None
+
+
+async def _capture_v2_frame() -> tuple[bytes, int, int, FrameCodec]:
+    import io
+
+    from PIL import Image
+
+    encoded = await capture_screenshot()
+    payload = base64.b64decode(encoded, validate=True)
+    with Image.open(io.BytesIO(payload)) as image:
+        image = image.convert("RGB")
+        width, height = image.size
+        longest = max(width, height)
+        if longest > config.preview_max_edge:
+            ratio = config.preview_max_edge / longest
+            image.thumbnail((max(1, int(width * ratio)), max(1, int(height * ratio))))
+        preview_width, preview_height = image.size
+        preview = io.BytesIO()
+        try:
+            image.save(preview, format="WEBP", quality=config.preview_jpeg_quality, method=4)
+            codec = FrameCodec.WEBP
+        except OSError:
+            preview = io.BytesIO()
+            image.save(preview, format="JPEG", quality=config.preview_jpeg_quality)
+            codec = FrameCodec.JPEG
+    global _v2_latest_canonical_frame
+    _v2_latest_canonical_frame = (payload, width, height, int(time.time() * 1000))
+    return preview.getvalue(), preview_width, preview_height, codec
+
+
+_v2_frame_broker = FrameBroker(_capture_v2_frame)
+
+
+@app.websocket("/api/v2/ws/{session_id}")
+async def v2_websocket_endpoint(ws: WebSocket, session_id: str):
+    """Stream latest-only binary CUAF frames for a v2 execution session."""
+    if not _ws_origin_ok(ws):
+        await ws.close(code=4403)
+        return
+    if not _ws_token_ok(ws):
+        await ws.close(code=_WS_AUTH_CLOSE_CODE, reason=_WS_AUTH_CLOSE_REASON)
+        return
+    await ws.accept()
+    await ws.send_json({"event": "SESSION_STREAM_READY", "sessionId": session_id})
+    try:
+        while True:
+            frame = await _v2_frame_broker.capture()
+            canonical = _v2_latest_canonical_frame
+            if canonical is not None and _v2_frame_retention.is_enabled(session_id):
+                _v2_frame_retention.put(session_id, canonical[0], "png")
+            await ws.send_json(
+                {
+                    "event": "FRAME",
+                    "sessionId": session_id,
+                    "sequence": frame.sequence,
+                    "codec": frame.codec.name,
+                    "width": frame.width,
+                    "height": frame.height,
+                    "timestampMs": frame.timestamp_ms,
+                }
+            )
+            await ws.send_bytes(
+                pack_cuaf_frame(
+                    frame.sequence,
+                    frame.width,
+                    frame.height,
+                    frame.timestamp_ms,
+                    frame.codec,
+                    frame.payload,
+                )
+            )
+            await asyncio.sleep(config.ws_screenshot_interval)
+    except WebSocketDisconnect:
+        return
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception("v2 frame stream failed session_id=%s", session_id)
+        await ws.close(code=1011)
+
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     """Accept a WebSocket connection for real-time event streaming."""
@@ -1842,3 +1999,35 @@ from backend.server.ws_schema import (  # noqa: E402
     AgentFinishedEvent, AuthFailedEvent, PongEvent, GenericWSEvent,
     WSEvent, validate_outbound,
 )
+
+
+class _SPAStaticFiles(StaticFiles):
+    """Serve the built SPA while preserving real 404s for service routes."""
+
+    async def get_response(self, path: str, scope: dict):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            is_navigation = scope.get("method") in {"GET", "HEAD"}
+            is_service_path = path == "ws" or path.startswith(("api/", "vnc/"))
+            if exc.status_code != 404 or not is_navigation or is_service_path:
+                raise
+            return await super().get_response("index.html", scope)
+
+
+def _mount_production_frontend(application: FastAPI, dist_dir: Path | None = None) -> bool:
+    """Mount a Vite production build when present; remain non-fatal in dev."""
+
+    configured = os.getenv("CUA_FRONTEND_DIST")
+    root = dist_dir or (Path(configured) if configured else Path(__file__).parents[2] / "frontend" / "dist")
+    index = root / "index.html"
+    if not index.is_file():
+        logger.info("Frontend production bundle not mounted; %s is absent", index)
+        return False
+    application.mount("/", _SPAStaticFiles(directory=root, html=True), name="frontend")
+    logger.info("Serving frontend production bundle from %s", root)
+    return True
+
+
+# Register last so every REST and WebSocket route keeps precedence.
+_mount_production_frontend(app)

@@ -54,13 +54,10 @@ done
 
 # ── Check prerequisites ──────────────────────────────────────────────────────
 command -v docker >/dev/null 2>&1 || error "Docker is required. Install: https://docs.docker.com/get-docker/"
-command -v python3 >/dev/null 2>&1 || error "Python 3 is required."
+command -v uv >/dev/null 2>&1 || error "uv is required. Install: https://docs.astral.sh/uv/"
 command -v node >/dev/null 2>&1 || error "Node.js is required."
 
-# Floor: 3.11 — matches tooling (ruff ``target-version``, mypy
-# ``python_version``) and the lower bound of the CI test matrix.
-python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' \
-  || error "Python 3.11+ is required (found: $(python3 -V 2>&1))."
+uv python install 3.12
 
 docker info >/dev/null 2>&1 || error "Docker daemon is not running. Start Docker and retry."
 
@@ -87,19 +84,13 @@ info "Docker image built."
 
 # ── Install Python deps ──────────────────────────────────────────────────────
 info "Installing Python dependencies..."
-if [[ ! -d ".venv" ]]; then
-  python3 -m venv .venv
-fi
-# shellcheck disable=SC1091
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+uv sync --frozen
 info "Python dependencies installed."
 
 # ── Install frontend deps ────────────────────────────────────────────────────
 info "Installing frontend dependencies..."
 pushd frontend >/dev/null
-npm install
+npm ci
 popd >/dev/null
 info "Frontend dependencies installed."
 
@@ -109,11 +100,11 @@ info ""
 
 if [[ "$BOOTSTRAP_ONLY" == "1" ]]; then
   info "Bootstrap-only mode requested; not launching dev.py."
-  info "Run 'python3 dev.py' for day-to-day startup."
+  info "Run 'uv run python dev.py' for day-to-day startup."
   info ""
   exit 0
 fi
 
 info "Launching the full stack..."
 info "The browser UI will be available at http://localhost:3000 once Vite is ready."
-exec python dev.py
+exec uv run --frozen python dev.py

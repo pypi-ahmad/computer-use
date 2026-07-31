@@ -1,7 +1,46 @@
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "computer-use-workbench"
+version = "2.0.0"
+description = "Local, provider-native Computer Use agent workbench"
+readme = "README.md"
+requires-python = ">=3.12,<3.15"
+license = { text = "MIT" }
+authors = [{ name = "Ahmad", email = "pypi.ahmad@gmail.com" }]
+dependencies = [
+    "anthropic==0.88.0",
+    "fastapi==0.121.0",
+    "google-genai==1.67.0",
+    "httpx==0.28.1",
+    "openai==2.30.0",
+    "pillow==12.2.0",
+    "pydantic==2.13.0",
+    "pypdf==6.10.2",
+    "python-docx==1.1.2",
+    "python-dotenv==1.2.2",
+    "python-multipart==0.0.26",
+    "uvicorn[standard]==0.35.0",
+    "websockets==15.0.1",
+]
+
+[dependency-groups]
+dev = [
+    "mypy==1.18.2",
+    "pip-audit==2.9.0",
+    "pytest==8.4.2",
+    "pytest-asyncio==1.2.0",
+    "pytest-cov==7.0.0",
+    "ruff==0.14.4",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["backend"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-# Pin the test discovery root so CI's bare ``pytest`` invocation
-# behaves identically regardless of cwd.
 testpaths = ["tests"]
 addopts = "-m \"not integration\""
 markers = [
@@ -9,42 +48,20 @@ markers = [
     "slow: tests that are slow (timing/IO heavy); deselect with -m 'not slow'",
 ]
 
-
-# ── Lint / format (Q13, Q14) ─────────────────────────────────────────────────
-# Ruff handles lint + format in a single pass; no separate flake8/black/isort
-# needed. Run locally with ``ruff check .`` and ``ruff format .``.
-
 [tool.ruff]
-target-version = "py311"
+target-version = "py312"
 line-length = 100
 exclude = [
     ".git",
     ".venv",
-    "venv",
     "build",
     "dist",
-    "node_modules",
     "frontend",
-    "docker",  # runs inside the container with its own Python
+    "node_modules",
 ]
 
 [tool.ruff.lint]
-# E / W  = pycodestyle
-# F      = pyflakes
-# I      = import sorting
-# B      = flake8-bugbear (likely-bug patterns)
-# UP     = pyupgrade (modern syntax)
-# ASYNC  = flake8-async (blocking-in-async detection — catches a real
-#          class of bug in this codebase)
-# S      = bandit (security checks)
-# RUF    = ruff-specific
 select = ["E", "W", "F", "I", "B", "UP", "ASYNC", "S", "RUF"]
-# Codes we explicitly tolerate in this repo:
-#   E501   — long lines are preferable to wrapping model prompts / URLs
-#   S101   — ``assert`` used in tests and as invariants, not auth checks
-#   S311   — ``random`` used for jitter/backoff, not cryptography
-#   S603   — subprocess.run is already guarded by our own allowlist
-#   B008   — FastAPI ``Depends()`` is a standard default-arg pattern
 ignore = ["E501", "S101", "S311", "S603", "B008"]
 
 [tool.ruff.lint.per-file-ignores]
@@ -54,21 +71,16 @@ ignore = ["E501", "S101", "S311", "S603", "B008"]
 [tool.ruff.lint.isort]
 known-first-party = ["backend"]
 
-
-# ── Static typing (Q13) ──────────────────────────────────────────────────────
-# Run with ``mypy backend`` (config keeps frontend/docker/tests out of scope
-# until they are annotated).
-
 [tool.mypy]
-python_version = "3.11"
-files = ["backend"]
+python_version = "3.12"
+files = ["backend", "docker", "scripts", "tests", "evals"]
 ignore_missing_imports = true
 check_untyped_defs = true
-warn_unused_ignores = true
-warn_redundant_casts = true
-warn_unreachable = true
+disallow_untyped_defs = true
 no_implicit_optional = true
+strict_equality = true
+warn_redundant_casts = true
+warn_return_any = true
+warn_unreachable = true
+warn_unused_ignores = true
 show_error_codes = true
-# Third-party SDKs (anthropic, openai, google-genai) ship partial stubs;
-# tighten these once the codebase is fully typed.
-disallow_untyped_defs = false
