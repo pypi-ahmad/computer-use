@@ -25,6 +25,8 @@ Set at least one of `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `GOOGLE_API_KEY` i
 
 Open `http://127.0.0.1:3000` for development. For a production-style single-process build, see [Deployment](docs/deployment.md).
 
+For the full operator guide — every dashboard tab, provider/credential setup, prompt-writing tips, and scripting via REST — see [USAGE.md](USAGE.md).
+
 ## Commands
 
 | Command | Purpose |
@@ -49,6 +51,8 @@ Open `http://127.0.0.1:3000` for development. For a production-style single-proc
 - React consumes generated-style camelCase contracts and the `CUAF` binary-frame protocol.
 
 See [TECHNICAL.md](TECHNICAL.md), [Migration](docs/migration-v2.md), [Rollback](docs/rollback-v2.md), and [Security](SECURITY.md).
+
+New to this codebase? [Zero to Hero Study Handbook](docs/zero-to-hero-study-handbook.md) is a from-scratch tutorial covering the theory (agentic loops, coordinate spaces, sandboxing, safety confirmation) and the implementation (v1 and v2 architecture, module-by-module map, execution-flow traces).
 
 ## Verification status
 
