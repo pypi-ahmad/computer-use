@@ -93,7 +93,7 @@ jobs:
           tags: computer-use-sandbox:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - uses: aquasecurity/trivy-action@0.33.1
+      - uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: computer-use-sandbox:ci
           severity: HIGH,CRITICAL
