@@ -1,4 +1,4 @@
-"""Build reproducible v2 release assets without publishing them."""
+"""Build reproducible release assets without publishing them."""
 
 from __future__ import annotations
 
@@ -7,12 +7,14 @@ import json
 import shutil
 import subprocess
 import sys
+import tomllib
 import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / "dist" / "release"
-STAGE = DIST / "computer-use-v2.0.0"
+VERSION = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+STAGE = DIST / f"computer-use-v{VERSION}"
 
 
 def run(*command: str, cwd: Path = ROOT) -> None:
@@ -36,7 +38,7 @@ def main() -> int:
 
     for name in ("README.md", "TECHNICAL.md", "CHANGELOG.md", "LICENSE", "pyproject.toml", "uv.lock"):
         copy(ROOT / name, STAGE / name)
-    for name in ("deployment.md", "migration-v2.md", "rollback-v2.md", "release-notes-v2.0.0.md", "research-audit-2026-07-23.md"):
+    for name in ("deployment.md", "migration-v2.md", "rollback-v2.md", "release-notes-v3.0.0.md", "research-audit-2026-07-23.md"):
         copy(ROOT / "docs" / name, STAGE / "docs" / name)
     copy(ROOT / "frontend" / "dist", STAGE / "frontend" / "dist")
     copy(ROOT / "backend", STAGE / "backend")
@@ -60,7 +62,7 @@ def main() -> int:
         encoding="utf-8",
     )
 
-    archive = DIST / "computer-use-v2.0.0.zip"
+    archive = DIST / f"computer-use-v{VERSION}.zip"
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as bundle:
         for path in sorted(STAGE.rglob("*")):
             if path.is_file():
