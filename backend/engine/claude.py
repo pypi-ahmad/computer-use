@@ -23,7 +23,7 @@ from backend.engine import (
     RunCompleted,
     TurnEvent,
     _call_with_retry,
-    _is_opus_47,
+    _to_plain_dict,
     claude_web_search_tool_version,
     get_claude_scale_factor,
     resize_screenshot_for_claude,
@@ -31,7 +31,6 @@ from backend.engine import (
     validate_builtin_search_config,
     DEFAULT_TURN_LIMIT,
     _CONTEXT_PRUNE_KEEP_RECENT,
-    _CLAUDE_OPUS_47_MAX_LONG_EDGE,
     _IMAGE_PNG,
     _lookup_claude_cu_config,
 )
@@ -126,7 +125,7 @@ def _extract_claude_sources(content_blocks: list[Any]) -> list[tuple[str, str]]:
 # ``CUA_CLAUDE_MAX_TOKENS`` if a deployment needs a tighter bound.
 import os as _os
 try:
-    _CLAUDE_MAX_TOKENS = max(1024, min(int(_os.getenv("CUA_CLAUDE_MAX_TOKENS", "32768")), 65536))
+    _CLAUDE_MAX_TOKENS = max(1024, min(int(_os.getenv("CUA_CLAUDE_MAX_TOKENS", "32768")), 128000))
 except ValueError:
     _CLAUDE_MAX_TOKENS = 32768
 
@@ -179,7 +178,7 @@ class ClaudeCUClient:
     def __init__(
         self,
         api_key: str,
-        model: str = "claude-sonnet-4-6",
+        model: str = "claude-sonnet-5",
         system_prompt: str | None = None,
         tool_version: str | None = None,
         beta_flag: str | None = None,
@@ -202,6 +201,7 @@ class ClaudeCUClient:
         self._client = anthropic.AsyncAnthropic(api_key=api_key)
         self._api_key = api_key
         self._model = model
+        self._usage = {"input_tokens": 0, "output_tokens": 0}
         self._system_prompt = system_prompt or ""
 
         if bool(tool_version) != bool(beta_flag):
@@ -441,24 +441,6 @@ class ClaudeCUClient:
             self._model,
             tool_version=self._tool_version,
         )
-        # Opus 4.7 hi-res opt-in.  The default ``get_claude_scale_factor``
-        # enforces BOTH the 2576px long-edge cap AND the 3.75 MP total-
-        # pixel cap; a 2560x1600 hi-fidelity desktop (4.10 MP) therefore
-        # gets silently downscaled even though Opus 4.7's native ceiling
-        # on the long edge is 2576.  When ``CUA_OPUS47_HIRES=1`` AND the
-        # model is Opus 4.7, drop the pixel-count cap and enforce only
-        # the long-edge ceiling so hi-res sessions keep 1:1 coordinates.
-        if (
-            os.environ.get("CUA_OPUS47_HIRES") == "1"
-            and _is_opus_47(self._model)
-        ):
-            long_edge = max(executor.screen_width, executor.screen_height)
-            scale = min(1.0, _CLAUDE_OPUS_47_MAX_LONG_EDGE / long_edge)
-            if on_log:
-                on_log(
-                    "info",
-                    "CUA_OPUS47_HIRES=1: long-edge-only scaling for Opus 4.7",
-                )
         scaled_w = int(executor.screen_width * scale)
         scaled_h = int(executor.screen_height * scale)
         if scale < 1.0 and on_log:
@@ -575,6 +557,9 @@ class ClaudeCUClient:
                 provider="anthropic",
                 on_log=on_log,
             )
+            usage = _to_plain_dict(getattr(response, "usage", None))
+            self._usage["input_tokens"] += int(usage.get("input_tokens") or 0)
+            self._usage["output_tokens"] += int(usage.get("output_tokens") or 0)
 
             assistant_content = response.content
             messages.append({"role": "assistant", "content": assistant_content})

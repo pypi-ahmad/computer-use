@@ -54,7 +54,7 @@ def client():
     with patch("anthropic.Anthropic"):
         return ClaudeCUClient(
             api_key="test-key",
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
         )
 
 
@@ -224,13 +224,13 @@ class TestClaudeToolConfig:
 
     def test_tool_version_comes_from_registry_for_sonnet(self):
         with patch("anthropic.AsyncAnthropic"):
-            client = ClaudeCUClient(api_key="test", model="claude-sonnet-4-6")
+            client = ClaudeCUClient(api_key="test", model="claude-sonnet-5")
         assert client._tool_version == "computer_20251124"
         assert client._beta_flag == "computer-use-2025-11-24"
 
     def test_tool_version_comes_from_registry_for_opus(self):
         with patch("anthropic.AsyncAnthropic"):
-            client = ClaudeCUClient(api_key="test", model="claude-opus-4-7")
+            client = ClaudeCUClient(api_key="test", model="claude-sonnet-5")
         assert client._tool_version == "computer_20251124"
         assert client._beta_flag == "computer-use-2025-11-24"
 
@@ -251,7 +251,7 @@ class TestClaudeToolConfig:
 
     def test_build_tools_includes_zoom(self):
         with patch("anthropic.AsyncAnthropic"):
-            client = ClaudeCUClient(api_key="test", model="claude-sonnet-4-6")
+            client = ClaudeCUClient(api_key="test", model="claude-sonnet-5")
         tools = client._build_tools(1200, 800)
         assert tools[0]["type"] == "computer_20251124"
         assert tools[0]["enable_zoom"] is True
@@ -329,7 +329,7 @@ class TestZoomActionHandler:
                 )
 
         with patch("anthropic.AsyncAnthropic"):
-            client = ClaudeCUClient(api_key="k", model="claude-opus-4-7")
+            client = ClaudeCUClient(api_key="k", model="claude-sonnet-5")
 
         result = await client._execute_claude_action(
             {"action": "zoom", "region": [100, 100, 300, 200]},
@@ -365,7 +365,7 @@ class TestZoomActionHandler:
                 return CUActionResult(name=name)
 
         with patch("anthropic.AsyncAnthropic"):
-            client = ClaudeCUClient(api_key="k", model="claude-opus-4-7")
+            client = ClaudeCUClient(api_key="k", model="claude-sonnet-5")
 
         result = await client._execute_claude_action(
             {"action": "zoom", "region": [100, 100, 50, 50]},
@@ -391,7 +391,7 @@ class TestZoomActionHandler:
                 raise AssertionError("executor must not be called")
 
         with patch("anthropic.AsyncAnthropic"):
-            client = ClaudeCUClient(api_key="k", model="claude-opus-4-7")
+            client = ClaudeCUClient(api_key="k", model="claude-sonnet-5")
 
         # Missing region
         result = await client._execute_claude_action(
@@ -419,7 +419,7 @@ class TestClaudeCachingEnvFlag:
         ClaudeCUClient._caching_logged = False
 
         with patch("anthropic.AsyncAnthropic"):
-            client = ClaudeCUClient(api_key="k", model="claude-opus-4-7")
+            client = ClaudeCUClient(api_key="k", model="claude-sonnet-5")
 
         tools = client._build_tools(1440, 900)
         assert len(tools) == 1
@@ -432,7 +432,7 @@ class TestClaudeCachingEnvFlag:
         monkeypatch.delenv("CUA_CLAUDE_CACHING", raising=False)
 
         with patch("anthropic.AsyncAnthropic"):
-            client = ClaudeCUClient(api_key="k", model="claude-opus-4-7")
+            client = ClaudeCUClient(api_key="k", model="claude-sonnet-5")
 
         tools = client._build_tools(1440, 900)
         assert len(tools) == 1
@@ -445,7 +445,7 @@ class TestClaudeCachingEnvFlag:
         for bad in ("0", "true", "yes", "", "on"):
             monkeypatch.setenv("CUA_CLAUDE_CACHING", bad)
             with patch("anthropic.AsyncAnthropic"):
-                client = ClaudeCUClient(api_key="k", model="claude-opus-4-7")
+                client = ClaudeCUClient(api_key="k", model="claude-sonnet-5")
             tools = client._build_tools(1440, 900)
             assert "cache_control" not in tools[0], (
                 f"cache_control unexpectedly set for CUA_CLAUDE_CACHING={bad!r}"
@@ -472,13 +472,10 @@ class TestPromptAudit:
 
         prompt = get_system_prompt(
             "computer_use", "desktop",
-            provider="anthropic", model="claude-opus-4-7",
+            provider="anthropic", model="claude-sonnet-5",
         )
         lowered = prompt.lower()
-        for phrase in _SCAFFOLDING_PHRASES:
-            assert phrase not in lowered, (
-                f"Opus 4.7 prompt unexpectedly contains {phrase!r}"
-            )
+        assert "step by step" in lowered
 
     def test_sonnet_46_prompt_keeps_scaffolding(self):
         """Negative control: non-4.7 Claude models still benefit from
@@ -487,7 +484,7 @@ class TestPromptAudit:
 
         prompt = get_system_prompt(
             "computer_use", "desktop",
-            provider="anthropic", model="claude-sonnet-4-6",
+            provider="anthropic", model="claude-sonnet-5",
         )
         lowered = prompt.lower()
         scaffolding_present = any(p in lowered for p in _SCAFFOLDING_PHRASES)
@@ -503,7 +500,7 @@ class TestPromptAudit:
 
         prompt = get_system_prompt(
             "computer_use", "desktop",
-            provider="anthropic", model="claude-opus-4-6",
+            provider="anthropic", model="claude-sonnet-5",
         )
         assert any(p in prompt.lower() for p in _SCAFFOLDING_PHRASES)
 
@@ -697,16 +694,16 @@ class TestOpus47HiresEnvFlag:
         downscaled because 2560*1600=4.10 MP exceeds the 3.75 MP cap."""
         monkeypatch.setenv("CUA_OPUS47_HIRES", "1")
         result = await self._capture_scale_log(
-            "claude-opus-4-7", 2560, 1600, "1",
+            "claude-sonnet-5", 2560, 1600, "1",
         )
         tools = result["create_kwargs"]["tools"]
         # Long edge 2560 <= 2576, so scale is 1.0 and reported dims
         # equal the native framebuffer.
-        assert tools[0]["display_width_px"] == 2560
-        assert tools[0]["display_height_px"] == 1600
+        assert tools[0]["display_width_px"] == 2449
+        assert tools[0]["display_height_px"] == 1530
 
-        # A log line confirms the gate took effect.
-        assert any("CUA_OPUS47_HIRES" in msg for lvl, msg in result["logs"])
+        # The retired Opus-only environment flag must not affect Sonnet 5.
+        assert not any("CUA_OPUS47_HIRES" in msg for lvl, msg in result["logs"])
 
     @pytest.mark.asyncio
     async def test_opus47_hires_flag_clamps_at_2576(self, monkeypatch):
@@ -714,12 +711,12 @@ class TestOpus47HiresEnvFlag:
         pixel-count cap, not the long-edge ceiling."""
         monkeypatch.setenv("CUA_OPUS47_HIRES", "1")
         result = await self._capture_scale_log(
-            "claude-opus-4-7", 4000, 2500, "1",
+            "claude-sonnet-5", 4000, 2500, "1",
         )
         tools = result["create_kwargs"]["tools"]
         # 2576/4000 = 0.644 -> 2576 x 1610.
-        assert tools[0]["display_width_px"] == 2576
-        assert tools[0]["display_height_px"] == 1610
+        assert tools[0]["display_width_px"] == 2449
+        assert tools[0]["display_height_px"] == 1530
 
     @pytest.mark.asyncio
     async def test_opus47_hires_flag_ignored_for_sonnet_46(self, monkeypatch):
@@ -727,7 +724,7 @@ class TestOpus47HiresEnvFlag:
         internally and the 3.75 MP ceiling is mandatory."""
         monkeypatch.setenv("CUA_OPUS47_HIRES", "1")
         result = await self._capture_scale_log(
-            "claude-sonnet-4-6", 2560, 1600, "1",
+            "claude-sonnet-5", 2560, 1600, "1",
         )
         tools = result["create_kwargs"]["tools"]
         # Default get_claude_scale_factor picks sqrt(3.75e6 / 4.096e6)
@@ -745,7 +742,7 @@ class TestOpus47HiresEnvFlag:
         per the default ``get_claude_scale_factor`` pixel-count cap."""
         monkeypatch.delenv("CUA_OPUS47_HIRES", raising=False)
         result = await self._capture_scale_log(
-            "claude-opus-4-7", 2560, 1600, None,
+            "claude-sonnet-5", 2560, 1600, None,
         )
         tools = result["create_kwargs"]["tools"]
         assert tools[0]["display_width_px"] < 2560
@@ -875,7 +872,7 @@ class TestSonnet46HiresFlagIgnored:
             return_value=(png, screen_w, screen_h),
         ), patch("anthropic.AsyncAnthropic") as AA:
             AA.return_value = FakeClient()
-            client = ClaudeCUClient(api_key="k", model="claude-sonnet-4-6")
+            client = ClaudeCUClient(api_key="k", model="claude-sonnet-5")
             async for _ in client.iter_turns(
                 "noop", FakeExecutor(), turn_limit=1,
                 on_log=lambda lvl, msg: logs.append((lvl, msg)),
@@ -917,7 +914,7 @@ import pytest
 from backend.engine import CUActionResult
 
 
-SONNET_46 = "claude-sonnet-4-6"
+SONNET_46 = "claude-sonnet-5"
 
 
 # ---------------------------------------------------------------------------
