@@ -348,6 +348,13 @@ def entrypoint() -> str:
     return _ENTRYPOINT.read_text(encoding="utf-8")
 
 
+def test_uv_sync_runs_from_project_directory(dockerfile: str) -> None:
+    workdir = dockerfile.index("WORKDIR /app")
+    dependency_copy = dockerfile.index("COPY pyproject.toml uv.lock README.md /app/")
+    sync = dockerfile.index("RUN uv sync --frozen --no-dev --no-install-project")
+    assert workdir < dependency_copy < sync
+
+
 # ---------------------------------------------------------------------------
 # OCI image labels
 # ---------------------------------------------------------------------------
