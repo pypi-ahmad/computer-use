@@ -5,7 +5,10 @@ v2 targets one trusted operator on a workstation. Do not expose it as a public m
 ## Production-style local deployment
 
 1. Install Docker Desktop, Node.js 22, and uv.
-2. Copy `.env.example` to `.env`; set provider credentials and strong `AGENT_SERVICE_TOKEN` and `VNC_PASSWORD` values.
+2. Copy `.env.example` to `.env`; set an OpenAI, Anthropic, or Google API
+   key, or configure Google OAuth with `GOOGLE_OAUTH_CLIENT_ID` and
+   `GOOGLE_OAUTH_CLIENT_SECRET`. Set strong `AGENT_SERVICE_TOKEN` and
+   `VNC_PASSWORD` values.
 3. Install locked dependencies: `uv sync --frozen` and `npm --prefix frontend ci`.
 4. Build the dashboard: `npm --prefix frontend run build`.
 5. Start the sandbox: `docker compose up -d --build`.
@@ -16,15 +19,29 @@ Use one backend worker. Multi-worker execution splits in-memory credentials, act
 
 ## State and backup
 
-Stop new sessions, then copy `data/computer-use-v2.sqlite3` plus its `-wal` and `-shm` files together, and copy `data/frames` if audit images are required. Credential sessions are intentionally not recoverable after restart.
+Stop new sessions, then copy `data/computer-use-v2.sqlite3` plus its `-wal`
+and `-shm` files together, and copy `data/audit-frames` (or the configured
+`CUA_V2_FRAME_PATH`) if audit images are required. Credential sessions,
+including Google OAuth refresh credentials, are intentionally not recoverable
+after restart.
 
-## Cloud authentication
+## Provider authentication
 
-AWS routes use the default credential chain, Google routes use Application Default Credentials, and Azure routes prefer Entra with an API-key fallback. In v2.0.0 these cloud routes are configuration-visible but not executable; only direct OpenAI, Anthropic, and Google routes execute.
+The supported catalog contains only three direct routes: GPT-5.6 Luna through
+OpenAI Responses, Claude Sonnet 5 through Anthropic Messages, and Gemini 3.6
+Flash through Google Interactions. All three accept API keys from the
+environment or a process-local credential session. Gemini also supports a
+browser OAuth flow; set `GOOGLE_OAUTH_CLIENT_ID` and
+`GOOGLE_OAUTH_CLIENT_SECRET` (or `GOOGLE_OAUTH_CLIENT_SECRET_FILE`), with
+optional `GOOGLE_CLOUD_PROJECT` and `CUA_GOOGLE_OAUTH_REDIRECT_URI`.
 
 ## Network hardening
 
-Keep all ports loopback-bound. External binding requires `CUA_ALLOW_PUBLIC_BIND=1` and `CUA_WS_TOKEN`, plus an authenticated TLS reverse proxy. The Docker socket and host filesystem must never be exposed to the model container.
+Keep all ports loopback-bound. External binding requires
+`CUA_ALLOW_PUBLIC_BIND=1` and `CUA_API_TOKEN`, plus an authenticated TLS
+reverse proxy. The same token protects REST, WebSocket, and noVNC access;
+`CUA_WS_TOKEN` is a deprecated fallback. The Docker socket and host filesystem
+must never be exposed to the model container.
 
 ## Health and logs
 
