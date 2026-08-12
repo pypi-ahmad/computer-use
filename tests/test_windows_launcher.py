@@ -45,6 +45,26 @@ def test_dashboard_timeout_does_not_open_browser(monkeypatch) -> None:
     assert opened == []
 
 
+def test_service_exit_stops_sibling_and_compose(monkeypatch) -> None:
+    class Process:
+        def __init__(self, exit_code: int | None) -> None:
+            self.exit_code = exit_code
+
+        def poll(self) -> int | None:
+            return self.exit_code
+
+    backend = Process(0)
+    frontend = Process(None)
+    stopped: list[str] = []
+    compose_down: list[bool] = []
+    monkeypatch.setattr(dev, "_terminate_process", lambda _process, *, label: stopped.append(label))
+    monkeypatch.setattr(dev, "_compose_down", lambda: compose_down.append(True))
+
+    assert dev._watch_processes(backend, frontend) == 0
+    assert stopped == ["frontend", "backend"]
+    assert compose_down == [True]
+
+
 def test_start_file_is_the_single_double_click_entrypoint() -> None:
     launcher = (ROOT / "START.bat").read_text(encoding="utf-8")
 

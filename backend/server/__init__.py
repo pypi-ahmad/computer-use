@@ -10,13 +10,14 @@ import json
 import logging
 import os
 import re
+import signal
 import time
 import uuid
 from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, FastAPI, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -181,6 +182,8 @@ _ALLOWED_ORIGINS = _parse_cors_origins(os.getenv("CORS_ORIGINS", "")) or [
     "http://127.0.0.1:5173",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://localhost:8505",
+    "http://127.0.0.1:8505",
 ]
 
 app.add_middleware(
@@ -953,6 +956,25 @@ async def api_stop_container(request: Request):
         await _stop_agent(sid)
     success = await stop_container()
     return {"success": success}
+
+
+async def _shutdown_application() -> None:
+    """Stop workbench-owned runtime state, then terminate the API process."""
+    try:
+        for sid in list(_active_tasks.keys()):
+            await _stop_agent(sid)
+        await stop_container()
+    except Exception:
+        logger.exception("Error while stopping workbench runtime")
+    finally:
+        signal.raise_signal(signal.SIGINT)
+
+
+@app.post("/api/v2/system/shutdown", status_code=202)
+async def api_shutdown_application(background_tasks: BackgroundTasks) -> dict[str, str]:
+    """Acknowledge shutdown before stopping the backend and its dependencies."""
+    background_tasks.add_task(_shutdown_application)
+    return {"status": "stopping"}
 
 
 @app.post("/api/container/build")
