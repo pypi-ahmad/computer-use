@@ -1,8 +1,16 @@
 # Computer Use Workbench v2.0.0
 
+> **Current implementation status (2026-08-12).** The active catalog now
+> exposes only GPT-5.6 Luna through OpenAI Responses, Claude Sonnet 5 through
+> Anthropic Messages, and Gemini 3.6 Flash through Google Interactions. This
+> note supersedes the catalog applicability below; the remaining release text
+> is preserved as the historical v2.0.0 record.
+
 v2 introduces a typed multi-provider control plane, deterministic audited fallback, persistent session history, a shared binary frame pipeline, declarative workflows, and a five-tab TypeScript dashboard.
 
 Breaking changes: all new contracts are under `/api/v2`; inline session API keys and v1 WebSocket shapes are removed; the model allowlist now includes only officially documented Computer Use models. See the migration guide before upgrading.
+
+### Historical release scope
 
 Direct OpenAI, Anthropic, and Google execution is available. Azure OpenAI, AWS Bedrock, Vertex Gemini, and Vertex Claude are catalogued and validated but not executable in this release. OpenRouter is omitted pending a documented native Computer Use protocol.
 
