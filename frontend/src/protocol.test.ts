@@ -11,7 +11,7 @@ describe('decodeCuafFrame', () => {
     view.setUint32(18, 900, false)
     view.setBigUint64(22, 1234n, false)
     bytes[30] = 255
-    expect(decodeCuafFrame(bytes.buffer)).toMatchObject({ codec: 'JPEG', sequence: 9, width: 1440, height: 900 })
+    expect(decodeCuafFrame(bytes.buffer)).toMatchObject({ codec: 'WEBP', sequence: 9, width: 1440, height: 900 })
   })
 
   it('rejects malformed frames', () => {

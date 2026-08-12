@@ -351,10 +351,9 @@ async def _security_headers(request: Request, call_next):
 _MAX_CONCURRENT_SESSIONS = 3
 _MAX_STEPS_HARD_CAP = 200
 
-# Optional shared secret for /ws authentication. When set, clients must
-# pass ``?token=<value>`` on connect. Unset (default) preserves the
-# localhost-only behaviour existing deployments rely on.
-_WS_AUTH_TOKEN = os.getenv("CUA_WS_TOKEN", "").strip()
+# One optional workbench secret protects REST, WebSocket, and noVNC. The old
+# CUA_WS_TOKEN remains a compatibility fallback.
+_WS_AUTH_TOKEN = os.getenv("CUA_API_TOKEN", "").strip() or os.getenv("CUA_WS_TOKEN", "").strip()
 _WS_AUTH_CLOSE_CODE = 4401
 _WS_AUTH_CLOSE_REASON = "bad or missing token"
 
@@ -367,7 +366,7 @@ def _consteq(a: str, b: str) -> bool:
 def _ws_token_ok(ws: WebSocket) -> bool:
     """Return True when the shared-secret gate passes (or is disabled).
 
-    Empty ``CUA_WS_TOKEN`` (unset) means default-open: the gate always
+    An empty workbench token means default-open: the gate always
     passes so local development keeps working without configuration.
     Callers must still run :func:`_ws_origin_ok` separately.
 
@@ -383,7 +382,7 @@ def _ws_token_ok(ws: WebSocket) -> bool:
 def _rest_token_ok(request: Request) -> bool:
     """Shared-secret gate for state-changing REST endpoints (S4).
 
-    Reuses ``CUA_WS_TOKEN`` (no second secret): main.py's public-bind
+    Reuses the workbench token: main.py's public-bind
     guardrail already mandates it for non-loopback binds, so the most
     powerful/billable endpoints (agent start, container, files) are no longer
     protected by Origin alone. Default-open when the token is unset, preserving
@@ -403,7 +402,7 @@ def _require_rest_auth(request: Request) -> Response:
     """
     if not _rest_token_ok(request):
         logger.warning(
-            "Rejected REST %s %s: missing/invalid CUA_WS_TOKEN (ip=%r)",
+            "Rejected REST %s %s: missing/invalid workbench token (ip=%r)",
             request.method, request.url.path,
             request.client.host if request.client else "",
         )
@@ -488,15 +487,20 @@ def _require_origin(request: Request) -> Response:
 
 
 @app.middleware("http")
-async def _guard_v2_mutations(request: Request, call_next):
-    """Apply the existing localhost origin/token boundary to every v2 mutation."""
-    if request.url.path.startswith("/api/v2/") and request.method in {"POST", "PATCH", "DELETE"}:
+async def _guard_api(request: Request, call_next):
+    """Apply workbench authentication to API reads and writes."""
+    is_v2 = request.url.path.startswith("/api/v2/")
+    oauth_callback = request.url.path == "/api/v2/credential-sessions/google/oauth/callback"
+    if is_v2 and request.method in {"POST", "PATCH", "DELETE"}:
         forbidden = _require_origin(request)
         if forbidden is not None:
             return _v2_error_response(request, 403, "FORBIDDEN", "Origin is not allowed")
+    if request.url.path.startswith("/api/") and not oauth_callback:
         unauthorized = _require_rest_auth(request)
         if unauthorized is not None:
-            return _v2_error_response(request, 401, "UNAUTHORIZED", "Authentication failed")
+            if is_v2:
+                return _v2_error_response(request, 401, "UNAUTHORIZED", "Authentication failed")
+            return unauthorized
     return await call_next(request)
 
 
@@ -1265,6 +1269,25 @@ async def _start_v2_execution(req: V2ExecutionRequest) -> V2ExecutionOutcome:
     """Run and observe an AgentLoop so runtime failure can trigger fallback."""
     if not await start_container() or get_container_state().get("agent") != "ready":
         raise RuntimeError("Sandbox is not ready")
+    def _on_step(step) -> None:
+        if req.on_event is None or step.action is None:
+            return
+        action = step.action.model_dump(mode="json")
+        req.on_event({"event": "ACTION", "action": action})
+
+    def _on_log(entry) -> None:
+        if req.on_event is None:
+            return
+        data = entry.data or {}
+        if data.get("type") == "safety_confirmation":
+            req.on_event({
+                "event": "SAFETY_CONFIRMATION",
+                "nonce": data.get("nonce", ""),
+                "explanation": data.get("explanation", ""),
+            })
+        else:
+            req.on_event({"event": "LOG", "level": entry.level, "message": entry.message})
+
     loop = AgentLoop(
         task=req.task,
         api_key=req.api_key,
@@ -1272,7 +1295,15 @@ async def _start_v2_execution(req: V2ExecutionRequest) -> V2ExecutionOutcome:
         max_steps=req.max_steps,
         provider=req.provider,
         reasoning_effort=req.reasoning_effort if req.provider == "openai" else None,
+        oauth_credentials=req.oauth_credentials,
+        quota_project_id=req.quota_project_id,
+        safety_policy=req.safety_policy,
+        use_builtin_search=req.use_builtin_search,
+        attached_files=list(req.attached_files),
+        on_step=_on_step,
+        on_log=_on_log,
     )
+    _v2_orchestrator.bind_execution(req.session_id, loop.session_id)
     _active_loops[loop.session_id] = loop
     started_at = time.perf_counter()
     current_task = asyncio.current_task()
@@ -1292,6 +1323,8 @@ async def _start_v2_execution(req: V2ExecutionRequest) -> V2ExecutionOutcome:
             status=session.status.value.upper(),
             actions=actions,
             duration_ms=(time.perf_counter() - started_at) * 1000,
+            input_tokens=int(loop.usage.get("input_tokens", 0)),
+            output_tokens=int(loop.usage.get("output_tokens", 0)),
         )
     finally:
         _cleanup_session(loop.session_id)
@@ -1661,8 +1694,11 @@ async def v2_websocket_endpoint(ws: WebSocket, session_id: str):
         return
     await ws.accept()
     await ws.send_json({"event": "SESSION_STREAM_READY", "sessionId": session_id})
+    event_queue = _v2_orchestrator.subscribe(session_id)
     try:
         while True:
+            while not event_queue.empty():
+                await ws.send_json(event_queue.get_nowait())
             frame = await _v2_frame_broker.capture()
             canonical = _v2_latest_canonical_frame
             if canonical is not None and _v2_frame_retention.is_enabled(session_id):
@@ -1696,6 +1732,8 @@ async def v2_websocket_endpoint(ws: WebSocket, session_id: str):
     except Exception:
         logger.exception("v2 frame stream failed session_id=%s", session_id)
         await ws.close(code=1011)
+    finally:
+        _v2_orchestrator.unsubscribe(session_id, event_queue)
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
@@ -2004,15 +2042,26 @@ from backend.server.ws_schema import (  # noqa: E402
 class _SPAStaticFiles(StaticFiles):
     """Serve the built SPA while preserving real 404s for service routes."""
 
+    _SPA_ROUTES = ("audit", "workflows", "providers", "analytics")
+
     async def get_response(self, path: str, scope: dict):
+        route_path = path.replace("\\", "/").lstrip("/")
+        if route_path == "ws" or route_path.startswith(("api/", "vnc/")):
+            return Response(status_code=404)
+        is_navigation = scope.get("method") in {"GET", "HEAD"}
+        is_spa_route = any(
+            route_path == route or route_path.startswith(f"{route}/")
+            for route in self._SPA_ROUTES
+        )
         try:
-            return await super().get_response(path, scope)
+            response = await super().get_response(path, scope)
         except StarletteHTTPException as exc:
-            is_navigation = scope.get("method") in {"GET", "HEAD"}
-            is_service_path = path == "ws" or path.startswith(("api/", "vnc/"))
-            if exc.status_code != 404 or not is_navigation or is_service_path:
+            if exc.status_code != 404 or not is_navigation or not is_spa_route:
                 raise
             return await super().get_response("index.html", scope)
+        if response.status_code == 404 and is_navigation and is_spa_route:
+            return await super().get_response("index.html", scope)
+        return response
 
 
 def _mount_production_frontend(application: FastAPI, dist_dir: Path | None = None) -> bool:
@@ -2024,6 +2073,15 @@ def _mount_production_frontend(application: FastAPI, dist_dir: Path | None = Non
     if not index.is_file():
         logger.info("Frontend production bundle not mounted; %s is absent", index)
         return False
+    @application.api_route(
+        "/api/{unmatched_path:path}",
+        methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        include_in_schema=False,
+    )
+    async def _unmatched_api_route(unmatched_path: str) -> Response:
+        _ = unmatched_path
+        return Response(status_code=404)
+
     application.mount("/", _SPAStaticFiles(directory=root, html=True), name="frontend")
     logger.info("Serving frontend production bundle from %s", root)
     return True

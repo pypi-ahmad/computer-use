@@ -47,7 +47,7 @@ async def run(
         api_key = options.get("api_key")
         if not api_key:
             raise ValueError("Anthropic provider run requires api_key when no client is supplied.")
-        model = options.get("model") or "claude-sonnet-4-6"
+        model = options.get("model") or "claude-sonnet-5"
         tool_version = options.get("tool_version")
         beta_flag = options.get("beta_flag")
         if not tool_version and not beta_flag:

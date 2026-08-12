@@ -19,6 +19,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from unittest.mock import patch
 
+import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -26,82 +27,89 @@ from unittest.mock import patch
 # ---------------------------------------------------------------------------
 
 
-class TestGeminiFlashSafetyGate:
-    def test_gemini_flash_no_safety_settings_by_default(self, monkeypatch):
-        """No ``safety_settings`` attached when the env flag is unset —
-        Google's Gemini-3 default ("Off") applies."""
-        from backend.engine import GeminiCUClient, Environment
+class TestGeminiInteractions:
+    @pytest.mark.asyncio
+    async def test_computer_use_request_uses_interactions_api(self):
+        from unittest.mock import AsyncMock, MagicMock
 
-        monkeypatch.delenv("CUA_GEMINI_RELAX_SAFETY", raising=False)
-        GeminiCUClient._default_logged = False
-        GeminiCUClient._relax_logged = False
+        from backend.engine import GeminiCUClient
+
+        sdk = MagicMock()
+        sdk.aio.interactions.create = AsyncMock(return_value={"id": "i1", "steps": []})
+        with patch("google.genai.Client", return_value=sdk):
+            client = GeminiCUClient(api_key="k", model="gemini-3.6-flash")
+
+        await client._create_interaction([{"type": "text", "text": "go"}])
+
+        request = sdk.aio.interactions.create.await_args.kwargs
+        assert request["model"] == "gemini-3.6-flash"
+        assert request["tools"] == [{
+            "type": "computer_use",
+            "environment": "desktop",
+            "enable_prompt_injection_detection": True,
+        }]
+
+    def test_requires_exactly_one_login_method(self):
+        from backend.engine import GeminiCUClient
+
+        with pytest.raises(ValueError, match="exactly one"):
+            GeminiCUClient(api_key=None, credentials=None)
+
+    @pytest.mark.asyncio
+    async def test_confirmation_result_uses_previous_interaction_and_boolean_ack(self):
+        from unittest.mock import AsyncMock
+
+        from backend.engine import GeminiCUClient
+        from backend.executor import CUActionResult
 
         with patch("google.genai.Client"):
-            client = GeminiCUClient(
-                api_key="k",
-                model="gemini-3-flash-preview",
-                environment=Environment.BROWSER,
-            )
+            client = GeminiCUClient(api_key="k")
+        client._create_interaction = AsyncMock(side_effect=[
+            {
+                "id": "interaction-1",
+                "steps": [{
+                    "type": "function_call",
+                    "id": "call-1",
+                    "name": "click_at",
+                    "arguments": {
+                        "x": 10,
+                        "y": 20,
+                        "safety_decision": {
+                            "decision": "require_confirmation",
+                            "explanation": "Confirm click",
+                        },
+                    },
+                }],
+            },
+            {"id": "interaction-2", "output_text": "done", "steps": []},
+        ])
 
-        config = client._build_config()
-        # GenerateContentConfig exposes populated kwargs as attributes —
-        # an unset ``safety_settings`` is either missing or falsy.
-        settings = getattr(config, "safety_settings", None)
-        assert not settings, (
-            f"safety_settings must be empty/None by default, got {settings!r}"
+        class Executor:
+            screen_width = 1440
+            screen_height = 900
+
+            async def capture_screenshot(self):
+                return b"x" * 512
+
+            async def execute(self, name, args):
+                assert "safety_decision" not in args
+                return CUActionResult(name=name)
+
+            def get_current_url(self):
+                return ""
+
+        final = await client.run_loop(
+            "click",
+            Executor(),
+            on_safety=lambda explanation: explanation == "Confirm click",
         )
 
-    def test_gemini_flash_safety_relax_via_env(self, monkeypatch):
-        """``CUA_GEMINI_RELAX_SAFETY=1`` restores the previous
-        BLOCK_ONLY_HIGH thresholds across the four HarmCategory
-        buckets."""
-        from backend.engine import GeminiCUClient, Environment
-        from google.genai import types
-
-        monkeypatch.setenv("CUA_GEMINI_RELAX_SAFETY", "1")
-        GeminiCUClient._default_logged = False
-        GeminiCUClient._relax_logged = False
-
-        with patch("google.genai.Client"):
-            client = GeminiCUClient(
-                api_key="k",
-                model="gemini-3-flash-preview",
-                environment=Environment.BROWSER,
-            )
-
-        config = client._build_config()
-        settings = list(getattr(config, "safety_settings", []) or [])
-        assert len(settings) == 4, (
-            f"expected 4 safety settings (one per HarmCategory), "
-            f"got {len(settings)}"
-        )
-        for s in settings:
-            assert s.threshold == types.HarmBlockThreshold.BLOCK_ONLY_HIGH, (
-                f"expected BLOCK_ONLY_HIGH, got {s.threshold!r}"
-            )
-
-    def test_gemini_flash_safety_off_for_non_one_value(self, monkeypatch):
-        """Only the literal string ``"1"`` opts in."""
-        from backend.engine import GeminiCUClient, Environment
-
-        for bad in ("0", "true", "yes", ""):
-            monkeypatch.setenv("CUA_GEMINI_RELAX_SAFETY", bad)
-            GeminiCUClient._default_logged = False
-            GeminiCUClient._relax_logged = False
-
-            with patch("google.genai.Client"):
-                client = GeminiCUClient(
-                    api_key="k",
-                    model="gemini-3-flash-preview",
-                    environment=Environment.BROWSER,
-                )
-
-            config = client._build_config()
-            settings = getattr(config, "safety_settings", None)
-            assert not settings, (
-                f"CUA_GEMINI_RELAX_SAFETY={bad!r} should NOT attach "
-                f"safety_settings, got {settings!r}"
-            )
+        assert final == "done"
+        second = client._create_interaction.await_args_list[1]
+        assert second.kwargs["previous_interaction_id"] == "interaction-1"
+        result = second.args[0][0]
+        assert result["type"] == "function_result"
+        assert '"safety_acknowledgement":true' in result["result"][0]["text"]
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +190,7 @@ class TestGeminiHistoryPruning:
         with patch("google.genai.Client"):
             client = GeminiCUClient(
                 api_key="k",
-                model="gemini-3-flash-preview",
+                model="gemini-3.6-flash",
                 environment=Environment.BROWSER,
             )
 
@@ -204,7 +212,7 @@ class TestGeminiHistoryPruning:
         with patch("google.genai.Client"):
             client = GeminiCUClient(
                 api_key="k",
-                model="gemini-3-flash-preview",
+                model="gemini-3.6-flash",
                 environment=Environment.BROWSER,
                 max_history_turns=3,
             )

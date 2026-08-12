@@ -105,7 +105,7 @@ class TestClaudeInitialScreenshotGuard:
 
         with patch("anthropic.AsyncAnthropic"), \
              patch("backend.engine.claude.resize_screenshot_for_claude") as resize_mock:
-            client = ClaudeCUClient(api_key="k", model="claude-opus-4-7")
+            client = ClaudeCUClient(api_key="k", model="claude-sonnet-5")
 
             results = []
             async for evt in client.iter_turns(
@@ -133,7 +133,7 @@ class TestClaudeInitialScreenshotGuard:
         from backend.engine import ClaudeCUClient, RunCompleted
 
         with patch("anthropic.AsyncAnthropic"):
-            client = ClaudeCUClient(api_key="k", model="claude-opus-4-7")
+            client = ClaudeCUClient(api_key="k", model="claude-sonnet-5")
 
             results = []
             async for evt in client.iter_turns(
@@ -176,7 +176,7 @@ class TestClaudeInitialScreenshotGuard:
 
         with patch("anthropic.AsyncAnthropic") as AA:
             AA.return_value = FakeClient()
-            client = ClaudeCUClient(api_key="k", model="claude-opus-4-7")
+            client = ClaudeCUClient(api_key="k", model="claude-sonnet-5")
 
             async for _ in client.iter_turns(
                 "noop", _FakeExecutor(screenshot=_minimal_png()), turn_limit=1
@@ -244,7 +244,7 @@ class TestClaudeThinkingMode:
 
     @pytest.mark.asyncio
     async def test_opus_47_uses_adaptive(self):
-        captured = await self._capture_thinking("claude-opus-4-7")
+        captured = await self._capture_thinking("claude-sonnet-5")
         assert captured.get("thinking") == {"type": "adaptive"}
         # No sampling params must slip in (HTTP 400 on Opus 4.7).
         assert "temperature" not in captured
@@ -268,21 +268,21 @@ class TestClaudeThinkingMode:
 
 class TestClaudeScaleFactorOpus47:
     def test_opus_47_1440x900_is_identity(self):
-        assert get_claude_scale_factor(1440, 900, "claude-opus-4-7") == 1.0
+        assert get_claude_scale_factor(1440, 900, "claude-sonnet-5") == 1.0
 
     def test_opus_47_default_path_respects_high_res_pixel_cap(self):
         # Without ``CUA_OPUS47_HIRES=1``, Opus 4.7 stays on the shared
         # 2576px / 3.75 MP path used by current-tool Claude models.
         # At 2560x1600, the long edge is still within 2576, so the
         # 3.75 MP pixel cap is the binding constraint.
-        scale = get_claude_scale_factor(2560, 1600, "claude-opus-4-7")
+        scale = get_claude_scale_factor(2560, 1600, "claude-sonnet-5")
         assert scale == pytest.approx((3_750_000 / (2560 * 1600)) ** 0.5)
 
     def test_sonnet_46_unchanged_at_typical_res(self):
         # Sonnet 4.6 stays on the high-res path (2576-px + 3.75 MP).
         # 1440x900 = 1.296 MP is under the 3.75 MP ceiling and
         # 1440 < 2576, so scale is still 1.0.
-        assert get_claude_scale_factor(1440, 900, "claude-sonnet-4-6") == 1.0
+        assert get_claude_scale_factor(1440, 900, "claude-sonnet-5") == 1.0
 
     def test_opus_47_resize_identity_at_scale_1(self):
         from backend.engine import resize_screenshot_for_claude

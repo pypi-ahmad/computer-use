@@ -159,7 +159,7 @@ def test_runner_for_provider_aliases():
 @pytest.mark.asyncio
 async def test_anthropic_planner_probes_search_even_when_cu_client_is_computer_only():
     class FakeAnthropicClient:
-        _model = "claude-sonnet-4-6"
+        _model = "claude-sonnet-5"
         _use_builtin_search = False
 
         def __init__(self):

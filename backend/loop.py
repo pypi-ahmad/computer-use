@@ -11,7 +11,7 @@ import asyncio
 import hashlib
 import logging
 import uuid
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 # AI6: reuse the shared secret-scrubber from backend.engine so the
 # patterns and redaction format stay consistent between what flows
@@ -116,7 +116,7 @@ class AgentLoop:
     def __init__(
         self,
         task: str,
-        api_key: str,
+        api_key: str | None,
         model: str | None = None,
         max_steps: int | None = None,
         engine: str = "computer_use",
@@ -128,6 +128,9 @@ class AgentLoop:
         on_step: Optional[Callable] = None,
         on_log: Optional[Callable] = None,
         on_screenshot: Optional[Callable] = None,
+        oauth_credentials: Any | None = None,
+        quota_project_id: str | None = None,
+        safety_policy: str = "provider_default",
     ):
         """Initialise a new agent loop for *task* using the given provider/model."""
         self.session = AgentSession(
@@ -138,6 +141,9 @@ class AgentLoop:
             max_steps=max_steps or config.max_steps,
         )
         self._api_key = api_key
+        self._oauth_credentials = oauth_credentials
+        self._quota_project_id = quota_project_id
+        self._safety_policy = safety_policy
         self._engine = engine
         self._provider = provider
         self._execution_target = execution_target
@@ -145,6 +151,7 @@ class AgentLoop:
         self._use_builtin_search = use_builtin_search
         self._attached_files = attached_files or []
         self._action_history: list[AgentAction] = []
+        self.usage = {"input_tokens": 0, "output_tokens": 0}
         self._stop_requested = False
         self._consecutive_errors = 0
         self.structured_errors: list[StructuredError] = []  # structured error log
@@ -296,6 +303,9 @@ class AgentLoop:
             reasoning_effort=self._reasoning_effort,
             use_builtin_search=self._use_builtin_search,
             attached_files=self._attached_files,
+            oauth_credentials=self._oauth_credentials,
+            quota_project_id=self._quota_project_id,
+            safety_policy=self._safety_policy,
         )
 
         # AI2: loop-detection state. We hash (action_name + coords/text)
@@ -469,6 +479,7 @@ class AgentLoop:
                 self._emit_log("info", final_text)
             self.session.final_text = _scrub_secrets(final_text) or final_text
             completion_payload = engine.last_completion_payload or {}
+            self.usage = dict(completion_payload.get("usage") or self.usage)
             self.session.gemini_grounding = _scrub_grounding(
                 completion_payload.get("gemini_grounding")
             )

@@ -51,7 +51,7 @@ class TestAgentStartFinishIntegration:
         finished_session = AgentSession(
             session_id="sess-int-1",
             task="hi",
-            model="gpt-5.4",
+            model="gpt-5.6-luna",
             status=SessionStatus.COMPLETED,
             max_steps=3,
         )
@@ -90,7 +90,7 @@ class TestAgentStartFinishIntegration:
                     "task": "open a page",
                     "engine": "computer_use",
                     "provider": "openai",
-                    "model": "gpt-5.4",
+                    "model": "gpt-5.6-luna",
                     "mode": "desktop",
                     "execution_target": "docker",
                     "max_steps": 3,
@@ -123,9 +123,9 @@ class TestAgentStartFinishIntegration:
     @pytest.mark.parametrize(
         ("provider", "model"),
         [
-            ("openai", "gpt-5.4"),
-            ("anthropic", "claude-sonnet-4-6"),
-            ("google", "gemini-3-flash-preview"),
+            ("openai", "gpt-5.6-luna"),
+            ("anthropic", "claude-sonnet-5"),
+            ("google", "gemini-3.6-flash"),
         ],
     )
     def test_start_path_preserves_frontend_event_stream_for_each_provider(
@@ -305,7 +305,7 @@ class TestOpenAIActionDispatchIntegration:
         from backend.engine.openai import OpenAICUClient
 
         engine = OpenAICUClient.__new__(OpenAICUClient)
-        engine._model = "gpt-5.4"
+        engine._model = "gpt-5.6-luna"
 
         executor = MagicMock()
         executor.execute = AsyncMock(
@@ -327,7 +327,7 @@ class TestOpenAIActionDispatchIntegration:
         from backend.engine.openai import OpenAICUClient
 
         engine = OpenAICUClient.__new__(OpenAICUClient)
-        engine._model = "gpt-5.4"
+        engine._model = "gpt-5.6-luna"
 
         executor = MagicMock()
         executor.execute = AsyncMock(
@@ -347,7 +347,7 @@ class TestOpenAIActionDispatchIntegration:
         from backend.engine.openai import OpenAICUClient
 
         engine = OpenAICUClient.__new__(OpenAICUClient)
-        engine._model = "gpt-5.5"
+        engine._model = "gpt-5.6-luna"
         engine._current_screenshot_scale = 0.5
 
         executor = MagicMock()

@@ -226,7 +226,7 @@ class TestClaudeRefusalBranch:
                 return fake_response
 
         with patch("anthropic.Anthropic"):
-            client = ClaudeCUClient(api_key="test", model="claude-sonnet-4-6")
+            client = ClaudeCUClient(api_key="test", model="claude-sonnet-5")
             client._client = MagicMock()
             client._client.beta.messages.stream = lambda **kwargs: _RefusalStream()
 
@@ -282,7 +282,7 @@ class TestRunAndNotifyErrorPath:
         session = AgentSession(
             session_id=session_id,
             task="boom",
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             max_steps=1,
             status=SessionStatus.RUNNING,
         )
@@ -884,7 +884,7 @@ class TestConcurrentSessionLimit:
             "task": "concurrent contention probe",
             "engine": "computer_use",
             "provider": "google",
-            "model": "gemini-3-flash-preview",
+            "model": "gemini-3.6-flash",
             "mode": "desktop",
             "execution_target": "docker",
             "max_steps": 5,
@@ -1006,7 +1006,7 @@ class TestSafetyTimeoutAutoDeny:
         loop = AgentLoop(
             task="t",
             api_key="sk-dummytoken",
-            model="gemini-3-flash-preview",
+            model="gemini-3.6-flash",
             provider="google",
             engine="computer_use",
         )
