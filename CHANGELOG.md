@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-08-12
+
 ### Added
 
 - Exactly three provider-native Computer Use routes: GPT-5.6 Luna through
