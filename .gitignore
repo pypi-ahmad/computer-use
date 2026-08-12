@@ -156,6 +156,3 @@ vectordb/
 _embed_cache/
 **/_embed_cache/
 # <<< Codex Local Ignore (env/venv/cache/artifacts) <<<
-
-.codegraph/
-graphify-out/
