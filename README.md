@@ -27,7 +27,7 @@ the commands in [USAGE.md](USAGE.md). Provider API keys or Google OAuth can be
 configured in the v2 Provider Manager. Provider credentials remain process-local
 and expire after at most eight hours.
 
-Open `http://127.0.0.1:3000` for development. A non-loopback deployment must set both `CUA_ALLOW_PUBLIC_BIND=1` and `CUA_API_TOKEN`. For a production-style single-process build, see [Deployment](docs/deployment.md).
+Open `http://127.0.0.1:8505` for development. A non-loopback deployment must set both `CUA_ALLOW_PUBLIC_BIND=1` and `CUA_API_TOKEN`. For a production-style single-process build, see [Deployment](docs/deployment.md).
 
 For the full operator guide — every dashboard tab, provider/credential setup, prompt-writing tips, and scripting via REST — see [USAGE.md](USAGE.md).
 
