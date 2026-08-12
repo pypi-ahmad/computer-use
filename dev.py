@@ -17,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 FRONTEND_DIR = ROOT / "frontend"
 DEFAULT_BACKEND_PORT = 8100
-DEFAULT_FRONTEND_PORT = 3000
+DEFAULT_FRONTEND_PORT = 8505
 
 
 def _info(message: str) -> None:
@@ -241,8 +241,12 @@ def _bootstrap() -> None:
 
 
 def _compose_restart() -> None:
-    _run_checked(["docker", "compose", "down"])
+    _compose_down()
     _run_checked(["docker", "compose", "up", "-d"])
+
+
+def _compose_down() -> None:
+    _run_checked(["docker", "compose", "down"])
 
 
 def _terminate_process(process: subprocess.Popen[str] | None, *, label: str) -> None:
@@ -299,9 +303,6 @@ def _watch_processes(backend: subprocess.Popen[str], frontend: subprocess.Popen[
                 exit_code = process.poll()
                 if exit_code is not None:
                     _info(f"{label.capitalize()} exited with code {exit_code}.")
-                    other = frontend if process is backend else backend
-                    other_label = "frontend" if process is backend else "backend"
-                    _terminate_process(other, label=other_label)
                     return exit_code
             time.sleep(0.5)
     except KeyboardInterrupt:
@@ -310,6 +311,10 @@ def _watch_processes(backend: subprocess.Popen[str], frontend: subprocess.Popen[
     finally:
         _terminate_process(frontend, label="frontend")
         _terminate_process(backend, label="backend")
+        try:
+            _compose_down()
+        except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+            _info(f"Docker cleanup did not complete: {exc}")
 
 
 def _parse_args() -> argparse.Namespace:
