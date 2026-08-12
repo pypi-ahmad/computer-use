@@ -1,4 +1,4 @@
-# Technical Architecture — v2.0.0
+# Technical Architecture — v3.0.0
 
 ## Runtime boundary
 

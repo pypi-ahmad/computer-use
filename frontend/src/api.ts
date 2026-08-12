@@ -53,4 +53,5 @@ export const api = {
   diagnostics: () => request<Record<string, unknown>>('/diagnostics'),
   retentionPreview: () => request<{ fileCount: number; totalBytes: number; expiredFileCount: number; expiredBytes: number; maxBytes: number; maxAgeSeconds: number }>('/retention/preview'),
   pruneRetention: () => request<{ removedFileCount: number; reclaimedBytes: number }>('/retention/prune', { method: 'POST', body: '{}' }),
+  shutdown: () => request<{ status: 'stopping' }>('/system/shutdown', { method: 'POST', body: '{}' }),
 }
