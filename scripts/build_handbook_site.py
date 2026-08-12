@@ -46,7 +46,8 @@ SOURCES = (
     SourceDoc("concerns", "docs/codebase/CONCERNS.md", "Known concerns", "Trust and verify", ("technical", "business"), "Prioritized risks, privacy watchpoints, and change discipline."),
     SourceDoc("migration", "docs/migration-v2.md", "v2 migration", "Evidence and history", ("technical",), "Contract and operational migration guidance.", True),
     SourceDoc("rollback", "docs/rollback-v2.md", "v2 rollback", "Evidence and history", ("technical", "business"), "Rollback triggers, procedure, and verification.", True),
-    SourceDoc("release", "docs/release-notes-v2.0.0.md", "v2.0.0 release notes", "Evidence and history", ("all",), "Historical release scope plus the current implementation note.", True),
+    SourceDoc("release", "docs/release-notes-v3.0.0.md", "v3.0.0 release notes", "Evidence and history", ("all",), "Current release scope, compatibility notes, and operational changes."),
+    SourceDoc("release-v2", "docs/release-notes-v2.0.0.md", "v2.0.0 release notes", "Evidence and history", ("all",), "Historical v2 release scope.", True),
     SourceDoc("research", "docs/research-audit-2026-07-23.md", "Provider research audit", "Evidence and history", ("technical", "business"), "Dated evidence behind the supported provider catalog.", True),
     SourceDoc("gemini-evaluation", "docs/gemini-successor-evaluation.md", "Gemini successor checklist", "Evidence and history", ("technical", "business"), "Acceptance criteria for future Gemini route changes.", True),
 )
