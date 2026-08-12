@@ -42,11 +42,11 @@ def _enforce_public_bind_guardrail(host: str) -> None:
     allow = os.getenv("CUA_ALLOW_PUBLIC_BIND", "").strip().lower() in (
         "1", "true", "yes", "on",
     )
-    token = os.getenv("CUA_WS_TOKEN", "").strip()
+    token = os.getenv("CUA_API_TOKEN", "").strip() or os.getenv("CUA_WS_TOKEN", "").strip()
     if not allow:
         logger.error(
             "Refusing to bind to %r: external binding requires "
-            "CUA_ALLOW_PUBLIC_BIND=1 (and CUA_WS_TOKEN). "
+            "CUA_ALLOW_PUBLIC_BIND=1 (and CUA_API_TOKEN). "
             "Use HOST=127.0.0.1 for local development, or set both "
             "envs intentionally to publish the backend.",
             host,
@@ -55,14 +55,14 @@ def _enforce_public_bind_guardrail(host: str) -> None:
     if not token:
         logger.error(
             "Refusing to bind to %r: external binding requires "
-            "CUA_WS_TOKEN to be set so /ws and /vnc/websockify cannot be "
-            "opened without the shared secret. Set CUA_WS_TOKEN and "
+            "CUA_API_TOKEN to be set so the API, /ws, and /vnc/websockify cannot be "
+            "opened without the shared secret. Set CUA_API_TOKEN and "
             "restart.",
             host,
         )
         sys.exit(2)
     logger.warning(
-        "Backend binding externally on %r with CUA_WS_TOKEN set. "
+        "Backend binding externally on %r with workbench authentication set. "
         "Ensure /api/* endpoints are also fronted by auth (reverse "
         "proxy, mTLS, etc.) — REST endpoints are not token-gated.",
         host,

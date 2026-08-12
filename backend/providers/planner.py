@@ -82,7 +82,7 @@ async def _openai_web_plan(
         on_log("info", "OpenAI web planner: building execution brief before Computer Use")
 
     request: dict[str, Any] = {
-        "model": getattr(client, "_model", "gpt-5.5"),
+        "model": getattr(client, "_model", "gpt-5.6-luna"),
         "tools": [{"type": "web_search"}],
         "input": _PLANNER_PROMPT.format(task=task),
         "store": False,
@@ -109,38 +109,20 @@ async def _gemini_web_plan(
     on_log: LogCallback | None,
 ) -> str | None:
     """Plan with Gemini Google Search grounding, without computer_use."""
-    types = getattr(client, "_types", None)
-    if types is None or getattr(client, "_client", None) is None:
+    create_interaction = getattr(client, "_create_interaction", None)
+    if create_interaction is None:
         return None
-    google_search_cls = getattr(types, "GoogleSearch", None)
-    if google_search_cls is None:
-        raise ValueError(
-            "Gemini google_search was requested but the installed google-genai SDK "
-            "does not expose GoogleSearch."
-        )
 
     if on_log:
         on_log("info", "Gemini Google Search planner: building execution brief before Computer Use")
 
-    config = types.GenerateContentConfig(
-        tools=[types.Tool(google_search=google_search_cls())],
+    interaction = await create_interaction(
+        [{"type": "text", "text": _PLANNER_PROMPT.format(task=task)}],
+        tools=[{"type": "google_search"}],
     )
-    contents = [
-        types.Content(
-            role="user",
-            parts=[types.Part(text=_PLANNER_PROMPT.format(task=task))],
-        )
-    ]
-    generate = getattr(client, "_generate", None)
-    if generate is not None:
-        response = await generate(contents=contents, config=config)
-    else:
-        response = await client._client.aio.models.generate_content(
-            model=getattr(client, "_model", "gemini-3-flash-preview"),
-            contents=contents,
-            config=config,
-        )
-    return _extract_gemini_text(response)
+    raw_text = interaction.get("output_text") if isinstance(interaction, dict) else getattr(interaction, "output_text", "")
+    text = str(raw_text or "").strip()
+    return text or None
 
 
 async def _anthropic_web_plan(
@@ -176,7 +158,7 @@ async def _anthropic_web_plan(
         on_log("info", "Anthropic web planner: building execution brief before Computer Use")
 
     response = await sdk_client.beta.messages.create(
-        model=getattr(client, "_model", "claude-sonnet-4-6"),
+        model=getattr(client, "_model", "claude-sonnet-5"),
         max_tokens=2048,
         system=(
             "You create concise execution briefs for a separate Computer Use "

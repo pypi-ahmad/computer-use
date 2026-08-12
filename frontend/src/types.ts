@@ -6,7 +6,7 @@ export interface Session { id: string; task: string; model: string; primaryRoute
 export interface Workflow { id: string; slug: string; name: string; version: number; variablesSchema: Record<string, unknown>; steps: string[]; createdAt: string }
 export interface Action { id?: number; sequence: number; type?: string; actionType?: string; action?: string; payload?: Record<string, unknown>; confirmed?: boolean; createdAt?: string }
 export interface EventRecord { id?: number; eventType?: string; type?: string; payload?: Record<string, unknown>; createdAt?: string }
-export interface Analytics { sessionCount?: number; actionCount?: number; metricCount?: number; totalDurationMs?: number; averageDurationMs?: number; [key: string]: unknown }
+export interface Analytics { sampleCount?: number; totalDurationMs?: number; inputTokens?: number; outputTokens?: number; [key: string]: unknown }
 export type PipelineStage = 'capture' | 'encode' | 'infer' | 'validate' | 'act'
 export type StreamEvent =
   | { event: 'SESSION_STREAM_READY'; sessionId: string }

@@ -1,9 +1,9 @@
 from __future__ import annotations
-"""Follow-up fixes to the April-2026 wave: OpenAI ``gpt-5.4`` tool-shape
+"""Follow-up fixes to the April-2026 wave: OpenAI ``gpt-5.6-luna`` tool-shape
 migration + registry correctness.
 
 Covers:
-  * Short-form ``{"type": "computer"}`` tool for ``gpt-5.4``.
+  * Short-form ``{"type": "computer"}`` tool for ``gpt-5.6-luna``.
   * ``actions[]`` array iteration with a single screenshot + single
     ``computer_call_output`` at the end.
   * ``computer_call_output.output.detail == "original"`` on every turn.
@@ -35,7 +35,7 @@ class TestToolShape:
         from backend.engine import OpenAICUClient
 
         with patch("openai.AsyncOpenAI"):
-            client = OpenAICUClient(api_key="k", model="gpt-5.4")
+            client = OpenAICUClient(api_key="k", model="gpt-5.6-luna")
 
         tools = client._build_tools(1440, 900)
         assert tools == [{"type": "computer"}]
@@ -44,7 +44,7 @@ class TestToolShape:
         from backend.engine import OpenAICUClient
 
         with patch("openai.AsyncOpenAI"):
-            client = OpenAICUClient(api_key="k", model="gpt-5.4-mini")
+            client = OpenAICUClient(api_key="k", model="gpt-5.6-luna")
 
         assert client._build_tools(1440, 900) == [{"type": "computer"}]
 
@@ -151,7 +151,7 @@ class TestActionsArray:
 
         with patch("openai.AsyncOpenAI") as AA:
             AA.return_value = FakeClient()
-            client = OpenAICUClient(api_key="k", model="gpt-5.4")
+            client = OpenAICUClient(api_key="k", model="gpt-5.6-luna")
 
             # Stub per-action dispatch so we don't need a real executor.
             async def fake_exec(action, _executor, **_kwargs):
@@ -213,7 +213,7 @@ class TestActionsArray:
 
         with patch("openai.AsyncOpenAI") as AA:
             AA.return_value = FakeClient()
-            client = OpenAICUClient(api_key="k", model="gpt-5.4")
+            client = OpenAICUClient(api_key="k", model="gpt-5.6-luna")
 
             async def fake_exec(action, _executor, **_kwargs):
                 dispatched.append(getattr(action, "type", "?"))
@@ -262,7 +262,7 @@ class TestActionsArray:
 
         with patch("openai.AsyncOpenAI") as AA:
             AA.return_value = FakeClient()
-            client = OpenAICUClient(api_key="k", model="gpt-5.4")
+            client = OpenAICUClient(api_key="k", model="gpt-5.6-luna")
 
             async def fake_exec(action, _executor, **_kwargs):
                 return CUActionResult(name=getattr(action, "type", "?"))
@@ -322,7 +322,7 @@ class TestActionsArray:
 
         with patch("openai.AsyncOpenAI") as AA:
             AA.return_value = FakeClient()
-            client = OpenAICUClient(api_key="k", model="gpt-5.4")
+            client = OpenAICUClient(api_key="k", model="gpt-5.6-luna")
 
             async def fake_exec(action, _executor, **_kwargs):
                 return CUActionResult(name=getattr(action, "type", "?"))
@@ -375,7 +375,7 @@ class TestActionsArray:
 
         with patch("openai.AsyncOpenAI") as AA:
             AA.return_value = FakeClient()
-            client = OpenAICUClient(api_key="k", model="gpt-5.4")
+            client = OpenAICUClient(api_key="k", model="gpt-5.6-luna")
 
             async def fake_exec(action, _executor, **_kwargs):
                 return CUActionResult(name=getattr(action, "type", "?"))
@@ -519,14 +519,14 @@ class TestPhasePreserved:
 
 
 # ---------------------------------------------------------------------------
-# 5. gpt-5.4 CU-capable sanity
+# 5. gpt-5.6-luna CU-capable sanity
 # ---------------------------------------------------------------------------
 
 
 class TestRegistryGpt54Flag:
     def test_gpt54_still_cu_capable(self):
-        """Sanity — the main gpt-5.4 entry must remain CU-capable."""
+        """Sanity — the main gpt-5.6-luna entry must remain CU-capable."""
         from backend.models.schemas import load_allowed_models_json
 
         models = {m["model_id"]: m for m in load_allowed_models_json()}
-        assert models["gpt-5.4"]["supports_computer_use"] is True
+        assert models["gpt-5.6-luna"]["supports_computer_use"] is True

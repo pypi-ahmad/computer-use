@@ -81,8 +81,8 @@ def _prune_openai_context(conversation_input: list[dict], keep_recent: int) -> N
 
 _OPENAI_ORIGINAL_MAX_PIXELS = 10_240_000
 _OPENAI_ORIGINAL_MAX_DIMENSION = 6000
-_OPENAI_GA_COMPUTER_MODEL_PREFIXES = ("gpt-5.4", "gpt-5.5")
-_OPENAI_REGISTRY_GATED_MODEL_PREFIXES = ("gpt-5.5",)
+_OPENAI_GA_COMPUTER_MODEL_PREFIXES = ("gpt-5.6-luna",)
+_OPENAI_REGISTRY_GATED_MODEL_PREFIXES = _OPENAI_GA_COMPUTER_MODEL_PREFIXES
 _OPENAI_CU_REGISTRY_MODELS = frozenset(
     str(model.get("model_id"))
     for model in _load_allowed_models_json()
@@ -260,29 +260,20 @@ def _extract_openai_sources(output_items: list[Any]) -> list[tuple[str, str]]:
 class OpenAICUClient:
     """OpenAI Responses API computer-use client.
 
-    Uses the built-in ``computer`` tool with ``gpt-5.5`` or another
-    documented GA OpenAI computer-use model. The harness executes all
+    Uses the built-in ``computer`` tool with ``gpt-5.6-luna``. The harness executes all
     returned actions and returns screenshots through
     ``computer_call_output`` items.
     """
 
-    # Canonical values per the OpenAI GPT-5.5 docs (April 2026).
-    VALID_REASONING_EFFORTS = ("minimal", "low", "medium", "high", "xhigh")
-    # Legacy aliases from earlier SDKs — accepted on input and mapped
-    # to the canonical enum before the request leaves the process.
-    _LEGACY_EFFORT_ALIASES = {"none": "minimal"}
+    VALID_REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh", "max")
+    _LEGACY_EFFORT_ALIASES = {"minimal": "none"}
 
     def __init__(
         self,
         api_key: str,
-        # Default bumped per OpenAI changelog (checked 2026-04-26):
-        # https://developers.openai.com/api/docs/changelog
-        model: str = "gpt-5.5",
+        model: str = "gpt-5.6-luna",
         system_prompt: str | None = None,
-        # Defaults are model-specific per OpenAI's model pages:
-        # GPT-5.4 defaults to ``none`` and GPT-5.5 defaults to ``medium``.
-        # Callers can still override with ``minimal``/``low``/``medium``/
-        # ``high``/``xhigh``.
+        # GPT-5.6 Luna supports none/low/medium/high/xhigh/max.
         reasoning_effort: str | None = None,
         # Product-level Web Search ON is handled by backend.providers.planner
         # before the Computer Use loop. This low-level CU client never
@@ -315,6 +306,7 @@ class OpenAICUClient:
             kwargs["base_url"] = openai_base_url
         self._client = AsyncOpenAI(**kwargs)
         self._model = model
+        self._usage = {"input_tokens": 0, "output_tokens": 0}
         self._system_prompt = system_prompt or ""
         _ensure_openai_ga_model_is_in_registry(model)
         default_effort = default_openai_reasoning_effort_for_model(model)
@@ -355,7 +347,7 @@ class OpenAICUClient:
     ) -> list[dict[str, Any]]:
         """Return the Responses API ``tools`` list for this model.
 
-        GPT-5.5 / GPT-5.4 GA computer-use models use the built-in
+        GPT-5.6 Luna uses the built-in
         short-form tool:
             {"type": "computer"}
         The built-in tool infers display dimensions from the screenshots
@@ -549,6 +541,9 @@ class OpenAICUClient:
                 request["instructions"] = instructions
 
             response = await self._create_response(on_log=on_log, **request)
+            usage = _to_plain_dict(getattr(response, "usage", None))
+            self._usage["input_tokens"] += int(usage.get("input_tokens") or 0)
+            self._usage["output_tokens"] += int(usage.get("output_tokens") or 0)
             response_error = getattr(response, "error", None)
             if response_error:
                 raise RuntimeError(getattr(response_error, "message", str(response_error)))

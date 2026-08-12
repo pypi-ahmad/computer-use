@@ -95,7 +95,7 @@ class TestOpenAIScrollClamp:
 
         with patch("backend.engine.openai.OpenAICUClient.__init__", return_value=None):
             client = OpenAICUClient.__new__(OpenAICUClient)
-            client._model = "gpt-5.4"
+            client._model = "gpt-5.6-luna"
             client._reasoning_effort = "low"
             await client._execute_openai_scroll(
                 {"x": 500, "y": 500, "delta_y": 20}, _Exec()
@@ -130,7 +130,7 @@ class TestOpenAIScrollClamp:
                 return ""
 
         client = OpenAICUClient.__new__(OpenAICUClient)
-        client._model = "gpt-5.4"
+        client._model = "gpt-5.6-luna"
         client._reasoning_effort = "low"
         await client._execute_openai_scroll(
             {"x": 0, "y": 0, "delta_y": 5000}, _Exec()
@@ -163,7 +163,7 @@ class TestOpenAIScrollClamp:
                 return ""
 
         client = OpenAICUClient.__new__(OpenAICUClient)
-        client._model = "gpt-5.4"
+        client._model = "gpt-5.6-luna"
         client._reasoning_effort = "low"
         await client._execute_openai_scroll(
             {"x": 100, "y": 100, "delta_y": 200}, _Exec()
@@ -197,7 +197,7 @@ class TestOpenAIScrollClamp:
                 return ""
 
         client = OpenAICUClient.__new__(OpenAICUClient)
-        client._model = "gpt-5.4"
+        client._model = "gpt-5.6-luna"
         client._reasoning_effort = "low"
         await client._execute_openai_scroll(
             {"x": 50, "y": 50, "delta_y": 0, "delta_x": 0}, _Exec()
@@ -229,7 +229,7 @@ class TestOpenAIScrollClamp:
                 return ""
 
         client = OpenAICUClient.__new__(OpenAICUClient)
-        client._model = "gpt-5.4"
+        client._model = "gpt-5.6-luna"
         client._reasoning_effort = "low"
         await client._execute_openai_scroll(
             {"x": 700, "y": 400, "delta_x": -75, "delta_y": 5}, _Exec()
@@ -779,7 +779,7 @@ class TestContainerReadinessGating:
                 json={
                     "task": "open a browser",
                     "api_key": "sk-test-1234-abcd",
-                    "model": "claude-sonnet-4-6",
+                    "model": "claude-sonnet-5",
                     "max_steps": 5,
                     "mode": "desktop",
                     "engine": "computer_use",
@@ -823,7 +823,7 @@ class TestContainerReadinessGating:
                 json={
                     "task": "open a browser",
                     "api_key": "sk-test-1234-abcd",
-                    "model": "claude-sonnet-4-6",
+                    "model": "claude-sonnet-5",
                     "max_steps": 5,
                     "mode": "desktop",
                     "engine": "computer_use",
@@ -1041,62 +1041,54 @@ class TestStuckAgentDetection:
 
 # ── E — Gemini native async only (no asyncio.to_thread fallback) ────────
 class TestGeminiNativeAsync:
-    """Phase E: provider calls must use the SDK's native async surface;
-    the prior `asyncio.to_thread(sync_client.models.generate_content, ...)`
-    fallback in `GeminiCUClient._generate` was dead code under the pinned
-    `google-genai==1.67.0` and has been removed."""
+    """Gemini API-key calls use the native async Interactions client."""
 
     @pytest.mark.asyncio
-    async def test_generate_calls_aio_models_directly(self):
+    async def test_create_calls_aio_interactions_directly(self):
         from backend.engine.gemini import GeminiCUClient
 
         client = GeminiCUClient.__new__(GeminiCUClient)
-        client._model = "gemini-3-flash-preview"
+        client._model = "gemini-3.6-flash"
 
-        fake_models = MagicMock()
-        fake_models.generate_content = AsyncMock(return_value="RESPONSE")
+        fake_interactions = MagicMock()
+        fake_interactions.create = AsyncMock(return_value="RESPONSE")
         fake_aio = MagicMock()
-        fake_aio.models = fake_models
+        fake_aio.interactions = fake_interactions
         fake_client = MagicMock()
         fake_client.aio = fake_aio
         client._client = fake_client
+        client._oauth_credentials = None
+        client._quota_project_id = None
+        client._excluded = []
+        client._system_instruction = None
 
-        result = await client._generate(contents=["hi"], config={"k": "v"})
+        result = await client._create_interaction([{"type": "text", "text": "hi"}])
 
         assert result == "RESPONSE"
-        fake_models.generate_content.assert_awaited_once_with(
-            model="gemini-3-flash-preview",
-            contents=["hi"],
-            config={"k": "v"},
+        fake_interactions.create.assert_awaited_once_with(
+            model="gemini-3.6-flash",
+            input=[{"type": "text", "text": "hi"}],
+            tools=[{
+                "type": "computer_use",
+                "environment": "desktop",
+                "enable_prompt_injection_detection": True,
+            }],
         )
 
-    def test_no_to_thread_in_generate_source(self):
-        """Lock the regression: _generate must not reintroduce blocking
-        `asyncio.to_thread` calls and must keep the native-async path."""
+    def test_api_key_path_uses_interactions(self):
         import inspect
 
         from backend.engine.gemini import GeminiCUClient
 
-        src = inspect.getsource(GeminiCUClient._generate)
-        # Match the call form, not docstring mentions of the removed pattern.
-        assert "to_thread(" not in src
-        assert "aio.models.generate_content" in src
+        src = inspect.getsource(GeminiCUClient._create_interaction)
+        assert "aio.interactions.create" in src
+        assert "aio.models.generate_content" not in src
 
-    def test_gemini_module_does_not_import_asyncio(self):
-        """Gemini CU should remain native-async with no blocking wrappers."""
+    def test_to_thread_is_limited_to_oauth_refresh(self):
         import inspect
 
         import backend.engine.gemini as gem_mod
-        from backend.engine.gemini import GeminiCUClient
-
-        # ``_generate`` lock: native-async only, no to_thread fallback.
-        assert "to_thread(" not in inspect.getsource(GeminiCUClient._generate)
-
-        # There should be no ``asyncio.to_thread`` fallback anywhere in the
-        # Gemini Computer Use adapter.
         src = inspect.getsource(gem_mod)
-        for occurrence_line in [
-            ln.strip() for ln in src.splitlines() if "asyncio.to_thread(" in ln
-        ]:
-            raise AssertionError(f"Unexpected asyncio.to_thread use: {occurrence_line!r}")
+        assert src.count("asyncio.to_thread(") == 1
+        assert "credentials.refresh" in src
 

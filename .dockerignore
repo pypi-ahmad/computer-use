@@ -25,5 +25,6 @@ build
 
 # Documentation / non-runtime
 *.md
+!README.md
 *.txt
 !requirements.txt

@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
 import re
 import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
-
+import urllib.error
+import urllib.request
+import webbrowser
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 FRONTEND_DIR = ROOT / "frontend"
@@ -46,6 +49,20 @@ def _npm_executable() -> str:
 def _run_checked(command: list[str], *, cwd: Path | None = None) -> None:
     _info("Running: " + " ".join(command))
     subprocess.run(command, cwd=cwd or ROOT, check=True)
+
+
+def open_dashboard_when_ready(url: str, *, timeout: float = 90.0) -> bool:
+    """Open the dashboard once its HTTP server responds."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=1.0):  # noqa: S310 - fixed loopback URL
+                webbrowser.open(url)
+                return True
+        except (OSError, urllib.error.URLError):
+            time.sleep(0.5)
+    _info(f"Dashboard did not become ready at {url}; open it manually when startup completes.")
+    return False
 
 
 def _dotenv_values() -> dict[str, str]:
@@ -181,7 +198,7 @@ def _terminate_pid(pid: int) -> None:
             return
         time.sleep(0.2)
     try:
-        os.kill(pid, signal.SIGKILL)
+        os.kill(pid, getattr(signal, "SIGKILL", signal.SIGTERM))
     except ProcessLookupError:
         pass
 
@@ -260,6 +277,7 @@ def _spawn_services() -> tuple[subprocess.Popen[str], subprocess.Popen[str]]:
         cwd=ROOT,
         env=env,
         creationflags=creation_flags,
+        text=True,
     )
 
     _info("Starting frontend...")
@@ -268,6 +286,7 @@ def _spawn_services() -> tuple[subprocess.Popen[str], subprocess.Popen[str]]:
         cwd=FRONTEND_DIR,
         env=env,
         creationflags=creation_flags,
+        text=True,
     )
     return backend, frontend
 
@@ -310,6 +329,11 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Do not stop existing listeners on the backend/frontend dev ports before starting.",
     )
+    parser.add_argument(
+        "--open-browser",
+        action="store_true",
+        help="Open the dashboard in the default browser once Vite responds.",
+    )
     return parser.parse_args()
 
 
@@ -322,6 +346,13 @@ def main() -> int:
             _clear_dev_ports()
         _compose_restart()
         backend, frontend = _spawn_services()
+        if args.open_browser:
+            threading.Thread(
+                target=open_dashboard_when_ready,
+                args=(f"http://127.0.0.1:{DEFAULT_FRONTEND_PORT}",),
+                name="dashboard-opener",
+                daemon=True,
+            ).start()
         return _watch_processes(backend, frontend)
     except subprocess.CalledProcessError as exc:
         return _error(f"Command failed with exit code {exc.returncode}: {' '.join(exc.cmd)}")

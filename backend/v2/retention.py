@@ -73,5 +73,26 @@ class FrameRetentionStore:
         directory.rmdir()
         return removed
 
+    def session_files(self, session_id: str) -> list[Path]:
+        safe_session = "".join(char for char in session_id if char.isalnum() or char in "-_")[:128]
+        directory = self.root / safe_session
+        if not directory.is_dir():
+            return []
+        return sorted(path for path in directory.iterdir() if path.is_file())
+
+    def preview(self, *, now: float | None = None) -> dict[str, int]:
+        current = time.time() if now is None else now
+        files = [path for path in self.root.rglob("*") if path.is_file()]
+        total_bytes = sum(path.stat().st_size for path in files)
+        expired = [path for path in files if current - path.stat().st_mtime > self.max_age_seconds]
+        return {
+            "fileCount": len(files),
+            "totalBytes": total_bytes,
+            "expiredFileCount": len(expired),
+            "expiredBytes": sum(path.stat().st_size for path in expired),
+            "maxBytes": self.max_bytes,
+            "maxAgeSeconds": self.max_age_seconds,
+        }
+
 
 frame_retention = FrameRetentionStore(os.getenv("CUA_V2_FRAME_PATH", "data/audit-frames"))

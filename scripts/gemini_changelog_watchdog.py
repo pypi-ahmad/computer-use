@@ -9,7 +9,7 @@ from html.parser import HTMLParser
 from typing import Iterable
 from urllib.request import Request, urlopen
 
-TARGET_MODEL = "gemini-3-flash-preview"
+TARGET_MODEL = "gemini-3.6-flash"
 CHANGELOG_URL = "https://ai.google.dev/gemini-api/docs/changelog"
 MODELS_URL = "https://ai.google.dev/gemini-api/docs/models"
 SUCCESSOR_CHECKLIST_PATH = "docs/gemini-successor-evaluation.md"

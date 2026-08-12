@@ -82,8 +82,7 @@ def claude_web_search_tool_version(model_id: str) -> str:
 def default_openai_reasoning_effort_for_model(model: str) -> str:
     """Return the OpenAI reasoning default for a model slug, from registry metadata.
 
-    D5: sourced from ``reasoning_default`` in allowed_models.json (gpt-5.4 →
-    ``none``, gpt-5.5 → ``medium``) instead of a hardcoded date-regex.
+    Sourced from ``reasoning_default`` in allowed_models.json.
     """
     entry = get_model_capabilities(str(model or ""), "openai")
     return entry.get("reasoning_default") or "medium"
@@ -375,23 +374,8 @@ _CLAUDE_MAX_PIXELS = 1_150_000
 # ``computer_20251124`` models accept up to 2576 px on the long edge and
 # ~3.75 MP total with native 1:1 coordinates per Anthropic's
 # 2025-11-24 computer-use docs.
-_CLAUDE_OPUS_47_MAX_LONG_EDGE = 2576
+_CLAUDE_HIGH_RES_MAX_LONG_EDGE = 2576
 _CLAUDE_HIGH_RES_MAX_PIXELS = 3_750_000
-
-
-def _is_modern_opus(model_id: str) -> bool:
-    """True for models using the lean modern-Opus prompt variant (Opus 4.7/4.8).
-
-    D1/A2: registry-driven (``prompt_variant == 'lean_modern_opus'``) so a new
-    Opus SKU is picked up by adding a registry entry — no code change and no
-    string-prefix that silently excludes 4.8.
-    """
-    return get_model_capabilities(model_id, "anthropic").get("prompt_variant") == "lean_modern_opus"
-
-
-# Back-compat alias: callers and tests still import ``_is_opus_47``. It now
-# resolves the whole modern-Opus family (4.7 + 4.8) via the registry.
-_is_opus_47 = _is_modern_opus
 
 
 def _registry_high_res_models() -> tuple[str, ...]:
@@ -406,17 +390,9 @@ def _registry_high_res_models() -> tuple[str, ...]:
     return tuple(out)
 
 
-# Models that use the higher resolution limit (no downscaling needed at typical
-# screen resolutions): the ``computer_20251124`` family receives real pixel
-# coordinates with the 2576 px long-edge / ~3.75 MP budget. Derived from the
-# registry (so claude-opus-4-8 is included automatically) UNION the legacy
-# literals so nothing regresses for unregistered/dotted ids.
-_CLAUDE_HIGH_RES_MODELS = tuple(dict.fromkeys((
-    *_registry_high_res_models(),
-    "claude-opus-4-7", "claude-opus-4.7",
-    "claude-opus-4-6", "claude-opus-4.6",
-    "claude-sonnet-4-6", "claude-sonnet-4.6",
-)))
+# The public catalog is the sole source of supported high-resolution models.
+# Historical audit rows remain readable but cannot start new runs.
+_CLAUDE_HIGH_RES_MODELS = _registry_high_res_models()
 
 
 def _uses_claude_20251124(
@@ -674,11 +650,9 @@ def get_claude_scale_factor(
 
     All ``computer_20251124`` models use the higher 2576px / 3.75MP
     limits by default. Legacy models stay on the 1568px / 1.15MP path.
-    Opus 4.7's long-edge-only override is handled separately in
-    ``ClaudeCUClient`` when ``CUA_OPUS47_HIRES=1`` is enabled.
     """
     if _uses_claude_20251124(model, tool_version):
-        max_long_edge = _CLAUDE_OPUS_47_MAX_LONG_EDGE
+        max_long_edge = _CLAUDE_HIGH_RES_MAX_LONG_EDGE
         max_pixels = _CLAUDE_HIGH_RES_MAX_PIXELS
     else:
         max_long_edge = _CLAUDE_MAX_LONG_EDGE
@@ -731,6 +705,40 @@ def resize_screenshot_for_claude(
 # Unified ComputerUseEngine facade
 # ---------------------------------------------------------------------------
 
+_READ_ONLY_ACTIONS = frozenset({
+    "capture_screenshot", "cursor_position", "get_current_url", "hover_at",
+    "move", "scroll", "scroll_at", "wait",
+})
+
+
+class _SafetyPolicyExecutor:
+    def __init__(self, delegate: ActionExecutor, policy: str, confirm: Callable[[str], Any] | None) -> None:
+        self._delegate = delegate
+        self._policy = policy
+        self._confirm = confirm
+        self.screen_width = delegate.screen_width
+        self.screen_height = delegate.screen_height
+
+    async def execute(self, name: str, args: dict[str, Any]) -> CUActionResult:
+        if name not in _READ_ONLY_ACTIONS:
+            if self._policy == "read_only":
+                return CUActionResult(name=name, success=False, error="Blocked by read-only safety policy")
+            if self._policy == "confirm_mutating":
+                approved = await _invoke_safety(self._confirm, f"Allow computer action '{name}'?")
+                if not approved:
+                    return CUActionResult(name=name, success=False, error="Denied by safety policy")
+        return await self._delegate.execute(name, args)
+
+    async def capture_screenshot(self) -> bytes:
+        return await self._delegate.capture_screenshot()
+
+    def get_current_url(self) -> str:
+        return self._delegate.get_current_url()
+
+    async def aclose(self) -> None:
+        if hasattr(self._delegate, "aclose"):
+            await self._delegate.aclose()
+
 class ComputerUseEngine:
     """Single entry point for native Computer Use across providers and environments.
 
@@ -752,7 +760,7 @@ class ComputerUseEngine:
     def __init__(
         self,
         provider: Provider,
-        api_key: str,
+        api_key: str | None,
         model: str | None = None,
         environment: Environment = Environment.DESKTOP,
         screen_width: int = DEFAULT_SCREEN_WIDTH,
@@ -764,6 +772,9 @@ class ComputerUseEngine:
         reasoning_effort: str | None = None,
         use_builtin_search: bool = False,
         attached_files: list[str] | None = None,
+        oauth_credentials: Any | None = None,
+        quota_project_id: str | None = None,
+        safety_policy: str = "provider_default",
     ):
         self.provider = provider
         self._last_completion_payload: dict[str, Any] | None = None
@@ -773,6 +784,9 @@ class ComputerUseEngine:
         self._container_name = container_name
         self._agent_service_url = agent_service_url
         self._attached_file_ids = list(attached_files or [])
+        if safety_policy not in {"provider_default", "confirm_mutating", "read_only"}:
+            raise ValueError(f"Unsupported safety policy: {safety_policy}")
+        self._safety_policy = safety_policy
         if provider == Provider.GEMINI and self._attached_file_ids:
             from backend.files import GEMINI_CU_FILE_REJECTION
             raise ValueError(GEMINI_CU_FILE_REJECTION)
@@ -792,23 +806,27 @@ class ComputerUseEngine:
         if provider == Provider.GEMINI:
             self._client: Any = GeminiCUClient(
                 api_key=api_key,
-                model=model or "gemini-3-flash-preview",
+                model=model or "gemini-3.6-flash",
                 environment=environment,
                 excluded_actions=excluded_actions,
                 system_instruction=system_instruction,
                 **search_kwargs,
                 **file_kwargs,
+                credentials=oauth_credentials,
+                quota_project_id=quota_project_id,
             )
             self._client._planner_use_builtin_search = planner_use_builtin_search
         elif provider == Provider.CLAUDE:
+            if not api_key:
+                raise ValueError("Anthropic requires an API key.")
             # Look up tool_version / beta_flag from allowed_models.json
             # so the canonical allowlist drives the Claude CU routing.
             # ClaudeCUClient raises if the model lacks registry metadata
             # and no explicit override is supplied.
-            _tv, _bf = _lookup_claude_cu_config(model or "claude-sonnet-4-6")
+            _tv, _bf = _lookup_claude_cu_config(model or "claude-sonnet-5")
             self._client = ClaudeCUClient(
                 api_key=api_key,
-                model=model or "claude-sonnet-4-6",
+                model=model or "claude-sonnet-5",
                 system_prompt=system_instruction,
                 tool_version=_tv,
                 beta_flag=_bf,
@@ -817,9 +835,11 @@ class ComputerUseEngine:
             )
             self._client._planner_use_builtin_search = planner_use_builtin_search
         elif provider == Provider.OPENAI:
+            if not api_key:
+                raise ValueError("OpenAI requires an API key.")
             self._client = OpenAICUClient(
                 api_key=api_key,
-                model=model or "gpt-5.5",
+                model=model or "gpt-5.6-luna",
                 system_prompt=system_instruction,
                 reasoning_effort=reasoning_effort,
                 **search_kwargs,
@@ -829,7 +849,11 @@ class ComputerUseEngine:
         else:
             raise ValueError(f"Unsupported provider: {provider}")
 
-    def _build_executor(self, page: Any = None) -> ActionExecutor:
+    def _build_executor(
+        self,
+        page: Any = None,
+        on_safety: Callable[[str], Any] | None = None,
+    ) -> ActionExecutor:
         """Build the action executor for this session.
 
         Unified Computer Use surface: a single X11 sandbox where
@@ -839,13 +863,16 @@ class ComputerUseEngine:
         """
         # Gemini uses normalized 0-999 coords; Claude/OpenAI use real pixels
         normalize = self.provider == Provider.GEMINI
-        return DesktopExecutor(
+        executor: ActionExecutor = DesktopExecutor(
             screen_width=self.screen_width,
             screen_height=self.screen_height,
             normalize_coords=normalize,
             agent_service_url=self._agent_service_url,
             container_name=self._container_name,
         )
+        if self._safety_policy != "provider_default":
+            executor = _SafetyPolicyExecutor(executor, self._safety_policy, on_safety)
+        return executor
 
     async def execute_task(
         self,
@@ -872,7 +899,7 @@ class ComputerUseEngine:
         """
         from backend.providers import run_client
 
-        executor = self._build_executor(page)
+        executor = self._build_executor(page, on_safety)
         self._last_completion_payload = None
         try:
             final_text, payload = await run_client(
@@ -915,7 +942,7 @@ class ComputerUseEngine:
         OpenAI: adapted from the callback-driven ``run_loop`` via
         :func:`iter_turns_via_run_loop` (legacy safety flow preserved).
         """
-        executor = self._build_executor()
+        executor = self._build_executor(on_safety=on_safety)
         try:
             if self.provider in {Provider.CLAUDE, Provider.GEMINI}:
                 async for ev in self._client.iter_turns(
@@ -985,8 +1012,6 @@ __all__ = [
     "_lookup_claude_cu_config",
     "get_model_capabilities",
     "claude_web_search_tool_version",
-    "_is_modern_opus",
-    "_is_opus_47",
     "default_openai_reasoning_effort_for_model",
     "_call_with_retry",
     "scrub_secrets",
