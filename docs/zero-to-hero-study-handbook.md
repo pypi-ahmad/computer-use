@@ -42,12 +42,12 @@ This is different from:
   sequences (`click "#submit"`). A CU agent decides its next action itself,
   turn by turn, based on what it currently sees.
 
-Three vendors ship a native "computer use" tool as of this snapshot:
-Anthropic Claude (`computer_20251124` tool type), OpenAI (the `computer`
-tool inside the Responses API), and Google Gemini (a `computer_use`
-function-calling contract). Each has its own request/response shape, its
-own coordinate convention, and its own safety-confirmation mechanics. This
-repo's core architectural bet is: **absorb every one of those differences
+The active catalog contains three native Computer Use routes: Claude Sonnet 5
+(`computer_20251124` through Anthropic Messages), GPT-5.6 Luna (the
+`computer` tool inside OpenAI Responses), and Gemini 3.6 Flash (Google
+Interactions Computer Use). Each has its own request/response shape, its own
+coordinate convention, and its own safety-confirmation mechanics. This repo's
+core architectural bet is: **absorb every one of those differences
 into small per-provider adapters, so the rest of the system — the loop,
 the executor, the sandbox, the UI — never has to know which vendor is
 running.**
@@ -58,21 +58,22 @@ Every CU run is the same three-step cycle, repeated until the model says
 it's done or a hard step limit is hit:
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│  1. PERCEIVE — capture a screenshot of the sandboxed      │
-│     desktop and hand it to the model as image input       │
-│                        │                                  │
-│                        ▼                                  │
-│  2. THINK — the model reasons over the screenshot + task  │
-│     and emits exactly one structured tool call             │
-│                        │                                  │
-│                        ▼                                  │
-│  3. ACT — the executor translates that tool call into a   │
-│     real xdotool mouse/keyboard operation inside the       │
-│     sandbox, waits for the UI to settle, and captures the  │
-│     next screenshot                                       │
-│                        │                                  │
-│                        └──────────► back to step 1 ◄──────┘
++----------------------------------------------------------+
+| 1. PERCEIVE - capture a screenshot of the sandboxed      |
+|    desktop and hand it to the model as image input        |
+|                         |                                |
+|                         v                                |
+| 2. THINK - the model reasons over the screenshot + task   |
+|    and emits exactly one structured tool call              |
+|                         |                                |
+|                         v                                |
+| 3. ACT - the executor translates that tool call into a    |
+|    real xdotool mouse/keyboard operation inside the        |
+|    sandbox, waits for the UI to settle, and captures the   |
+|    next screenshot                                        |
+|                         |                                |
+|                         +----> back to step 1             |
++----------------------------------------------------------+
 ```
 
 In this codebase that loop lives in `backend/loop.py::AgentLoop.run()` →
@@ -108,10 +109,11 @@ payment form) are risky enough that this repo pauses and asks a human to
 approve before executing them. The handshake is a small piece of shared
 state in `backend/safety.py`: the loop "arms" a random nonce and an
 `asyncio.Event` for the session, broadcasts a `safety_confirmation` event
-over the WebSocket with that nonce, and blocks until either the frontend
-echoes the same nonce back through `POST /api/agent/safety-confirm` (a
-constant-time comparison prevents another session from guessing it) or a
-timeout auto-denies the action.
+over the WebSocket with that nonce, and blocks until either the caller echoes
+the same nonce back through the applicable v1 or v2 safety-decision endpoint
+(a constant-time comparison prevents another session from guessing it) or a
+timeout auto-denies the action. The v2 dashboard exposes approve/deny controls
+for `provider_default`, `confirm_mutating`, and `read_only` policies.
 
 ### Provider-native web search (why it's not just another tool)
 
@@ -141,6 +143,11 @@ The v2 platform (`backend/v2/`) adds three ideas that v1 doesn't have:
   (`backend/v2/persistence.py`) instead of living only in browser memory,
   so you can inspect what happened after the fact from the Audit tab.
 
+The selected route is always one of `openai-direct` (GPT-5.6 Luna),
+`anthropic-direct` (Claude Sonnet 5), or `gemini-direct` (Gemini 3.6 Flash).
+All three support API-key credentials; Gemini can instead use a browser OAuth
+flow whose refreshable credential remains only in the process-local vault.
+
 ### Glossary
 
 | Term | Meaning in this repo |
@@ -153,7 +160,7 @@ The v2 platform (`backend/v2/`) adds three ideas that v1 doesn't have:
 | **Route** | (v2) A specific provider + transport + model combination a session can execute against. |
 | **Fallback** | (v2) An ordered backup route tried if the primary route fails. |
 | **Circuit breaker** | (v2) Temporarily stops retrying a route that has failed repeatedly. |
-| **Credential session** | (v2) A short-lived (≤8h), process-memory-only holder of a provider API key, never persisted to disk. |
+| **Credential session** | (v2) A short-lived (<=8h), process-memory-only holder of a provider API key or Google OAuth credential, never persisted to disk. |
 | **CUAF frame** | (v2) The custom binary WebSocket frame format used to stream compressed screenshot previews (see Module 1). |
 | **Checkpoint** | (v2) A provider-neutral snapshot of session progress (goal, confirmed step count, frame hash) — never raw model reasoning. |
 | **Safety confirmation** | The nonce-gated human-approval handshake for risky actions. |
@@ -199,9 +206,9 @@ The v2 platform (`backend/v2/`) adds three ideas that v1 doesn't have:
   the caller specified, retries only what's explicitly marked retryable,
   and never dynamically re-ranks by cost or latency.
 - **Defense in depth:** host allowlist, origin checks, optional shared
-  token (`CUA_WS_TOKEN`), request size limits, action allowlists, and (v2)
-  the same origin/token gate applied to every mutating `/api/v2/*` route
-  via `_guard_v2_mutations` middleware.
+  workbench token (`CUA_API_TOKEN`), request size limits, action allowlists,
+  and `_guard_api` middleware that gates API reads and writes when the token
+  is configured.
 
 ### How v1 and v2 relate
 
@@ -220,19 +227,15 @@ binary frame streaming *around* that same core, not a parallel one.
 
 ### Architecture components and interactions
 
-| Layer | v1 | v2 |
-|---|---|---|
-| HTTP entrypoint | `backend/server/__init__.py` (unversioned + `/api/v1/*` alias) | `backend/v2/api.py` router, mounted at `/api/v2` |
-| Session orchestrator | `backend/loop.py::AgentLoop` | `backend/v2/orchestrator.py::V2Orchestrator` (bridges into the same `AgentLoop`) |
-| Provider engine | `backend/engine/__init__.py::ComputerUseEngine` + provider clients | *(reused via the bridge above)* |
-| Provider wrapper layer | `backend/providers/*` uniform `run(...)` contracts | `backend/v2/adapters.py` — strict vendor-response → canonical-action parsing |
-| Desktop action executor | `backend/executor.py::DesktopExecutor` | *(reused via the bridge above)* |
-| Sandbox runtime | `backend/infra/docker.py` (lifecycle) + `docker/agent_service.py` (in-container control API) | *(shared — one sandbox serves both surfaces)* |
-| Credentials | `.env` / system env, resolved per-request by `resolve_api_key()` | `.env` / system env, **or** an ephemeral `CredentialVault` session (`backend/v2/credentials.py`) |
-| Routing | fixed provider/model chosen by the caller | `backend/v2/routing.py` — ordered fallback + circuit breaker |
-| Persistence | in-memory only (lost on restart / browser close) | `backend/v2/persistence.py` — SQLite WAL: sessions, actions, events, metrics, workflows |
-| Frame streaming | base64 PNG screenshots over `/ws` | `backend/v2/frames.py` — coalesced capture + binary `CUAF` frames over `/api/v2/ws/{id}` |
-| Frontend | *(removed in this snapshot — see below)* | Five-tab TypeScript dashboard, `frontend/src/App.tsx` |
+| Layer | v1 and v2 relationship |
+|---|---|
+| HTTP entrypoint | `backend/server/__init__.py` serves v1; `backend/v2/api.py` is mounted at `/api/v2`. |
+| Session orchestration | v2 `V2Orchestrator` bridges into the same `backend/loop.py::AgentLoop`. |
+| Provider and executor | `ComputerUseEngine`, provider adapters, `DesktopExecutor`, and the sandbox are shared. |
+| Credentials | v1 resolves environment keys; v2 additionally supports process-local API-key and Google OAuth sessions. |
+| Routing and persistence | v2 adds explicit ordered fallback, circuit breaking, SQLite WAL history, and retained audit frames. |
+| Frame streaming | v1 uses `/ws`; v2 uses coalesced binary `CUAF` frames at `/api/v2/ws/{id}`. |
+| Frontend | The shipped TypeScript dashboard uses only the v2 surface. |
 
 The **v1 frontend has been removed** from this snapshot (all of
 `frontend/src/pages/*`, `frontend/src/hooks/useSessionController.js`,
@@ -255,7 +258,7 @@ FastAPI Server (backend/server/__init__.py)
    |      credential, call orchestrator.start() → _start_v2_execution()
    |                     |
    |                     v
-   +--> AgentLoop (backend/loop.py)                    ◄── both surfaces
+   +--> AgentLoop (backend/loop.py)                    <-- both surfaces
    |      |                                                 converge here
    |      v
    |   ComputerUseEngine (backend/engine/__init__.py)
@@ -283,51 +286,14 @@ Realtime back-channel:
 
 ## Module 2: Repository Map
 
-| File/Directory Path | Primary Responsibility | Key Classes/Functions | Important Configs/Variables |
-|---|---|---|---|
-| `backend/main.py` | Backend entrypoint and Uvicorn launch | `main()`, `_enforce_public_bind_guardrail()` | `HOST`, `PORT`, `CUA_RELOAD`, `CUA_ALLOW_PUBLIC_BIND`, `CUA_WS_TOKEN` |
-| `backend/server/__init__.py` | FastAPI app, middleware, auth/origin guards, v1 + v2 REST/WS endpoints | `api_start_agent()`, `websocket_endpoint()`, `v2_websocket_endpoint()`, `vnc_ws_proxy()`, `_require_origin()`, `_require_rest_auth()`, `_guard_v2_mutations()` | `_MAX_CONCURRENT_SESSIONS`, `_MAX_STEPS_HARD_CAP`, `CUA_MAX_BODY_BYTES`, `CUA_ALLOWED_HOSTS`, `_WS_AUTH_TOKEN` |
-| `backend/models/schemas.py` | Typed v1 API/session contracts | `StartTaskRequest`, `TaskStatusResponse`, `AgentSession`, `StepRecord`, `ActionType` | `ConfigDict(extra="forbid")`, `max_steps <= 200`, `attached_files` max 10 |
-| `backend/loop.py` | Session orchestration and callback wiring (shared by v1 and v2) | `AgentLoop.run()`, `_run_computer_use_engine()`, `request_stop()` | `_CU_ACTION_MAP`, stuck-agent (loop) detection |
-| `backend/engine/__init__.py` | Unified engine facade + provider construction | `ComputerUseEngine.execute_task()`, `validate_builtin_search_config()` | `Provider`, `Environment`, reasoning defaults |
-| `backend/engine/openai.py` | OpenAI Computer Use client logic | `OpenAICUClient.run_loop()`, `_execute_openai_action()` | Responses API tool config, reasoning effort |
-| `backend/engine/claude.py` | Anthropic Computer Use client logic | `ClaudeCUClient.run_loop()`, `iter_turns()`, `build_web_search_tool()` | Claude tool version and beta flags |
-| `backend/engine/gemini.py` | Gemini Computer Use client logic | `GeminiCUClient.run_loop()`, `iter_turns()` | Normalized 0–999 coordinates |
-| `backend/providers/__init__.py` | Provider runtime dispatch | `runner_for()`, `run_client()` | Provider alias normalization |
-| `backend/providers/_common.py` | Shared provider utilities | `stream_client_run_loop()`, `maybe_plan_with_web_search()` | `ProviderTools.web_search` |
-| `backend/providers/planner.py` | Optional web-search planning phase | `create_web_execution_brief()`, `build_planned_computer_use_task()` | `_PLANNER_PROMPT` |
-| `backend/executor.py` | Action translation into in-container API | `DesktopExecutor.execute()`, `_act_click_at()`, `capture_screenshot()` | `_MODIFIER_MAP`, `_validated_http_url()` |
-| `backend/safety.py` | Cross-module safety-confirmation handshake registry | `arm()`, `verify_nonce()`, `set_decision()`, `clear()` | `events`, `decisions`, `nonces` |
-| `backend/files.py` | Provider-aware file attachment bridge | `validate_attached_files()`, `prepare_openai_file_search()`, `prepare_anthropic_documents()` | `GEMINI_CU_FILE_REJECTION` |
-| `backend/infra/storage.py` | Upload persistence and lifecycle | `FileStore.add_stream()`, `gc()` | `ALLOWED_EXTS`, `MAX_FILE_BYTES=1GB`, `MAX_FILES_PER_STORE=10`, `UPLOAD_TTL_SECONDS` |
-| `backend/infra/config.py` | Environment config and key resolution | `Config.from_env()`, `resolve_api_key()`, `get_all_key_statuses()` | screen/step/timeout env vars, provider key env vars |
-| `backend/infra/docker.py` | Docker build/start/stop/readiness | `start_container()`, `_wait_for_service()`, `get_container_status()` | hardening args, readiness cache |
-| `backend/models/registry.py` | Action-name alias resolution shared by executor and sandbox | `resolve_action()`, `ACTION_ALIASES` | `_MAX_ACTION_LEN` |
-| `docker/agent_service.py` | In-container desktop control API | `AgentHandler.do_GET()`/`do_POST()`, `_dispatch_action()`, `_is_action_enabled()` | `_ENGINE_ACTIONS`, `AGENT_SERVICE_TOKEN`, `CUA_ENABLE_LEGACY_ACTIONS` |
-| `docker/entrypoint.sh` | Container desktop bootstrap sequence | Startup flow for Xvfb, XFCE, VNC, websockify, agent service | `DISPLAY`, `SCREEN_WIDTH/HEIGHT`, `VNC_PASSWORD` |
-| **v2 platform** | | | |
-| `backend/v2/api.py` | Typed `/api/v2` HTTP contract | `create_session()`, `list_models()`, `create_credential_session()` | `ContractModel` (camelCase alias), `ErrorEnvelope` |
-| `backend/v2/models.py` | Validated, transport-aware model catalog | `ModelCatalog.load()`, `ComputerUseModel` | loads `backend/models/computer_use_models.v2.json` |
-| `backend/v2/routing.py` | Deterministic fallback + circuit breaking | `run_with_fallback()`, `CircuitBreaker`, `RouteFailure` | `failure_threshold`, `recovery_seconds` |
-| `backend/v2/credentials.py` | Ephemeral, process-memory-only credential sessions | `CredentialVault.create()/resolve()/delete()` | max TTL 8h (`28_800` seconds) |
-| `backend/v2/orchestrator.py` | Bridges v2 sessions into the shared `AgentLoop` execution core | `V2Orchestrator.start()/track()/stop()` | — |
-| `backend/v2/persistence.py` | SQLite WAL store for sessions/actions/events/metrics/workflows | `SqliteStore` | `CUA_V2_DB_PATH` |
-| `backend/v2/retention.py` | Bounded audit-frame retention (age + byte budget) | `FrameRetentionStore.put()/evict()/purge_session()` | 7 days / 1 GiB defaults |
-| `backend/v2/frames.py` | Coalesced screenshot capture + binary `CUAF` frame packing | `FrameBroker.capture()`, `pack_cuaf_frame()` | `CUAF_MAGIC`, frame header struct |
-| `backend/v2/adapters.py` | Strict vendor-response → canonical-action parsing | `parse_openai_action()`, `parse_anthropic_action()`, `parse_gemini_action()` | `CanonicalActionType` |
-| `backend/models/computer_use_models.v2.json` | v2's model/route catalog data | — | executable vs. catalogued-only routes |
-| **Frontend (TypeScript)** | | | |
-| `frontend/src/App.tsx` | Five-tab dashboard shell + all page components | `LivePage`, `AuditPage`, `WorkflowPage`, `ProvidersPage`, `AnalyticsPage` | React Router tabs |
-| `frontend/src/api.ts` | Typed `/api/v2` REST client | `api.createSession()`, `api.routes()`, `ApiError` | — |
-| `frontend/src/useLiveStream.ts` | v2 WebSocket client — JSON events + binary `CUAF` frames | `useLiveStream(sessionId)` | `VITE_WS_TOKEN` |
-| `frontend/src/protocol.ts` | `CUAF` binary frame decoder (frontend half of `frames.py`) | `decodeCuafFrame()` | 30-byte header layout |
-| `frontend/src/types.ts` | Shared TypeScript contract types | `Session`, `Model`, `StreamEvent`, `Action` | — |
-| **Setup / tooling** | | | |
-| `setup.sh` / `setup.bat` | One-command bootstrap + launch | script flow | `--clean`, `--bootstrap-only` |
-| `dev.py` | Daily local orchestrator | `_spawn_services()`, `main()` | default ports `8100` and `3000` |
-| `.env.example` | Runtime env template | env keys for local config | `AGENT_SERVICE_TOKEN`, `VNC_PASSWORD`, `CUA_V2_DB_PATH`, provider API keys |
-| `docker-compose.yml` | Local sandbox service definition | service `cua-environment` | required env expansions, loopback-bound ports |
-| `scripts/build_release.py` | Builds a reproducible v2 release archive + checksums | `main()` | outputs `dist/release/computer-use-v2.0.0.zip` |
+- **Application boundary:** startup, public-bind guardrail, REST/WS/noVNC authentication, and execution bridge in `backend/main.py` and `backend/server/__init__.py`.
+- **Contracts and catalog:** Pydantic request contracts and the three-route model catalog in `backend/models/`, `backend/v2/models.py`, and `backend/v2/api.py`.
+- **Shared execution:** provider-native turns, optional planning, action normalization, and sandbox calls in `backend/loop.py`, `backend/engine/`, `backend/providers/`, and `backend/executor.py`.
+- **Safety and files:** nonce confirmations and provider-aware attachment handling in `backend/safety.py`, `backend/files.py`, and `backend/infra/storage.py`.
+- **v2 services:** ordered fallback, API-key/OAuth vault, SQLite audit, frame retention, and CUAF streaming in `backend/v2/routing.py`, `credentials.py`, `persistence.py`, `retention.py`, and `frames.py`.
+- **Sandbox:** isolated desktop, allowlisted input, and token-protected action service in `docker/agent_service.py`, `docker/entrypoint.sh`, and `docker-compose.yml`.
+- **Frontend:** five-tab v2 workbench, token-aware API/WS clients, and preview decoding in `frontend/src/App.tsx`, `api.ts`, `useLiveStream.ts`, and `protocol.ts`.
+- **Tooling:** local configuration, development orchestration, and release/documentation builds in `.env.example`, `dev.py`, `setup.*`, and `scripts/`.
 
 ---
 
@@ -458,8 +424,8 @@ current frontend only speaks v2. See Flow H below for the live surface.)*
    cleared `asyncio.Event`.
 2. Backend emits a `safety_confirmation`-shaped event with `session_id`,
    `nonce`, and `explanation`.
-3. The caller answers via `POST /api/agent/safety-confirm` with the same
-   `nonce`.
+3. The caller answers via `POST /api/agent/safety-confirm` for v1 or
+   `POST /api/v2/sessions/{id}/safety-decisions` for v2 with the same `nonce`.
 4. Backend verifies the nonce with `hmac.compare_digest` (constant-time,
    so an unrelated caller can't brute-force or timing-attack another
    session's prompt), records the decision, and unblocks the loop.
@@ -467,10 +433,12 @@ current frontend only speaks v2. See Flow H below for the live surface.)*
 
 ### Flow G (v2 only): Create a session with routing and a credential vault
 
-1. The dashboard's Providers tab calls `POST /api/v2/credential-sessions`
-   with a raw API key; `CredentialVault.create()` stores it in
-   process memory only (never on disk, never in the audit log) and
-   returns an opaque `credentialSessionId` with a TTL capped at 8 hours.
+1. The dashboard's Providers tab either calls
+   `POST /api/v2/credential-sessions` with a raw API key or starts Google
+   OAuth at `/api/v2/credential-sessions/google/oauth/start`. The vault stores
+   the resulting credential only in process memory (never on disk or in the
+   audit log) and returns an opaque credential-session id with a TTL capped at
+   8 hours.
 2. The Live tab calls `POST /api/v2/sessions` with `task`, `model`, an
    explicit `primaryRoute`, an ordered `fallbackRoutes` list, and that
    `credentialSessionId`.
@@ -494,7 +462,7 @@ current frontend only speaks v2. See Flow H below for the live surface.)*
 
 1. The frontend opens `wss://.../api/v2/ws/{sessionId}` from
    `useLiveStream.ts`, optionally appending `?token=` if
-   `VITE_WS_TOKEN` is configured.
+   the session-scoped workbench token is configured from `CUA_API_TOKEN`.
 2. `v2_websocket_endpoint()` sends a `SESSION_STREAM_READY` JSON event,
    then loops: capture a frame via the shared `FrameBroker`
    (`backend/v2/frames.py` — concurrent callers share one in-flight
@@ -521,24 +489,37 @@ current frontend only speaks v2. See Flow H below for the live surface.)*
 | Docker Desktop / Engine | 24+ | Runs the `cua-environment` sandbox |
 | Python | 3.12–3.14 | Backend typing features, asyncio task groups |
 | Node.js | 22+ | Vite 6 dev server |
-| Provider API key | OpenAI, Anthropic, or Google | At least one required |
+| Provider sign-in | OpenAI/Anthropic/Google API key, or Google OAuth | At least one required |
 
 ### Environment setup
 
+On Windows 11, double-click `START.bat`. It installs missing Docker Desktop,
+Node.js LTS, and uv through winget; creates `.env` if needed; generates the
+required sandbox secrets; installs locked dependencies; builds the sandbox;
+and opens the dashboard. Existing `.env` values are preserved. If Docker asks
+for a restart or initial WSL setup, complete it and run `START.bat` again.
+
+For manual or non-Windows setup:
+
 1. Copy `.env.example` to `.env`.
 2. Set required sandbox secrets: `AGENT_SERVICE_TOKEN=...`,
-   `VNC_PASSWORD=...` (generate unique random values — don't reuse
-   examples).
-3. Set at least one provider key: `GOOGLE_API_KEY`/`GEMINI_API_KEY`,
-   `ANTHROPIC_API_KEY`, or `OPENAI_API_KEY`.
+   `VNC_PASSWORD=...` (generate unique random values — don't reuse examples).
+3. Sign in from the Provider Manager with an OpenAI, Anthropic, or Google API
+   key; alternatively configure Google OAuth.
 4. Optional: `HOST`/`PORT`, `CUA_V2_DB_PATH` (v2 SQLite location,
-   defaults to `data/computer-use-v2.sqlite3`), `CUA_FRAME_DIR`,
-   `CUA_WS_TOKEN` + `CUA_ALLOW_PUBLIC_BIND=1` for external binding,
+   defaults to `data/computer-use-v2.sqlite3`), `CUA_V2_FRAME_PATH`,
+   `CUA_API_TOKEN` + `CUA_ALLOW_PUBLIC_BIND=1` for external binding,
    `CORS_ORIGINS`, `CUA_ALLOWED_HOSTS`.
 
 ### Typical command sequences
 
-Path A — one-command bootstrap and launch:
+Windows one-click install and launch:
+
+```powershell
+.\START.bat
+```
+
+Manual bootstrap and launch:
 
 ```bash
 bash setup.sh          # or setup.bat on Windows
@@ -566,7 +547,9 @@ Set-Location frontend; npm ci; Set-Location ..
 - v2 persists to a local SQLite WAL database at `CUA_V2_DB_PATH`
   (default `data/computer-use-v2.sqlite3`); back it up alongside its
   `-wal`/`-shm` files. Credential-vault entries are intentionally *not*
-  recoverable after a restart — that's the point.
+  recoverable after a restart — that's the point. Retained audit frames live
+  under `CUA_V2_FRAME_PATH` (default `data/audit-frames`) and are bounded to
+  seven days or one GiB.
 - The only external runtime dependency is the Dockerized desktop sandbox
   plus whichever upstream provider APIs you configure.
 
@@ -589,7 +572,7 @@ pandoc -f gfm -t pdf   docs/zero-to-hero-study-handbook.md -o docs/zero-to-hero-
    `ContractModel` subclasses (v2) to lock in the data contracts.
 3. Read `backend/server/__init__.py`, especially `api_start_agent()`,
    `websocket_endpoint()`, `v2_websocket_endpoint()`, and
-   `_guard_v2_mutations()`.
+   `_guard_api()`.
 4. Read `backend/loop.py` for session lifecycle, then
    `backend/v2/orchestrator.py` to see how thin the v2 bridge actually is.
 5. Read `backend/engine/__init__.py` and one provider file
@@ -674,7 +657,8 @@ pandoc -f gfm -t pdf   docs/zero-to-hero-study-handbook.md -o docs/zero-to-hero-
    Outline: external-bind guardrail in `main.py`; host-allowlist
    middleware; the same origin/token gate (`_require_origin`,
    `_require_rest_auth`) applied to every v1 POST handler individually
-   and to every `/api/v2/*` mutation via `_guard_v2_mutations`.
+   and to API reads and writes through `_guard_api` when the workbench token
+   is configured.
 
 ---
 

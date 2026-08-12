@@ -28,8 +28,9 @@ AI-driven desktop automation locally — no cloud account, no
 multi-user setup, single operator on a single machine.
 
 **What it is not:** a production, multi-tenant, internet-facing service.
-There is no login system. Anyone who can reach the backend's port can
-use it. Keep it on `127.0.0.1` unless you've read
+There is no user/account system. An optional shared `CUA_API_TOKEN` protects
+sensitive REST operations, WebSockets, and noVNC, but it does not turn the
+workbench into a multi-user service. Keep it on `127.0.0.1` unless you've read
 [Network hardening](#networking) and deliberately opted in to exposing it.
 
 **Two ways to use it**, both fully working today:
@@ -50,7 +51,7 @@ use it. Keep it on `127.0.0.1` unless you've read
 4. [Daily Operation](#daily-operation)
 5. [The Dashboard — Five Tabs In Depth](#the-dashboard--five-tabs-in-depth)
 6. [Provider, Model, and Routing](#provider-model-and-routing)
-7. [Credential Sessions (API Keys)](#credential-sessions-api-keys)
+7. [Provider Login (API Keys and Google OAuth)](#provider-login-api-keys-and-google-oauth)
 8. [Safety Confirmations](#safety-confirmations)
 9. [Writing Effective Tasks](#writing-effective-tasks)
 10. [Feature Availability: Dashboard vs. REST API](#feature-availability-dashboard-vs-rest-api)
@@ -67,62 +68,70 @@ use it. Keep it on `127.0.0.1` unless you've read
 | Docker Desktop or Docker Engine | 24+ | Runs the `cua-environment` sandbox (the virtual desktop). |
 | Python | 3.12–3.14 | Backend runtime, managed via `uv`. |
 | Node.js | 22+ | Vite 6 dashboard build/dev server. |
-| Provider API key | OpenAI, Anthropic, or Google AI Studio | At least one is required — this is the "brain" that decides what to click. |
+| Provider sign-in | OpenAI, Anthropic, or Google | Use an API key, or Google OAuth, for the model that decides what to click. |
 | [`uv`](https://docs.astral.sh/uv/) | latest | Python package/venv manager this project uses instead of raw `pip`. |
 
-The app is a single-user localhost workbench. There is no built-in
-authentication. Do not expose the backend (port `8100`) or noVNC
-(port `6080`) to a network you don't trust without first reading
-[Networking](#networking) below and the security sections of
+The app is a single-user localhost workbench. It has an optional shared-secret
+gate, not identity, roles, or tenant isolation. Do not expose the backend (port
+`8100`) or noVNC (port `6080`) to a network you don't trust without first
+reading [Networking](#networking) below and the security sections of
 `TECHNICAL.md`.
 
-> **WS/VNC token transport.** When `CUA_WS_TOKEN` is set, the frontend
-> passes it in the URL query string (`?token=…`) for `/ws`, `/api/v2/ws/*`,
-> and the noVNC proxy. This is acceptable **only on loopback** — query
-> strings leak via proxy/access logs and browser history. For any
-> non-loopback exposure, terminate at a reverse proxy that injects the
-> secret via a header or the `Sec-WebSocket-Protocol` subprotocol instead.
+> **Workbench token transport.** When `CUA_API_TOKEN` is set, the frontend uses
+> `X-CUA-Token` for HTTP requests and a URL query parameter (`?token=...`) for
+> `/ws`, `/api/v2/ws/*`, and the noVNC proxy. Query strings can appear in proxy
+> logs or browser history. For non-loopback exposure, use TLS, restrict network
+> access, prevent query logging, and place an independently authenticated
+> reverse proxy in front of the workbench.
 
 ## Installation
+
+Clone the repository, then use the platform launcher.
 
 ```powershell
 git clone https://github.com/pypi-ahmad/computer-use.git
 cd computer-use
+.\START.bat
+```
+
+On Windows 11, `START.bat` is both the first-run installer and the daily
+launcher. It uses exact winget packages to install missing Docker Desktop,
+Node.js LTS, and uv; creates `.env` when absent; generates the required local
+sandbox secrets without printing or replacing existing values; installs
+locked Python/frontend dependencies; builds the Docker image with cache; and
+opens the dashboard when Vite responds. Normal installer/UAC prompts may
+appear. If Docker Desktop requires a restart or initial WSL setup, complete it
+and double-click `START.bat` again.
+
+Provider credentials are not generated. Enter an OpenAI, Anthropic, or Google
+API key in the Provider Manager, or configure Google OAuth.
+
+Linux/macOS and manual Windows setup remain available:
+
+```powershell
 Copy-Item .env.example .env
-# edit .env: add OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY / GEMINI_API_KEY
-
-uv sync --frozen
-Set-Location frontend; npm ci; Set-Location ..
+# Set AGENT_SERVICE_TOKEN and VNC_PASSWORD, then:
+setup.bat             # Windows manual bootstrap
 ```
 
-Two launch paths from here:
-
-**Path A — one-command bootstrap** (also builds the Docker image and
-starts the sandbox for you):
-
-```powershell
-setup.bat            # Windows
-bash setup.sh         # Linux/macOS
+```bash
+bash setup.sh          # Linux/macOS
 ```
 
-`setup.sh`/`setup.bat` checks Docker and `uv` are installed, installs
-Python 3.12 via `uv python install 3.12`, builds the sandbox image
-(`docker compose build --no-cache`), installs Python deps
-(`uv sync --frozen`) and frontend deps (`npm ci`), then launches the app.
-Add `--bootstrap-only` to prepare everything without launching, or
-`--clean` for a from-scratch Docker rebuild (destructive — removes
-existing containers/images first).
+`setup.bat --bootstrap-only` prepares dependencies without launching.
+`setup.bat --clean` performs an explicitly destructive, from-scratch Docker
+rebuild. Normal setup uses Docker's build cache and skips `npm ci` when the
+installed frontend matches `package-lock.json`.
 
-**Path B — manual, day-to-day startup** (once dependencies are already
-installed):
+For a manual day-to-day start after setup:
 
 ```powershell
-.\dev.bat             # Windows — wraps: uv run --frozen python dev.py
+.\dev.bat             # Windows — does not install missing system tools
 bash dev.sh           # Linux/macOS
 ```
 
 `dev.py` (invoked by either wrapper) does three things every time you run
-it: frees ports `8100`/`3000`/`6080`/`9222` if a previous crashed run left
+it: frees ports `8100`/`3000` if a previous crashed run left
 them held, makes sure the `cua-environment` container is running and
 healthy (starting it via `docker compose up -d` if not), then launches
 the FastAPI backend and the Vite dev server as subprocesses, streaming
@@ -153,7 +162,7 @@ MAX_STEPS=50
 `AGENT_SERVICE_TOKEN` and `VNC_PASSWORD` are required sandbox secrets —
 generate real random values, don't leave them blank or copy an example.
 If you intend to bind the backend to a non-loopback address, also set
-`CUA_ALLOW_PUBLIC_BIND=1` and `CUA_WS_TOKEN=<secret>`; without both, the
+`CUA_ALLOW_PUBLIC_BIND=1` and `CUA_API_TOKEN=<secret>`; without both, the
 process refuses to start when `HOST != 127.0.0.1`.
 
 ## First Run
@@ -171,7 +180,11 @@ fails before the first frame appears, see [Troubleshooting](#troubleshooting).
 ## Daily Operation
 
 ```powershell
-.\dev.bat        # or: bash dev.sh
+.\START.bat      # Windows: verify dependencies, launch, and open the UI
+```
+
+```bash
+bash dev.sh           # Linux/macOS
 ```
 
 then open `http://localhost:3000`. The Vite dev server proxies `/api`
@@ -243,17 +256,17 @@ wired into the dashboard UI. Today it's reachable via
 ### 4. Providers
 
 This is where you tell the app which AI account to use, without ever
-typing a permanent secret. Pick a provider (OpenAI/Anthropic/Google),
-paste in an API key, and click **Create credential session**. See
-[Credential Sessions](#credential-sessions-api-keys) for exactly what
+typing a permanent secret. Pick OpenAI, Anthropic, or Google and create an
+ephemeral API-key session. Google also offers **Google OAuth** when the OAuth
+client environment variables are configured. See
+[Provider Login](#provider-login-api-keys-and-google-oauth) for exactly what
 happens to that key and how long it lasts.
 
-The same tab also lists every configured **route** (a provider +
-transport + auth-mode combination — e.g. "OpenAI via the direct Responses
-API" vs. "the same model via Azure") with a status badge showing whether
-it's configured (has credentials available) and its current circuit
-state (`CLOSED` = healthy, `OPEN` = temporarily skipped after repeated
-failures — see [Provider, Model, and Routing](#provider-model-and-routing)).
+The same tab lists the three direct **routes** (a provider + transport +
+authentication-mode combination) with a status badge showing whether each is
+configured and its current circuit state (`CLOSED` = healthy, `OPEN` =
+temporarily skipped after repeated failures — see
+[Provider, Model, and Routing](#provider-model-and-routing)).
 
 ### 5. Analytics
 
@@ -266,17 +279,12 @@ another over time.
 
 ## Provider, Model, and Routing
 
-**Provider** = which company's AI you're using (OpenAI, Anthropic,
-Google). **Model** = which specific version of that company's AI (e.g.
-Claude Opus 4.8 vs. Claude Sonnet 5 — bigger/smaller, different
-cost/speed/quality tradeoffs). **Route** = the specific technical path a
-model call takes to reach that provider — most models expose a `-direct`
-route (calling the vendor's own API straight), and some also list
-catalogued-but-not-yet-executable routes through Azure, AWS Bedrock, or
-Google Vertex (shown in the Providers tab as configured/present but not
-selectable as a Live session's active route in this release — see
-`docs/research-audit-2026-07-23.md` for exactly which routes are
-executable today).
+**Provider** = which company's AI you're using (OpenAI, Anthropic, or Google).
+**Model** = the provider-native Computer Use model. This release exposes only
+GPT-5.6 Luna, Claude Sonnet 5, and Gemini 3.6 Flash. **Route** = the direct
+technical path used to reach that provider: `openai-direct`,
+`anthropic-direct`, or `gemini-direct`. Cloud-intermediary and older
+preview-model routes are not catalogued or selectable.
 
 When you start a Live session, you pick a **primary route**. If you
 don't pick one, the app defaults to the first route the model exposes.
@@ -291,7 +299,7 @@ it for a short cooldown window, so a single flaky route can't make every
 subsequent run slow or hang. It recovers to `CLOSED` on its own once the
 cooldown passes and a call succeeds again.
 
-## Credential Sessions (API Keys)
+## Provider Login (API Keys and Google OAuth)
 
 Instead of typing your API key into every request, the Providers tab
 lets you create a **credential session**: paste your key once, and the
@@ -318,6 +326,15 @@ What actually happens to the key you paste:
 If you'd rather not use the Providers tab at all, simply configure your
 key(s) in `.env` — every route will resolve credentials from there
 automatically with no credential session needed.
+
+Google also supports browser OAuth. Set `GOOGLE_OAUTH_CLIENT_ID` and either
+`GOOGLE_OAUTH_CLIENT_SECRET` or `GOOGLE_OAUTH_CLIENT_SECRET_FILE`, restart the
+workbench, choose Google in the Providers tab, and start OAuth login. The
+browser returns to the configured `CUA_GOOGLE_OAUTH_REDIRECT_URI` after Google
+authorization. OAuth state and PKCE protect the callback; access and refresh
+credentials stay in the same process-local vault as API-key sessions and are
+lost when the backend stops. `GOOGLE_CLOUD_PROJECT` is optional and supplies a
+quota project when your Google account requires one.
 
 ## Safety Confirmations
 
@@ -427,7 +444,7 @@ curl -X POST http://localhost:8100/api/agent/start \
   -d '{
     "task": "Open the calculator and compute 2 + 2.",
     "provider": "openai",
-    "model": "gpt-5.5",
+    "model": "gpt-5.6-luna",
     "max_steps": 30,
     "use_builtin_search": false,
     "attached_files": [],
@@ -449,7 +466,7 @@ Upload a file first if you need `attached_files`:
 curl -X POST http://localhost:8100/api/files/upload -F file=@./notes.pdf
 ```
 
-Stream events over `/ws` (append `?token=$CUA_WS_TOKEN` if that's set):
+Stream events over `/ws` (append `?token=$CUA_API_TOKEN` if that's set):
 
 ```bash
 wscat -c ws://localhost:8100/ws
@@ -481,7 +498,7 @@ curl -X POST http://localhost:8100/api/v2/sessions \
   -H "Content-Type: application/json" \
   -d '{
     "task": "Open the calculator and compute 2 + 2.",
-    "model": "gpt-5.6-terra",
+    "model": "gpt-5.6-luna",
     "primaryRoute": "openai-direct",
     "fallbackRoutes": [],
     "credentialSessionId": "<id from above>",
@@ -516,10 +533,10 @@ need.
 
 | Variable | Default | Notes |
 |---|---|---|
-| `HOST` | `127.0.0.1` | Backend bind. Anything else requires `CUA_ALLOW_PUBLIC_BIND=1` and `CUA_WS_TOKEN`. |
+| `HOST` | `127.0.0.1` | Backend bind. Anything else requires `CUA_ALLOW_PUBLIC_BIND=1` and `CUA_API_TOKEN`. |
 | `PORT` | `8100` | Backend port. |
 | `CUA_ALLOW_PUBLIC_BIND` | unset | Explicit opt-in for non-loopback `HOST`. |
-| `CUA_WS_TOKEN` | unset | Shared secret gating `/ws`, `/api/v2/ws/*`, `/vnc/*`, and every mutating REST route. |
+| `CUA_API_TOKEN` | unset | Shared secret gating sensitive/mutating REST operations, `/ws`, `/api/v2/ws/*`, and `/vnc/*`. `CUA_WS_TOKEN` is a deprecated fallback. |
 | `CUA_ALLOWED_HOSTS` | derived from CORS | Extra Host headers to allow. |
 | `CORS_ORIGINS` | `localhost:3000`/`5173` | Comma-separated allowlist. |
 
@@ -545,7 +562,7 @@ need.
 | Variable | Default | Notes |
 |---|---|---|
 | `CUA_V2_DB_PATH` | `data/computer-use-v2.sqlite3` | SQLite WAL database backing the Audit trail and Analytics tabs. |
-| `CUA_FRAME_DIR` | `data/frames` | On-disk retention root for audit screenshot frames (7-day / 1 GiB default eviction). |
+| `CUA_V2_FRAME_PATH` | `data/audit-frames` | On-disk retention root for audit screenshot frames (7-day / 1 GiB default eviction). |
 
 ### Logging
 
@@ -585,7 +602,7 @@ that doesn't match the Dockerfile's expectations — reset to `1440x900`.
 ### Backend will not start
 
 `HOST != 127.0.0.1` without both `CUA_ALLOW_PUBLIC_BIND=1` and
-`CUA_WS_TOKEN` set makes the process exit with a clear error — this is
+`CUA_API_TOKEN` set makes the process exit with a clear error — this is
 intentional, not a bug. A missing dependency shows as
 `ModuleNotFoundError`; reinstall with `uv sync --frozen`.
 
@@ -688,7 +705,8 @@ npm ci
 
 Clear v2's persisted history: stop the backend, then delete
 `CUA_V2_DB_PATH` (default `data/computer-use-v2.sqlite3`) along with its
-`-wal`/`-shm` files, and `CUA_FRAME_DIR` (default `data/frames`) if you
+`-wal`/`-shm` files, and `CUA_V2_FRAME_PATH` (default
+`data/audit-frames`) if you
 also want to drop retained audit screenshots.
 
 ---
@@ -754,11 +772,12 @@ one with more budget.
 - **Screenshot resize.** Images beyond 10,240,000 pixels or a 6000px
   long edge are downscaled before upload; returned pixel coordinates are
   remapped back to real screen space automatically.
-- **Reasoning effort defaults.** `gpt-5.4` defaults to `none`; `gpt-5.5`
-  defaults to `medium`.
+- **Reasoning effort defaults.** `gpt-5.6-luna` defaults to `medium`.
 
 ### Anthropic
 
+- **Model.** Claude Sonnet 5 uses `computer_20251124`, adaptive thinking,
+  and the `computer-use-2025-11-24` beta.
 - **Streamed turns.** Turns stream via the beta Messages API with the
   `computer-use-2025-11-24` header to avoid the SDK's HTTP-timeout guard
   at the configured `max_tokens` budget.
@@ -775,9 +794,13 @@ one with more budget.
   grid; the executor denormalizes to real pixels using the configured
   `SCREEN_WIDTH`/`SCREEN_HEIGHT`. Restart the backend after changing
   those so the executor picks up the new geometry.
-- **History pruning.** Sessions prune to a sliding window of recent
-  turns rather than rewriting fields on older ones, to preserve the
-  `toolCall`/`toolResponse` invariants Gemini's API documents.
+- **Interactions state.** Gemini 3.6 Flash continues turns with
+  `previous_interaction_id`; action results include the current screenshot.
+- **Prompt-injection detection.** Computer Use requests enable Google's
+  built-in prompt-injection detection and preserve its confirmation handshake.
+- **OAuth.** Configure `GOOGLE_OAUTH_CLIENT_ID`,
+  `GOOGLE_OAUTH_CLIENT_SECRET`, and optionally `GOOGLE_CLOUD_PROJECT`; tokens
+  remain only in the process-local credential vault.
 - **Files rejected for Computer Use.** Gemini File Search cannot be
   combined with the Computer Use tool in this app — attaching files with
   Gemini selected fails at session start.
@@ -795,7 +818,7 @@ Approximate steady-state usage for one running session:
 
 Disk: the sandbox image is several GB after first build (Ubuntu base +
 browsers + LibreOffice + VS Code + GIMP/Inkscape). v2 audit frames are
-bounded to 7 days or 1 GiB by default under `CUA_FRAME_DIR`; the SQLite
+bounded to 7 days or 1 GiB by default under `CUA_V2_FRAME_PATH`; the SQLite
 database at `CUA_V2_DB_PATH` grows with session/action/event history and
 has no automatic eviction — prune it manually if it grows large.
 
@@ -808,7 +831,7 @@ The app keeps everything local by default:
   to disk, logged, or included in the audit database.
 - Screenshots stay on the host except when sent to the provider as part
   of the Computer Use loop itself; v2 audit frames retained under
-  `CUA_FRAME_DIR` are also local-only.
+  `CUA_V2_FRAME_PATH` are also local-only.
 - Uploaded files (v1 REST path) are sent to the provider's Files
   API/vector-store only when a session actually attaches them — treat
   them with the same privacy posture as anything else you send that

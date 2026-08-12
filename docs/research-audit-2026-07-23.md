@@ -2,6 +2,17 @@
 
 Verified July 23, 2026 against official vendor documentation. The catalog records eligibility, not account entitlement or regional availability.
 
+## Current implementation status (2026-08-12)
+
+This audit remains a historical research record. The active application catalog
+has since been intentionally narrowed to three executable provider-native
+routes: `gpt-5.6-luna` through OpenAI Responses, `claude-sonnet-5` through
+Anthropic Messages, and `gemini-3.6-flash` through Google Interactions. API
+keys are supported for all three providers; Gemini also supports process-local
+browser OAuth. The canonical current definitions are
+`backend/models/allowed_models.json` and
+`backend/models/computer_use_models.v2.json`.
+
 ## Eligible catalog
 
 | Transport | Models represented in v2 catalog | Runtime status |
