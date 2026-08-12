@@ -1,35 +1,91 @@
 # Contributing
 
-Thank you for your interest in contributing.
+Thank you for helping improve Computer Use Workbench. Contributions should be
+focused, reviewable, and backed by tests or documentation that demonstrate the
+observable result.
 
-## Getting Started
+## Before You Start
 
-1. Fork the repository and create a feature branch from the default branch.
-2. Make focused, reviewable changes.
-3. Update documentation and tests for behavior changes.
-4. Run the project's local validation checks before opening a pull request.
+- Use GitHub Issues for reproducible bugs and feature proposals.
+- Do not disclose vulnerabilities or credentials in an issue. Follow
+  [SECURITY.md](SECURITY.md) instead.
+- By participating, you agree to [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
-## Development Workflow
+## Development Setup
 
-- Keep pull requests scoped to one logical change.
-- Use clear commit messages.
-- Avoid unrelated refactors in the same pull request.
+The supported development environment is Python 3.12-3.14, Node.js 22+, Docker,
+and [`uv`](https://docs.astral.sh/uv/).
 
-## Pull Request Checklist
+```powershell
+git clone https://github.com/pypi-ahmad/computer-use.git
+cd computer-use
+uv sync --frozen
+Set-Location frontend
+npm ci
+Set-Location ..
+```
 
-- [ ] Code and documentation are updated together.
-- [ ] Tests are added or updated where applicable.
-- [ ] Local checks pass.
-- [ ] No secrets or credentials are committed.
+On Windows, `START.bat` performs dependency checks, installs missing project
+dependencies, starts the workbench, and opens the dashboard. For normal
+development, use `uv run python dev.py` so backend and frontend output stays in
+the terminal.
 
-## Reporting Issues
+Copy `.env.example` to `.env`, add only the credentials needed for your route,
+and never commit the populated file. Live provider tests are opt-in and must use
+credentials supplied through the local environment.
 
-Use GitHub Issues to report bugs or request features. Provide:
+## Making a Change
 
-- Reproduction steps
-- Expected vs. actual behavior
-- Environment details
+1. Fork the repository and create a branch from `main`.
+2. Keep the branch limited to one logical change; avoid unrelated refactors.
+3. Add or update tests for behavior changes.
+4. Update operator, technical, and changelog documentation when a public
+   contract, configuration variable, model, or workflow changes.
+5. Regenerate the standalone handbook after changing one of its source files:
 
-## Code of Conduct
+   ```powershell
+   uv run python scripts/build_handbook_site.py
+   uv run python scripts/build_handbook_site.py --check
+   ```
 
-By participating, you agree to follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+Model or provider changes must cite current first-party documentation in the
+pull request and include offline contract coverage. Do not make CI depend on
+real provider credentials.
+
+## Validation
+
+Run the narrowest tests while iterating, then run the relevant CI-equivalent
+checks before opening a pull request.
+
+```powershell
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy
+uv run pytest -p no:warnings --tb=short --cov=backend --cov-report=term-missing --cov-fail-under=60
+uv run pytest -p no:warnings --tb=short -o addopts='' evals/
+uv run pip-audit
+
+Set-Location frontend
+npm run lint
+npm run typecheck
+npm run test:run
+npm run build
+npm audit --audit-level=high
+```
+
+Docker image construction and vulnerability scanning run in CI. If your change
+touches the sandbox or container build, also verify `docker compose build`
+locally.
+
+## Pull Requests
+
+Use a clear title and explain the user-visible result, implementation approach,
+and verification performed. Link the related issue when one exists.
+
+- [ ] The change is scoped to one logical concern.
+- [ ] Tests cover the changed behavior.
+- [ ] Documentation and `CHANGELOG.md` are updated where applicable.
+- [ ] Generated handbook output is current where applicable.
+- [ ] Relevant local checks pass.
+- [ ] No secrets, tokens, private data, or generated credential files are
+      committed.

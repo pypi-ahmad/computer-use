@@ -1,6 +1,6 @@
 # Gemini Successor Evaluation Checklist
 
-Use this checklist when `gemini-3-flash-preview` has a deprecation,
+Use this checklist when `gemini-3.6-flash` has a deprecation,
 shutdown announcement, or documented successor. The purpose is to keep the
 Gemini allowlist strictly tied to official capability documentation instead of
 assuming that a newer Gemini model supports Computer Use.
@@ -24,12 +24,13 @@ shows the required capabilities explicitly.
 1. Open the candidate's individual model page from the models overview.
 2. Inspect the `Capabilities` row on that model page.
 3. Confirm the page explicitly says `Computer use Supported`.
-4. Confirm the page explicitly says `Search grounding Supported` if Web Search
+4. Confirm the Computer Use guide documents a compatible Interactions API
+   request and continuation mechanism for the candidate.
+5. Confirm the page explicitly says `Search grounding Supported` if Web Search
    planning should remain available for the successor.
-5. Confirm the page explicitly says `Function calling Supported`, if Google
-   still requires function-call support for Computer Use execution.
 6. Confirm the Computer Use guide or model page does not exclude the candidate
-   from Computer Use.
+   from Computer Use, prompt-injection detection, or its safety acknowledgement
+   flow.
 7. If any required label is missing or marked unsupported, do not add the model
    to the Gemini allowlist.
 
@@ -54,9 +55,9 @@ updated deliberately.
 4. Confirm Gemini file uploads still reject unless the file-search rule above
    has changed with official documentation.
 
-If no individual model page currently shows all three required labels, leave
-the allowlist unchanged and treat the successor path as blocked until Google
-publishes a compatible successor.
+If no individual model page documents all required Computer Use and
+Interactions capabilities, leave the allowlist unchanged and treat the
+successor path as blocked until Google publishes a compatible successor.
 
 ## Documentation updates after a change
 
@@ -66,5 +67,6 @@ operator-facing reference in the same change:
 - [README.md](../README.md) model matrix
 - [USAGE.md](../USAGE.md) model selection table
 - [TECHNICAL.md](../TECHNICAL.md) provider-adapter notes
+- [Deployment guide](deployment.md) OAuth and route configuration
 - [Computer Use Prompt Guide](computer-use-prompt-guide.md) provider guidance if
   the prompt shape, planning behavior, or file behavior changes
