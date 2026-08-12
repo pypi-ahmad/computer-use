@@ -1,0 +1,1 @@
+{"nodes": [{"id": "requirements_document", "label": "Runtime Requirements", "file_type": "document", "source_file": "requirements.txt", "source_location": "lines 1-14", "source_url": null, "captured_at": null, "author": null, "contributor": null, "rationale": "Compatibility list of direct Python runtime dependencies."}], "edges": [], "hyperedges": []}
