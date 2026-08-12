@@ -46,7 +46,7 @@ async def run(
             raise ValueError("OpenAI provider run requires api_key when no client is supplied.")
         client = OpenAICUClient(
             api_key=api_key,
-            model=options.get("model") or "gpt-5.5",
+            model=options.get("model") or "gpt-5.6-luna",
             system_prompt=options.get("system_prompt"),
             reasoning_effort=options.get("reasoning_effort"),
             use_builtin_search=False,

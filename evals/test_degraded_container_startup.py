@@ -43,7 +43,7 @@ def _start_payload() -> dict:
         "task": "open a tab and type hello",
         "engine": "computer_use",
         "provider": "openai",
-        "model": "gpt-5.4",
+        "model": "gpt-5.6-luna",
         "mode": "desktop",
         "execution_target": "docker",
         "max_steps": 3,
@@ -90,7 +90,7 @@ class TestDegradedContainerStartup:
         finished = AgentSession(
             session_id="eval-ready-sid",
             task="t",
-            model="gpt-5.4",
+            model="gpt-5.6-luna",
             status=SessionStatus.COMPLETED,
             max_steps=3,
         )

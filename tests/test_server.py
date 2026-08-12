@@ -94,7 +94,7 @@ class TestAgentStartValidation:
     def test_invalid_engine_rejected(self, client):
         resp = client.post("/api/agent/start", json={
             "task": "test", "engine": "invalid", "provider": "google",
-            "model": "gemini-3-flash-preview", "mode": "desktop",
+            "model": "gemini-3.6-flash", "mode": "desktop",
         })
         assert resp.status_code == 400
         assert "engine" in resp.json().get("error", "").lower()
@@ -125,7 +125,7 @@ class TestAgentStartValidation:
              patch("backend.server.asyncio.create_task", side_effect=fake_create_task):
             resp = client.post("/api/agent/start", json={
                 "task": "test", "engine": "computer_use", "provider": "google",
-                "model": "gemini-3-flash-preview", "mode": "browser",
+                "model": "gemini-3.6-flash", "mode": "browser",
                 "execution_target": "docker",
             })
         assert resp.status_code == 200
@@ -159,7 +159,7 @@ class TestAgentStartValidation:
              patch("backend.server.asyncio.create_task", side_effect=fake_create_task):
             resp = client.post("/api/agent/start", json={
                 "task": "test", "engine": "computer_use", "provider": "google",
-                "model": "gemini-3-flash-preview", "mode": "carplay",
+                "model": "gemini-3.6-flash", "mode": "carplay",
                 "execution_target": "docker",
             })
         assert resp.status_code == 200
@@ -167,7 +167,7 @@ class TestAgentStartValidation:
     def test_invalid_provider_rejected(self, client):
         resp = client.post("/api/agent/start", json={
             "task": "test", "engine": "computer_use", "provider": "invalid",
-            "model": "gemini-3-flash-preview", "mode": "desktop",
+            "model": "gemini-3.6-flash", "mode": "desktop",
         })
         assert resp.status_code == 400
         assert "provider" in resp.json().get("error", "").lower()
@@ -183,7 +183,7 @@ class TestAgentStartValidation:
     def test_openai_model_can_be_selected(self, client):
         models = client.get("/api/models").json()["models"]
         openai_models = [m for m in models if m["provider"] == "openai"]
-        assert any(m["model_id"] == "gpt-5.5" for m in openai_models)
+        assert any(m["model_id"] == "gpt-5.6-luna" for m in openai_models)
 
     def test_openai_happy_path_is_accepted(self, client):
         fake_loop = SimpleNamespace(session_id="session-openai-1", run=AsyncMock())
@@ -207,7 +207,7 @@ class TestAgentStartValidation:
                 "task": "open a page",
                 "engine": "computer_use",
                 "provider": "openai",
-                "model": "gpt-5.5",
+                "model": "gpt-5.6-luna",
                 "mode": "desktop",
                 "execution_target": "docker",
                 "max_steps": 5,
@@ -221,7 +221,7 @@ class TestAgentStartValidation:
         assert "mode" not in data
         mock_agent_loop.assert_called_once()
         assert mock_agent_loop.call_args.kwargs["provider"] == "openai"
-        assert mock_agent_loop.call_args.kwargs["model"] == "gpt-5.5"
+        assert mock_agent_loop.call_args.kwargs["model"] == "gpt-5.6-luna"
         assert mock_agent_loop.call_args.kwargs["api_key"] == "sk-test-openai"
 
     def test_openai_model_list_and_start_path_work_together(self, client):
@@ -263,7 +263,7 @@ class TestAgentStartValidation:
     def test_invalid_execution_target_rejected(self, client):
         resp = client.post("/api/agent/start", json={
             "task": "test", "engine": "computer_use", "provider": "google",
-            "model": "gemini-3-flash-preview", "mode": "desktop",
+            "model": "gemini-3.6-flash", "mode": "desktop",
             "execution_target": "local",
         })
         assert resp.status_code == 400
@@ -272,7 +272,7 @@ class TestAgentStartValidation:
     def test_empty_task_rejected(self, client):
         resp = client.post("/api/agent/start", json={
             "task": "   ", "engine": "computer_use", "provider": "google",
-            "model": "gemini-3-flash-preview", "mode": "desktop",
+            "model": "gemini-3.6-flash", "mode": "desktop",
         })
         assert resp.status_code == 400
 
@@ -281,7 +281,7 @@ class TestAgentStartValidation:
         with patch("backend.server.resolve_api_key", return_value=("", "none")):
             resp = client.post("/api/agent/start", json={
                 "task": "test task", "engine": "computer_use", "provider": "google",
-                "model": "gemini-3-flash-preview", "mode": "desktop",
+                "model": "gemini-3.6-flash", "mode": "desktop",
             })
         # Should be 400 (no API key)
         assert resp.status_code == 400
@@ -758,7 +758,7 @@ class TestValidationUniques:
             "task": "test",
             "engine": "computer_use",
             "provider": "openai",
-            "model": "gpt-5.4",
+            "model": "gpt-5.6-luna",
             "mode": "desktop",
             field: value,
         })
@@ -790,7 +790,7 @@ class TestValidationUniques:
                 "task": "test",
                 "engine": "computer_use",
                 "provider": "anthropic",
-                "model": "claude-sonnet-4-6",
+                "model": "claude-sonnet-5",
                 "mode": "desktop",
                 "use_builtin_search": True,
             })
@@ -823,7 +823,7 @@ class TestValidationUniques:
                 "task": "test",
                 "engine": "computer_use",
                 "provider": "openai",
-                "model": "gpt-5.4",
+                "model": "gpt-5.6-luna",
                 "mode": "desktop",
                 "use_builtin_search": True,
                 "reasoning_effort": "minimal",
@@ -838,7 +838,7 @@ class TestValidationUniques:
             "task": "test",
             "engine": "computer_use",
             "provider": "google",
-            "model": "gemini-3-flash-preview",
+            "model": "gemini-3.6-flash",
             "mode": "desktop",
             "attached_files": ["f_example123"],
         })
@@ -870,7 +870,7 @@ class TestValidationUniques:
                 "task": "test",
                 "engine": "computer_use",
                 "provider": "google",
-                "model": "gemini-3-flash-preview",
+                "model": "gemini-3.6-flash",
                 "mode": "desktop",
                 "use_builtin_search": True,
             })
@@ -900,7 +900,7 @@ class TestValidationUniques:
                 "task": "open a page",
                 "engine": "computer_use",
                 "provider": "openai",
-                "model": "gpt-5.5",
+                "model": "gpt-5.6-luna",
                 "mode": "desktop",
                 "execution_target": "docker",
                 "max_steps": 5,
@@ -931,14 +931,14 @@ class TestValidationUniques:
                 "task": "open a page",
                 "engine": "computer_use",
                 "provider": "openai",
-                "model": "gpt-5.4",
+                "model": "gpt-5.6-luna",
                 "mode": "desktop",
                 "execution_target": "docker",
                 "max_steps": 5,
             })
 
         assert resp.status_code == 200
-        assert mock_agent_loop.call_args.kwargs["reasoning_effort"] == "none"
+        assert mock_agent_loop.call_args.kwargs["reasoning_effort"] == "medium"
 
 
 class TestFileUploadEndpoint:

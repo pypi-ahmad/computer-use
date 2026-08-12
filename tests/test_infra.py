@@ -20,7 +20,7 @@ class TestConfig:
         assert config.screen_height == 900
 
     def test_default_model(self):
-        assert config.gemini_model == "gemini-3-flash-preview"
+        assert config.gemini_model == "gemini-3.6-flash"
 
     def test_agent_service_url(self):
         c = Config(agent_service_host="127.0.0.1", agent_service_port=9222)

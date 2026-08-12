@@ -272,15 +272,7 @@ def get_system_prompt(
     vh = str(_cfg.screen_height)
 
     if provider == "anthropic":
-        # The modern-Opus family (4.7 / 4.8, registry prompt_variant
-        # "lean_modern_opus") gets the lean prompt; Sonnet 4.6 / legacy keep
-        # the original scaffolded prompt. Registry-driven so a new Opus SKU is
-        # picked up automatically.
-        from backend.engine import _is_modern_opus
-        if model and _is_modern_opus(model):
-            template = SYSTEM_PROMPT_CLAUDE_CU_OPUS_47
-        else:
-            template = SYSTEM_PROMPT_CLAUDE_CU
+        template = SYSTEM_PROMPT_CLAUDE_CU
     elif provider == "openai":
         template = SYSTEM_PROMPT_OPENAI_CU
     else:

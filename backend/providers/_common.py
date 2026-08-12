@@ -160,9 +160,14 @@ async def stream_client_run_loop(
                     "final",
                     {
                         "text": final_text,
-                        "completion_payload": (
-                            getattr(client, "_last_completion_payload", None) or {}
-                        ),
+                        "completion_payload": {
+                            **(getattr(client, "_last_completion_payload", None) or {}),
+                            **(
+                                {"usage": dict(getattr(client, "_usage"))}
+                                if getattr(client, "_usage", None)
+                                else {}
+                            ),
+                        },
                     },
                 )
             )

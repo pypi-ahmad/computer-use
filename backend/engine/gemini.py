@@ -8,14 +8,16 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import logging
-import os
 import re
 import time
-from typing import Any, AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable
+from typing import Any
 
-from backend.executor import ActionExecutor, CUActionResult, SafetyDecision
 from backend.engine import (
+    _IMAGE_PNG,
+    DEFAULT_TURN_LIMIT,
     CUTurnRecord,
     Environment,
     ModelTurnStarted,
@@ -27,9 +29,8 @@ from backend.engine import (
     _invoke_safety,
     _to_plain_dict,
     validate_builtin_search_config,
-    DEFAULT_TURN_LIMIT,
-    _IMAGE_PNG,
 )
+from backend.executor import ActionExecutor, CUActionResult, SafetyDecision
 
 logger = logging.getLogger(__name__)
 
@@ -196,33 +197,13 @@ def _prune_gemini_context(contents: list[Any], max_history_turns: int) -> None:
 
 
 class GeminiCUClient:
-    """Native Gemini Computer Use tool protocol.
-
-    API contract:
-    - Declares ``types.Tool(computer_use=ComputerUse(...))``
-    - Enables ``ThinkingConfig(thinking_level=\"high\")``
-    - Sends screenshots inline in ``FunctionResponse`` parts
-    - Handles ``safety_decision`` → ``require_confirmation``
-    - Supports both ``ENVIRONMENT_BROWSER`` and ``ENVIRONMENT_DESKTOP``
-
-    History pruning keeps at most ``max_history_turns`` content turns plus
-    the most recent assistant turn, and it never strips parts within a kept
-    turn. This follows Gemini's tool-calling replay docs:
-    https://ai.google.dev/gemini-api/docs/tool-combination
-    Increase ``max_history_turns`` for long sessions and monitor the
-    latency/quality tradeoff.
-    """
-
-    # One-shot log guards so operators see the safety-threshold choice
-    # exactly once per process, not once per turn.
-    _relax_logged: bool = False
-    _default_logged: bool = False
+    """Gemini Interactions API Computer Use client."""
 
     def __init__(
         self,
-        api_key: str,
+        api_key: str | None = None,
         # Lifecycle watchdog/checklist: see .github/workflows/gemini-changelog-watchdog.yml and docs/gemini-successor-evaluation.md before changing this model.
-        model: str = "gemini-3-flash-preview",
+        model: str = "gemini-3.6-flash",
         environment: Environment = Environment.DESKTOP,
         excluded_actions: list[str] | None = None,
         system_instruction: str | None = None,
@@ -236,6 +217,8 @@ class GeminiCUClient:
         # Google's File Search docs say File Search cannot be combined
         # with other tools, and Computer Use is another tool.
         attached_file_ids: list[str] | None = None,
+        credentials: Any | None = None,
+        quota_project_id: str | None = None,
     ):
         try:
             from google import genai
@@ -247,8 +230,13 @@ class GeminiCUClient:
 
         self._genai = genai
         self._types = genai_types
-        self._client = genai.Client(api_key=api_key)
+        if bool(api_key) == bool(credentials):
+            raise ValueError("Gemini requires exactly one of api_key or credentials.")
+        self._client = genai.Client(api_key=api_key) if api_key else None
+        self._oauth_credentials = credentials
+        self._quota_project_id = quota_project_id
         self._model = model
+        self._usage = {"input_tokens": 0, "output_tokens": 0}
         self._environment = environment
         self._excluded = excluded_actions or []
         self._system_instruction = system_instruction
@@ -261,13 +249,6 @@ class GeminiCUClient:
             model=model,
             use_builtin_search=use_builtin_search,
         )
-        # AI-3: read CUA_GEMINI_THINKING_LEVEL once at init so subsequent
-        # env mutations don't change behaviour mid-session and we don't pay
-        # the os.getenv cost on every _build_config call.
-        _allowed_levels = {"minimal", "low", "medium", "high"}
-        _level = os.getenv("CUA_GEMINI_THINKING_LEVEL", "high").lower()
-        self._thinking_level = _level if _level in _allowed_levels else "high"
-
         # Product-level Web Search ON is handled by backend.providers.planner
         # before the Computer Use loop. This CU client stays computer-only
         # so Google Search does not compete with desktop actions every turn.
@@ -279,121 +260,72 @@ class GeminiCUClient:
             )
         self._last_completion_payload: dict[str, Any] | None = None
 
-    async def _generate(self, *, contents: list, config: Any) -> Any:
-        """Invoke Gemini generate_content via the native async SDK path.
-
-        ``google-genai >= 1.0`` always exposes ``Client.aio.models``;
-        the package is pinned in ``requirements.txt`` so this is the
-        only supported call shape. The previous ``asyncio.to_thread``
-        fallback was kept for older SDKs that no longer match the pin
-        and has been removed.
-        """
-        return await self._client.aio.models.generate_content(
-            model=self._model,
-            contents=contents,
-            config=config,
-        )
-
-    def _get_env_enum(self) -> Any:
-        """Return the SDK environment constant per official docs.
-
-        Always reports ``ENVIRONMENT_DESKTOP`` since the unified sandbox
-        is a full X11 desktop with Chromium pre-installed; the model
-        decides whether to drive desktop apps or the browser. Falls
-        back to ``ENVIRONMENT_BROWSER`` only if the SDK version lacks
-        the desktop constant.
-        """
-        types = self._types
-        desktop_env = getattr(types.Environment, "ENVIRONMENT_DESKTOP", None)
-        if desktop_env is not None:
-            return desktop_env
-        logger.warning(
-            "ENVIRONMENT_DESKTOP not available in google-genai SDK; "
-            "falling back to ENVIRONMENT_BROWSER. Desktop xdotool "
-            "actions will still execute via DesktopExecutor."
-        )
-        return types.Environment.ENVIRONMENT_BROWSER
-
-    def _build_config(self) -> Any:
-        """Build the GenerateContentConfig with CU tools, safety, and thinking settings."""
-        types = self._types
-        tools = [
-            types.Tool(
-                computer_use=types.ComputerUse(
-                    environment=self._get_env_enum(),
-                    excluded_predefined_functions=self._excluded,
-                )
-            )
-        ]
-        # Safety-threshold relaxation is opt-in.  Per Google's
-        # safety-settings docs (2026-04), the default block threshold
-        # on Gemini 2.5 / 3 models is already "Off" when the client
-        # omits ``safety_settings``, so any additional relaxation
-        # should be an explicit operator choice rather than an
-        # implicit default.  Set ``CUA_GEMINI_RELAX_SAFETY=1`` to
-        # attach BLOCK_ONLY_HIGH across the four HarmCategory buckets.
-        # The ToS-mandated ``require_confirmation`` +
-        # ``safety_acknowledgement`` handshake is unaffected either
-        # way and remains the authoritative safety gate.
-        safety_settings: list[Any] = []
-        if os.environ.get("CUA_GEMINI_RELAX_SAFETY") == "1":
-            if not GeminiCUClient._relax_logged:
-                logger.info(
-                    "Gemini CU safety relaxation enabled "
-                    "(CUA_GEMINI_RELAX_SAFETY=1); attaching "
-                    "BLOCK_ONLY_HIGH thresholds across HarmCategory "
-                    "buckets.  ToS handshake unaffected.",
-                )
-                GeminiCUClient._relax_logged = True
-            _HarmCategory = getattr(types, "HarmCategory", None)
-            _SafetySetting = getattr(types, "SafetySetting", None)
-            _HarmBlockThreshold = getattr(types, "HarmBlockThreshold", None)
-            if _HarmCategory and _SafetySetting and _HarmBlockThreshold:
-                block_level = getattr(_HarmBlockThreshold, "BLOCK_ONLY_HIGH", None)
-                if block_level is not None:
-                    for cat_name in (
-                        "HARM_CATEGORY_HARASSMENT",
-                        "HARM_CATEGORY_HATE_SPEECH",
-                        "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                        "HARM_CATEGORY_DANGEROUS_CONTENT",
-                    ):
-                        cat = getattr(_HarmCategory, cat_name, None)
-                        if cat is not None:
-                            safety_settings.append(
-                                _SafetySetting(category=cat, threshold=block_level)
-                            )
-        elif not GeminiCUClient._default_logged:
-            logger.warning(
-                "Gemini CU using Google's default safety thresholds "
-                "(Off for Gemini 2.5/3 per docs).  Set "
-                "CUA_GEMINI_RELAX_SAFETY=1 to restore the previous "
-                "BLOCK_ONLY_HIGH behaviour.",
-            )
-            GeminiCUClient._default_logged = True
-
-        # Use thinking_level (recommended for Gemini 3) instead of
-        # legacy include_thoughts / budget_tokens.
-        _ThinkingConfig = types.ThinkingConfig
-        _thinking_kwargs: dict[str, Any] = {}
-        # AI-3: thinking level was resolved once in __init__.
-        # Prefer thinking_level=<level> if the SDK supports it
-        import inspect as _inspect
-        _tc_params = _inspect.signature(_ThinkingConfig).parameters
-        if "thinking_level" in _tc_params:
-            _thinking_kwargs["thinking_level"] = self._thinking_level
-        else:
-            # Fallback for older SDK versions
-            _thinking_kwargs["include_thoughts"] = True
-
-        kwargs: dict[str, Any] = {
-            "tools": tools,
-            "thinking_config": _ThinkingConfig(**_thinking_kwargs),
+    async def _create_interaction(
+        self,
+        input_items: list[dict[str, Any]],
+        *,
+        previous_interaction_id: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> Any:
+        tool: dict[str, Any] = {
+            "type": "computer_use",
+            "environment": "desktop",
+            "enable_prompt_injection_detection": True,
         }
-        if safety_settings:
-            kwargs["safety_settings"] = safety_settings
+        if self._excluded:
+            tool["excluded_predefined_functions"] = self._excluded
+        request: dict[str, Any] = {
+            "model": self._model,
+            "input": input_items,
+            "tools": tools or [tool],
+        }
         if self._system_instruction:
-            kwargs["system_instruction"] = self._system_instruction
-        return self._genai.types.GenerateContentConfig(**kwargs)
+            request["system_instruction"] = self._system_instruction
+        if previous_interaction_id:
+            request["previous_interaction_id"] = previous_interaction_id
+        if self._client is not None:
+            return await self._client.aio.interactions.create(**request)
+
+        credentials = self._oauth_credentials
+        if not credentials.valid:
+            from google.auth.transport.requests import Request
+
+            await asyncio.to_thread(credentials.refresh, Request())
+        headers = {
+            "Authorization": f"Bearer {credentials.token}",
+            "Content-Type": "application/json",
+            "Api-Revision": "2026-05-20",
+        }
+        if self._quota_project_id:
+            headers["x-goog-user-project"] = self._quota_project_id
+        import httpx
+
+        async with httpx.AsyncClient(timeout=120) as http:
+            response = await http.post(
+                "https://generativelanguage.googleapis.com/v1beta/interactions",
+                headers=headers,
+                json=request,
+            )
+            response.raise_for_status()
+            return response.json()
+
+    @staticmethod
+    def _image_input(data: bytes) -> dict[str, Any]:
+        return {
+            "type": "image",
+            "data": base64.standard_b64encode(data).decode(),
+            "mime_type": _IMAGE_PNG,
+        }
+
+    @staticmethod
+    def _interaction_outputs(interaction: Any) -> list[dict[str, Any]]:
+        if isinstance(interaction, dict):
+            outputs = interaction.get("outputs") or interaction.get("steps")
+            return [dict(item) for item in (outputs or [])]
+        outputs = getattr(interaction, "outputs", None)
+        if outputs is None:
+            outputs = getattr(interaction, "steps", None)
+        return [_to_plain_dict(item) for item in (outputs or [])]
 
     def _compose_initial_goal_text(self, goal: str) -> str:
         """Return the unmodified goal text for the Gemini CU loop."""
@@ -441,9 +373,6 @@ class GeminiCUClient:
         Safety confirmations are emitted as :class:`SafetyRequired`
         events and resumed via ``agen.asend(bool)``.
         """
-        types = self._types
-        config = self._build_config()
-
         # Initial screenshot
         screenshot_bytes = await executor.capture_screenshot()
         if not screenshot_bytes or len(screenshot_bytes) < 100:
@@ -452,15 +381,11 @@ class GeminiCUClient:
             yield RunCompleted(final_text="Error: Could not capture initial screenshot")
             return
 
-        contents = [
-            types.Content(
-                role="user",
-                parts=[
-                    types.Part(text=self._compose_initial_goal_text(goal)),
-                    types.Part.from_bytes(data=screenshot_bytes, mime_type=_IMAGE_PNG),
-                ],
-            )
+        next_input = [
+            {"type": "text", "text": self._compose_initial_goal_text(goal)},
+            self._image_input(screenshot_bytes),
         ]
+        previous_interaction_id: str | None = None
 
         _turn_start: float | None = None
         saw_computer_action = False
@@ -473,14 +398,12 @@ class GeminiCUClient:
             if on_log:
                 on_log("info", f"Gemini CU turn {turn + 1}/{turn_limit}")
 
-            # Bound context growth without stripping fields from any retained
-            # turn. Gemini tool-calling replay expects each kept turn to
-            # remain whole.
-            _prune_gemini_context(contents, self._max_history_turns)
-
             try:
-                response = await _call_with_retry(
-                    lambda: self._generate(contents=contents, config=config),
+                interaction = await _call_with_retry(
+                    lambda items=next_input, previous_id=previous_interaction_id: self._create_interaction(
+                        items,
+                        previous_interaction_id=previous_id,
+                    ),
                     provider="google",
                     on_log=on_log,
                 )
@@ -495,68 +418,24 @@ class GeminiCUClient:
                             "INVALID_ARGUMENT usually means: (1) screenshot too large/corrupt, "
                             "(2) model doesn't support computer_use tool, or "
                             "(3) conversation context exceeded limits. "
-                            f"Contents length: {len(contents)} turns, "
                             f"last screenshot: {len(screenshot_bytes)} bytes")
                 yield RunCompleted(final_text=f"Gemini API error: {error_msg}")
                 return
-
-            if not response.candidates:
-                if on_log:
-                    on_log("warning", f"Gemini returned no candidates at turn {turn + 1} — retrying with nudge")
-
-                # Retry once: append a user nudge reminding the model to
-                # use computer_use tools and re-send with a fresh screenshot.
-                try:
-                    retry_ss = await executor.capture_screenshot()
-                except Exception:
-                    retry_ss = screenshot_bytes
-
-                contents.append(
-                    types.Content(
-                        role="user",
-                        parts=[
-                            types.Part(
-                                text=(
-                                    "Please continue using the computer_use tools to "
-                                    "complete the task. Here is the current screen."
-                                )
-                            ),
-                            types.Part.from_bytes(
-                                data=retry_ss, mime_type=_IMAGE_PNG
-                            ),
-                        ],
-                    )
-                )
-                try:
-                    response = await _call_with_retry(
-                        lambda: self._generate(contents=contents, config=config),
-                        provider="google",
-                        on_log=on_log,
-                        attempts=2,
-                    )
-                except Exception as retry_err:
-                    if on_log:
-                        on_log("error", f"Retry also failed: {retry_err}")
-                    yield RunCompleted(
-                        final_text=f"Error: Gemini returned no candidates and retry failed: {retry_err}",
-                    )
-                    return
-
-                if not response.candidates:
-                    if on_log:
-                        on_log("error", f"Gemini returned no candidates even after retry at turn {turn + 1}")
-                    yield RunCompleted(final_text="Error: Gemini returned no candidates (after retry)")
-                    return
-
-            candidate = response.candidates[0]
-            contents.append(candidate.content)
-
-            # Extract function calls and text
-            function_calls = [
-                p.function_call for p in candidate.content.parts if p.function_call
-            ]
-            text_parts = [p.text for p in candidate.content.parts if p.text]
-            turn_text = " ".join(text_parts)
+            interaction_id = interaction.get("id") if isinstance(interaction, dict) else getattr(interaction, "id", "")
+            interaction_usage = interaction.get("usage", {}) if isinstance(interaction, dict) else _to_plain_dict(getattr(interaction, "usage", None))
+            self._usage["input_tokens"] += int(interaction_usage.get("total_input_tokens") or 0)
+            self._usage["output_tokens"] += int(interaction_usage.get("total_output_tokens") or 0)
+            previous_interaction_id = str(interaction_id or "")
+            outputs = self._interaction_outputs(interaction)
+            function_calls = [item for item in outputs if item.get("type") == "function_call"]
+            interaction_text = interaction.get("output_text") if isinstance(interaction, dict) else getattr(interaction, "output_text", "")
+            turn_text = str(interaction_text or "").strip()
+            if not turn_text:
+                turn_text = " ".join(
+                    str(item.get("text") or item.get("content") or "").strip()
+                    for item in outputs
+                    if item.get("type") in {"text", "model_output"}
+                ).strip()
 
             # No function calls → model is done
             if not function_calls:
@@ -570,29 +449,19 @@ class GeminiCUClient:
                         retry_ss = await executor.capture_screenshot()
                     except Exception:
                         retry_ss = screenshot_bytes
-                    contents.append(
-                        types.Content(
-                            role="user",
-                            parts=[
-                                types.Part(
-                                    text=(
-                                        f"Active user task: {goal}\n\n"
-                                        "This app's purpose is computer use: the task is not complete until you perform "
-                                        "the requested action with the computer_use tool on the current screen. "
-                                        "Continue with computer actions now."
-                                    )
-                                ),
-                                types.Part.from_bytes(data=retry_ss, mime_type=_IMAGE_PNG),
-                            ],
-                        )
-                    )
+                    next_input = [
+                        {
+                            "type": "text",
+                            "text": (
+                                f"Active user task: {goal}\n\n"
+                                "The task is not complete until you perform the requested "
+                                "action with the computer_use tool. Continue now."
+                            ),
+                        },
+                        self._image_input(retry_ss),
+                    ]
                     nudged_for_computer_use = True
                     continue
-                grounding_payload = _extract_gemini_grounding_payload(response)
-                self._last_completion_payload = (
-                    {"gemini_grounding": grounding_payload}
-                    if grounding_payload else None
-                )
                 final_text = turn_text
                 if on_log:
                     on_log("info", f"Gemini CU completed: {final_text[:200]}")
@@ -611,11 +480,10 @@ class GeminiCUClient:
             results: list[CUActionResult] = []
             terminated = False
 
+            result_inputs: list[dict[str, Any]] = []
             for idx, fc in enumerate(function_calls):
-                args = dict(fc.args) if fc.args else {}
-                # google-genai FunctionCall has no reliable id for CU, so
-                # synthesize a deterministic per-turn composite as the wire
-                # idempotency key (set after the safety pop, below).
+                args = dict(fc.get("arguments") or {})
+                function_name = str(fc.get("name") or "")
 
                 # Extract safety_decision BEFORE passing args to executor.
                 # This ensures the acknowledgement is tracked regardless of
@@ -629,13 +497,13 @@ class GeminiCUClient:
                         )
                         if not confirmed:
                             if on_log:
-                                on_log("warning", f"Safety denied for {fc.name}")
+                                on_log("warning", f"Safety denied for {function_name}")
                             terminated = True
                             break
                         safety_confirmed = True
 
                 args["action_id"] = f"{turn + 1}:{idx}"
-                result = await executor.execute(fc.name, args)
+                result = await executor.execute(function_name, args)
                 # Stamp safety metadata so FunctionResponse includes
                 # safety_acknowledgement when the user confirmed.
                 if safety_confirmed:
@@ -667,21 +535,14 @@ class GeminiCUClient:
                 yield RunCompleted(final_text="Agent terminated: safety confirmation denied.")
                 return
 
-            # Build FunctionResponses with inline screenshot per Gemini CU docs:
-            # https://ai.google.dev/gemini-api/docs/computer-use
-            # Each FunctionResponse embeds the screenshot via
-            #   parts=[FunctionResponsePart(inline_data=FunctionResponseBlob(...))]
-            # The screenshot must NOT be sent as a separate Part.from_bytes().
             current_url = executor.get_current_url()
             screenshot_ok = bool(screenshot_bytes) and len(screenshot_bytes) >= 100
-
-            function_responses = []
-            for r in results:
+            for call, r in zip(function_calls, results, strict=True):
                 resp_data: dict[str, Any] = {"url": current_url}
                 if r.error:
                     resp_data["error"] = r.error
                 if r.safety_decision == SafetyDecision.REQUIRE_CONFIRMATION:
-                    resp_data["safety_acknowledgement"] = "true"
+                    resp_data["safety_acknowledgement"] = True
                 # Merge extra data, converting non-serializable types (tuples → lists)
                 for k, v in r.extra.items():
                     if isinstance(v, tuple):
@@ -691,33 +552,24 @@ class GeminiCUClient:
                     else:
                         resp_data[k] = str(v)
 
-                fr_kwargs: dict[str, Any] = {"name": r.name, "response": resp_data}
-
+                parts: list[dict[str, Any]] = [
+                    {"type": "text", "text": json.dumps(resp_data, separators=(",", ":"))}
+                ]
                 if screenshot_ok:
-                    fr_kwargs["parts"] = [
-                        types.FunctionResponsePart(
-                            inline_data=types.FunctionResponseBlob(
-                                mime_type=_IMAGE_PNG,
-                                data=screenshot_bytes,
-                            )
-                        )
-                    ]
+                    parts.append(self._image_input(screenshot_bytes))
+                result_inputs.append({
+                    "type": "function_result",
+                    "name": r.name,
+                    "call_id": str(call.get("id") or ""),
+                    "result": parts,
+                })
 
-                function_responses.append(types.FunctionResponse(**fr_kwargs))
-
-            # IMPORTANT: send ONLY FunctionResponse parts — no separate image Part
-            if not function_responses:
+            if not result_inputs:
                 if on_log:
                     on_log("warning", "No function responses to send; ending loop")
                 yield RunCompleted(final_text=turn_text or "Gemini returned no function responses.")
                 return
-
-            contents.append(
-                types.Content(
-                    role="user",
-                    parts=[types.Part(function_response=fr) for fr in function_responses],
-                )
-            )
+            next_input = result_inputs
 
         if _turn_start is not None and on_log:
             on_log("info", f"turn_duration_ms={int((time.monotonic()-_turn_start)*1000)} provider=google model={self._model}")

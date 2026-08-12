@@ -34,7 +34,7 @@ def test_model_catalog_is_transport_aware_and_computer_use_only() -> None:
     models = catalog.models()
     assert models
     assert all(model.supports_computer_use for model in models)
-    assert catalog.get("gpt-5.6-terra").routes[0].transport == "OPENAI_RESPONSES"
+    assert catalog.get("gpt-5.6-luna").routes[0].transport == "OPENAI_RESPONSES"
     assert "computer-use-preview" not in {model.logical_id for model in models}
     assert "gemini-2.5-computer-use-preview" not in {model.logical_id for model in models}
 
@@ -44,7 +44,7 @@ def test_sqlite_store_persists_session_actions_events_metrics_and_workflow_versi
     assert store.journal_mode in {"memory", "wal"}
     workflow = store.create_workflow("checkout", "Checkout", {"type": "object"}, ["Open cart"])
     second = store.create_workflow_version(workflow.id, ["Open cart", "Pay"])
-    session = store.create_session("buy coffee", "gpt-5.6-terra", "openai-direct")
+    session = store.create_session("buy coffee", "gpt-5.6-luna", "openai-direct")
     store.append_action(session.id, 1, "CLICK", {"x": 10, "y": 20}, confirmed=True)
     store.append_event(session.id, "ROUTE_SELECTED", {"routeId": "openai-direct"})
     store.append_metric(session.id, "INFERENCE", 125.5, 32, 8)
@@ -84,6 +84,22 @@ def test_credential_vault_never_serializes_secrets_and_expires() -> None:
     assert vault.resolve(session.id, "OPENAI").get_secret_value() == "sk-secret"
     now[0] = 106.0
     assert vault.resolve(session.id, "OPENAI") is None
+
+
+def test_credential_vault_accepts_process_local_google_oauth() -> None:
+    from google.oauth2.credentials import Credentials
+
+    vault = CredentialVault()
+    session = vault.create_empty()
+    oauth = Credentials(token="access-token")
+    vault.put_google_oauth(session.id, oauth, quota_project_id="quota-project")
+
+    resolved = vault.resolve(session.id, "GOOGLE")
+    assert resolved is not None
+    assert resolved.method == "oauth"
+    assert resolved.oauth_credentials is oauth
+    assert resolved.quota_project_id == "quota-project"
+    assert "access-token" not in str(vault.status(session.id).model_dump())
 
 
 def test_cuaf_binary_frame_round_trip() -> None:
@@ -130,7 +146,7 @@ def test_v2_api_contract(monkeypatch) -> None:
         assert models.json()["data"][0]["logicalId"]
 
         credential = client.post(
-            "/api/v2/credential-sessions", json={"credentials": {"OPENAI": "sk-secret", "AZURE_OPENAI": "azure-secret"}, "ttlSeconds": 60}
+            "/api/v2/credential-sessions", json={"credentials": {"OPENAI": "sk-secret"}, "ttlSeconds": 60}
         )
         assert credential.status_code == 201
         assert "sk-secret" not in credential.text
@@ -148,7 +164,7 @@ def test_v2_api_contract(monkeypatch) -> None:
         assert envelope["code"] == "VALIDATION_ERROR"
         assert envelope["requestId"]
 
-        created = client.post("/api/v2/sessions", json={"task": "open browser", "model": "gpt-5.6-terra", "credentialSessionId": credential_id})
+        created = client.post("/api/v2/sessions", json={"task": "open browser", "model": "gpt-5.6-luna", "credentialSessionId": credential_id})
         assert created.status_code == 201
         session_id = created.json()["id"]
         assert client.get(f"/api/v2/sessions/{session_id}").status_code == 200
@@ -158,10 +174,10 @@ def test_v2_api_contract(monkeypatch) -> None:
 
         fallback = client.post(
             "/api/v2/sessions",
-            json={"task": "fallback", "model": "gpt-5.6-terra", "primaryRoute": "azure-openai", "fallbackRoutes": ["openai-direct"], "credentialSessionId": credential_id},
+            json={"task": "fallback", "model": "gpt-5.6-luna", "primaryRoute": "openai-direct", "fallbackRoutes": [{"model": "claude-sonnet-5", "route": "anthropic-direct"}], "credentialSessionId": credential_id},
         )
         assert fallback.status_code == 201
-        assert fallback.json()["activeRoute"] == "gpt-5.6-terra@azure-openai"
+        assert fallback.json()["activeRoute"] == "gpt-5.6-luna@openai-direct"
         fallback_id = fallback.json()["id"]
         for _ in range(20):
             events = client.get(f"/api/v2/sessions/{fallback_id}/events").json()["data"]
@@ -169,7 +185,7 @@ def test_v2_api_contract(monkeypatch) -> None:
                 break
             time.sleep(0.01)
         assert any(
-            event["payload"].get("route") == "gpt-5.6-terra@openai-direct"
+            event["payload"].get("route") == "gpt-5.6-luna@openai-direct"
             for event in events
             if event["type"] == "ROUTE_SUCCEEDED"
         )

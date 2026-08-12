@@ -24,7 +24,7 @@ class Config:
     """Runtime configuration — values come from env vars or runtime overrides."""
 
     # Gemini
-    gemini_model: str = "gemini-3-flash-preview"
+    gemini_model: str = "gemini-3.6-flash"
 
     # Docker container
     container_name: str = "cua-environment"

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { decodeCuafFrame } from './protocol'
 import type { StreamEvent } from './types'
+import { getAppToken } from './api'
 
 export function useLiveStream(sessionId: string | null) {
   const [frameUrl, setFrameUrl] = useState<string | null>(null)
@@ -10,7 +11,7 @@ export function useLiveStream(sessionId: string | null) {
   useEffect(() => {
     if (!sessionId) { setFrameUrl(null); setConnected(false); return }
     const scheme = location.protocol === 'https:' ? 'wss' : 'ws'
-    const token = String(import.meta.env.VITE_WS_TOKEN ?? '').trim()
+    const token = getAppToken() || String(import.meta.env.VITE_WS_TOKEN ?? '').trim()
     const ws = new WebSocket(`${scheme}://${location.host}/api/v2/ws/${encodeURIComponent(sessionId)}${token ? `?token=${encodeURIComponent(token)}` : ''}`)
     ws.binaryType = 'arraybuffer'
     let currentUrl: string | null = null

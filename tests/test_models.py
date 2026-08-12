@@ -48,7 +48,7 @@ class TestStartTaskRequest:
     def test_valid_request(self):
         req = StartTaskRequest(
             task="Search for something",
-            model="gemini-3-flash-preview",
+            model="gemini-3.6-flash",
             mode="browser",
             provider="google",
         )
@@ -59,7 +59,7 @@ class TestStartTaskRequest:
         with pytest.raises(ValidationError):
             StartTaskRequest(
                 task="x" * 10_001,
-                model="gemini-3-flash-preview",
+                model="gemini-3.6-flash",
                 mode="browser",
                 provider="google",
             )
@@ -68,7 +68,7 @@ class TestStartTaskRequest:
         with pytest.raises(ValidationError):
             StartTaskRequest(
                 task="test",
-                model="gemini-3-flash-preview",
+                model="gemini-3.6-flash",
                 mode="browser",
                 provider="google",
                 max_steps=0,
@@ -76,7 +76,7 @@ class TestStartTaskRequest:
         with pytest.raises(ValidationError):
             StartTaskRequest(
                 task="test",
-                model="gemini-3-flash-preview",
+                model="gemini-3.6-flash",
                 mode="browser",
                 provider="google",
                 max_steps=201,
@@ -103,7 +103,7 @@ class TestAgentSession:
 
     def test_default_model(self):
         session = AgentSession(session_id="abc", task="test")
-        assert session.model == "gemini-3-flash-preview"
+        assert session.model == "gemini-3.6-flash"
 
     def test_default_status(self):
         session = AgentSession(session_id="abc", task="test")
@@ -242,6 +242,13 @@ class TestAllowedModelsSchema:
 
 
 class TestModelPolicy:
+    def test_only_requested_models_are_exposed(self, models):
+        assert {model["model_id"] for model in models} == {
+            "claude-sonnet-5",
+            "gemini-3.6-flash",
+            "gpt-5.6-luna",
+        }
+
     """Business rules for model allowlist."""
 
     def test_claude_models_have_cu_metadata(self, models):
@@ -254,35 +261,35 @@ class TestModelPolicy:
 
     def test_gemini_3_flash_is_cu_capable(self, models):
         for m in models:
-            if m["model_id"] == "gemini-3-flash-preview":
+            if m["model_id"] == "gemini-3.6-flash":
                 assert m["supports_computer_use"] is True
 
     def test_claude_sonnet_46_is_cu_capable(self, models):
         for m in models:
-            if m["model_id"] == "claude-sonnet-4-6":
+            if m["model_id"] == "claude-sonnet-5":
                 assert m["supports_computer_use"] is True
                 assert m["cu_tool_version"] == "computer_20251124"
 
     def test_claude_opus_47_is_cu_capable(self, models):
         for m in models:
-            if m["model_id"] == "claude-opus-4-7":
+            if m["model_id"] == "claude-sonnet-5":
                 assert m["supports_computer_use"] is True
                 assert m["cu_tool_version"] == "computer_20251124"
 
     def test_gpt_54_is_cu_capable(self, models):
         for m in models:
-            if m["model_id"] == "gpt-5.4":
+            if m["model_id"] == "gpt-5.6-luna":
                 assert m["provider"] == "openai"
                 assert m["supports_computer_use"] is True
 
     def test_gpt_55_is_cu_capable(self, models):
         for m in models:
-            if m["model_id"] == "gpt-5.5":
+            if m["model_id"] == "gpt-5.6-luna":
                 assert m["provider"] == "openai"
                 assert m["supports_computer_use"] is True
 
     def test_removed_gpt_55_pro_slug_is_not_listed(self, models):
-        removed_model = "gpt-5.5" + "-pro"
+        removed_model = "gpt-5.6-luna" + "-pro"
         assert all(m["model_id"] != removed_model for m in models)
 
     def test_removed_legacy_model_ids_are_not_listed(self, models):
