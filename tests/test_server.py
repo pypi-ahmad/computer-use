@@ -63,6 +63,34 @@ class TestHealthEndpoint:
         assert resp.json()["status"] == "ok"
 
 
+class TestSystemShutdownEndpoint:
+    def test_shutdown_is_accepted_and_scheduled(self, client):
+        with patch("backend.server._shutdown_application", new_callable=AsyncMock) as shutdown:
+            response = client.post("/api/v2/system/shutdown")
+
+        assert response.status_code == 202
+        assert response.json() == {"status": "stopping"}
+        shutdown.assert_awaited_once_with()
+
+    def test_shutdown_rejects_untrusted_origin(self, client):
+        with patch("backend.server._shutdown_application", new_callable=AsyncMock) as shutdown:
+            response = client.post(
+                "/api/v2/system/shutdown",
+                headers={"Origin": "https://attacker.invalid"},
+            )
+
+        assert response.status_code == 403
+        shutdown.assert_not_awaited()
+
+    def test_shutdown_requires_configured_token(self, client):
+        with patch("backend.server._WS_AUTH_TOKEN", "secret"), \
+             patch("backend.server._shutdown_application", new_callable=AsyncMock) as shutdown:
+            response = client.post("/api/v2/system/shutdown")
+
+        assert response.status_code == 401
+        shutdown.assert_not_awaited()
+
+
 class TestAgentServiceModeEndpoint:
     """Tests POST /api/agent-service/mode stays desktop-only."""
 

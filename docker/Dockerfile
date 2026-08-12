@@ -153,6 +153,7 @@ RUN node -v && npm -v && npx -v
 # Create the application environment from the checked lockfile. The project
 # package itself is copied later; the sandbox only needs runtime dependencies.
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv
+WORKDIR /app
 COPY pyproject.toml uv.lock README.md /app/
 RUN uv sync --frozen --no-dev --no-install-project
 
@@ -181,9 +182,6 @@ RUN mkdir -p /tmp/chrome-profile/Default \
     && echo '{"browser":{"check_default_browser":false},"distribution":{"skip_first_run_ui":true}}' \
     > /tmp/chrome-profile/Default/Preferences \
     && touch /tmp/chrome-profile/First\ Run
-
-# Setup working directory
-WORKDIR /app
 
 # Copy backend for shared tools (action aliases)
 COPY backend /app/backend

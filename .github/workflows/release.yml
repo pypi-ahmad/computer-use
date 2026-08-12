@@ -1,4 +1,4 @@
-name: Release v2
+name: Release
 
 on:
   workflow_dispatch:
@@ -6,14 +6,14 @@ on:
       tag:
         description: Verified tag to publish
         required: true
-        default: v2.0.0
+        default: v3.0.0
 
 permissions:
   contents: write
 
 jobs:
   package:
-    if: startsWith(github.event.inputs.tag, 'v2.')
+    if: startsWith(github.event.inputs.tag, 'v3.')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,7 +41,7 @@ jobs:
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2.6.2
         with:
           tag_name: ${{ github.event.inputs.tag }}
-          body_path: docs/release-notes-v2.0.0.md
+          body_path: docs/release-notes-v3.0.0.md
           files: |
-            dist/release/computer-use-v2.0.0.zip
+            dist/release/computer-use-v3.0.0.zip
             dist/release/SHA256SUMS.txt

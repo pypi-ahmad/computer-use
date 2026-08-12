@@ -9,7 +9,7 @@
 | Package managers | uv/`uv.lock`; npm/`frontend/package-lock.json` | `.github/workflows/ci.yml:20-24,61-67` |
 | Module/build systems | Hatchling wheel; Vite SPA; Docker/Compose | `pyproject.toml:1-3,27-28`; `frontend/package.json:7-12`; `docker-compose.yml` |
 
-Bash and Windows batch wrappers support setup/development. The package is `computer-use-workbench` 2.0.0.
+Bash and Windows batch wrappers support setup/development. The package is `computer-use-workbench` 3.0.0.
 
 ## 2) Production Frameworks and Dependencies
 

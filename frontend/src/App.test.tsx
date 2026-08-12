@@ -15,3 +15,16 @@ it('provides all five operational workspaces', async () => {
   expect(await screen.findByRole('heading', { name: /provider access/i })).toBeInTheDocument()
   expect(screen.getByLabelText(/API key/i)).toHaveAttribute('type', 'password')
 })
+
+it('confirms before requesting a full application shutdown', async () => {
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+  render(<MemoryRouter><App /></MemoryRouter>)
+  const button = screen.getByRole('button', { name: /stop app and background processes/i })
+
+  await userEvent.click(button)
+  expect(fetch).not.toHaveBeenCalledWith('/api/v2/system/shutdown', expect.anything())
+
+  confirm.mockReturnValue(true)
+  await userEvent.click(button)
+  expect(fetch).toHaveBeenCalledWith('/api/v2/system/shutdown', expect.objectContaining({ method: 'POST' }))
+})
