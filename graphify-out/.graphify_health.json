@@ -1,0 +1,200 @@
+{
+  "node_count": 2487,
+  "unverified_node_count": 0,
+  "raw_edge_count": 5684,
+  "non_object_edges": 0,
+  "missing_endpoint_edges": 0,
+  "dangling_endpoint_edges": 431,
+  "self_loop_edges": 0,
+  "valid_candidate_edges": 5253,
+  "exact_duplicate_edges": 21,
+  "directed_unique_endpoint_pairs": 4940,
+  "directed_same_endpoint_collapsed_edges": 313,
+  "undirected_unique_endpoint_pairs": 4938,
+  "undirected_same_endpoint_collapsed_edges": 315,
+  "same_endpoint_group_count": 206,
+  "relation_variant_groups": 78,
+  "source_file_variant_groups": 0,
+  "source_location_variant_groups": 109,
+  "context_variant_groups": 20,
+  "post_build_graph_type": "Graph",
+  "post_build_node_count": 2487,
+  "post_build_edge_count": 4938,
+  "post_build_error": "",
+  "producer_suppression": {
+    "path": "C:\\Users\\ahmad\\AppData\\Roaming\\uv\\tools\\graphifyy\\Lib\\site-packages\\graphify\\extract.py",
+    "total_sites": 11,
+    "sites": [
+      {
+        "line": 1099,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids = {n[\"id\"] for n in nodes}"
+      },
+      {
+        "line": 1253,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids = {n[\"id\"] for n in nodes}"
+      },
+      {
+        "line": 1255,
+        "name": "seen_doc_refs",
+        "tuple_arity": 0,
+        "sample": "seen_doc_refs: set[str] = set()"
+      },
+      {
+        "line": 1600,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = {n[\"id\"] for n in nodes}"
+      },
+      {
+        "line": 2069,
+        "name": "seen_keys",
+        "tuple_arity": 0,
+        "sample": "seen_keys: set[tuple] = set()"
+      },
+      {
+        "line": 2228,
+        "name": "seen_keys",
+        "tuple_arity": 0,
+        "sample": "seen_keys: set[tuple] = set()"
+      },
+      {
+        "line": 3272,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 3380,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 3459,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 3974,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 3975,
+        "name": "seen_edges",
+        "tuple_arity": 4,
+        "sample": "seen_edges: set[tuple[str, str, str, str | None]] = set()"
+      }
+    ],
+    "error": ""
+  },
+  "examples": [
+    {
+      "source": "backend_providers_init_run_client",
+      "target": "backend_providers_init_py_any",
+      "edge_count": 7,
+      "relations": [
+        "references"
+      ],
+      "source_files": [
+        "backend/providers/__init__.py"
+      ],
+      "source_locations": [
+        "L26"
+      ],
+      "contexts": [
+        "generic_arg",
+        "parameter_type"
+      ]
+    },
+    {
+      "source": "dev_spawn_services",
+      "target": "popen",
+      "edge_count": 5,
+      "relations": [
+        "calls",
+        "references"
+      ],
+      "source_files": [
+        "dev.py"
+      ],
+      "source_locations": [
+        "L246",
+        "L258"
+      ],
+      "contexts": [
+        "call",
+        "generic_arg"
+      ]
+    },
+    {
+      "source": "tests_test_audit_fixes_testpromptviewportsubstitution",
+      "target": "backend_engine_openai_openaicuclient",
+      "edge_count": 5,
+      "relations": [
+        "uses"
+      ],
+      "source_files": [
+        "tests/test_audit_fixes.py"
+      ],
+      "source_locations": [
+        "L107",
+        "L145",
+        "L179",
+        "L211",
+        "L71"
+      ],
+      "contexts": [
+        ""
+      ]
+    },
+    {
+      "source": "tests_test_audit_fixes_testopenaiscrollclamp",
+      "target": "backend_engine_openai_openaicuclient",
+      "edge_count": 5,
+      "relations": [
+        "uses"
+      ],
+      "source_files": [
+        "tests/test_audit_fixes.py"
+      ],
+      "source_locations": [
+        "L107",
+        "L145",
+        "L179",
+        "L211",
+        "L71"
+      ],
+      "contexts": [
+        ""
+      ]
+    },
+    {
+      "source": "tests_test_audit_fixes_testkeyallowlist",
+      "target": "backend_engine_openai_openaicuclient",
+      "edge_count": 5,
+      "relations": [
+        "uses"
+      ],
+      "source_files": [
+        "tests/test_audit_fixes.py"
+      ],
+      "source_locations": [
+        "L107",
+        "L145",
+        "L179",
+        "L211",
+        "L71"
+      ],
+      "contexts": [
+        ""
+      ]
+    }
+  ]
+}
