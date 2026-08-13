@@ -12,7 +12,7 @@ Computer Use Workbench lets a person give an AI model a task, observe it operati
 - Claude Sonnet 5 through Anthropic Messages.
 - Gemini 3.6 Flash through Google Interactions.
 
-The current release is v3.0.2. On Windows 11, `START.bat` installs
+The current release is v3.0.3. On Windows 11, `START.bat` installs
 prerequisites, starts the local stack, and opens the dashboard at
 `http://127.0.0.1:8505` after the backend health check succeeds.
 

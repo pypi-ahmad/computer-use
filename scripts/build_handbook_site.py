@@ -169,11 +169,20 @@ SOURCES = (
     ),
     SourceDoc(
         "release",
+        "docs/release-notes-v3.0.3.md",
+        "v3.0.3 release notes",
+        "Evidence and history",
+        ("all",),
+        "Current patch scope, dependency audit, and remaining CI gates.",
+    ),
+    SourceDoc(
+        "release-v302",
         "docs/release-notes-v3.0.2.md",
         "v3.0.2 release notes",
         "Evidence and history",
         ("all",),
-        "Current patch scope, CI gates, and sandbox image scan fixes.",
+        "Historical v3.0.2 CI and sandbox notes.",
+        True,
     ),
     SourceDoc(
         "release-v301",
