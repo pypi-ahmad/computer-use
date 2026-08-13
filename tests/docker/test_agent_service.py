@@ -368,11 +368,13 @@ def entrypoint() -> str:
     return _ENTRYPOINT.read_text(encoding="utf-8")
 
 
-def test_uv_sync_runs_from_project_directory(dockerfile: str) -> None:
+def test_sandbox_python_does_not_install_the_host_workbench_stack(dockerfile: str) -> None:
     workdir = dockerfile.index("WORKDIR /app")
-    dependency_copy = dockerfile.index("COPY pyproject.toml uv.lock README.md /app/")
-    sync = dockerfile.index("RUN uv sync --frozen --no-dev --no-install-project")
-    assert workdir < dependency_copy < sync
+    venv = dockerfile.index("RUN uv venv /opt/venv")
+    assert workdir < venv
+    assert "uv sync" not in dockerfile
+    assert "setup_22.x" in dockerfile
+    assert "npm install -g npm@latest" in dockerfile
 
 
 # ---------------------------------------------------------------------------

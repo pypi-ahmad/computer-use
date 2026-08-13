@@ -143,19 +143,22 @@ RUN arch="$(dpkg --print-architecture)" \
 # Idempotent: ``|| true`` so rebuilds with upstream removal succeed.
 RUN apt-get remove -y light-locker xfce4-screensaver xfce4-power-manager 2>/dev/null || true
 
-# Install Node.js LTS 20 for desktop tooling and optional in-container tasks
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+# Install Node.js LTS 22 for desktop tooling and optional in-container tasks.
+# Upgrade npm after the distro install so the bundled CLI packages include
+# the HIGH/CRITICAL fixes Trivy requires (tar, glob, minimatch, brace-expansion).
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get update \
     && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/*
+    && npm install -g npm@latest \
+    && rm -rf /var/lib/apt/lists/* /root/.npm
 RUN node -v && npm -v && npx -v
 
-# Create the application environment from the checked lockfile. The project
-# package itself is copied later; the sandbox only needs runtime dependencies.
+# Sandbox Python only runs agent_service.py (stdlib + optional action aliases).
+# Do not uv-sync the host workbench stack into this image; those packages are
+# unused here and fail the HIGH/CRITICAL image scan.
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv
 WORKDIR /app
-COPY pyproject.toml uv.lock README.md /app/
-RUN uv sync --frozen --no-dev --no-install-project
+RUN uv venv /opt/venv
 
 # --- Google Chrome (item 1) ---
 RUN curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google.gpg \
