@@ -131,7 +131,9 @@ class TestClaudeActionDispatch:
             executor,
         )
         assert result.success
-        assert executor.calls == [("scroll_at", {"x": 500, "y": 500, "direction": "down", "magnitude": 600})]
+        assert executor.calls == [
+            ("scroll_at", {"x": 500, "y": 500, "direction": "down", "magnitude": 600})
+        ]
 
     @pytest.mark.asyncio
     async def test_mouse_move(self, client, executor):
@@ -242,7 +244,8 @@ class TestClaudeToolConfig:
     def test_explicit_tool_version_overrides(self):
         with patch("anthropic.AsyncAnthropic"):
             client = ClaudeCUClient(
-                api_key="test", model="some-model",
+                api_key="test",
+                model="some-model",
                 tool_version="computer_20250124",
                 beta_flag="computer-use-2025-01-24",
             )
@@ -257,6 +260,7 @@ class TestClaudeToolConfig:
         assert tools[0]["enable_zoom"] is True
         assert tools[0]["display_width_px"] == 1200
         assert tools[0]["display_height_px"] == 800
+
 
 # === merged from tests/test_opus_47_followup.py ===
 """Opus 4.7-specific follow-ups: zoom action handler, opt-in prompt
@@ -275,12 +279,8 @@ Covers:
 
 
 from io import BytesIO
-from unittest.mock import patch
 
 import pytest
-
-from backend.engine import CUActionResult
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -344,6 +344,7 @@ class TestZoomActionHandler:
         # The returned PNG must match the requested region dimensions
         # (200 x 100), NOT the full display (1440 x 900).
         from PIL import Image
+
         img = Image.open(BytesIO(result.extra["image_bytes"]))
         assert img.size == (200, 100)
 
@@ -375,9 +376,7 @@ class TestZoomActionHandler:
         assert result.success is False
         assert result.error is not None
         assert "inverted" in result.error or "empty" in result.error
-        assert executor_called is False, (
-            "executor must not be called for an invalid region"
-        )
+        assert executor_called is False, "executor must not be called for an invalid region"
 
     @pytest.mark.asyncio
     async def test_zoom_action_rejects_wrong_shape(self):
@@ -395,12 +394,14 @@ class TestZoomActionHandler:
 
         # Missing region
         result = await client._execute_claude_action(
-            {"action": "zoom"}, FakeExecutor(),
+            {"action": "zoom"},
+            FakeExecutor(),
         )
         assert result.success is False
         # Wrong length
         result = await client._execute_claude_action(
-            {"action": "zoom", "region": [0, 0, 10]}, FakeExecutor(),
+            {"action": "zoom", "region": [0, 0, 10]},
+            FakeExecutor(),
         )
         assert result.success is False
 
@@ -471,8 +472,10 @@ class TestPromptAudit:
         from backend.prompts import get_system_prompt
 
         prompt = get_system_prompt(
-            "computer_use", "desktop",
-            provider="anthropic", model="claude-sonnet-5",
+            "computer_use",
+            "desktop",
+            provider="anthropic",
+            model="claude-sonnet-5",
         )
         lowered = prompt.lower()
         assert "step by step" in lowered
@@ -483,8 +486,10 @@ class TestPromptAudit:
         from backend.prompts import get_system_prompt
 
         prompt = get_system_prompt(
-            "computer_use", "desktop",
-            provider="anthropic", model="claude-sonnet-5",
+            "computer_use",
+            "desktop",
+            provider="anthropic",
+            model="claude-sonnet-5",
         )
         lowered = prompt.lower()
         scaffolding_present = any(p in lowered for p in _SCAFFOLDING_PHRASES)
@@ -499,8 +504,10 @@ class TestPromptAudit:
         from backend.prompts import get_system_prompt
 
         prompt = get_system_prompt(
-            "computer_use", "desktop",
-            provider="anthropic", model="claude-sonnet-5",
+            "computer_use",
+            "desktop",
+            provider="anthropic",
+            model="claude-sonnet-5",
         )
         assert any(p in prompt.lower() for p in _SCAFFOLDING_PHRASES)
 
@@ -510,9 +517,12 @@ class TestPromptAudit:
         from backend.prompts import get_system_prompt
 
         prompt = get_system_prompt(
-            "computer_use", "desktop", provider="anthropic",
+            "computer_use",
+            "desktop",
+            provider="anthropic",
         )
         assert any(p in prompt.lower() for p in _SCAFFOLDING_PHRASES)
+
 
 # === merged from tests/test_sandbox_opus47.py ===
 """Sandbox / Opus 4.7 hi-res tests.
@@ -532,10 +542,8 @@ Covers:
 
 
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Dockerfile pins
@@ -572,10 +580,7 @@ class TestDockerfileReferencePackages:
     def test_dockerfile_has_anthropic_reference_packages(self):
         text = _DOCKERFILE.read_text(encoding="utf-8")
         missing = [pkg for pkg in _REQUIRED_PACKAGES if pkg not in text]
-        assert not missing, (
-            f"docker/Dockerfile missing Anthropic reference packages: "
-            f"{missing}"
-        )
+        assert not missing, f"docker/Dockerfile missing Anthropic reference packages: {missing}"
 
     def test_dockerfile_preserves_xfce4_wm(self):
         """XFCE4 is the project's WM; mutter is installed alongside
@@ -611,8 +616,9 @@ class TestDockerfileViewportDefault:
 
 class TestOpus47HiresEnvFlag:
     @staticmethod
-    async def _capture_scale_log(model: str, screen_w: int, screen_h: int,
-                                  env_value: str | None) -> dict:
+    async def _capture_scale_log(
+        model: str, screen_w: int, screen_h: int, env_value: str | None
+    ) -> dict:
         """Drive one turn through ``iter_turns`` and capture the
         ``tools=[{display_width_px, display_height_px}]`` block + any
         CUA_OPUS47_HIRES log line."""
@@ -637,6 +643,7 @@ class TestOpus47HiresEnvFlag:
 
             async def execute(self, name, args):
                 from backend.engine import CUActionResult
+
                 return CUActionResult(name=name)
 
             def get_current_url(self):
@@ -666,21 +673,28 @@ class TestOpus47HiresEnvFlag:
         class FakeClient:
             beta = FakeBeta()
 
-        with patch.dict("os.environ",
-                        {"CUA_OPUS47_HIRES": env_value} if env_value is not None
-                        else {}, clear=False):
+        with patch.dict(
+            "os.environ",
+            {"CUA_OPUS47_HIRES": env_value} if env_value is not None else {},
+            clear=False,
+        ):
             # If env_value is None, make sure the key is truly absent.
             if env_value is None:
                 import os as _os
+
                 _os.environ.pop("CUA_OPUS47_HIRES", None)
 
-            with patch("backend.engine.claude.resize_screenshot_for_claude",
-                       return_value=(png, screen_w, screen_h)):
+            with patch(
+                "backend.engine.claude.resize_screenshot_for_claude",
+                return_value=(png, screen_w, screen_h),
+            ):
                 with patch("anthropic.AsyncAnthropic") as AA:
                     AA.return_value = FakeClient()
                     client = ClaudeCUClient(api_key="k", model=model)
                     async for _ in client.iter_turns(
-                        "noop", FakeExecutor(), turn_limit=1,
+                        "noop",
+                        FakeExecutor(),
+                        turn_limit=1,
                         on_log=lambda lvl, msg: logs.append((lvl, msg)),
                     ):
                         pass
@@ -694,7 +708,10 @@ class TestOpus47HiresEnvFlag:
         downscaled because 2560*1600=4.10 MP exceeds the 3.75 MP cap."""
         monkeypatch.setenv("CUA_OPUS47_HIRES", "1")
         result = await self._capture_scale_log(
-            "claude-sonnet-5", 2560, 1600, "1",
+            "claude-sonnet-5",
+            2560,
+            1600,
+            "1",
         )
         tools = result["create_kwargs"]["tools"]
         # Long edge 2560 <= 2576, so scale is 1.0 and reported dims
@@ -711,7 +728,10 @@ class TestOpus47HiresEnvFlag:
         pixel-count cap, not the long-edge ceiling."""
         monkeypatch.setenv("CUA_OPUS47_HIRES", "1")
         result = await self._capture_scale_log(
-            "claude-sonnet-5", 4000, 2500, "1",
+            "claude-sonnet-5",
+            4000,
+            2500,
+            "1",
         )
         tools = result["create_kwargs"]["tools"]
         # 2576/4000 = 0.644 -> 2576 x 1610.
@@ -724,7 +744,10 @@ class TestOpus47HiresEnvFlag:
         internally and the 3.75 MP ceiling is mandatory."""
         monkeypatch.setenv("CUA_OPUS47_HIRES", "1")
         result = await self._capture_scale_log(
-            "claude-sonnet-5", 2560, 1600, "1",
+            "claude-sonnet-5",
+            2560,
+            1600,
+            "1",
         )
         tools = result["create_kwargs"]["tools"]
         # Default get_claude_scale_factor picks sqrt(3.75e6 / 4.096e6)
@@ -732,9 +755,7 @@ class TestOpus47HiresEnvFlag:
         assert tools[0]["display_width_px"] < 2560
         assert tools[0]["display_height_px"] < 1600
         # And no hi-res log line.
-        assert not any(
-            "CUA_OPUS47_HIRES" in msg for lvl, msg in result["logs"]
-        )
+        assert not any("CUA_OPUS47_HIRES" in msg for lvl, msg in result["logs"])
 
     @pytest.mark.asyncio
     async def test_opus47_hires_flag_off_by_default(self, monkeypatch):
@@ -742,10 +763,14 @@ class TestOpus47HiresEnvFlag:
         per the default ``get_claude_scale_factor`` pixel-count cap."""
         monkeypatch.delenv("CUA_OPUS47_HIRES", raising=False)
         result = await self._capture_scale_log(
-            "claude-sonnet-5", 2560, 1600, None,
+            "claude-sonnet-5",
+            2560,
+            1600,
+            None,
         )
         tools = result["create_kwargs"]["tools"]
         assert tools[0]["display_width_px"] < 2560
+
 
 # === merged from tests/test_sandbox_sonnet46.py ===
 """Sonnet 4.6 shares Opus 4.7's sandbox contract.
@@ -763,12 +788,8 @@ forks the Dockerfile per-model or accidentally extends
 
 
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
-
-from backend.engine import CUActionResult
-
 
 _DOCKERFILE = Path("docker/Dockerfile")
 
@@ -783,8 +804,7 @@ class TestSonnet46SharesSandbox:
         # The viewport comment block must call out Sonnet 4.6 so the
         # shared-default intent is documented at the source.
         assert "Sonnet 4.6" in text, (
-            "Dockerfile viewport comment must document that Sonnet 4.6 "
-            "shares the 1440x900 default"
+            "Dockerfile viewport comment must document that Sonnet 4.6 shares the 1440x900 default"
         )
 
     def test_sonnet46_uses_shared_packages(self):
@@ -794,8 +814,13 @@ class TestSonnet46SharesSandbox:
         text = _DOCKERFILE.read_text(encoding="utf-8")
         # Sanity: the S1 reference packages are still present.
         for pkg in (
-            "xdotool", "scrot", "xvfb", "x11vnc", "mutter",
-            "firefox-esr", "imagemagick",
+            "xdotool",
+            "scrot",
+            "xvfb",
+            "x11vnc",
+            "mutter",
+            "firefox-esr",
+            "imagemagick",
         ):
             assert pkg in text, f"reference package {pkg!r} missing"
 
@@ -810,7 +835,8 @@ class TestSonnet46SharesSandbox:
 class TestSonnet46HiresFlagIgnored:
     @pytest.mark.asyncio
     async def test_sonnet46_does_not_honor_opus47_hires_flag(
-        self, monkeypatch,
+        self,
+        monkeypatch,
     ):
         """``CUA_OPUS47_HIRES=1`` must be a no-op for Sonnet 4.6.
         Even at 2560x1600 Sonnet 4.6 must still downscale per the
@@ -867,14 +893,19 @@ class TestSonnet46HiresFlagIgnored:
         class FakeClient:
             beta = FakeBeta()
 
-        with patch(
-            "backend.engine.claude.resize_screenshot_for_claude",
-            return_value=(png, screen_w, screen_h),
-        ), patch("anthropic.AsyncAnthropic") as AA:
+        with (
+            patch(
+                "backend.engine.claude.resize_screenshot_for_claude",
+                return_value=(png, screen_w, screen_h),
+            ),
+            patch("anthropic.AsyncAnthropic") as AA,
+        ):
             AA.return_value = FakeClient()
             client = ClaudeCUClient(api_key="k", model="claude-sonnet-5")
             async for _ in client.iter_turns(
-                "noop", FakeExecutor(), turn_limit=1,
+                "noop",
+                FakeExecutor(),
+                turn_limit=1,
                 on_log=lambda lvl, msg: logs.append((lvl, msg)),
             ):
                 pass
@@ -884,9 +915,10 @@ class TestSonnet46HiresFlagIgnored:
         assert tools[0]["display_width_px"] < screen_w
         assert tools[0]["display_height_px"] < screen_h
         # And the Opus-4.7 hi-res gate log line must NOT appear.
-        assert not any(
-            "CUA_OPUS47_HIRES" in msg for _lvl, msg in logs
-        ), "CUA_OPUS47_HIRES must be ignored for Sonnet 4.6"
+        assert not any("CUA_OPUS47_HIRES" in msg for _lvl, msg in logs), (
+            "CUA_OPUS47_HIRES must be ignored for Sonnet 4.6"
+        )
+
 
 # === merged from tests/test_sonnet_46_followup.py ===
 """Sonnet 4.6 tool-version + caching + zoom parity with Opus 4.7.
@@ -906,13 +938,7 @@ beta and must use ``computer-use-2025-11-24`` exclusively.
 """
 
 
-from io import BytesIO
-from unittest.mock import patch
-
 import pytest
-
-from backend.engine import CUActionResult
-
 
 SONNET_46 = "claude-sonnet-5"
 
@@ -1104,6 +1130,7 @@ class TestSonnet46ZoomDispatch:
         assert result.success is True
         assert result.name == "zoom"
         from PIL import Image
+
         assert Image.open(BytesIO(result.extra["image_bytes"])).size == (200, 100)
 
 
@@ -1117,14 +1144,8 @@ class TestSonnet46AllowedModelsEntry:
         import json
         from pathlib import Path
 
-        data = json.loads(
-            Path("backend/models/allowed_models.json").read_text(encoding="utf-8")
-        )
-        entry = next(
-            m for m in data["models"] if m.get("model_id") == SONNET_46
-        )
+        data = json.loads(Path("backend/models/allowed_models.json").read_text(encoding="utf-8"))
+        entry = next(m for m in data["models"] if m.get("model_id") == SONNET_46)
         assert entry["supports_computer_use"] is True
         assert entry["cu_tool_version"] == "computer_20251124"
         assert entry["cu_betas"] == ["computer-use-2025-11-24"]
-
-

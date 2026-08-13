@@ -1,4 +1,3 @@
-from __future__ import annotations
 # === merged from tests/test_agent_service_action_gate.py ===
 """Tests for the in-container agent_service action-surface gate.
 
@@ -6,6 +5,7 @@ Verifies that ``CUA_ENABLE_LEGACY_ACTIONS`` controls which action names
 reach the dispatcher, and that disabled actions surface as HTTP 404.
 """
 
+from __future__ import annotations
 
 import importlib
 import sys
@@ -56,23 +56,36 @@ class TestEngineActionSet:
     test fails, either the engine grew a new action (update
     ``_ENGINE_ACTIONS``) or the gate drifted from the engine."""
 
-    EXPECTED = frozenset({
-        "click", "double_click", "triple_click", "right_click", "middle_click", "hover",
-        "type", "type_text_at", "hotkey", "key", "keydown", "keyup",
-        "scroll", "left_mouse_down", "left_mouse_up", "drag",
-        "open_url",
-        # ``zoom`` is a ``computer_20251124``-era action (Opus 4.7):
-        # always on when the adapter advertises ``enable_zoom``.
-        "zoom",
-    })
+    EXPECTED = frozenset(
+        {
+            "click",
+            "double_click",
+            "triple_click",
+            "right_click",
+            "middle_click",
+            "hover",
+            "type",
+            "type_text_at",
+            "hotkey",
+            "key",
+            "keydown",
+            "keyup",
+            "scroll",
+            "left_mouse_down",
+            "left_mouse_up",
+            "drag",
+            "open_url",
+            # ``zoom`` is a ``computer_20251124``-era action (Opus 4.7):
+            # always on when the adapter advertises ``enable_zoom``.
+            "zoom",
+        }
+    )
 
     def test_engine_action_set_matches_expected(self, agent_service):
         assert agent_service._ENGINE_ACTIONS == self.EXPECTED
 
     def test_engine_action_set_disjoint_from_legacy(self, agent_service):
-        assert not (
-            agent_service._ENGINE_ACTIONS & agent_service._LEGACY_ACTIONS
-        )
+        assert not (agent_service._ENGINE_ACTIONS & agent_service._LEGACY_ACTIONS)
 
 
 class TestActionGate:
@@ -85,8 +98,14 @@ class TestActionGate:
 
     def test_legacy_disabled_by_default(self, agent_service):
         assert not agent_service.LEGACY_ACTIONS_ENABLED
-        for action in ("run_command", "open_terminal", "window_minimize",
-                       "paste", "screenshot_region", "evaluate_js"):
+        for action in (
+            "run_command",
+            "open_terminal",
+            "window_minimize",
+            "paste",
+            "screenshot_region",
+            "evaluate_js",
+        ):
             assert not agent_service._is_action_enabled(action), action
 
     def test_unknown_action_disabled(self, agent_service):
@@ -103,7 +122,8 @@ class TestActionGate:
 
     def test_disabled_action_404_preserves_action_error_envelope(self, agent_service):
         handler, captured = _make_post_handler(
-            agent_service, {"action": "run_command", "mode": "desktop"},
+            agent_service,
+            {"action": "run_command", "mode": "desktop"},
         )
         handler.do_POST()
         assert captured["status"] == 404
@@ -154,6 +174,7 @@ class TestDefensesPreserved:
         assert isinstance(agent_service._BLOCKED_CMD_PATTERNS, tuple)
         assert len(agent_service._BLOCKED_CMD_PATTERNS) > 0
 
+
 # === merged from tests/test_docker_cmd_policy.py ===
 """Regression tests for ``docker/agent_service.py``'s ``run_command`` policy.
 
@@ -170,7 +191,6 @@ where the file documented a stronger policy than it enforced.
 
 
 import importlib.util
-import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -319,6 +339,7 @@ class TestRunCommandEnforcement:
         # wrap) → subprocess.run. Just assert the call happened.
         assert run.called
 
+
 # === merged from tests/test_docker_production_hardening.py ===
 """SC8 — production-hardening source-scan regression guards for the Dockerfile.
 
@@ -330,7 +351,6 @@ text. A future refactor that strips an OCI label or the signal-clean
 
 
 import re
-from pathlib import Path
 
 import pytest
 
@@ -377,9 +397,7 @@ _REQUIRED_OCI_LABELS = (
 class TestOciLabels:
     @pytest.mark.parametrize("label", _REQUIRED_OCI_LABELS)
     def test_required_label_present(self, label: str, dockerfile: str) -> None:
-        assert label in dockerfile, (
-            f"OCI label {label!r} missing from docker/Dockerfile"
-        )
+        assert label in dockerfile, f"OCI label {label!r} missing from docker/Dockerfile"
 
     def test_version_and_created_are_build_args(self, dockerfile: str) -> None:
         """Version / revision / created must be ARG-backed so a release
@@ -409,15 +427,14 @@ class TestNonRootRuntime:
             "Runtime USER must not be root — create and switch to a "
             "dedicated non-root user (agent)."
         )
-        assert users[-1] == "agent", (
-            f"Expected final USER to be 'agent', got {users[-1]!r}"
-        )
+        assert users[-1] == "agent", f"Expected final USER to be 'agent', got {users[-1]!r}"
 
     def test_agent_user_is_uid_1000(self, dockerfile: str) -> None:
         """The ``agent`` UID must be stable at 1000 so bind-mounted
         volumes from the host match ownership without manual chown."""
         assert re.search(
-            r"useradd\s+.*-u\s+1000\s+.*\bagent\b", dockerfile,
+            r"useradd\s+.*-u\s+1000\s+.*\bagent\b",
+            dockerfile,
         ), "useradd must pin agent to UID 1000"
 
 
@@ -431,21 +448,23 @@ class TestHealthcheck:
         assert "HEALTHCHECK" in dockerfile
 
     def test_healthcheck_targets_liveness_not_readiness(
-        self, dockerfile: str,
+        self,
+        dockerfile: str,
     ) -> None:
         """The HEALTHCHECK must target the liveness endpoint, not the
         readiness aggregator — a transient docker-daemon or upstream
         provider hiccup should not mark the container itself unhealthy
         (that would trigger an orchestrator restart)."""
         hc_line = next(
-            (l for l in dockerfile.splitlines() if l.strip().startswith("CMD")
-             and "localhost" in l),
+            (
+                l
+                for l in dockerfile.splitlines()
+                if l.strip().startswith("CMD") and "localhost" in l
+            ),
             None,
         )
         assert hc_line is not None, "HEALTHCHECK CMD line not found"
-        assert "/health" in hc_line, (
-            f"HEALTHCHECK must target /health (liveness), got: {hc_line!r}"
-        )
+        assert "/health" in hc_line, f"HEALTHCHECK must target /health (liveness), got: {hc_line!r}"
         assert "/ready" not in hc_line, (
             "HEALTHCHECK must NOT target /ready — readiness is for "
             "orchestrator-level traffic gating, not container health."
@@ -466,7 +485,8 @@ class TestSignalCleanShutdown:
         # Find the last non-comment, non-empty line and assert it begins
         # with ``exec ``.
         tail = [
-            l.strip() for l in entrypoint.splitlines()
+            l.strip()
+            for l in entrypoint.splitlines()
             if l.strip() and not l.strip().startswith("#")
         ]
         assert tail, "entrypoint.sh has no executable commands"
@@ -480,14 +500,16 @@ class TestSignalCleanShutdown:
         """``docker/agent_service.py`` must register SIGTERM/SIGINT
         handlers so ``docker stop`` produces a clean exit instead of
         sending SIGKILL after the 10 s grace period."""
-        svc = (Path(__file__).resolve().parent.parent.parent
-               / "docker" / "agent_service.py").read_text(encoding="utf-8")
+        svc = (
+            Path(__file__).resolve().parent.parent.parent / "docker" / "agent_service.py"
+        ).read_text(encoding="utf-8")
         assert "signal.signal(signal.SIGTERM" in svc
         assert "signal.signal(signal.SIGINT" in svc
         assert "server.shutdown()" in svc, (
             "Signal handler must call ThreadingHTTPServer.shutdown()"
             " so the accept loop exits cleanly."
         )
+
 
 # === merged from tests/test_docker_security.py ===
 """Tests for Docker manager security and lifecycle."""
@@ -531,14 +553,15 @@ class TestDockerManagerSecurity:
     def test_start_container_args_have_security_flags(self):
         """Verify the source code includes --security-opt and resource limits."""
         import inspect
+
         from backend.infra import docker as docker_manager
+
         # Flags live in the inner locked helper; inspect the whole module
         # so the assertion stays robust if the split changes again.
         source = inspect.getsource(docker_manager)
         assert "--security-opt=no-new-privileges:true" in source
         assert "--memory=4g" in source
         assert "--cpus=2" in source
-
 
 
 class TestInContainerAliasContract:
@@ -549,6 +572,7 @@ class TestInContainerAliasContract:
 
     def test_resolve_action_is_registry_function(self, agent_service):
         import backend.models.registry as registry
+
         assert agent_service.resolve_action is registry.resolve_action
 
     def test_aliases_resolve_to_canonical(self, agent_service):

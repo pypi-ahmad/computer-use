@@ -1,4 +1,3 @@
-from __future__ import annotations
 """Focused integration tests for the highest-risk hot paths.
 
 These complement the unit tests by exercising end-to-end glue that
@@ -17,6 +16,7 @@ Hard rules: deterministic, no network, no real container, no real LLM
 call, no test-harness changes, no new conftest plumbing.
 """
 
+from __future__ import annotations
 
 import base64
 import time
@@ -30,6 +30,7 @@ from fastapi.testclient import TestClient
 @pytest.fixture(scope="module")
 def client():
     from backend.server import app
+
     return TestClient(app)
 
 
@@ -72,29 +73,31 @@ class TestAgentStartFinishIntegration:
         # sufficient — the handler also reads ``get_container_state()`` and
         # returns 409 if ``agent != "ready"``. This integration test pre-dates
         # the gate, so we mock the state so the gate passes.
-        with patch.dict(server._active_tasks, {}, clear=True), \
-             patch.dict(server._active_loops, {}, clear=True), \
-             patch("backend.server.resolve_api_key",
-                   return_value=("sk-test-int", "ui")), \
-             patch("backend.server.start_container",
-                   new_callable=AsyncMock, return_value=True), \
-             patch("backend.server.get_container_state",
-                   return_value={"container": "running", "agent": "ready",
-                                 "last_health_error": None}), \
-             patch("backend.server.AgentLoop", return_value=fake_loop), \
-             patch("backend.server._broadcast",
-                 new=AsyncMock(side_effect=_capture_broadcast)):
-
+        with (
+            patch.dict(server._active_tasks, {}, clear=True),
+            patch.dict(server._active_loops, {}, clear=True),
+            patch("backend.server.resolve_api_key", return_value=("sk-test-int", "ui")),
+            patch("backend.server.start_container", new_callable=AsyncMock, return_value=True),
+            patch(
+                "backend.server.get_container_state",
+                return_value={"container": "running", "agent": "ready", "last_health_error": None},
+            ),
+            patch("backend.server.AgentLoop", return_value=fake_loop),
+            patch("backend.server._broadcast", new=AsyncMock(side_effect=_capture_broadcast)),
+        ):
             with TestClient(server.app) as c:
-                resp = c.post("/api/agent/start", json={
-                    "task": "open a page",
-                    "engine": "computer_use",
-                    "provider": "openai",
-                    "model": "gpt-5.6-luna",
-                    "mode": "desktop",
-                    "execution_target": "docker",
-                    "max_steps": 3,
-                })
+                resp = c.post(
+                    "/api/agent/start",
+                    json={
+                        "task": "open a page",
+                        "engine": "computer_use",
+                        "provider": "openai",
+                        "model": "gpt-5.6-luna",
+                        "mode": "desktop",
+                        "execution_target": "docker",
+                        "max_steps": 3,
+                    },
+                )
 
             assert resp.status_code == 200
             assert resp.json()["session_id"] == "sess-int-1"
@@ -135,9 +138,9 @@ class TestAgentStartFinishIntegration:
     ):
         from backend import server
         from backend.models.schemas import (
+            ActionType,
             AgentAction,
             AgentSession,
-            ActionType,
             LogEntry,
             SessionStatus,
             StepRecord,
@@ -182,30 +185,32 @@ class TestAgentStartFinishIntegration:
                 self.session.final_text = f"{provider} done"
                 return self.session
 
-        with patch.dict(server._active_tasks, {}, clear=True), \
-             patch.dict(server._active_loops, {}, clear=True), \
-             patch("backend.server.resolve_api_key",
-                   return_value=("sk-test-int", "ui")), \
-             patch("backend.server.start_container",
-                   new_callable=AsyncMock, return_value=True), \
-             patch("backend.server.get_container_state",
-                   return_value={"container": "running", "agent": "ready",
-                                 "last_health_error": None}), \
-             patch("backend.server.AgentLoop", side_effect=_BroadcastingLoop), \
-             patch("backend.server._schedule_broadcast", side_effect=_capture_scheduled), \
-             patch("backend.server._broadcast",
-                   new=AsyncMock(side_effect=_capture_broadcast)):
-
+        with (
+            patch.dict(server._active_tasks, {}, clear=True),
+            patch.dict(server._active_loops, {}, clear=True),
+            patch("backend.server.resolve_api_key", return_value=("sk-test-int", "ui")),
+            patch("backend.server.start_container", new_callable=AsyncMock, return_value=True),
+            patch(
+                "backend.server.get_container_state",
+                return_value={"container": "running", "agent": "ready", "last_health_error": None},
+            ),
+            patch("backend.server.AgentLoop", side_effect=_BroadcastingLoop),
+            patch("backend.server._schedule_broadcast", side_effect=_capture_scheduled),
+            patch("backend.server._broadcast", new=AsyncMock(side_effect=_capture_broadcast)),
+        ):
             with TestClient(server.app) as c:
-                resp = c.post("/api/agent/start", json={
-                    "task": "open a page",
-                    "engine": "computer_use",
-                    "provider": provider,
-                    "model": model,
-                    "mode": "desktop",
-                    "execution_target": "docker",
-                    "max_steps": 3,
-                })
+                resp = c.post(
+                    "/api/agent/start",
+                    json={
+                        "task": "open a page",
+                        "engine": "computer_use",
+                        "provider": provider,
+                        "model": model,
+                        "mode": "desktop",
+                        "execution_target": "docker",
+                        "max_steps": 3,
+                    },
+                )
 
             assert resp.status_code == 200
 
@@ -245,8 +250,7 @@ class TestWebSocketHotPath:
         # Prompt 06 replaced per-client ``_stream_screenshots`` with the
         # shared ``_screenshot_publisher_loop``; patch the new symbol so
         # the fixture still neutralises the capture loop.
-        with patch("backend.server._screenshot_publisher_loop",
-                   new=AsyncMock(return_value=None)):
+        with patch("backend.server._screenshot_publisher_loop", new=AsyncMock(return_value=None)):
             with client.websocket_connect("/ws") as ws:
                 ws.send_text('{"type": "ping"}')
                 pong = ws.receive_json()
@@ -277,15 +281,15 @@ class TestScreenshotRoundtrip:
 
     def test_screenshot_endpoint_returns_capture_b64(self, client):
         sample_b64 = base64.b64encode(b"\x89PNG\r\n").decode()
-        with patch("backend.server.capture_screenshot",
-                   new=AsyncMock(return_value=sample_b64)):
+        with patch("backend.server.capture_screenshot", new=AsyncMock(return_value=sample_b64)):
             resp = client.get("/api/screenshot")
         assert resp.status_code == 200
         assert resp.json() == {"screenshot": sample_b64}
 
     def test_screenshot_endpoint_5xx_on_capture_failure(self, client):
-        with patch("backend.server.capture_screenshot",
-                   new=AsyncMock(side_effect=RuntimeError("boom"))):
+        with patch(
+            "backend.server.capture_screenshot", new=AsyncMock(side_effect=RuntimeError("boom"))
+        ):
             resp = client.get("/api/screenshot")
         assert resp.status_code == 500
 
@@ -316,7 +320,8 @@ class TestOpenAIActionDispatchIntegration:
         result = await engine._execute_openai_action(click_action, executor)
 
         executor.execute.assert_awaited_once_with(
-            "click_at", {"x": 120, "y": 240},
+            "click_at",
+            {"x": 120, "y": 240},
         )
         assert result.success is True
         assert result.name == "click_at"
@@ -338,7 +343,8 @@ class TestOpenAIActionDispatchIntegration:
         await engine._execute_openai_action(right_click, executor)
 
         executor.execute.assert_awaited_once_with(
-            "right_click", {"x": 10, "y": 20},
+            "right_click",
+            {"x": 10, "y": 20},
         )
 
     @pytest.mark.asyncio
@@ -359,7 +365,8 @@ class TestOpenAIActionDispatchIntegration:
         result = await engine._execute_openai_action(click_action, executor)
 
         executor.execute.assert_awaited_once_with(
-            "click_at", {"x": 240, "y": 480},
+            "click_at",
+            {"x": 240, "y": 480},
         )
         assert result.success is True
         assert result.name == "click_at"

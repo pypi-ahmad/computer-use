@@ -8,8 +8,8 @@ brief and runs with only the computer tool.
 
 from __future__ import annotations
 
-from typing import Any, Callable
-
+from collections.abc import Callable
+from typing import Any
 
 LogCallback = Callable[[str, str], None]
 
@@ -120,7 +120,11 @@ async def _gemini_web_plan(
         [{"type": "text", "text": _PLANNER_PROMPT.format(task=task)}],
         tools=[{"type": "google_search"}],
     )
-    raw_text = interaction.get("output_text") if isinstance(interaction, dict) else getattr(interaction, "output_text", "")
+    raw_text = (
+        interaction.get("output_text")
+        if isinstance(interaction, dict)
+        else getattr(interaction, "output_text", "")
+    )
     text = str(raw_text or "").strip()
     return text or None
 
@@ -140,12 +144,12 @@ async def _anthropic_web_plan(
     if ensure_search is not None:
         original_search = getattr(client, "_use_builtin_search", None)
         if original_search is not None:
-            setattr(client, "_use_builtin_search", True)
+            client._use_builtin_search = True
         try:
             await ensure_search(on_log)
         finally:
             if original_search is not None:
-                setattr(client, "_use_builtin_search", original_search)
+                client._use_builtin_search = original_search
 
     # D6: use the public protocol method (was a reach into a private one). The
     # tool it returns carries the model-appropriate version
@@ -196,7 +200,9 @@ def _extract_gemini_text(response: Any) -> str | None:
         return None
     content = getattr(candidates[0], "content", None)
     parts = getattr(content, "parts", None) or []
-    text_parts = [str(getattr(part, "text", "")).strip() for part in parts if getattr(part, "text", None)]
+    text_parts = [
+        str(getattr(part, "text", "")).strip() for part in parts if getattr(part, "text", None)
+    ]
     return "\n".join(part for part in text_parts if part) or None
 
 

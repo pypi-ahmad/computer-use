@@ -60,12 +60,14 @@ def test_generated_handbook_is_offline_and_internally_linked() -> None:
     parser.feed(content)
 
     assert content.startswith("<!doctype html>")
-    assert "data-track=\"user\"" in content
-    assert "data-track=\"technical\"" in content
-    assert "data-track=\"business\"" in content
-    assert all(model in content for model in ("GPT-5.6 Luna", "Claude Sonnet 5", "Gemini 3.6 Flash"))
+    assert 'data-track="user"' in content
+    assert 'data-track="technical"' in content
+    assert 'data-track="business"' in content
+    assert all(
+        model in content for model in ("GPT-5.6 Luna", "Claude Sonnet 5", "Gemini 3.6 Flash")
+    )
     assert "<script src=" not in content
-    assert "<link rel=\"stylesheet\"" not in content
+    assert '<link rel="stylesheet"' not in content
     assert "url(http" not in content
     assert not parser.remote_assets
     assert len(parser.ids) == len(set(parser.ids))

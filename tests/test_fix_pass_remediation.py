@@ -1,9 +1,10 @@
-from __future__ import annotations
 """Regression tests for the fix-pass remediation (T6 + supporting).
 
 Covers the retry-policy hardening (B7/E8) and the safety-confirm
 per-session-nonce authorization (S7).
 """
+
+from __future__ import annotations
 
 import uuid
 from unittest.mock import AsyncMock
@@ -72,6 +73,7 @@ class _FakeLoop:
 class TestSafetyConfirmAuthz:
     def _register(self, monkeypatch, sid):
         import backend.server as server
+
         monkeypatch.setitem(server._active_loops, sid, _FakeLoop())
 
     def test_valid_nonce_confirms(self, client, monkeypatch):
@@ -79,8 +81,10 @@ class TestSafetyConfirmAuthz:
         self._register(monkeypatch, sid)
         nonce, _evt = safety_registry.arm(sid)
         try:
-            resp = client.post("/api/agent/safety-confirm",
-                               json={"session_id": sid, "confirm": True, "nonce": nonce})
+            resp = client.post(
+                "/api/agent/safety-confirm",
+                json={"session_id": sid, "confirm": True, "nonce": nonce},
+            )
             assert resp.status_code == 200
             assert resp.json()["confirmed"] is True
         finally:
@@ -91,10 +95,19 @@ class TestSafetyConfirmAuthz:
         self._register(monkeypatch, sid)
         safety_registry.arm(sid)
         try:
-            assert client.post("/api/agent/safety-confirm",
-                               json={"session_id": sid, "confirm": True}).status_code == 403
-            assert client.post("/api/agent/safety-confirm",
-                               json={"session_id": sid, "confirm": True, "nonce": "wrong"}).status_code == 403
+            assert (
+                client.post(
+                    "/api/agent/safety-confirm", json={"session_id": sid, "confirm": True}
+                ).status_code
+                == 403
+            )
+            assert (
+                client.post(
+                    "/api/agent/safety-confirm",
+                    json={"session_id": sid, "confirm": True, "nonce": "wrong"},
+                ).status_code
+                == 403
+            )
         finally:
             safety_registry.clear(sid)
 
@@ -106,8 +119,10 @@ class TestSafetyConfirmAuthz:
         safety_registry.arm(sid_b)
         try:
             # A's nonce must not resolve B's prompt.
-            resp = client.post("/api/agent/safety-confirm",
-                               json={"session_id": sid_b, "confirm": True, "nonce": nonce_a})
+            resp = client.post(
+                "/api/agent/safety-confirm",
+                json={"session_id": sid_b, "confirm": True, "nonce": nonce_a},
+            )
             assert resp.status_code == 403
         finally:
             safety_registry.clear(sid_a)

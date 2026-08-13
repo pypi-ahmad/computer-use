@@ -1,4 +1,5 @@
 """Coalesced frame capture and compact CUAF binary WebSocket framing."""
+
 from __future__ import annotations
 
 import asyncio
@@ -29,10 +30,15 @@ class BinaryFrame:
     payload: bytes
 
 
-def pack_cuaf_frame(sequence: int, width: int, height: int, timestamp_ms: int, codec: FrameCodec, payload: bytes) -> bytes:
+def pack_cuaf_frame(
+    sequence: int, width: int, height: int, timestamp_ms: int, codec: FrameCodec, payload: bytes
+) -> bytes:
     if sequence < 0 or width <= 0 or height <= 0 or timestamp_ms < 0:
         raise ValueError("Invalid frame metadata")
-    return _HEADER.pack(CUAF_MAGIC, _VERSION, int(codec), sequence, width, height, timestamp_ms) + payload
+    return (
+        _HEADER.pack(CUAF_MAGIC, _VERSION, int(codec), sequence, width, height, timestamp_ms)
+        + payload
+    )
 
 
 def unpack_cuaf_frame(data: bytes) -> BinaryFrame:
@@ -41,13 +47,17 @@ def unpack_cuaf_frame(data: bytes) -> BinaryFrame:
     magic, version, codec, sequence, width, height, timestamp_ms = _HEADER.unpack_from(data)
     if magic != CUAF_MAGIC or version != _VERSION:
         raise ValueError("Unsupported CUAF frame")
-    return BinaryFrame(sequence, width, height, timestamp_ms, FrameCodec(codec), data[_HEADER.size :])
+    return BinaryFrame(
+        sequence, width, height, timestamp_ms, FrameCodec(codec), data[_HEADER.size :]
+    )
 
 
 class FrameBroker:
     """Allows concurrent consumers to share the same in-flight capture."""
 
-    def __init__(self, capture: Callable[[], Awaitable[tuple[bytes, int, int, FrameCodec]]]) -> None:
+    def __init__(
+        self, capture: Callable[[], Awaitable[tuple[bytes, int, int, FrameCodec]]]
+    ) -> None:
         self._capture = capture
         self._inflight: asyncio.Future[BinaryFrame] | None = None
         self._lock = asyncio.Lock()
@@ -61,7 +71,9 @@ class FrameBroker:
 
                 async def _perform() -> BinaryFrame:
                     payload, width, height, codec = await self._capture()
-                    return BinaryFrame(sequence, width, height, int(time.time() * 1000), codec, payload)
+                    return BinaryFrame(
+                        sequence, width, height, int(time.time() * 1000), codec, payload
+                    )
 
                 self._inflight = asyncio.ensure_future(_perform())
             task = self._inflight

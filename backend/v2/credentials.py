@@ -1,4 +1,5 @@
 """Process-local credential sessions; secrets are never persisted or serialized."""
+
 from __future__ import annotations
 
 import secrets
@@ -30,13 +31,17 @@ class ProviderCredential:
 
 
 class CredentialVault:
-    def __init__(self, *, max_ttl_seconds: int = 28_800, clock: Callable[[], float] = time.time) -> None:
+    def __init__(
+        self, *, max_ttl_seconds: int = 28_800, clock: Callable[[], float] = time.time
+    ) -> None:
         self._max_ttl = max_ttl_seconds
         self._clock = clock
         self._entries: dict[str, tuple[float, dict[str, ProviderCredential]]] = {}
         self._lock = threading.RLock()
 
-    def create(self, credentials: Mapping[str, str], *, ttl_seconds: int = 28_800) -> CredentialSession:
+    def create(
+        self, credentials: Mapping[str, str], *, ttl_seconds: int = 28_800
+    ) -> CredentialSession:
         ttl = max(1, min(ttl_seconds, self._max_ttl))
         clean = {
             provider.upper(): ProviderCredential(method="api_key", api_key=SecretStr(value.strip()))
@@ -98,7 +103,9 @@ class CredentialVault:
                 self._entries.pop(entry_id, None)
                 credentials.clear()
                 return None
-            return CredentialSession(id=entry_id, providers=sorted(credentials), expires_at=expires_at)
+            return CredentialSession(
+                id=entry_id, providers=sorted(credentials), expires_at=expires_at
+            )
 
     def delete(self, entry_id: str) -> bool:
         with self._lock:

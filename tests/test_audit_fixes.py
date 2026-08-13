@@ -1,10 +1,10 @@
-from __future__ import annotations
 """Regression tests for the second-wave audit fixes.
 
 Each test pairs with a finding ID from the audit report so a future
 refactor that reintroduces a fixed bug gets caught by name.
 """
 
+from __future__ import annotations
 
 import asyncio
 import os
@@ -14,9 +14,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from backend.prompts import get_system_prompt
 from backend.infra.config import Config
-
+from backend.prompts import get_system_prompt
 
 # ── C1 / AI1 — prompt placeholder substitution ─────────────────────────────
 
@@ -97,9 +96,7 @@ class TestOpenAIScrollClamp:
             client = OpenAICUClient.__new__(OpenAICUClient)
             client._model = "gpt-5.6-luna"
             client._reasoning_effort = "low"
-            await client._execute_openai_scroll(
-                {"x": 500, "y": 500, "delta_y": 20}, _Exec()
-            )
+            await client._execute_openai_scroll({"x": 500, "y": 500, "delta_y": 20}, _Exec())
         assert captured["args"]["magnitude"] == 20
 
     @pytest.mark.asyncio
@@ -132,9 +129,7 @@ class TestOpenAIScrollClamp:
         client = OpenAICUClient.__new__(OpenAICUClient)
         client._model = "gpt-5.6-luna"
         client._reasoning_effort = "low"
-        await client._execute_openai_scroll(
-            {"x": 0, "y": 0, "delta_y": 5000}, _Exec()
-        )
+        await client._execute_openai_scroll({"x": 0, "y": 0, "delta_y": 5000}, _Exec())
         assert captured["args"]["magnitude"] == 999
 
     @pytest.mark.asyncio
@@ -152,8 +147,13 @@ class TestOpenAIScrollClamp:
 
             async def execute(self, name, args):
                 captured["args"] = args
+
                 class _R:
-                    name = "scroll_at"; success = True; error = None; extra: dict = {}
+                    name = "scroll_at"
+                    success = True
+                    error = None
+                    extra: dict = {}
+
                 return _R()
 
             async def capture_screenshot(self):
@@ -165,9 +165,7 @@ class TestOpenAIScrollClamp:
         client = OpenAICUClient.__new__(OpenAICUClient)
         client._model = "gpt-5.6-luna"
         client._reasoning_effort = "low"
-        await client._execute_openai_scroll(
-            {"x": 100, "y": 100, "delta_y": 200}, _Exec()
-        )
+        await client._execute_openai_scroll({"x": 100, "y": 100, "delta_y": 200}, _Exec())
         assert captured["args"]["magnitude"] == 200
         assert captured["args"]["direction"] == "down"
 
@@ -186,8 +184,13 @@ class TestOpenAIScrollClamp:
 
             async def execute(self, name, args):
                 captured["args"] = args
+
                 class _R:
-                    name = "scroll_at"; success = True; error = None; extra: dict = {}
+                    name = "scroll_at"
+                    success = True
+                    error = None
+                    extra: dict = {}
+
                 return _R()
 
             async def capture_screenshot(self):
@@ -199,9 +202,7 @@ class TestOpenAIScrollClamp:
         client = OpenAICUClient.__new__(OpenAICUClient)
         client._model = "gpt-5.6-luna"
         client._reasoning_effort = "low"
-        await client._execute_openai_scroll(
-            {"x": 50, "y": 50, "delta_y": 0, "delta_x": 0}, _Exec()
-        )
+        await client._execute_openai_scroll({"x": 50, "y": 50, "delta_y": 0, "delta_x": 0}, _Exec())
         assert captured["args"]["magnitude"] == 1
 
     @pytest.mark.asyncio
@@ -218,8 +219,13 @@ class TestOpenAIScrollClamp:
 
             async def execute(self, name, args):
                 captured["args"] = args
+
                 class _R:
-                    name = "scroll_at"; success = True; error = None; extra: dict = {}
+                    name = "scroll_at"
+                    success = True
+                    error = None
+                    extra: dict = {}
+
                 return _R()
 
             async def capture_screenshot(self):
@@ -605,8 +611,7 @@ class TestVncWebsockifyTokenGating:
         # loudly if the gate ever lets this through to the data plane.
         def _must_not_connect(*a, **kw):
             raise AssertionError(
-                "vnc_ws_proxy opened an upstream socket before "
-                "rejecting an unauthenticated client"
+                "vnc_ws_proxy opened an upstream socket before rejecting an unauthenticated client"
             )
 
         with patch("websockets.connect", side_effect=_must_not_connect):
@@ -697,6 +702,7 @@ class TestContainerReadinessGating:
         and get_state() reports running=True, agent=unready with the
         last error preserved for operators to see."""
         from backend.infra import docker as dm
+
         # Tight budget so the test doesn't actually wait 30s. Also
         # shrink the backoff floor so the jitter doesn't dominate.
         monkeypatch.setattr(dm.config, "container_ready_timeout", 0.3)
@@ -705,15 +711,23 @@ class TestContainerReadinessGating:
 
         # Simulate an upstream that refuses every connection.
         class _BrokenClient:
-            def __init__(self, *a, **kw): pass
-            async def __aenter__(self): return self
-            async def __aexit__(self, *a): return False
+            def __init__(self, *a, **kw):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
             async def get(self, *a, **kw):
                 raise httpx.ConnectError("connection refused")
 
         async def go():
-            with patch.object(dm.httpx, "AsyncClient", _BrokenClient), \
-                 patch.object(dm, "is_container_running", AsyncMock(return_value=True)):
+            with (
+                patch.object(dm.httpx, "AsyncClient", _BrokenClient),
+                patch.object(dm, "is_container_running", AsyncMock(return_value=True)),
+            ):
                 ok = await dm._wait_for_service("cua-test")
             return ok
 
@@ -734,13 +748,20 @@ class TestContainerReadinessGating:
         """Happy path: a 200 from /health flips state to ready and
         clears any prior last_health_error."""
         from backend.infra import docker as dm
+
         monkeypatch.setattr(dm.config, "container_ready_timeout", 0.5)
         monkeypatch.setattr(dm.config, "container_ready_poll_base", 0.01)
 
         class _OkClient:
-            def __init__(self, *a, **kw): pass
-            async def __aenter__(self): return self
-            async def __aexit__(self, *a): return False
+            def __init__(self, *a, **kw):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
             async def get(self, *a, **kw):
                 return MagicMock(status_code=200)
 
@@ -771,9 +792,11 @@ class TestContainerReadinessGating:
             "agent": "unready",
             "last_health_error": "ConnectError: connection refused",
         }
-        with patch.object(server, "start_container", AsyncMock(return_value=True)), \
-             patch.object(server, "get_container_state", return_value=fake_state), \
-             patch.object(server._agent_start_limiter, "allow", return_value=True):
+        with (
+            patch.object(server, "start_container", AsyncMock(return_value=True)),
+            patch.object(server, "get_container_state", return_value=fake_state),
+            patch.object(server._agent_start_limiter, "allow", return_value=True),
+        ):
             resp = client.post(
                 "/api/agent/start",
                 json={
@@ -815,9 +838,11 @@ class TestContainerReadinessGating:
             "agent": "unready",
             "last_health_error": "ConnectError: connection refused",
         }
-        with patch.object(server, "start_container", AsyncMock(return_value=False)), \
-             patch.object(server, "get_container_state", return_value=fake_state), \
-             patch.object(server._agent_start_limiter, "allow", return_value=True):
+        with (
+            patch.object(server, "start_container", AsyncMock(return_value=False)),
+            patch.object(server, "get_container_state", return_value=fake_state),
+            patch.object(server._agent_start_limiter, "allow", return_value=True),
+        ):
             resp = client.post(
                 "/api/agent/start",
                 json={
@@ -847,7 +872,6 @@ class TestPublicBindGuardrail:
     accidentally publish an unauthenticated REST + WS surface to the LAN."""
 
     def test_default_host_is_loopback(self):
-
         # The class default — what callers get when no HOST env is set.
         assert Config.host == "127.0.0.1"
 
@@ -889,7 +913,7 @@ class TestPublicBindGuardrail:
         monkeypatch.setenv("CUA_WS_TOKEN", "secret")
         with caplog.at_level("WARNING", logger="backend.main"):
             main._enforce_public_bind_guardrail("0.0.0.0")
-        # Operator should still see a loud warning even when allowed.
+            # Operator should still see a loud warning even when allowed.
             assert any("binding externally" in r.getMessage() for r in caplog.records)
 
     def test_backend_launcher_disables_protocol_ws_ping(self, monkeypatch):
@@ -909,6 +933,7 @@ class TestPublicBindGuardrail:
 class TestTokenEnvFile:
     def test_env_file_is_mode_0600(self, tmp_path, monkeypatch):
         from backend.infra import docker as dm
+
         path = dm._write_token_env_file("secret-value")
         try:
             assert os.path.exists(path)
@@ -935,8 +960,8 @@ class TestStuckAgentDetection:
 
     @pytest.mark.asyncio
     async def test_three_identical_trips_stop(self):
-        from backend.loop import AgentLoop
         from backend.engine import CUActionResult, CUTurnRecord
+        from backend.loop import AgentLoop
 
         loop = AgentLoop(task="hello", api_key="k" * 16)
         # Stub out the callback that requires a real broadcaster.
@@ -953,14 +978,19 @@ class TestStuckAgentDetection:
             # Synthesize three identical turns into the loop's on_turn.
             callback = _kw.get("on_turn")
             for i in range(1, 4):
-                callback(CUTurnRecord(
-                    turn=i, model_text="clicking",
-                    actions=[CUActionResult(
-                        name="click_at",
-                        success=True,
-                        extra={"pixel_x": 200, "pixel_y": 300},
-                    )],
-                ))
+                callback(
+                    CUTurnRecord(
+                        turn=i,
+                        model_text="clicking",
+                        actions=[
+                            CUActionResult(
+                                name="click_at",
+                                success=True,
+                                extra={"pixel_x": 200, "pixel_y": 300},
+                            )
+                        ],
+                    )
+                )
             return "done"
 
         with patch.object(ComputerUseEngine, "execute_task", new=_noop_execute_task):
@@ -972,9 +1002,8 @@ class TestStuckAgentDetection:
         """Flipping ``_stop_requested`` alone leaves the engine running
         until its turn limit. Detection must also cancel ``_run_task``
         so the next provider call raises ``CancelledError``."""
+        from backend.engine import ComputerUseEngine, CUActionResult, CUTurnRecord
         from backend.loop import AgentLoop
-        from backend.engine import CUActionResult, CUTurnRecord
-        from backend.engine import ComputerUseEngine
 
         loop = AgentLoop(task="hello", api_key="k" * 16)
         loop._on_log = None
@@ -982,7 +1011,8 @@ class TestStuckAgentDetection:
 
         cancelled = asyncio.Event()
         identical = CUActionResult(
-            name="click_at", success=True,
+            name="click_at",
+            success=True,
             extra={"pixel_x": 50, "pixel_y": 60},
         )
 
@@ -1004,15 +1034,15 @@ class TestStuckAgentDetection:
         assert cancelled.is_set(), "engine task must be cancelled when stuck"
         # Session ends in STOPPED, not COMPLETED.
         from backend.models.schemas import SessionStatus
+
         assert loop.session.status == SessionStatus.STOPPED
 
     @pytest.mark.asyncio
     async def test_long_workflow_with_varying_actions_not_stopped(self):
         """Preserve successful long-running workflows: many turns whose
         actions vary (different coords / text) must NOT trip detection."""
+        from backend.engine import ComputerUseEngine, CUActionResult, CUTurnRecord
         from backend.loop import AgentLoop
-        from backend.engine import CUActionResult, CUTurnRecord
-        from backend.engine import ComputerUseEngine
 
         loop = AgentLoop(task="hello", api_key="k" * 16)
         loop._on_log = None
@@ -1021,22 +1051,26 @@ class TestStuckAgentDetection:
         async def _engine(*_a, **_kw):
             cb = _kw["on_turn"]
             for i in range(1, 21):
-                cb(CUTurnRecord(
-                    turn=i, model_text=f"step {i}",
-                    actions=[CUActionResult(
-                        name="click_at", success=True,
-                        # Varying coords — fingerprint differs every turn.
-                        extra={"pixel_x": 100 + i, "pixel_y": 200 + i},
-                    )],
-                ))
+                cb(
+                    CUTurnRecord(
+                        turn=i,
+                        model_text=f"step {i}",
+                        actions=[
+                            CUActionResult(
+                                name="click_at",
+                                success=True,
+                                # Varying coords — fingerprint differs every turn.
+                                extra={"pixel_x": 100 + i, "pixel_y": 200 + i},
+                            )
+                        ],
+                    )
+                )
             return "done"
 
         with patch.object(ComputerUseEngine, "execute_task", new=_engine):
             await loop._run_computer_use_engine()
 
-        assert loop._stop_requested is False, (
-            "varying actions must not be flagged as stuck"
-        )
+        assert loop._stop_requested is False, "varying actions must not be flagged as stuck"
 
 
 # ── E — Gemini native async only (no asyncio.to_thread fallback) ────────
@@ -1068,11 +1102,13 @@ class TestGeminiNativeAsync:
         fake_interactions.create.assert_awaited_once_with(
             model="gemini-3.6-flash",
             input=[{"type": "text", "text": "hi"}],
-            tools=[{
-                "type": "computer_use",
-                "environment": "desktop",
-                "enable_prompt_injection_detection": True,
-            }],
+            tools=[
+                {
+                    "type": "computer_use",
+                    "environment": "desktop",
+                    "enable_prompt_injection_detection": True,
+                }
+            ],
         )
 
     def test_api_key_path_uses_interactions(self):
@@ -1088,7 +1124,7 @@ class TestGeminiNativeAsync:
         import inspect
 
         import backend.engine.gemini as gem_mod
+
         src = inspect.getsource(gem_mod)
         assert src.count("asyncio.to_thread(") == 1
         assert "credentials.refresh" in src
-

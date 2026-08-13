@@ -50,7 +50,12 @@ def rewrite_md_links(fragment: str, slug_by_path: dict[str, str]) -> str:
 def main() -> int:
     md_files = sorted(
         subprocess.run(
-            ["git", "ls-files", "*.md"], cwd=ROOT, check=True, capture_output=True, text=True, encoding="utf-8",
+            ["git", "ls-files", "*.md"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
         ).stdout.splitlines()
     )
     if not md_files:
@@ -67,7 +72,10 @@ def main() -> int:
     for path in md_files:
         result = subprocess.run(
             ["pandoc", "-f", "gfm", "-t", "html5", str(ROOT / path)],
-            check=True, capture_output=True, text=True, encoding="utf-8",
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
         )
         fragment = rewrite_md_links(result.stdout, slug_by_path)
         slug = slug_by_path[path]

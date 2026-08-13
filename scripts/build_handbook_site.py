@@ -29,28 +29,188 @@ class SourceDoc:
 
 
 SOURCES = (
-    SourceDoc("overview", "README.md", "Repository overview", "Start here", ("all",), "Purpose, supported routes, quick start, and verification status."),
-    SourceDoc("business", "docs/business-guide.md", "Business guide", "Start here", ("business",), "Capabilities, pilot design, controls, measures, and go/no-go questions."),
-    SourceDoc("user-manual", "USAGE.md", "Complete user manual", "Operate", ("user", "technical"), "Installation, dashboard operation, credentials, safety, APIs, and troubleshooting."),
-    SourceDoc("prompt-guide", "docs/computer-use-prompt-guide.md", "Prompt-writing guide", "Operate", ("user", "technical"), "Write tasks that are bounded, observable, and easier to verify."),
-    SourceDoc("deployment", "docs/deployment.md", "Deployment guide", "Operate", ("user", "technical", "business"), "Local operation, public binding, persistence, backup, and rollback preparation."),
-    SourceDoc("handbook", "docs/zero-to-hero-study-handbook.md", "Zero to Hero technical handbook", "Understand", ("technical", "user"), "Computer Use theory, architecture, execution flows, and study exercises."),
-    SourceDoc("technical", "TECHNICAL.md", "Technical architecture", "Understand", ("technical",), "Current runtime boundaries, public contracts, authentication, and quality gates."),
-    SourceDoc("architecture", "docs/codebase/ARCHITECTURE.md", "Architecture map", "Understand", ("technical", "business"), "Verified layers, runtime flow, patterns, and architectural risks."),
-    SourceDoc("structure", "docs/codebase/STRUCTURE.md", "Repository structure", "Understand", ("technical",), "Entry points, module boundaries, directories, and naming organization."),
-    SourceDoc("stack", "docs/codebase/STACK.md", "Technology stack", "Understand", ("technical", "business"), "Runtime, dependencies, infrastructure, toolchain, and configuration."),
-    SourceDoc("integrations", "docs/codebase/INTEGRATIONS.md", "Integrations", "Understand", ("technical", "business"), "Provider APIs, local stores, credentials, reliability, and observability."),
-    SourceDoc("conventions", "docs/codebase/CONVENTIONS.md", "Engineering conventions", "Understand", ("technical",), "Naming, formatting, contracts, errors, logging, and testing discipline."),
-    SourceDoc("security", "SECURITY.md", "Security policy", "Trust and verify", ("all",), "Supported versions and responsible vulnerability reporting."),
-    SourceDoc("testing", "docs/codebase/TESTING.md", "Testing and quality", "Trust and verify", ("technical", "business"), "Test layers, commands, isolation strategy, and known coverage gaps."),
-    SourceDoc("concerns", "docs/codebase/CONCERNS.md", "Known concerns", "Trust and verify", ("technical", "business"), "Prioritized risks, privacy watchpoints, and change discipline."),
-    SourceDoc("migration", "docs/migration-v2.md", "v2 migration", "Evidence and history", ("technical",), "Contract and operational migration guidance.", True),
-    SourceDoc("rollback", "docs/rollback-v2.md", "v2 rollback", "Evidence and history", ("technical", "business"), "Rollback triggers, procedure, and verification.", True),
-    SourceDoc("release", "docs/release-notes-v3.0.1.md", "v3.0.1 release notes", "Evidence and history", ("all",), "Current patch scope and Windows launcher fixes."),
-    SourceDoc("release-v3", "docs/release-notes-v3.0.0.md", "v3.0.0 release notes", "Evidence and history", ("all",), "Historical v3.0.0 release scope.", True),
-    SourceDoc("release-v2", "docs/release-notes-v2.0.0.md", "v2.0.0 release notes", "Evidence and history", ("all",), "Historical v2 release scope.", True),
-    SourceDoc("research", "docs/research-audit-2026-07-23.md", "Provider research audit", "Evidence and history", ("technical", "business"), "Dated evidence behind the supported provider catalog.", True),
-    SourceDoc("gemini-evaluation", "docs/gemini-successor-evaluation.md", "Gemini successor checklist", "Evidence and history", ("technical", "business"), "Acceptance criteria for future Gemini route changes.", True),
+    SourceDoc(
+        "overview",
+        "README.md",
+        "Repository overview",
+        "Start here",
+        ("all",),
+        "Purpose, supported routes, quick start, and verification status.",
+    ),
+    SourceDoc(
+        "business",
+        "docs/business-guide.md",
+        "Business guide",
+        "Start here",
+        ("business",),
+        "Capabilities, pilot design, controls, measures, and go/no-go questions.",
+    ),
+    SourceDoc(
+        "user-manual",
+        "USAGE.md",
+        "Complete user manual",
+        "Operate",
+        ("user", "technical"),
+        "Installation, dashboard operation, credentials, safety, APIs, and troubleshooting.",
+    ),
+    SourceDoc(
+        "prompt-guide",
+        "docs/computer-use-prompt-guide.md",
+        "Prompt-writing guide",
+        "Operate",
+        ("user", "technical"),
+        "Write tasks that are bounded, observable, and easier to verify.",
+    ),
+    SourceDoc(
+        "deployment",
+        "docs/deployment.md",
+        "Deployment guide",
+        "Operate",
+        ("user", "technical", "business"),
+        "Local operation, public binding, persistence, backup, and rollback preparation.",
+    ),
+    SourceDoc(
+        "handbook",
+        "docs/zero-to-hero-study-handbook.md",
+        "Zero to Hero technical handbook",
+        "Understand",
+        ("technical", "user"),
+        "Computer Use theory, architecture, execution flows, and study exercises.",
+    ),
+    SourceDoc(
+        "technical",
+        "TECHNICAL.md",
+        "Technical architecture",
+        "Understand",
+        ("technical",),
+        "Current runtime boundaries, public contracts, authentication, and quality gates.",
+    ),
+    SourceDoc(
+        "architecture",
+        "docs/codebase/ARCHITECTURE.md",
+        "Architecture map",
+        "Understand",
+        ("technical", "business"),
+        "Verified layers, runtime flow, patterns, and architectural risks.",
+    ),
+    SourceDoc(
+        "structure",
+        "docs/codebase/STRUCTURE.md",
+        "Repository structure",
+        "Understand",
+        ("technical",),
+        "Entry points, module boundaries, directories, and naming organization.",
+    ),
+    SourceDoc(
+        "stack",
+        "docs/codebase/STACK.md",
+        "Technology stack",
+        "Understand",
+        ("technical", "business"),
+        "Runtime, dependencies, infrastructure, toolchain, and configuration.",
+    ),
+    SourceDoc(
+        "integrations",
+        "docs/codebase/INTEGRATIONS.md",
+        "Integrations",
+        "Understand",
+        ("technical", "business"),
+        "Provider APIs, local stores, credentials, reliability, and observability.",
+    ),
+    SourceDoc(
+        "conventions",
+        "docs/codebase/CONVENTIONS.md",
+        "Engineering conventions",
+        "Understand",
+        ("technical",),
+        "Naming, formatting, contracts, errors, logging, and testing discipline.",
+    ),
+    SourceDoc(
+        "security",
+        "SECURITY.md",
+        "Security policy",
+        "Trust and verify",
+        ("all",),
+        "Supported versions and responsible vulnerability reporting.",
+    ),
+    SourceDoc(
+        "testing",
+        "docs/codebase/TESTING.md",
+        "Testing and quality",
+        "Trust and verify",
+        ("technical", "business"),
+        "Test layers, commands, isolation strategy, and known coverage gaps.",
+    ),
+    SourceDoc(
+        "concerns",
+        "docs/codebase/CONCERNS.md",
+        "Known concerns",
+        "Trust and verify",
+        ("technical", "business"),
+        "Prioritized risks, privacy watchpoints, and change discipline.",
+    ),
+    SourceDoc(
+        "migration",
+        "docs/migration-v2.md",
+        "v2 migration",
+        "Evidence and history",
+        ("technical",),
+        "Contract and operational migration guidance.",
+        True,
+    ),
+    SourceDoc(
+        "rollback",
+        "docs/rollback-v2.md",
+        "v2 rollback",
+        "Evidence and history",
+        ("technical", "business"),
+        "Rollback triggers, procedure, and verification.",
+        True,
+    ),
+    SourceDoc(
+        "release",
+        "docs/release-notes-v3.0.1.md",
+        "v3.0.1 release notes",
+        "Evidence and history",
+        ("all",),
+        "Current patch scope and Windows launcher fixes.",
+    ),
+    SourceDoc(
+        "release-v3",
+        "docs/release-notes-v3.0.0.md",
+        "v3.0.0 release notes",
+        "Evidence and history",
+        ("all",),
+        "Historical v3.0.0 release scope.",
+        True,
+    ),
+    SourceDoc(
+        "release-v2",
+        "docs/release-notes-v2.0.0.md",
+        "v2.0.0 release notes",
+        "Evidence and history",
+        ("all",),
+        "Historical v2 release scope.",
+        True,
+    ),
+    SourceDoc(
+        "research",
+        "docs/research-audit-2026-07-23.md",
+        "Provider research audit",
+        "Evidence and history",
+        ("technical", "business"),
+        "Dated evidence behind the supported provider catalog.",
+        True,
+    ),
+    SourceDoc(
+        "gemini-evaluation",
+        "docs/gemini-successor-evaluation.md",
+        "Gemini successor checklist",
+        "Evidence and history",
+        ("technical", "business"),
+        "Acceptance criteria for future Gemini route changes.",
+        True,
+    ),
 )
 
 TRACKS = {
@@ -65,7 +225,9 @@ def find_pandoc() -> str:
     if found:
         return found
     if os.name == "nt":
-        candidate = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Pandoc" / "pandoc.exe"
+        candidate = (
+            Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Pandoc" / "pandoc.exe"
+        )
         if candidate.exists():
             return str(candidate)
     raise RuntimeError("Pandoc is required. Install it and ensure 'pandoc' is on PATH.")
@@ -98,7 +260,11 @@ def rewrite_links(fragment: str, source: SourceDoc, included: dict[Path, SourceD
         target = (source_path.parent / target_text).resolve()
         included_source = included.get(target)
         if included_source:
-            destination = f"#{included_source.key}-{anchor}" if separator and anchor else f"#doc-{included_source.key}"
+            destination = (
+                f"#{included_source.key}-{anchor}"
+                if separator and anchor
+                else f"#doc-{included_source.key}"
+            )
             return f'href="{destination}"'
         try:
             relative = os.path.relpath(target, DEFAULT_OUTPUT.parent).replace("\\", "/")
@@ -112,7 +278,16 @@ def rewrite_links(fragment: str, source: SourceDoc, included: dict[Path, SourceD
 
 def convert_source(source: SourceDoc, pandoc: str, included: dict[Path, SourceDoc]) -> str:
     result = subprocess.run(
-        [pandoc, "-f", "gfm", "-t", "html5", "--section-divs", f"--id-prefix={source.key}-", str(ROOT / source.path)],
+        [
+            pandoc,
+            "-f",
+            "gfm",
+            "-t",
+            "html5",
+            "--section-divs",
+            f"--id-prefix={source.key}-",
+            str(ROOT / source.path),
+        ],
         check=True,
         capture_output=True,
         text=True,
@@ -140,7 +315,7 @@ def render_navigation() -> str:
             audiences = " ".join(source.audiences)
             rendered.append(
                 f'<a class="nav-link" href="#doc-{source.key}" data-audiences="{audiences}">'
-                f'<span>{html.escape(source.title)}</span><small>{html.escape(source.summary)}</small></a>'
+                f"<span>{html.escape(source.title)}</span><small>{html.escape(source.summary)}</small></a>"
             )
         rendered.append("</section>")
     return "".join(rendered)
@@ -169,13 +344,13 @@ def render_articles(pandoc: str) -> str:
         if source.historical:
             rendered.append(
                 f'<details class="manual-entry evidence-entry" id="doc-{source.key}" data-audiences="{audiences}">'
-                f'<summary><span>{html.escape(source.title)}</span><small>{html.escape(source.summary)}</small></summary>'
+                f"<summary><span>{html.escape(source.title)}</span><small>{html.escape(source.summary)}</small></summary>"
                 f'<div class="entry-body">{label}{fragment}{navigation}</div></details>'
             )
         else:
             rendered.append(
                 f'<article class="manual-entry" id="doc-{source.key}" data-audiences="{audiences}">'
-                f'{label}{fragment}{navigation}</article>'
+                f"{label}{fragment}{navigation}</article>"
             )
     return "".join(rendered)
 
@@ -193,7 +368,9 @@ def build_site(pandoc: str | None = None) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--check", action="store_true", help="Fail if the committed handbook is stale")
+    parser.add_argument(
+        "--check", action="store_true", help="Fail if the committed handbook is stale"
+    )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     try:
@@ -213,7 +390,7 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-TEMPLATE = r'''<!doctype html>
+TEMPLATE = r"""<!doctype html>
 <html lang="en" data-theme="light">
 <head>
 <meta charset="utf-8">
@@ -607,7 +784,7 @@ dialog::backdrop { background: rgb(5 12 17 / 70%); backdrop-filter: blur(4px); }
 </script>
 </body>
 </html>
-'''
+"""
 
 
 if __name__ == "__main__":

@@ -17,21 +17,38 @@ from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import httpx
 from fastapi import BackgroundTasks, FastAPI, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocketState
 
-from backend.infra.config import config, get_all_key_statuses, resolve_api_key
-from backend.engine import default_openai_reasoning_effort_for_model as _default_openai_reasoning_effort_for_model
-from backend.engine import validate_builtin_search_config as _validate_builtin_search_config
 from backend import files as file_registry
-from backend.models.schemas import load_allowed_models_json as _load_allowed_models_json
+from backend import safety as safety_registry
+from backend.engine import (
+    default_openai_reasoning_effort_for_model as _default_openai_reasoning_effort_for_model,
+)
+from backend.engine import validate_builtin_search_config as _validate_builtin_search_config
+from backend.executor import capture_screenshot, check_service_health
+from backend.infra.config import config, get_all_key_statuses, resolve_api_key
+from backend.infra.docker import (
+    _run as _dm_run,
+)
+from backend.infra.docker import (
+    build_image,
+    get_container_status,
+    start_container,
+    stop_container,
+)
+from backend.infra.docker import (
+    get_state as get_container_state,
+)
 from backend.infra.observability import install as _install_sid_filter
-from pydantic import BaseModel, ConfigDict, Field
+from backend.loop import AgentLoop
 from backend.models.schemas import (
     AgentAction,
     AgentSession,
@@ -39,27 +56,15 @@ from backend.models.schemas import (
     StartTaskRequest,
     TaskStatusResponse,
 )
-from backend.loop import AgentLoop
-from backend import safety as safety_registry
-from backend.executor import capture_screenshot, check_service_health
-from backend.infra.docker import (
-    _run as _dm_run,
-    build_image,
-    get_container_status,
-    get_state as get_container_state,
-    start_container,
-    stop_container,
-)
+from backend.models.schemas import load_allowed_models_json as _load_allowed_models_json
 from backend.models.validation import validate_tool_parity
-from backend.v2.api import router as v2_router
 from backend.v2.api import error_response as _v2_error_response
+from backend.v2.api import router as v2_router
 from backend.v2.frames import FrameBroker, FrameCodec, pack_cuaf_frame
-from backend.v2.orchestrator import ExecutionRequest as V2ExecutionRequest
 from backend.v2.orchestrator import ExecutionOutcome as V2ExecutionOutcome
+from backend.v2.orchestrator import ExecutionRequest as V2ExecutionRequest
 from backend.v2.orchestrator import orchestrator as _v2_orchestrator
 from backend.v2.retention import frame_retention
-
-import httpx
 
 logging.basicConfig(
     level=logging.DEBUG if config.debug else logging.INFO,
@@ -82,7 +87,9 @@ async def _lifespan(_app: FastAPI):
     # ── startup ────────────────────────────────────────────────────────
     logger.info(
         "CUA backend starting — model=%s, agent_service=%s, mode=%s",
-        config.gemini_model, config.agent_service_url, config.agent_mode,
+        config.gemini_model,
+        config.agent_service_url,
+        config.agent_mode,
     )
     try:
         validate_tool_parity()
@@ -133,6 +140,7 @@ async def _lifespan(_app: FastAPI):
         # DesktopExecutor so FD counts don't grow across reloads.
         try:
             from backend.engine import close_shared_executor_clients
+
             await close_shared_executor_clients()
         except Exception:
             logger.exception("Error closing shared executor httpx clients")
@@ -153,8 +161,11 @@ app.include_router(v2_router)
 @app.exception_handler(RequestValidationError)
 async def _validation_error_handler(request: Request, exc: RequestValidationError):
     if request.url.path.startswith("/api/v2/"):
-        return _v2_error_response(request, 422, "VALIDATION_ERROR", "Request validation failed", details=exc.errors())
+        return _v2_error_response(
+            request, 422, "VALIDATION_ERROR", "Request validation failed", details=exc.errors()
+        )
     return JSONResponse(status_code=422, content={"detail": exc.errors()})
+
 
 # CORS: restrict to local dev origins by default; override with CORS_ORIGINS env var.
 #
@@ -211,7 +222,7 @@ async def _api_version_alias(request: Request, call_next):
     the existing handlers with zero duplication."""
     path = request.url.path
     if path.startswith(_API_V1_PREFIX):
-        new_path = "/api/" + path[len(_API_V1_PREFIX):]
+        new_path = "/api/" + path[len(_API_V1_PREFIX) :]
         # Starlette's Request.url is immutable; the scope is what routing reads.
         request.scope["path"] = new_path
         request.scope["raw_path"] = new_path.encode("latin-1")
@@ -350,6 +361,7 @@ async def _security_headers(request: Request, call_next):
         response.headers.setdefault(k, v)
     return response
 
+
 # Security constants
 _MAX_CONCURRENT_SESSIONS = 3
 _MAX_STEPS_HARD_CAP = 200
@@ -406,7 +418,8 @@ def _require_rest_auth(request: Request) -> Response:
     if not _rest_token_ok(request):
         logger.warning(
             "Rejected REST %s %s: missing/invalid workbench token (ip=%r)",
-            request.method, request.url.path,
+            request.method,
+            request.url.path,
             request.client.host if request.client else "",
         )
         return _error_response(401, "Unauthorized")
@@ -481,7 +494,8 @@ def _require_origin(request: Request) -> Response:
     if not _rest_origin_ok(request):
         logger.warning(
             "Rejected REST %s %s from origin=%r ip=%r",
-            request.method, request.url.path,
+            request.method,
+            request.url.path,
             request.headers.get("origin", ""),
             request.client.host if request.client else "",
         )
@@ -520,8 +534,10 @@ for _m in _CU_ALLOWED_MODELS:
 
 # ── Rate limiter (in-memory sliding window, per-key) ──────────────────────────
 
+
 class _RateLimiter:
     """Simple sliding-window rate limiter keyed by caller identity (e.g. IP)."""
+
     # Hard ceilings on the in-memory bucket map (P3).
     # Eviction triggers at ``_EVICT_THRESHOLD`` (90 % of the ceiling) so a
     # spoofed-IP flood can't transiently bloat the dict up to 2× ``_EVICT_TO``
@@ -553,10 +569,7 @@ class _RateLimiter:
         # sustain high-volume entries indefinitely — we keep the
         # ``_EVICT_TO`` most recently active keys and discard the rest.
         if len(self._calls) > self._EVICT_THRESHOLD:
-            self._calls = {
-                k: v for k, v in self._calls.items()
-                if v and now - v[-1] < self._window
-            }
+            self._calls = {k: v for k, v in self._calls.items() if v and now - v[-1] < self._window}
             if len(self._calls) > self._EVICT_TO:
                 # Keep the _EVICT_TO most-recently-active keys.
                 kept = sorted(
@@ -692,9 +705,7 @@ _broadcast_tasks: set[asyncio.Task] = set()
 _session_broadcast_tasks: dict[str, set[asyncio.Task]] = {}
 # P-5: cap on per-session pending broadcasts. Configurable via env so
 # operators with very chatty UIs can raise it.
-_MAX_SESSION_BROADCAST_BACKLOG = max(
-    8, int(os.getenv("CUA_MAX_SESSION_BROADCAST_BACKLOG", "64"))
-)
+_MAX_SESSION_BROADCAST_BACKLOG = max(8, int(os.getenv("CUA_MAX_SESSION_BROADCAST_BACKLOG", "64")))
 
 
 def _ws_lock(ws: WebSocket) -> asyncio.Lock:
@@ -735,7 +746,7 @@ async def _send_to_ws(ws: WebSocket, msg: str) -> str:
             return "terminal"
         logger.debug("Transient WS send error (kept client): %s", exc)
         return "transient"
-    except Exception as exc:  # noqa: BLE001 — classify, don't crash the fan-out
+    except Exception as exc:
         if _ws_is_terminal(ws):
             return "terminal"
         logger.debug("Transient WS send error (kept client): %s", exc)
@@ -760,7 +771,7 @@ async def _broadcast(event: str, data: dict) -> None:
         *(_send_to_ws(ws, msg) for ws in clients),
         return_exceptions=True,
     )
-    for ws, result in zip(clients, results):
+    for ws, result in zip(clients, results, strict=True):
         if result == "terminal" or isinstance(result, Exception):
             _unsubscribe_screenshots(ws)
             _ws_clients.discard(ws)
@@ -804,6 +815,7 @@ def _schedule_broadcast(event: str, data: dict, *, session_id: str | None = None
 
 
 # ── REST Endpoints ────────────────────────────────────────────────────────────
+
 
 @app.get("/api/health")
 async def health():
@@ -856,8 +868,7 @@ async def ready():
     has_any_key = any(os.environ.get(name, "").strip() for name in key_env_names)
     if not has_any_key:
         reasons.append(
-            "no provider API key configured; set one of "
-            + ", ".join(key_env_names),
+            "no provider API key configured; set one of " + ", ".join(key_env_names),
         )
 
     # Sandbox state must not be a hard ``error`` state.
@@ -882,15 +893,20 @@ async def api_models():
     """
     return {"models": _CU_ALLOWED_MODELS}
 
+
 @app.get("/api/engines")
 async def api_engines():
     """Return the single supported engine for frontend dropdowns."""
-    return {"engines": [{
-        "value": "computer_use",
-        "label": "\U0001f5a5\ufe0f Computer Use (Native CU Protocol) \u2605 Recommended",
-        "category": "desktop",
-        "priority": 6,
-    }]}
+    return {
+        "engines": [
+            {
+                "value": "computer_use",
+                "label": "\U0001f5a5\ufe0f Computer Use (Native CU Protocol) \u2605 Recommended",
+                "category": "desktop",
+                "priority": 6,
+            }
+        ]
+    }
 
 
 @app.get("/api/container/status")
@@ -1091,7 +1107,10 @@ async def api_upload_file(request: Request):
 
     logger.info(
         "AUDIT files/upload — id=%s name=%r size=%d ext=%s",
-        rec.file_id, rec.filename, rec.size_bytes, rec.extension,
+        rec.file_id,
+        rec.filename,
+        rec.size_bytes,
+        rec.extension,
     )
     return {
         "file_id": rec.file_id,
@@ -1134,17 +1153,22 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
 
     # ── Validate inputs ───────────────────────────────────────────────
     if req.engine != "computer_use":
-        return _error_response(400, f"Invalid engine: {req.engine}. Only 'computer_use' is supported.")
+        return _error_response(
+            400, f"Invalid engine: {req.engine}. Only 'computer_use' is supported."
+        )
     if req.execution_target != "docker":
-        return _error_response(400, f"Invalid execution_target: {req.execution_target}. Only 'docker' is supported.")
+        return _error_response(
+            400, f"Invalid execution_target: {req.execution_target}. Only 'docker' is supported."
+        )
     if req.provider not in _VALID_PROVIDERS:
         return _error_response(400, f"Invalid provider: {req.provider}")
     if req.model not in _VALID_MODELS_BY_PROVIDER.get(req.provider, set()):
         allowed = ", ".join(
-            m["model_id"] for m in _CU_ALLOWED_MODELS
-            if m["provider"] == req.provider
+            m["model_id"] for m in _CU_ALLOWED_MODELS if m["provider"] == req.provider
         )
-        return _error_response(400, f"Model '{req.model}' is not allowed. Supported models: {allowed}")
+        return _error_response(
+            400, f"Model '{req.model}' is not allowed. Supported models: {allowed}"
+        )
     if not req.task or not req.task.strip():
         return _error_response(400, "Task description is required")
 
@@ -1173,7 +1197,9 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
     # a legacy alias and normalized by ``OpenAICUClient.__init__``.
     _VALID_REASONING_EFFORTS = {"minimal", "low", "medium", "high", "none", "xhigh"}
     default_reasoning_effort = _default_openai_reasoning_effort_for_model(req.model)
-    reasoning_effort = (req.reasoning_effort or os.getenv("OPENAI_REASONING_EFFORT") or default_reasoning_effort).lower()
+    reasoning_effort = (
+        req.reasoning_effort or os.getenv("OPENAI_REASONING_EFFORT") or default_reasoning_effort
+    ).lower()
     if reasoning_effort not in _VALID_REASONING_EFFORTS:
         reasoning_effort = default_reasoning_effort
 
@@ -1190,18 +1216,30 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
     # Resolve API key: UI input → .env → system env
     resolved_key, key_source = resolve_api_key(req.provider, req.api_key)
     if not resolved_key or len(resolved_key) < 8:
-        return _error_response(400, "API key is required. Provide it in the UI, .env file, or system environment variable.")
+        return _error_response(
+            400,
+            "API key is required. Provide it in the UI, .env file, or system environment variable.",
+        )
 
     # Limit concurrent sessions
     active_count = sum(1 for t in _active_tasks.values() if not t.done())
     if active_count >= _MAX_CONCURRENT_SESSIONS:
-        return _error_response(429, f"Maximum {_MAX_CONCURRENT_SESSIONS} concurrent sessions allowed")
+        return _error_response(
+            429, f"Maximum {_MAX_CONCURRENT_SESSIONS} concurrent sessions allowed"
+        )
 
     # Audit log (mask API key)
     masked_key = resolved_key[:4] + "..." + resolved_key[-4:] if len(resolved_key) > 8 else "****"
-    logger.info("AUDIT agent/start — task=%r engine=%s provider=%s model=%s key=%s source=%s target=%s",
-                req.task[:80], req.engine, req.provider, req.model, masked_key, key_source,
-                req.execution_target)
+    logger.info(
+        "AUDIT agent/start — task=%r engine=%s provider=%s model=%s key=%s source=%s target=%s",
+        req.task[:80],
+        req.engine,
+        req.provider,
+        req.model,
+        masked_key,
+        key_source,
+        req.execution_target,
+    )
 
     container_ok = await start_container()
     state = get_container_state()
@@ -1240,16 +1278,12 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
         reasoning_effort=reasoning_effort if req.provider == "openai" else None,
         use_builtin_search=req.use_builtin_search,
         attached_files=req.attached_files or [],
-        on_log=lambda entry: _schedule_broadcast(
-            "log", {"log": entry.model_dump()}
-        ),
+        on_log=lambda entry: _schedule_broadcast("log", {"log": entry.model_dump()}),
         on_step=lambda step: _schedule_broadcast(
             "step",
             {"step": step.model_dump(exclude={"screenshot_b64", "raw_model_response"})},
         ),
-        on_screenshot=lambda b64: _schedule_broadcast(
-            "screenshot", {"screenshot": b64}
-        ),
+        on_screenshot=lambda b64: _schedule_broadcast("screenshot", {"screenshot": b64}),
     )
 
     _active_loops[loop.session_id] = loop
@@ -1265,13 +1299,16 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
             loop.session.status = SessionStatus.ERROR
             session = loop.session
 
-        await _broadcast("agent_finished", {
-            "session_id": loop.session_id,
-            "status": session.status.value,
-            "steps": len(session.steps),
-            "final_text": session.final_text,
-            "gemini_grounding": session.gemini_grounding,
-        })
+        await _broadcast(
+            "agent_finished",
+            {
+                "session_id": loop.session_id,
+                "status": session.status.value,
+                "steps": len(session.steps),
+                "final_text": session.final_text,
+                "gemini_grounding": session.gemini_grounding,
+            },
+        )
         _cleanup_session(loop.session_id)
 
     task = asyncio.create_task(_run_and_notify())
@@ -1291,6 +1328,7 @@ async def _start_v2_execution(req: V2ExecutionRequest) -> V2ExecutionOutcome:
     """Run and observe an AgentLoop so runtime failure can trigger fallback."""
     if not await start_container() or get_container_state().get("agent") != "ready":
         raise RuntimeError("Sandbox is not ready")
+
     def _on_step(step) -> None:
         if req.on_event is None or step.action is None:
             return
@@ -1302,11 +1340,13 @@ async def _start_v2_execution(req: V2ExecutionRequest) -> V2ExecutionOutcome:
             return
         data = entry.data or {}
         if data.get("type") == "safety_confirmation":
-            req.on_event({
-                "event": "SAFETY_CONFIRMATION",
-                "nonce": data.get("nonce", ""),
-                "explanation": data.get("explanation", ""),
-            })
+            req.on_event(
+                {
+                    "event": "SAFETY_CONFIRMATION",
+                    "nonce": data.get("nonce", ""),
+                    "explanation": data.get("explanation", ""),
+                }
+            )
         else:
             req.on_event({"event": "LOG", "level": entry.level, "message": entry.message})
 
@@ -1336,9 +1376,7 @@ async def _start_v2_execution(req: V2ExecutionRequest) -> V2ExecutionOutcome:
         if session.status == SessionStatus.ERROR:
             raise RuntimeError("Computer Use loop completed with an error")
         actions = tuple(
-            step.action.model_dump(mode="json")
-            for step in session.steps
-            if step.action is not None
+            step.action.model_dump(mode="json") for step in session.steps if step.action is not None
         )
         return V2ExecutionOutcome(
             session_id=loop.session_id,
@@ -1382,7 +1420,7 @@ async def _stop_agent(session_id: str):
         task.cancel()
         try:
             await asyncio.wait_for(task, timeout=5)
-        except (asyncio.CancelledError, asyncio.TimeoutError):
+        except (TimeoutError, asyncio.CancelledError):
             pass
 
     _cleanup_session(session_id)
@@ -1419,6 +1457,7 @@ async def api_agent_status(session_id: str):
 
 class SafetyConfirmRequest(BaseModel):
     """Body for the safety-confirm endpoint."""
+
     model_config = ConfigDict(extra="forbid")
     session_id: str
     confirm: bool = False
@@ -1430,6 +1469,7 @@ class SafetyConfirmRequest(BaseModel):
 
 class ValidateKeyRequest(BaseModel):
     """Body for the key validation endpoint."""
+
     model_config = ConfigDict(extra="forbid")
     provider: str = Field(max_length=20)
     api_key: str = Field(max_length=256)
@@ -1548,7 +1588,7 @@ async def api_agent_history(session_id: str):
 # Proxy requests so the frontend never hits Docker-mapped ports directly.
 
 _NOVNC_HTTP = "http://127.0.0.1:6080"
-_NOVNC_WS   = "ws://127.0.0.1:6080"
+_NOVNC_WS = "ws://127.0.0.1:6080"
 _novnc_client: httpx.AsyncClient | None = None
 
 
@@ -1585,6 +1625,7 @@ async def vnc_ws_proxy(ws: WebSocket):
     await ws.accept()
     try:
         import websockets
+
         async with websockets.connect(
             f"{_NOVNC_WS}/websockify",
             subprotocols=["binary"],
@@ -1604,7 +1645,7 @@ async def vnc_ws_proxy(ws: WebSocket):
                         # input within milliseconds.
                         data = await asyncio.wait_for(ws.receive_bytes(), timeout=60)
                         await asyncio.wait_for(upstream.send(data), timeout=30)
-                except (asyncio.TimeoutError, Exception):
+                except (TimeoutError, Exception):
                     pass
 
             async def upstream_to_client():
@@ -1615,7 +1656,7 @@ async def vnc_ws_proxy(ws: WebSocket):
                             await asyncio.wait_for(ws.send_bytes(msg), timeout=30)
                         else:
                             await asyncio.wait_for(ws.send_text(msg), timeout=30)
-                except (asyncio.TimeoutError, Exception):
+                except (TimeoutError, Exception):
                     pass
 
             await asyncio.gather(client_to_upstream(), upstream_to_client())
@@ -1626,8 +1667,11 @@ async def vnc_ws_proxy(ws: WebSocket):
 # Allowlisted noVNC static asset prefixes. Anything outside this list
 # gets rejected at the edge regardless of what websockify would serve.
 _NOVNC_ALLOWED_PREFIXES = (
-    "vnc.html", "vnc_lite.html",
-    "core/", "app/", "vendor/",
+    "vnc.html",
+    "vnc_lite.html",
+    "core/",
+    "app/",
+    "vendor/",
     "images/",
 )
 
@@ -1653,6 +1697,7 @@ def _is_safe_vnc_path(path: str) -> bool:
 async def vnc_http_proxy(path: str):
     """Proxy noVNC static files from the container's websockify web server."""
     from starlette.responses import Response
+
     if not _is_safe_vnc_path(path):
         return Response(content="forbidden", status_code=403)
     client = _get_novnc_client()
@@ -1757,6 +1802,7 @@ async def v2_websocket_endpoint(ws: WebSocket, session_id: str):
     finally:
         _v2_orchestrator.unsubscribe(session_id, event_queue)
 
+
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     """Accept a WebSocket connection for real-time event streaming."""
@@ -1833,7 +1879,9 @@ def _transcode_preview_frame(png_b64: str) -> tuple[str, str]:
     """
     try:
         import io
+
         from PIL import Image
+
         raw = base64.b64decode(png_b64)
         img = Image.open(io.BytesIO(raw)).convert("RGB")
         max_edge = config.preview_max_edge
@@ -1907,11 +1955,13 @@ async def _screenshot_publisher_loop():
 
                 try:
                     frame_hash = hashlib.blake2b(
-                        base64.b64decode(b64), digest_size=16,
+                        base64.b64decode(b64),
+                        digest_size=16,
                     ).hexdigest()
                 except Exception:
                     frame_hash = hashlib.blake2b(
-                        b64.encode("ascii"), digest_size=16,
+                        b64.encode("ascii"),
+                        digest_size=16,
                     ).hexdigest()
 
                 # Always refresh the cache so a newly-attached
@@ -1925,11 +1975,13 @@ async def _screenshot_publisher_loop():
 
                 # P4: downscale + JPEG-transcode the preview frame off the loop.
                 preview_b64, preview_fmt = await asyncio.to_thread(_transcode_preview_frame, b64)
-                msg = json.dumps({
-                    "event": "screenshot_stream",
-                    "screenshot": preview_b64,
-                    "format": preview_fmt,
-                })
+                msg = json.dumps(
+                    {
+                        "event": "screenshot_stream",
+                        "screenshot": preview_b64,
+                        "format": preview_fmt,
+                    }
+                )
                 # P10: fan out concurrently; per-connection locks (inside
                 # _send_to_ws) still serialize each socket's own frames.
                 subscribers = list(_screenshot_subscribers)
@@ -1937,7 +1989,7 @@ async def _screenshot_publisher_loop():
                     *(_send_to_ws(ws, msg) for ws in subscribers),
                     return_exceptions=True,
                 )
-                for ws, result in zip(subscribers, results):
+                for ws, result in zip(subscribers, results, strict=True):
                     if result == "terminal" or isinstance(result, Exception):
                         _unsubscribe_screenshots(ws)
                         _ws_clients.discard(ws)
@@ -1953,12 +2005,14 @@ async def _screenshot_publisher_loop():
                         "AGENT_SERVICE_TOKEN mismatch after container restart",
                         status,
                     )
-                    notice = json.dumps({
-                        "event": "auth_failed",
-                        "status": status,
-                        "message": "Agent service rejected request (token mismatch). "
-                                   "Restart the backend to pick up the current container token.",
-                    })
+                    notice = json.dumps(
+                        {
+                            "event": "auth_failed",
+                            "status": status,
+                            "message": "Agent service rejected request (token mismatch). "
+                            "Restart the backend to pick up the current container token.",
+                        }
+                    )
                     for ws in list(_screenshot_subscribers):
                         await _send_to_ws(ws, notice)  # best-effort; serialized
                 await asyncio.sleep(backoff)
@@ -2052,12 +2106,20 @@ def _unsubscribe_screenshots(ws: WebSocket) -> None:
     _detach_screenshot_subscriber(ws)
     _maybe_stop_screenshot_publisher()
 
+
 # WS event schema — extracted to backend.server.ws_schema; re-exported
 # here so the broadcast layer and any importer keep using backend.server.
-from backend.server.ws_schema import (  # noqa: E402
-    ScreenshotEvent, ScreenshotStreamEvent, LogEvent, StepEvent,
-    AgentFinishedEvent, AuthFailedEvent, PongEvent, GenericWSEvent,
-    WSEvent, validate_outbound,
+from backend.server.ws_schema import (  # noqa: E402, F401
+    AgentFinishedEvent,
+    AuthFailedEvent,
+    GenericWSEvent,
+    LogEvent,
+    PongEvent,
+    ScreenshotEvent,
+    ScreenshotStreamEvent,
+    StepEvent,
+    WSEvent,
+    validate_outbound,
 )
 
 
@@ -2072,8 +2134,7 @@ class _SPAStaticFiles(StaticFiles):
             return Response(status_code=404)
         is_navigation = scope.get("method") in {"GET", "HEAD"}
         is_spa_route = any(
-            route_path == route or route_path.startswith(f"{route}/")
-            for route in self._SPA_ROUTES
+            route_path == route or route_path.startswith(f"{route}/") for route in self._SPA_ROUTES
         )
         try:
             response = await super().get_response(path, scope)
@@ -2090,11 +2151,14 @@ def _mount_production_frontend(application: FastAPI, dist_dir: Path | None = Non
     """Mount a Vite production build when present; remain non-fatal in dev."""
 
     configured = os.getenv("CUA_FRONTEND_DIST")
-    root = dist_dir or (Path(configured) if configured else Path(__file__).parents[2] / "frontend" / "dist")
+    root = dist_dir or (
+        Path(configured) if configured else Path(__file__).parents[2] / "frontend" / "dist"
+    )
     index = root / "index.html"
     if not index.is_file():
         logger.info("Frontend production bundle not mounted; %s is absent", index)
         return False
+
     @application.api_route(
         "/api/{unmatched_path:path}",
         methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],

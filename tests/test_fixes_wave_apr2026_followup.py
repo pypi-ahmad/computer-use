@@ -1,4 +1,3 @@
-from __future__ import annotations
 """Follow-up fixes to the April-2026 wave: OpenAI ``gpt-5.6-luna`` tool-shape
 migration + registry correctness.
 
@@ -11,6 +10,7 @@ Covers:
     gpt-5.3-codex and beyond).
 """
 
+from __future__ import annotations
 
 import base64
 from types import SimpleNamespace
@@ -23,7 +23,6 @@ from backend.engine import (
     _build_openai_computer_call_output,
     _sanitize_openai_response_item_for_replay,
 )
-
 
 # ---------------------------------------------------------------------------
 # 1. Tool-shape selection
@@ -173,7 +172,8 @@ class TestActionsArray:
         # computer_call_output keyed to the original call_id.
         second_turn_input = captured_inputs[1]
         call_outputs = [
-            item for item in second_turn_input
+            item
+            for item in second_turn_input
             if isinstance(item, dict) and item.get("type") == "computer_call_output"
         ]
         assert len(call_outputs) == 1
@@ -194,10 +194,14 @@ class TestActionsArray:
             actions=None,
         )
         first_response = SimpleNamespace(
-            output=[first_call], output_text="", error=None,
+            output=[first_call],
+            output_text="",
+            error=None,
         )
         terminal_response = SimpleNamespace(
-            output=[], output_text="done", error=None,
+            output=[],
+            output_text="done",
+            error=None,
         )
         responses = [first_response, terminal_response]
         dispatched: list[str] = []
@@ -284,7 +288,8 @@ class TestActionsArray:
             if isinstance(item, dict) and isinstance(part, dict)
         )
         assert any(
-            'Active user task: Open Chrome and search for "weather in New York"' in part.get("text", "")
+            'Active user task: Open Chrome and search for "weather in New York"'
+            in part.get("text", "")
             for item in nudge_turn
             for part in item.get("content", [])
             if isinstance(item, dict) and isinstance(part, dict)
@@ -398,7 +403,8 @@ class TestActionsArray:
             if isinstance(item, dict) and isinstance(part, dict)
         )
         assert any(
-            'Active user task: Open Chrome and search for "weather in New York"' in part.get("text", "")
+            'Active user task: Open Chrome and search for "weather in New York"'
+            in part.get("text", "")
             for item in nudge_turn
             for part in item.get("content", [])
             if isinstance(item, dict) and isinstance(part, dict)
@@ -440,12 +446,14 @@ class TestScreenshotDetailOriginal:
         explicit that ``high`` / ``low`` image detail should never be
         used for computer-use tasks."""
         payload = _build_openai_computer_call_output(
-            "call_detail_guard", "Zm9v",
+            "call_detail_guard",
+            "Zm9v",
         )
         assert payload["output"]["detail"] == "original"
         # And with safety acks — the detail must not regress on that path.
         payload_with_acks = _build_openai_computer_call_output(
-            "call_detail_guard_2", "YmFy",
+            "call_detail_guard_2",
+            "YmFy",
             acknowledged_safety_checks=[{"id": "sc", "code": "c", "message": "m"}],
         )
         assert payload_with_acks["output"]["detail"] == "original"

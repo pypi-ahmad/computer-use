@@ -256,6 +256,7 @@ def get_system_prompt(
     # A ``from backend.infra.config import config`` would bind the value
     # into this module at import time and ignore any later swap.
     from backend.infra import config as _cfg_mod
+
     _cfg = _cfg_mod.config
 
     if engine != "computer_use":
@@ -277,11 +278,7 @@ def get_system_prompt(
         template = SYSTEM_PROMPT_OPENAI_CU
     else:
         template = SYSTEM_PROMPT_GEMINI_CU
-    return (
-        template
-        .replace("{viewport_width}", vw)
-        .replace("{viewport_height}", vh)
-    )
+    return template.replace("{viewport_width}", vw).replace("{viewport_height}", vh)
 
 
 # ── Prompt / Schema drift detection ──────────────────────────────────────────

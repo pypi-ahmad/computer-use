@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Mapping
+from typing import Any
 
 from backend.providers.planner import (
     build_planned_computer_use_task,
@@ -33,6 +34,7 @@ class ProviderEvent:
 
 EventCallback = Callable[[ProviderEvent], Any]
 SafetyCallback = Callable[[str], Awaitable[bool] | bool]
+
 
 def normalize_tools(tools: ProviderTools | Mapping[str, Any] | None) -> ProviderTools:
     """Accept either the typed tools object or a request-style mapping."""
@@ -74,9 +76,7 @@ async def maybe_plan_with_web_search(
     log_events: list[ProviderEvent] = []
 
     def _on_log(level: str, message: str) -> None:
-        log_events.append(
-            ProviderEvent("log", {"level": str(level), "message": str(message)})
-        )
+        log_events.append(ProviderEvent("log", {"level": str(level), "message": str(message)}))
 
     brief = await create_web_execution_brief(
         provider=provider,
@@ -141,9 +141,7 @@ async def stream_client_run_loop(
         queue.put_nowait(ProviderEvent("turn", record))
 
     def _on_log(level: str, message: str) -> None:
-        queue.put_nowait(
-            ProviderEvent("log", {"level": str(level), "message": str(message)})
-        )
+        queue.put_nowait(ProviderEvent("log", {"level": str(level), "message": str(message)}))
 
     async def _runner() -> None:
         try:
@@ -163,7 +161,7 @@ async def stream_client_run_loop(
                         "completion_payload": {
                             **(getattr(client, "_last_completion_payload", None) or {}),
                             **(
-                                {"usage": dict(getattr(client, "_usage"))}
+                                {"usage": dict(client._usage)}
                                 if getattr(client, "_usage", None)
                                 else {}
                             ),
@@ -176,7 +174,7 @@ async def stream_client_run_loop(
 
     original_search = getattr(client, "_use_builtin_search", None)
     if force_computer_only and original_search is not None:
-        setattr(client, "_use_builtin_search", False)
+        client._use_builtin_search = False
 
     run_task = asyncio.create_task(_runner())
     try:
@@ -200,4 +198,4 @@ async def stream_client_run_loop(
             except Exception:
                 logger.debug("Error closing provider executor", exc_info=True)
         if force_computer_only and original_search is not None:
-            setattr(client, "_use_builtin_search", original_search)
+            client._use_builtin_search = original_search

@@ -38,34 +38,87 @@ def denormalize_y(y: int, screen_height: int = DEFAULT_SCREEN_HEIGHT) -> int:
     return int(y / GEMINI_NORMALIZED_MAX * screen_height)
 
 
-_XDOTOOL_SPECIAL_KEYS: frozenset[str] = frozenset({
-    "return", "enter", "backspace", "tab", "escape", "delete",
-    "space", "home", "end", "insert", "pause",
-    "left", "right", "up", "down",
-    "page_up", "page_down", "pageup", "pagedown",
-    "print", "scroll_lock", "num_lock", "caps_lock",
-    "super", "ctrl", "alt", "shift",
-    *(f"f{i}" for i in range(1, 25)),
-})
+_XDOTOOL_SPECIAL_KEYS: frozenset[str] = frozenset(
+    {
+        "return",
+        "enter",
+        "backspace",
+        "tab",
+        "escape",
+        "delete",
+        "space",
+        "home",
+        "end",
+        "insert",
+        "pause",
+        "left",
+        "right",
+        "up",
+        "down",
+        "page_up",
+        "page_down",
+        "pageup",
+        "pagedown",
+        "print",
+        "scroll_lock",
+        "num_lock",
+        "caps_lock",
+        "super",
+        "ctrl",
+        "alt",
+        "shift",
+        *(f"f{i}" for i in range(1, 25)),
+    }
+)
 
-_ALLOWED_KEY_PUNCTUATION: frozenset[str] = frozenset({
-    "minus", "plus", "equal", "comma", "period", "slash", "backslash",
-    "semicolon", "apostrophe", "grave", "bracketleft", "bracketright",
-    "underscore", "asterisk", "at", "hash", "dollar", "percent",
-    "ampersand", "question", "exclam", "colon", "parenleft",
-    "parenright", "braceleft", "braceright", "quotedbl",
-})
+_ALLOWED_KEY_PUNCTUATION: frozenset[str] = frozenset(
+    {
+        "minus",
+        "plus",
+        "equal",
+        "comma",
+        "period",
+        "slash",
+        "backslash",
+        "semicolon",
+        "apostrophe",
+        "grave",
+        "bracketleft",
+        "bracketright",
+        "underscore",
+        "asterisk",
+        "at",
+        "hash",
+        "dollar",
+        "percent",
+        "ampersand",
+        "question",
+        "exclam",
+        "colon",
+        "parenleft",
+        "parenright",
+        "braceleft",
+        "braceright",
+        "quotedbl",
+    }
+)
 
 
 # Exact-match modifier normalization. Keyed on ``token.lower()`` so a key token
 # that merely *contains* a modifier substring (e.g. a hypothetical "Shifted")
 # is never silently rewritten — unlike the old substring ``.replace()`` chain.
 _MODIFIER_MAP: dict[str, str] = {
-    "control": "ctrl", "ctrl": "ctrl",
-    "alt": "alt", "option": "alt",
+    "control": "ctrl",
+    "ctrl": "ctrl",
+    "alt": "alt",
+    "option": "alt",
     "shift": "shift",
-    "meta": "super", "super": "super", "cmd": "super",
-    "command": "super", "win": "super", "windows": "super",
+    "meta": "super",
+    "super": "super",
+    "cmd": "super",
+    "command": "super",
+    "win": "super",
+    "windows": "super",
 }
 
 
@@ -107,13 +160,26 @@ def _validated_http_url(url: str) -> str:
 
 # P9: adaptive post-action settle. Navigations/typing repaint a lot of UI and
 # need the longer settle; pure pointer moves barely change the screen.
-_NAV_SETTLE_ACTIONS: frozenset[str] = frozenset({
-    "navigate", "open_web_browser", "search", "go_back", "go_forward",
-    "type_text_at", "type_at_cursor", "key_combination",
-})
-_FAST_SETTLE_ACTIONS: frozenset[str] = frozenset({
-    "hover_at", "move", "left_mouse_down", "left_mouse_up",
-})
+_NAV_SETTLE_ACTIONS: frozenset[str] = frozenset(
+    {
+        "navigate",
+        "open_web_browser",
+        "search",
+        "go_back",
+        "go_forward",
+        "type_text_at",
+        "type_at_cursor",
+        "key_combination",
+    }
+)
+_FAST_SETTLE_ACTIONS: frozenset[str] = frozenset(
+    {
+        "hover_at",
+        "move",
+        "left_mouse_down",
+        "left_mouse_up",
+    }
+)
 
 
 def _settle_delay_for(name: str) -> float:
@@ -205,9 +271,7 @@ async def _fallback_docker_screenshot() -> str:
     )
     stdout, stderr = await proc_read.communicate()
     if proc_read.returncode != 0 or not stdout:
-        raise RuntimeError(
-            f"Fallback screenshot failed: {stderr.decode(errors='replace')}"
-        )
+        raise RuntimeError(f"Fallback screenshot failed: {stderr.decode(errors='replace')}")
     return base64.b64encode(stdout).decode("ascii")
 
 
@@ -338,7 +402,8 @@ class DesktopExecutor:
         handler = getattr(self, f"_act_{name}", None)
         if handler is None:
             return CUActionResult(
-                name=name, success=False,
+                name=name,
+                success=False,
                 error=f"Unimplemented desktop action: {name}",
             )
         try:
@@ -378,44 +443,68 @@ class DesktopExecutor:
 
     async def _act_click_at(self, a: dict) -> dict:
         px, py = self._px(a["x"], a["y"])
-        result = await self._post_action({
-            "action": "click", "coordinates": [px, py], "mode": "desktop",
-        })
+        result = await self._post_action(
+            {
+                "action": "click",
+                "coordinates": [px, py],
+                "mode": "desktop",
+            }
+        )
         return {"pixel_x": px, "pixel_y": py, **result}
 
     async def _act_double_click(self, a: dict) -> dict:
         px, py = self._px(a["x"], a["y"])
-        result = await self._post_action({
-            "action": "double_click", "coordinates": [px, py], "mode": "desktop",
-        })
+        result = await self._post_action(
+            {
+                "action": "double_click",
+                "coordinates": [px, py],
+                "mode": "desktop",
+            }
+        )
         return {"pixel_x": px, "pixel_y": py, **result}
 
     async def _act_right_click(self, a: dict) -> dict:
         px, py = self._px(a["x"], a["y"])
-        result = await self._post_action({
-            "action": "right_click", "coordinates": [px, py], "mode": "desktop",
-        })
+        result = await self._post_action(
+            {
+                "action": "right_click",
+                "coordinates": [px, py],
+                "mode": "desktop",
+            }
+        )
         return {"pixel_x": px, "pixel_y": py, **result}
 
     async def _act_middle_click(self, a: dict) -> dict:
         px, py = self._px(a["x"], a["y"])
-        result = await self._post_action({
-            "action": "middle_click", "coordinates": [px, py], "mode": "desktop",
-        })
+        result = await self._post_action(
+            {
+                "action": "middle_click",
+                "coordinates": [px, py],
+                "mode": "desktop",
+            }
+        )
         return {"pixel_x": px, "pixel_y": py, **result}
 
     async def _act_triple_click(self, a: dict) -> dict:
         px, py = self._px(a["x"], a["y"])
-        result = await self._post_action({
-            "action": "triple_click", "coordinates": [px, py], "mode": "desktop",
-        })
+        result = await self._post_action(
+            {
+                "action": "triple_click",
+                "coordinates": [px, py],
+                "mode": "desktop",
+            }
+        )
         return {"pixel_x": px, "pixel_y": py, **result}
 
     async def _act_hover_at(self, a: dict) -> dict:
         px, py = self._px(a["x"], a["y"])
-        result = await self._post_action({
-            "action": "hover", "coordinates": [px, py], "mode": "desktop",
-        })
+        result = await self._post_action(
+            {
+                "action": "hover",
+                "coordinates": [px, py],
+                "mode": "desktop",
+            }
+        )
         return {"pixel_x": px, "pixel_y": py, **result}
 
     async def _act_move(self, a: dict) -> dict:
@@ -429,14 +518,16 @@ class DesktopExecutor:
         text = a["text"]
         press_enter = a.get("press_enter", True)
         clear_before = a.get("clear_before_typing", True)
-        await self._post_action({
-            "action": "type_text_at",
-            "coordinates": [px, py],
-            "text": text,
-            "press_enter": press_enter,
-            "clear_before": clear_before,
-            "mode": "desktop",
-        })
+        await self._post_action(
+            {
+                "action": "type_text_at",
+                "coordinates": [px, py],
+                "text": text,
+                "press_enter": press_enter,
+                "clear_before": clear_before,
+                "mode": "desktop",
+            }
+        )
         return {"pixel_x": px, "pixel_y": py, "text": text}
 
     async def _act_key_combination(self, a: dict) -> dict:
@@ -463,9 +554,13 @@ class DesktopExecutor:
                     "success": False,
                     "message": f"Disallowed key token: {part!r}",
                 }
-        await self._post_action({
-            "action": "key", "text": "+".join(normalized), "mode": "desktop",
-        })
+        await self._post_action(
+            {
+                "action": "key",
+                "text": "+".join(normalized),
+                "mode": "desktop",
+            }
+        )
         return {"keys": keys}
 
     async def _act_scroll_document(self, a: dict) -> dict:
@@ -494,9 +589,13 @@ class DesktopExecutor:
         duration = min(max(float(a.get("duration", 1)), 0.0), 10.0)
         await self._post_action({"action": "keydown", "text": key, "mode": "desktop"})
         await asyncio.sleep(duration)
-        result = await self._post_action({
-            "action": "keyup", "text": key, "mode": "desktop",
-        })
+        result = await self._post_action(
+            {
+                "action": "keyup",
+                "text": key,
+                "mode": "desktop",
+            }
+        )
         return {"key": key, "duration": duration, **result}
 
     async def _act_scroll_at(self, a: dict) -> dict:
@@ -517,22 +616,34 @@ class DesktopExecutor:
     async def _act_drag_and_drop(self, a: dict) -> dict:
         sx, sy = self._px(a["x"], a["y"])
         dx, dy = self._px(a["destination_x"], a["destination_y"])
-        await self._post_action({
-            "action": "drag", "coordinates": [sx, sy, dx, dy], "mode": "desktop",
-        })
+        await self._post_action(
+            {
+                "action": "drag",
+                "coordinates": [sx, sy, dx, dy],
+                "mode": "desktop",
+            }
+        )
         return {"from": (sx, sy), "to": (dx, dy)}
 
     async def _act_navigate(self, a: dict) -> dict:
         url = _validated_http_url(a["url"])
-        await self._post_action({
-            "action": "open_url", "text": url, "mode": "desktop",
-        })
+        await self._post_action(
+            {
+                "action": "open_url",
+                "text": url,
+                "mode": "desktop",
+            }
+        )
         return {"url": url}
 
     async def _act_open_web_browser(self, a: dict) -> dict:
-        await self._post_action({
-            "action": "open_url", "text": "https://www.google.com", "mode": "desktop",
-        })
+        await self._post_action(
+            {
+                "action": "open_url",
+                "text": "https://www.google.com",
+                "mode": "desktop",
+            }
+        )
         return {}
 
     async def _act_wait_5_seconds(self, a: dict) -> dict:
@@ -543,11 +654,13 @@ class DesktopExecutor:
         region = a.get("region") or []
         if len(region) != 4:
             return {"success": False, "message": "zoom requires region=[x1,y1,x2,y2]"}
-        result = await self._post_action({
-            "action": "zoom",
-            "coordinates": [int(region[0]), int(region[1]), int(region[2]), int(region[3])],
-            "mode": "desktop",
-        })
+        result = await self._post_action(
+            {
+                "action": "zoom",
+                "coordinates": [int(region[0]), int(region[1]), int(region[2]), int(region[3])],
+                "mode": "desktop",
+            }
+        )
         extra: dict[str, Any] = {
             "region": [int(region[0]), int(region[1]), int(region[2]), int(region[3])]
         }
@@ -562,15 +675,23 @@ class DesktopExecutor:
         return extra
 
     async def _act_go_back(self, a: dict) -> dict:
-        await self._post_action({
-            "action": "key", "text": "alt+Left", "mode": "desktop",
-        })
+        await self._post_action(
+            {
+                "action": "key",
+                "text": "alt+Left",
+                "mode": "desktop",
+            }
+        )
         return {}
 
     async def _act_go_forward(self, a: dict) -> dict:
-        await self._post_action({
-            "action": "key", "text": "alt+Right", "mode": "desktop",
-        })
+        await self._post_action(
+            {
+                "action": "key",
+                "text": "alt+Right",
+                "mode": "desktop",
+            }
+        )
         return {}
 
     async def _act_type_at_cursor(self, a: dict) -> dict:
@@ -578,15 +699,23 @@ class DesktopExecutor:
         press_enter = a.get("press_enter", False)
         await self._post_action({"action": "type", "text": text, "mode": "desktop"})
         if press_enter:
-            await self._post_action({
-                "action": "key", "text": "Return", "mode": "desktop",
-            })
+            await self._post_action(
+                {
+                    "action": "key",
+                    "text": "Return",
+                    "mode": "desktop",
+                }
+            )
         return {"text": text}
 
     async def _act_search(self, a: dict) -> dict:
-        await self._post_action({
-            "action": "open_url", "text": "https://www.google.com", "mode": "desktop",
-        })
+        await self._post_action(
+            {
+                "action": "open_url",
+                "text": "https://www.google.com",
+                "mode": "desktop",
+            }
+        )
         return {}
 
     async def capture_screenshot(self) -> bytes:
@@ -612,23 +741,31 @@ class DesktopExecutor:
         """Grab a screenshot via ``docker exec scrot`` as last resort."""
         path = "/tmp/cu_screenshot.png"
         proc = await asyncio.create_subprocess_exec(
-            "docker", "exec",
-            "-e", "DISPLAY=:99",
-            self._container, "scrot", "-z", "-o", path,
+            "docker",
+            "exec",
+            "-e",
+            "DISPLAY=:99",
+            self._container,
+            "scrot",
+            "-z",
+            "-o",
+            path,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         await proc.communicate()
         proc_read = await asyncio.create_subprocess_exec(
-            "docker", "exec", self._container, "cat", path,
+            "docker",
+            "exec",
+            self._container,
+            "cat",
+            path,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await proc_read.communicate()
         if proc_read.returncode != 0 or not stdout:
-            raise RuntimeError(
-                f"Fallback screenshot failed: {stderr.decode(errors='replace')}"
-            )
+            raise RuntimeError(f"Fallback screenshot failed: {stderr.decode(errors='replace')}")
         return stdout
 
     def get_current_url(self) -> str:

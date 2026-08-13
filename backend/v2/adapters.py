@@ -1,4 +1,5 @@
 """Strict vendor-response boundaries producing provider-neutral actions."""
+
 from __future__ import annotations
 
 import enum
