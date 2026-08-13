@@ -1,6 +1,6 @@
 # Computer Use Workbench
 
-A local, single-user workbench for provider-native Computer Use agents. v2 adds a typed `/api/v2` contract, deterministic route fallback, SQLite audit history, binary frame streaming, declarative workflows, and a five-tab React dashboard.
+A local, single-user workbench for provider-native Computer Use agents. The current release is **v3.0.1**. The operator surface is the typed `/api/v2` contract, deterministic route fallback, SQLite audit history, binary frame streaming, declarative workflows, and a five-tab React dashboard.
 
 > Computer Use can execute destructive actions. Run the sandbox with test accounts and non-sensitive data. This project is not a multi-tenant service and does not make model actions safe by itself.
 
@@ -14,8 +14,10 @@ The dated model and deprecation evidence is in [the July 23 research audit](docs
 
 On Windows 11, double-click `START.bat`. It installs missing Docker Desktop,
 Node.js LTS, and [uv](https://docs.astral.sh/uv/) through winget, creates safe
-local sandbox credentials, installs locked project dependencies, starts the
-stack, and opens the dashboard. Normal Windows installer or UAC prompts may
+local sandbox credentials, installs locked project dependencies, rebuilds
+esbuild, starts the stack, waits for `GET /api/health`, and opens
+`http://127.0.0.1:8505`. Vite listens on IPv4 loopback so that address matches
+the URL the launcher opens. Normal Windows installer or UAC prompts may
 appear; if Docker requests a restart, restart and double-click the file again.
 
 ```powershell
@@ -37,7 +39,7 @@ For the full operator guide — every dashboard tab, provider/credential setup, 
 |---|---|
 | `START.bat` | Install missing Windows dependencies and launch the app |
 | `uv sync --frozen` | Install the exact Python environment |
-| `uv run python dev.py` | Start backend, frontend, and sandbox |
+| `uv run python dev.py --open-browser` | Start backend, frontend, and sandbox; open the dashboard after backend health succeeds |
 | `uv run pytest` | Run offline backend tests |
 | `uv run pytest -o addopts='' evals/` | Run offline evals |
 | `uv run ruff check .` | Lint Python |
@@ -56,7 +58,7 @@ For the full operator guide — every dashboard tab, provider/credential setup, 
 - The sandbox is an isolated Ubuntu/XFCE container exposing authenticated screenshot and input endpoints.
 - React consumes camelCase contracts and the `CUAF` binary-frame protocol, and exposes providers, live sessions, audit export, workflows, and analytics.
 
-See [TECHNICAL.md](TECHNICAL.md), [Migration](docs/migration-v2.md), [Rollback](docs/rollback-v2.md), and [Security](SECURITY.md).
+See [TECHNICAL.md](TECHNICAL.md), [v3.0.1 release notes](docs/release-notes-v3.0.1.md), [Migration](docs/migration-v2.md), [Rollback](docs/rollback-v2.md), and [Security](SECURITY.md).
 
 New to this codebase? Open the [interactive Zero to Hero handbook](docs/zero-to-hero-study-handbook.html) for guided GitHub-user, technical, and business tracks. Its [Markdown source](docs/zero-to-hero-study-handbook.md) remains available for plain-text reading and PDF generation.
 

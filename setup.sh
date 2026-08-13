@@ -106,5 +106,5 @@ if [[ "$BOOTSTRAP_ONLY" == "1" ]]; then
 fi
 
 info "Launching the full stack..."
-info "The browser UI will be available at http://localhost:3000 once Vite is ready."
+info "The dashboard opens at http://127.0.0.1:8505 after the backend health check succeeds."
 exec uv run --frozen python dev.py

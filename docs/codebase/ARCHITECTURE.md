@@ -51,6 +51,7 @@ React dashboard -> FastAPI v2 contract -> SQLite session/coordinator -> AgentLoo
 ### Startup, shutdown, and scaling constraints
 
 - Startup validates tool parity; failure is logged as a warning rather than aborting the process.
+- Local development waits for `GET /api/health` before starting Vite. Vite binds `127.0.0.1`; on Windows it is spawned through Node rather than `npm.cmd`.
 - Shutdown cancels and awaits in-flight agent/broadcast/screenshot tasks, clears registries, and closes shared clients.
 - Exactly one backend worker is required because credentials, active tasks, WebSocket clients, safety state, traces, and circuit state are process-local.
 - The Docker desktop is a shared named container. The application is designed for a trusted workstation, not multi-tenant isolation.
@@ -64,7 +65,7 @@ React dashboard -> FastAPI v2 contract -> SQLite session/coordinator -> AgentLoo
 
 ## 6) Evidence
 
-- `README.md` sections “Architecture”, “Safety and trust boundary”, and “Scope”.
+- `README.md` sections “Quick start”, “Architecture”, and “Verification status”.
 - `TECHNICAL.md` - stated runtime, request, frame, persistence, credential, and public-contract architecture.
 - `backend/v2/api.py:195-285` - session validation, dispatch, fallback, and post-run persistence.
 - `backend/server/__init__.py:79-145,1264-1300` - lifecycle and bridge into `AgentLoop`.

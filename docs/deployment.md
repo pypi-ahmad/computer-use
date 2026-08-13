@@ -1,6 +1,14 @@
 # Deployment Guide
 
-v2 targets one trusted operator on a workstation. Do not expose it as a public multi-tenant service.
+v3.0.1 targets one trusted operator on a workstation. Do not expose it as a public multi-tenant service.
+
+## Local development
+
+On Windows, `START.bat` is the supported one-click path. It installs
+dependencies, rebuilds esbuild, starts the stack, waits for `GET /api/health`,
+and opens `http://127.0.0.1:8505`. Vite listens on IPv4 loopback during
+development. The production-style path below still serves the built SPA from
+FastAPI on port `8100`.
 
 ## Production-style local deployment
 

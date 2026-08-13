@@ -21,6 +21,7 @@ npm --prefix frontend run test:run
 - `tests/docker/test_agent_service.py` loads and tests the action service without requiring a running Docker container.
 - `tests/test_server.py`, `tests/test_v2_platform.py`, and provider-run contract tests cover HTTP/WebSocket, OAuth/credential, safety, and v2 domain contracts.
 - Other root tests cover files, infrastructure, models, executor boundaries, provider run contracts, regression fixes, and hot paths.
+- `tests/test_windows_launcher.py` covers dashboard health probing, the Vite `127.0.0.1` bind, Windows Vite spawn through Node, and `setup.bat` installer/esbuild contracts.
 - `tests/integration/test_gemini_live_sdk.py` is the opt-in live Gemini Interactions test.
 - `evals/test_degraded_container_startup.py` tests a degraded startup scenario offline with Docker/provider boundaries mocked.
 - `frontend/src/api.test.ts`, `frontend/src/App.test.tsx`, and `frontend/src/protocol.test.ts` cover HTTP behavior, user-visible dashboard behavior, and CUAF decoding.
@@ -94,4 +95,4 @@ npm --prefix frontend run build
 - `frontend/package.json:6-35` - frontend test and coverage scripts/tooling.
 - `tests/test_server.py:15-19`, `tests/test_v2_platform.py`, `tests/engine/`, and `tests/docker/test_agent_service.py` - representative test organization.
 - `evals/README.md:1-17` and `evals/test_degraded_container_startup.py` - evaluation boundary and isolation.
-- `USAGE.md:631-665` - documented local verification commands.
+- `USAGE.md:661-684` - documented local verification commands.

@@ -9,10 +9,14 @@ WAL for durable v2 records. The Docker sandbox is the only component allowed
 to execute OS input.
 
 On Windows, `START.bat` is the one-click entry point. It delegates prerequisite
-and dependency setup to `setup.bat`, then starts `dev.py --open-browser`.
-`dev.py` owns the backend/frontend development processes, waits for readiness,
-opens the dashboard, and forwards shutdown to its children. The normal
-production path builds `frontend/dist` and serves it from FastAPI instead.
+and dependency setup to `setup.bat` (including `npm rebuild esbuild` after a
+fresh `npm ci`), then starts `dev.py --open-browser`. `dev.py` starts the
+backend first and waits for `GET /api/health` before launching Vite. On
+Windows it starts Vite through `node .../vite/bin/vite.js` rather than
+`npm.cmd`. Vite binds `127.0.0.1` on port `8505` by default. The dashboard
+opener probes backend health, then opens `http://127.0.0.1:8505`. Shutdown is
+forwarded to both children. The normal production path builds `frontend/dist`
+and serves it from FastAPI instead.
 
 ## Model catalog and request path
 

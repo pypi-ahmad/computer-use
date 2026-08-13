@@ -25,10 +25,11 @@ npm ci
 Set-Location ..
 ```
 
-On Windows, `START.bat` performs dependency checks, installs missing project
-dependencies, starts the workbench, and opens the dashboard. For normal
-development, use `uv run python dev.py` so backend and frontend output stays in
-the terminal.
+On Windows, `START.bat` runs `setup.bat --bootstrap-only` then
+`dev.bat --open-browser`. Setup rebuilds esbuild after a fresh `npm ci`. The
+launcher waits for backend `/api/health`, starts Vite through Node on
+`127.0.0.1:8505`, and opens that URL. For normal development, use
+`uv run python dev.py` so backend and frontend output stays in the terminal.
 
 Copy `.env.example` to `.env`, add only the credentials needed for your route,
 and never commit the populated file. Live provider tests are opt-in and must use
