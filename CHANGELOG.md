@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [3.0.2] - 2026-08-13
+
+### Fixed
+
+- Python quality CI now passes Ruff and mypy on the current tree.
+- Frontend ESLint no longer fails CI (`setState` in effects, unused
+  imports, and async handler types).
+- The sandbox image no longer installs the host workbench Python stack.
+  Node in the image is 22 with a current npm, so the HIGH/CRITICAL Trivy
+  scan no longer fails on unused FastAPI/Pillow/npm CLI packages.
+
 ## [3.0.1] - 2026-08-13
 
 ### Fixed

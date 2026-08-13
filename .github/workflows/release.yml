@@ -6,7 +6,7 @@ on:
       tag:
         description: Verified tag to publish
         required: true
-        default: v3.0.1
+        default: v3.0.2
 
 permissions:
   contents: write
