@@ -6,7 +6,7 @@ on:
       tag:
         description: Verified tag to publish
         required: true
-        default: v3.0.0
+        default: v3.0.1
 
 permissions:
   contents: write
@@ -41,7 +41,7 @@ jobs:
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2.6.2
         with:
           tag_name: ${{ github.event.inputs.tag }}
-          body_path: docs/release-notes-v3.0.0.md
+          body_path: docs/release-notes-${{ github.event.inputs.tag }}.md
           files: |
-            dist/release/computer-use-v3.0.0.zip
+            dist/release/computer-use-${{ github.event.inputs.tag }}.zip
             dist/release/SHA256SUMS.txt
