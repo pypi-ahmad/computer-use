@@ -24,6 +24,7 @@ from fastapi.testclient import TestClient
 @pytest.fixture
 def client():
     from backend.server import app
+
     return TestClient(app)
 
 
@@ -31,6 +32,7 @@ def client():
 def _clear_active_registries():
     """Reset the active-session registries before each eval run."""
     from backend import server
+
     server._active_loops.clear()
     server._active_tasks.clear()
     yield
@@ -61,12 +63,11 @@ class TestDegradedContainerStartup:
             "agent": "unready",
             "last_health_error": "agent_service /health timeout after 30s",
         }
-        with patch("backend.server.resolve_api_key",
-                   return_value=("sk-eval-key-0123456789", "ui")), \
-             patch("backend.server.start_container",
-                   new=AsyncMock(return_value=True)), \
-             patch("backend.server.get_container_state",
-                   return_value=unready_state):
+        with (
+            patch("backend.server.resolve_api_key", return_value=("sk-eval-key-0123456789", "ui")),
+            patch("backend.server.start_container", new=AsyncMock(return_value=True)),
+            patch("backend.server.get_container_state", return_value=unready_state),
+        ):
             resp = client.post("/api/agent/start", json=_start_payload())
 
         assert resp.status_code == 409, resp.text
@@ -80,6 +81,7 @@ class TestDegradedContainerStartup:
     def test_ready_agent_does_not_409(self, client):
         """Sanity check: same payload, ``agent=ready`` → not a 409."""
         from types import SimpleNamespace
+
         from backend.models import AgentSession, SessionStatus
 
         ready_state = {
@@ -99,14 +101,13 @@ class TestDegradedContainerStartup:
             session=finished,
             run=AsyncMock(return_value=finished),
         )
-        with patch("backend.server.resolve_api_key",
-                   return_value=("sk-eval-key-0123456789", "ui")), \
-             patch("backend.server.start_container",
-                   new=AsyncMock(return_value=True)), \
-             patch("backend.server.get_container_state",
-                   return_value=ready_state), \
-             patch("backend.server.AgentLoop", return_value=fake_loop), \
-             patch("backend.server._broadcast", new=AsyncMock()):
+        with (
+            patch("backend.server.resolve_api_key", return_value=("sk-eval-key-0123456789", "ui")),
+            patch("backend.server.start_container", new=AsyncMock(return_value=True)),
+            patch("backend.server.get_container_state", return_value=ready_state),
+            patch("backend.server.AgentLoop", return_value=fake_loop),
+            patch("backend.server._broadcast", new=AsyncMock()),
+        ):
             resp = client.post("/api/agent/start", json=_start_payload())
 
         assert resp.status_code != 409, resp.text

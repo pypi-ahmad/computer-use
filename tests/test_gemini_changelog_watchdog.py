@@ -3,7 +3,6 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-
 _SCRIPT_PATH = Path(__file__).resolve().parent.parent / "scripts" / "gemini_changelog_watchdog.py"
 _SPEC = importlib.util.spec_from_file_location("gemini_changelog_watchdog", _SCRIPT_PATH)
 assert _SPEC is not None

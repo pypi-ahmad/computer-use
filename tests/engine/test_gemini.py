@@ -1,4 +1,3 @@
-from __future__ import annotations
 # === merged from tests/test_gemini_flash_followup.py ===
 """Gemini 3 Flash Preview CU follow-ups.
 
@@ -14,13 +13,13 @@ Covers:
   * Default viewport is 1440x900 as recommended by the CU guide.
 """
 
+from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
 from unittest.mock import patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Safety threshold env gate
@@ -43,11 +42,13 @@ class TestGeminiInteractions:
 
         request = sdk.aio.interactions.create.await_args.kwargs
         assert request["model"] == "gemini-3.6-flash"
-        assert request["tools"] == [{
-            "type": "computer_use",
-            "environment": "desktop",
-            "enable_prompt_injection_detection": True,
-        }]
+        assert request["tools"] == [
+            {
+                "type": "computer_use",
+                "environment": "desktop",
+                "enable_prompt_injection_detection": True,
+            }
+        ]
 
     def test_requires_exactly_one_login_method(self):
         from backend.engine import GeminiCUClient
@@ -64,25 +65,29 @@ class TestGeminiInteractions:
 
         with patch("google.genai.Client"):
             client = GeminiCUClient(api_key="k")
-        client._create_interaction = AsyncMock(side_effect=[
-            {
-                "id": "interaction-1",
-                "steps": [{
-                    "type": "function_call",
-                    "id": "call-1",
-                    "name": "click_at",
-                    "arguments": {
-                        "x": 10,
-                        "y": 20,
-                        "safety_decision": {
-                            "decision": "require_confirmation",
-                            "explanation": "Confirm click",
-                        },
-                    },
-                }],
-            },
-            {"id": "interaction-2", "output_text": "done", "steps": []},
-        ])
+        client._create_interaction = AsyncMock(
+            side_effect=[
+                {
+                    "id": "interaction-1",
+                    "steps": [
+                        {
+                            "type": "function_call",
+                            "id": "call-1",
+                            "name": "click_at",
+                            "arguments": {
+                                "x": 10,
+                                "y": 20,
+                                "safety_decision": {
+                                    "decision": "require_confirmation",
+                                    "explanation": "Confirm click",
+                                },
+                            },
+                        }
+                    ],
+                },
+                {"id": "interaction-2", "output_text": "done", "steps": []},
+            ]
+        )
 
         class Executor:
             screen_width = 1440
@@ -184,7 +189,7 @@ class TestGeminiHistoryPruning:
         )
 
     def test_default_bound_preserves_last_10_turns_whole(self):
-        from backend.engine import GeminiCUClient, Environment
+        from backend.engine import Environment, GeminiCUClient
         from backend.engine.gemini import _prune_gemini_context
 
         with patch("google.genai.Client"):
@@ -194,10 +199,7 @@ class TestGeminiHistoryPruning:
                 environment=Environment.BROWSER,
             )
 
-        contents = [
-            self._make_turn(i, "model" if i % 2 == 0 else "user")
-            for i in range(1, 13)
-        ]
+        contents = [self._make_turn(i, "model" if i % 2 == 0 else "user") for i in range(1, 13)]
         expected = deepcopy(contents[2:])
 
         _prune_gemini_context(contents, client._max_history_turns)
@@ -206,7 +208,7 @@ class TestGeminiHistoryPruning:
         assert contents == expected
 
     def test_max_history_turns_3_prunes_turn_1_entirely_when_turn_4_arrives(self):
-        from backend.engine import GeminiCUClient, Environment
+        from backend.engine import Environment, GeminiCUClient
         from backend.engine.gemini import _prune_gemini_context
 
         with patch("google.genai.Client"):
@@ -303,6 +305,7 @@ class TestGeminiFlashViewportDefault:
         assert cfg.screen_width == 1440
         assert cfg.screen_height == 900
 
+
 # === merged from tests/test_sandbox_gemini_flash.py ===
 """Prompt S4 — Google Gemini 3 Flash Preview sandbox alignment tests.
 
@@ -320,10 +323,8 @@ Pins the contract introduced in this commit:
 
 from pathlib import Path
 
-
 from backend.engine import denormalize_x, denormalize_y
 from backend.prompts import SYSTEM_PROMPT_GEMINI_CU
-
 
 _DOCKERFILE = Path("docker/Dockerfile")
 
@@ -381,5 +382,3 @@ class TestGeminiSingleTabPrompt:
         assert "single-tab" in prompt or "single tab" in prompt
         # And the prompt names the reference so the operator can audit.
         assert "new tab" in prompt
-
-

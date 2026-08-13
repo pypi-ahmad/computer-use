@@ -13,12 +13,15 @@ def runner_for(provider: str) -> Callable[..., Any]:
     key = str(provider or "").strip().lower()
     if key in {"google", "gemini"}:
         from backend.providers.gemini import run
+
         return run
     if key in {"anthropic", "claude"}:
         from backend.providers.anthropic import run
+
         return run
     if key == "openai":
         from backend.providers.openai import run
+
         return run
     raise ValueError(f"Unsupported CU provider: {provider}")
 

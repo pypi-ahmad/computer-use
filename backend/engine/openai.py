@@ -13,25 +13,26 @@ import logging
 import os
 import re
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any, ClassVar
 
-from backend.infra.config import config as _app_config
-from backend.models.schemas import load_allowed_models_json as _load_allowed_models_json
-from backend.executor import ActionExecutor, CUActionResult
 from backend.engine import (
+    _CONTEXT_PRUNE_KEEP_RECENT,
+    DEFAULT_TURN_LIMIT,
     CUTurnRecord,
-    _call_with_retry,
-    _invoke_safety,
-    _to_plain_dict,
-    _extract_openai_output_text,
     _append_source_footer,
     _build_openai_computer_call_output,
+    _call_with_retry,
+    _extract_openai_output_text,
+    _invoke_safety,
     _sanitize_openai_response_item_for_replay,
+    _to_plain_dict,
     default_openai_reasoning_effort_for_model,
     validate_builtin_search_config,
-    DEFAULT_TURN_LIMIT,
-    _CONTEXT_PRUNE_KEEP_RECENT,
 )
+from backend.executor import ActionExecutor, CUActionResult
+from backend.infra.config import config as _app_config
+from backend.models.schemas import load_allowed_models_json as _load_allowed_models_json
 
 logger = logging.getLogger(__name__)
 
@@ -100,15 +101,17 @@ _OPENAI_BLOCKED_FINAL_RE = re.compile(
     r"error|need|needs|required|requires|not\s+able|not\s+possible)\b",
     re.IGNORECASE,
 )
-_OPENAI_GENERIC_FINALS = frozenset({
-    "ready",
-    "done",
-    "complete",
-    "completed",
-    "finished",
-    "ok",
-    "okay",
-})
+_OPENAI_GENERIC_FINALS = frozenset(
+    {
+        "ready",
+        "done",
+        "complete",
+        "completed",
+        "finished",
+        "ok",
+        "okay",
+    }
+)
 _OPENAI_NEEDS_USER_INPUT_FINAL_RE = re.compile(
     r"\b("
     r"what\s+would\s+you\s+like\s+me\s+to\s+do|"
@@ -120,6 +123,8 @@ _OPENAI_NEEDS_USER_INPUT_FINAL_RE = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+
+
 def _openai_task_likely_requires_ui_action(goal: str) -> bool:
     """Return True when the user's wording implies desktop interaction."""
     return bool(_OPENAI_UI_ACTION_TASK_RE.search(goal or ""))
@@ -184,7 +189,7 @@ def _ensure_openai_ga_model_is_in_registry(model: str) -> None:
 def _prepare_openai_computer_screenshot(
     png_bytes: bytes,
     *,
-    on_log: "Callable[[str, str], None] | None" = None,
+    on_log: Callable[[str, str], None] | None = None,
 ) -> tuple[bytes, float]:
     """Resize oversized screenshots and report the sent-image scale.
 
@@ -213,8 +218,8 @@ def _prepare_openai_computer_screenshot(
             if scale >= 1.0:
                 return png_bytes, 1.0
 
-            new_width = max(1, int(round(width * scale)))
-            new_height = max(1, int(round(height * scale)))
+            new_width = max(1, round(width * scale))
+            new_height = max(1, round(height * scale))
             resized = image.resize((new_width, new_height), Image.LANCZOS)
             out = io.BytesIO()
             resized.save(out, format="PNG")
@@ -257,6 +262,7 @@ def _extract_openai_sources(output_items: list[Any]) -> list[tuple[str, str]]:
                         sources.append((src.get("title") or url, url))
     return sources
 
+
 class OpenAICUClient:
     """OpenAI Responses API computer-use client.
 
@@ -266,7 +272,7 @@ class OpenAICUClient:
     """
 
     VALID_REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh", "max")
-    _LEGACY_EFFORT_ALIASES = {"minimal": "none"}
+    _LEGACY_EFFORT_ALIASES: ClassVar[dict[str, str]] = {"minimal": "none"}
 
     def __init__(
         self,
@@ -293,11 +299,10 @@ class OpenAICUClient:
         # for high-reasoning tasks that take 30+ seconds per turn.
         try:
             from openai import AsyncOpenAI  # type: ignore
+
             self._async_cls = AsyncOpenAI
         except ImportError as exc:
-            raise ImportError(
-                "openai is required. Install: pip install openai"
-            ) from exc
+            raise ImportError("openai is required. Install: pip install openai") from exc
 
         self._sync_client = None  # populated lazily if the sync fallback is needed
         openai_base_url = os.getenv("OPENAI_BASE_URL", None)
@@ -314,11 +319,13 @@ class OpenAICUClient:
         # Map legacy aliases (``none``) → canonical, then fall back to
         # the doc-backed model default on anything unknown.
         reasoning_effort = self._LEGACY_EFFORT_ALIASES.get(
-            reasoning_effort, reasoning_effort,
+            reasoning_effort,
+            reasoning_effort,
         )
         if reasoning_effort not in self.VALID_REASONING_EFFORTS:
             reasoning_effort = self._LEGACY_EFFORT_ALIASES.get(
-                default_effort, default_effort,
+                default_effort,
+                default_effort,
             )
         self._reasoning_effort = reasoning_effort
         self._current_screenshot_scale = 1.0
@@ -343,7 +350,7 @@ class OpenAICUClient:
         screen_width: int,
         screen_height: int,
         *,
-        on_log: "Callable[[str, str], None] | None" = None,
+        on_log: Callable[[str, str], None] | None = None,
     ) -> list[dict[str, Any]]:
         """Return the Responses API ``tools`` list for this model.
 
@@ -365,10 +372,12 @@ class OpenAICUClient:
             # before the first turn — by the time we render the tools
             # list ``self._vector_store_id`` is already set.
             if self._vector_store_id is not None:
-                tools.append({
-                    "type": "file_search",
-                    "vector_store_ids": [self._vector_store_id],
-                })
+                tools.append(
+                    {
+                        "type": "file_search",
+                        "vector_store_ids": [self._vector_store_id],
+                    }
+                )
             return tools
         allowed = ", ".join(sorted(_OPENAI_CU_REGISTRY_MODELS))
         raise ValueError(
@@ -376,7 +385,9 @@ class OpenAICUClient:
             f"Use one of: {allowed}."
         )
 
-    async def _create_response(self, *, on_log: "Callable[[str, str], None] | None" = None, **kwargs: Any) -> Any:
+    async def _create_response(
+        self, *, on_log: Callable[[str, str], None] | None = None, **kwargs: Any
+    ) -> Any:
         """Call the async OpenAI Responses API with transient-error retry."""
         return await _call_with_retry(
             lambda: self._client.responses.create(**kwargs),
@@ -394,7 +405,7 @@ class OpenAICUClient:
     async def _ensure_vector_store(
         self,
         *,
-        on_log: "Callable[[str, str], None] | None" = None,
+        on_log: Callable[[str, str], None] | None = None,
     ) -> None:
         """Provision the vector store and upload all attached files.
 
@@ -410,6 +421,7 @@ class OpenAICUClient:
         if not self._attached_file_ids or self._vector_store_id is not None:
             return
         from backend.files import prepare_openai_file_search
+
         self._vector_store_id = await prepare_openai_file_search(
             self._client,
             self._attached_file_ids,
@@ -419,7 +431,7 @@ class OpenAICUClient:
     async def _cleanup_vector_store(
         self,
         *,
-        on_log: "Callable[[str, str], None] | None" = None,
+        on_log: Callable[[str, str], None] | None = None,
     ) -> None:
         """Delete the per-session vector store at run-loop exit.
 
@@ -428,6 +440,7 @@ class OpenAICUClient:
         guide for vector store lifecycle.
         """
         from backend.files import cleanup_openai_vector_store
+
         await cleanup_openai_vector_store(
             self._client,
             self._vector_store_id,
@@ -480,7 +493,9 @@ class OpenAICUClient:
             return "Error: Could not capture initial screenshot"
 
         prepared_screenshot_bytes, current_screenshot_scale = await asyncio.to_thread(
-            _prepare_openai_computer_screenshot, screenshot_bytes, on_log=on_log,
+            _prepare_openai_computer_screenshot,
+            screenshot_bytes,
+            on_log=on_log,
         )
         self._current_screenshot_scale = current_screenshot_scale
 
@@ -515,7 +530,10 @@ class OpenAICUClient:
             _prune_openai_context(conversation_input, _CONTEXT_PRUNE_KEEP_RECENT)
             next_input = list(conversation_input)
             if _turn_start is not None and on_log:
-                on_log("info", f"turn_duration_ms={int((time.monotonic()-_turn_start)*1000)} provider=openai model={self._model}")
+                on_log(
+                    "info",
+                    f"turn_duration_ms={int((time.monotonic() - _turn_start) * 1000)} provider=openai model={self._model}",
+                )
             _turn_start = time.monotonic()
             if on_log:
                 on_log("info", f"OpenAI CU turn {turn + 1}/{turn_limit}")
@@ -548,10 +566,11 @@ class OpenAICUClient:
             if response_error:
                 raise RuntimeError(getattr(response_error, "message", str(response_error)))
             output_items = list(getattr(response, "output", []) or [])
-            turn_text = getattr(response, "output_text", "") or _extract_openai_output_text(output_items)
+            turn_text = getattr(response, "output_text", "") or _extract_openai_output_text(
+                output_items
+            )
             computer_calls = [
-                item for item in output_items
-                if getattr(item, "type", None) == "computer_call"
+                item for item in output_items if getattr(item, "type", None) == "computer_call"
             ]
 
             if not computer_calls:
@@ -567,35 +586,41 @@ class OpenAICUClient:
                             "OpenAI CU: model stopped without completing the desktop task; nudging it to continue with the computer tool.",
                         )
                     refreshed_screenshot = await executor.capture_screenshot()
-                    prepared_refreshed_screenshot, current_screenshot_scale = await asyncio.to_thread(
-                        _prepare_openai_computer_screenshot, refreshed_screenshot, on_log=on_log,
+                    (
+                        prepared_refreshed_screenshot,
+                        current_screenshot_scale,
+                    ) = await asyncio.to_thread(
+                        _prepare_openai_computer_screenshot,
+                        refreshed_screenshot,
+                        on_log=on_log,
                     )
                     conversation_input.extend(
-                        _sanitize_openai_response_item_for_replay(item)
-                        for item in output_items
+                        _sanitize_openai_response_item_for_replay(item) for item in output_items
                     )
-                    conversation_input.append({
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "input_text",
-                                "text": (
-                                    f"Active user task: {goal}\n\n"
-                                    "Continue with the computer tool. A screenshot-only turn is only observation; "
-                                    "it does not complete this desktop UI task. The task is not complete until "
-                                    "you perform the requested action with the computer tool. Perform the requested "
-                                    "on-screen action now, such as opening the app, clicking, typing, navigating, "
-                                    "or searching as needed. Stop only after the requested on-screen work is "
-                                    "actually done."
-                                ),
-                            },
-                            {
-                                "type": "input_image",
-                                "image_url": f"data:image/png;base64,{base64.standard_b64encode(prepared_refreshed_screenshot).decode()}",
-                                "detail": "original",
-                            },
-                        ],
-                    })
+                    conversation_input.append(
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "input_text",
+                                    "text": (
+                                        f"Active user task: {goal}\n\n"
+                                        "Continue with the computer tool. A screenshot-only turn is only observation; "
+                                        "it does not complete this desktop UI task. The task is not complete until "
+                                        "you perform the requested action with the computer tool. Perform the requested "
+                                        "on-screen action now, such as opening the app, clicking, typing, navigating, "
+                                        "or searching as needed. Stop only after the requested on-screen work is "
+                                        "actually done."
+                                    ),
+                                },
+                                {
+                                    "type": "input_image",
+                                    "image_url": f"data:image/png;base64,{base64.standard_b64encode(prepared_refreshed_screenshot).decode()}",
+                                    "detail": "original",
+                                },
+                            ],
+                        }
+                    )
                     next_input = list(conversation_input)
                     nudged_for_computer_use = True
                     continue
@@ -607,17 +632,19 @@ class OpenAICUClient:
                     if on_log:
                         on_log("error", final_text)
                     if on_turn:
-                        on_turn(CUTurnRecord(
-                            turn=turn + 1,
-                            model_text=final_text,
-                            actions=[
-                                CUActionResult(
-                                    name="error",
-                                    success=False,
-                                    error=final_text,
-                                ),
-                            ],
-                        ))
+                        on_turn(
+                            CUTurnRecord(
+                                turn=turn + 1,
+                                model_text=final_text,
+                                actions=[
+                                    CUActionResult(
+                                        name="error",
+                                        success=False,
+                                        error=final_text,
+                                    ),
+                                ],
+                            )
+                        )
                     raise RuntimeError(final_text)
                 final_text = _append_source_footer(
                     turn_text or "OpenAI completed without a final message.",
@@ -643,7 +670,9 @@ class OpenAICUClient:
                 ]
                 if pending_checks:
                     explanation = " | ".join(
-                        check.get("message") or check.get("code") or "Safety acknowledgement required"
+                        check.get("message")
+                        or check.get("code")
+                        or "Safety acknowledgement required"
                         for check in pending_checks
                     )
                     confirmed = await _invoke_safety(on_safety, explanation)
@@ -669,7 +698,8 @@ class OpenAICUClient:
                 call_id = getattr(computer_call, "call_id", "") or ""
                 for i, action in enumerate(actions):
                     result = await self._execute_openai_action(
-                        action, executor,
+                        action,
+                        executor,
                         action_id=f"{call_id}:{i}" if call_id else None,
                     )
                     results.append(result)
@@ -681,24 +711,28 @@ class OpenAICUClient:
 
                 screenshot_bytes = await executor.capture_screenshot()
                 prepared_screenshot_bytes, next_screenshot_scale = await asyncio.to_thread(
-                    _prepare_openai_computer_screenshot, screenshot_bytes, on_log=on_log,
+                    _prepare_openai_computer_screenshot,
+                    screenshot_bytes,
+                    on_log=on_log,
                 )
                 screenshot_b64 = base64.standard_b64encode(prepared_screenshot_bytes).decode()
                 tool_outputs.append(
                     _build_openai_computer_call_output(
-                        getattr(computer_call, "call_id"),
+                        computer_call.call_id,
                         screenshot_b64,
                         acknowledged_safety_checks=acknowledged_safety_checks,
                     )
                 )
 
             if on_turn:
-                on_turn(CUTurnRecord(
-                    turn=turn + 1,
-                    model_text=turn_text,
-                    actions=results,
-                    screenshot_b64=screenshot_b64,
-                ))
+                on_turn(
+                    CUTurnRecord(
+                        turn=turn + 1,
+                        model_text=turn_text,
+                        actions=results,
+                        screenshot_b64=screenshot_b64,
+                    )
+                )
 
             if terminated:
                 break
@@ -718,16 +752,20 @@ class OpenAICUClient:
             # answer items.
             response_output = list(getattr(response, "output", []) or [])
             conversation_input.extend(
-                _sanitize_openai_response_item_for_replay(item)
-                for item in response_output
+                _sanitize_openai_response_item_for_replay(item) for item in response_output
             )
             conversation_input.extend(tool_outputs)
             next_input = list(conversation_input)
         else:
-            final_text = f"OpenAI CU reached the turn limit ({turn_limit}) without a final response."
+            final_text = (
+                f"OpenAI CU reached the turn limit ({turn_limit}) without a final response."
+            )
 
         if _turn_start is not None and on_log:
-            on_log("info", f"turn_duration_ms={int((time.monotonic()-_turn_start)*1000)} provider=openai model={self._model}")
+            on_log(
+                "info",
+                f"turn_duration_ms={int((time.monotonic() - _turn_start) * 1000)} provider=openai model={self._model}",
+            )
         return final_text
 
     async def _execute_openai_action(
@@ -755,7 +793,7 @@ class OpenAICUClient:
             value = float(raw)
             if scale_factor < 1.0:
                 value /= scale_factor
-            return int(round(value))
+            return round(value)
 
         def _coords(*keys: str) -> tuple[int | None, ...]:
             values: list[int | None] = []
@@ -770,7 +808,9 @@ class OpenAICUClient:
             x, y = _coords("x", "y")
             button = str(payload.get("button", "left")).lower()
             if x is None or y is None:
-                return CUActionResult(name="click", success=False, error="Click action missing coordinates")
+                return CUActionResult(
+                    name="click", success=False, error="Click action missing coordinates"
+                )
             if button == "right":
                 return await executor.execute("right_click", {"x": x, "y": y})
             if button in {"middle", "wheel"}:
@@ -780,20 +820,29 @@ class OpenAICUClient:
         if action_type == "double_click":
             x, y = _coords("x", "y")
             if x is None or y is None:
-                return CUActionResult(name="double_click", success=False, error="Double-click action missing coordinates")
+                return CUActionResult(
+                    name="double_click",
+                    success=False,
+                    error="Double-click action missing coordinates",
+                )
             return await executor.execute("double_click", {"x": x, "y": y})
 
         if action_type == "move":
             x, y = _coords("x", "y")
             if x is None or y is None:
-                return CUActionResult(name="move", success=False, error="Move action missing coordinates")
+                return CUActionResult(
+                    name="move", success=False, error="Move action missing coordinates"
+                )
             return await executor.execute("move", {"x": x, "y": y})
 
         if action_type == "type":
-            return await executor.execute("type_at_cursor", {
-                "text": str(payload.get("text", "")),
-                "press_enter": False,
-            })
+            return await executor.execute(
+                "type_at_cursor",
+                {
+                    "text": str(payload.get("text", "")),
+                    "press_enter": False,
+                },
+            )
 
         if action_type == "keypress":
             keys = payload.get("keys")
@@ -802,7 +851,9 @@ class OpenAICUClient:
                 keys = [single_key] if single_key else []
             normalized = "+".join(self._normalize_openai_keys(keys))
             if not normalized:
-                return CUActionResult(name="keypress", success=False, error="Keypress action missing keys")
+                return CUActionResult(
+                    name="keypress", success=False, error="Keypress action missing keys"
+                )
             return await executor.execute("key_combination", {"keys": normalized})
 
         if action_type == "wait":
@@ -835,13 +886,18 @@ class OpenAICUClient:
             if end_x is None or end_y is None:
                 end_x, end_y = _coords("destination_x", "destination_y")
             if None in {start_x, start_y, end_x, end_y}:
-                return CUActionResult(name="drag", success=False, error="Drag action missing path coordinates")
-            return await executor.execute("drag_and_drop", {
-                "x": start_x,
-                "y": start_y,
-                "destination_x": end_x,
-                "destination_y": end_y,
-            })
+                return CUActionResult(
+                    name="drag", success=False, error="Drag action missing path coordinates"
+                )
+            return await executor.execute(
+                "drag_and_drop",
+                {
+                    "x": start_x,
+                    "y": start_y,
+                    "destination_x": end_x,
+                    "destination_y": end_y,
+                },
+            )
 
         return CUActionResult(
             name=action_type or "unknown",
@@ -867,7 +923,7 @@ class OpenAICUClient:
             value = float(raw)
             if scale_factor < 1.0:
                 value /= scale_factor
-            return int(round(value))
+            return round(value)
 
         x = payload.get("x")
         y = payload.get("y")
@@ -924,5 +980,3 @@ class OpenAICUClient:
                 continue
             normalized.append(key_map.get(token.upper(), token))
         return normalized
-
-

@@ -86,6 +86,7 @@ class _FakeExecutor:
     def get_current_url(self) -> str:
         return ""
 
+
 # ---------------------------------------------------------------------------
 # Fix 3 — Claude initial-screenshot guard
 # ---------------------------------------------------------------------------
@@ -103,8 +104,10 @@ class TestClaudeInitialScreenshotGuard:
 
         logs: list[tuple[str, str]] = []
 
-        with patch("anthropic.AsyncAnthropic"), \
-             patch("backend.engine.claude.resize_screenshot_for_claude") as resize_mock:
+        with (
+            patch("anthropic.AsyncAnthropic"),
+            patch("backend.engine.claude.resize_screenshot_for_claude") as resize_mock,
+        ):
             client = ClaudeCUClient(api_key="k", model="claude-sonnet-5")
 
             results = []
@@ -151,6 +154,7 @@ class TestClaudeInitialScreenshotGuard:
     async def test_happy_path_reaches_sdk(self):
         """A valid PNG must still proceed to ``messages.create``."""
         from backend.engine import ClaudeCUClient
+
         captured: dict = {}
 
         class FakeResponse:
@@ -285,10 +289,10 @@ class TestClaudeScaleFactorOpus47:
         assert get_claude_scale_factor(1440, 900, "claude-sonnet-5") == 1.0
 
     def test_opus_47_resize_identity_at_scale_1(self):
-        from backend.engine import resize_screenshot_for_claude
-
         # Build a real tiny PNG so Pillow can round-trip it.
         from io import BytesIO
+
+        from backend.engine import resize_screenshot_for_claude
 
         pytest.importorskip("PIL")
         from PIL import Image

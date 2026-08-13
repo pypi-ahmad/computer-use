@@ -1,4 +1,4 @@
-﻿"""Docker container lifecycle management."""
+"""Docker container lifecycle management."""
 
 from __future__ import annotations
 
@@ -54,12 +54,15 @@ _CONTAINER_HARDENING_ARGS: list[str] = [
     "--security-opt=no-new-privileges:true",
     "--cap-drop=ALL",
     "--pids-limit=256",
-    "--ulimit", "nofile=1024:2048",
+    "--ulimit",
+    "nofile=1024:2048",
     "--memory=4g",
     "--cpus=2",
     "--shm-size=2g",
-    "--tmpfs", "/tmp:rw,size=512m,mode=1777",
-    "--tmpfs", "/var/run:rw,size=16m,mode=1777",
+    "--tmpfs",
+    "/tmp:rw,size=512m,mode=1777",
+    "--tmpfs",
+    "/var/run:rw,size=16m,mode=1777",
     "--init",
 ]
 
@@ -136,7 +139,7 @@ async def build_image() -> bool:
     _validate_name(config.container_image, "container_image")
     async with _LIFECYCLE_LOCK:
         logger.info("Building Docker image: %s", config.container_image)
-        rc, out, err = await _run(
+        rc, _out, err = await _run(
             ["docker", "build", "-t", config.container_image, "-f", "docker/Dockerfile", "."]
         )
         if rc != 0:
@@ -150,7 +153,7 @@ async def is_container_running(name: str | None = None) -> bool:
     """Return True if the named container is currently running."""
     container = name or config.container_name
     _validate_name(container, "container_name")
-    rc, out, _ = await _run(
+    _rc, out, _ = await _run(
         ["docker", "ps", "--filter", f"name=^/{container}$", "--format", "{{.Names}}"]
     )
     return container in out
@@ -206,22 +209,33 @@ async def _start_container_locked(container: str) -> bool:
     # into the daemon's inspect metadata).
     env_file_path = _write_token_env_file(_ensure_agent_token())
     args = [
-        "docker", "run", "-d",
-        "--name", container,
-        "-e", "DISPLAY=:99",
-        "-e", f"SCREEN_WIDTH={config.screen_width}",
-        "-e", f"SCREEN_HEIGHT={config.screen_height}",
-        "-e", f"AGENT_SERVICE_PORT={config.agent_service_port}",
-        "--env-file", env_file_path,
-        "-p", "127.0.0.1:5900:5900",
-        "-p", "127.0.0.1:6080:6080",
-        "-p", f"127.0.0.1:{config.agent_service_port}:{config.agent_service_port}",
+        "docker",
+        "run",
+        "-d",
+        "--name",
+        container,
+        "-e",
+        "DISPLAY=:99",
+        "-e",
+        f"SCREEN_WIDTH={config.screen_width}",
+        "-e",
+        f"SCREEN_HEIGHT={config.screen_height}",
+        "-e",
+        f"AGENT_SERVICE_PORT={config.agent_service_port}",
+        "--env-file",
+        env_file_path,
+        "-p",
+        "127.0.0.1:5900:5900",
+        "-p",
+        "127.0.0.1:6080:6080",
+        "-p",
+        f"127.0.0.1:{config.agent_service_port}:{config.agent_service_port}",
         *_CONTAINER_HARDENING_ARGS,
         config.container_image,
     ]
     logger.info("Starting container: %s", container)
     try:
-        rc, out, err = await _run(args)
+        rc, _out, err = await _run(args)
     finally:
         # Best-effort cleanup: token file is 0600 so only this user can
         # read it, and we remove it immediately to minimise the window
@@ -305,7 +319,8 @@ async def _wait_for_service(container: str, *, already_running: bool = False) ->
                 if resp.status_code == 200:
                     logger.info(
                         "Container %s is ready (agent service up, attempt=%d)",
-                        container, attempt,
+                        container,
+                        attempt,
                     )
                     _readiness_state["container"] = "running"
                     _readiness_state["agent"] = "ready"
@@ -328,7 +343,9 @@ async def _wait_for_service(container: str, *, already_running: bool = False) ->
         )
         logger.debug(
             "Agent service not ready (attempt=%d, err=%s); retrying in %.2fs",
-            attempt, last_error, sleep_for,
+            attempt,
+            last_error,
+            sleep_for,
         )
         await asyncio.sleep(sleep_for)
         delay = min(delay * 2.0, config.container_ready_poll_cap)
@@ -343,7 +360,11 @@ async def _wait_for_service(container: str, *, already_running: bool = False) ->
     logger.error(
         "Container %s agent service failed health check within %.1fs "
         "(attempts=%d, last_error=%s, container_running=%s)",
-        container, config.container_ready_timeout, attempt, last_error, running,
+        container,
+        config.container_ready_timeout,
+        attempt,
+        last_error,
+        running,
     )
     return False
 

@@ -1,4 +1,5 @@
 """Bounded audit-frame retention with age and byte-budget eviction."""
+
 from __future__ import annotations
 
 import hashlib
@@ -9,7 +10,9 @@ from pathlib import Path
 
 
 class FrameRetentionStore:
-    def __init__(self, root: str | Path, *, max_age_seconds: int = 7 * 86_400, max_bytes: int = 1_000_000_000) -> None:
+    def __init__(
+        self, root: str | Path, *, max_age_seconds: int = 7 * 86_400, max_bytes: int = 1_000_000_000
+    ) -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self.max_age_seconds = max_age_seconds
@@ -49,7 +52,10 @@ class FrameRetentionStore:
 
     def evict(self, *, now: float | None = None) -> list[Path]:
         current = time.time() if now is None else now
-        files = sorted((path for path in self.root.rglob("*") if path.is_file()), key=lambda path: path.stat().st_mtime)
+        files = sorted(
+            (path for path in self.root.rglob("*") if path.is_file()),
+            key=lambda path: path.stat().st_mtime,
+        )
         removed: list[Path] = []
         total = sum(path.stat().st_size for path in files)
         for path in files:

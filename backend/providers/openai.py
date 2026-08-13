@@ -6,15 +6,16 @@ The public ``run`` function owns the documented provider loop shape:
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
+from backend.engine import DEFAULT_TURN_LIMIT
+from backend.engine.openai import OpenAICUClient
 from backend.executor import (
     DEFAULT_SCREEN_HEIGHT,
     DEFAULT_SCREEN_WIDTH,
     DesktopExecutor,
 )
-from backend.engine import DEFAULT_TURN_LIMIT
-from backend.engine.openai import OpenAICUClient
 from backend.providers._common import (
     EventCallback,
     ProviderTools,

@@ -13,6 +13,7 @@ import pytest
 from PIL import Image
 
 from backend.engine import (
+    _CONTEXT_PRUNE_KEEP_RECENT,
     ComputerUseEngine,
     CUActionResult,
     DesktopExecutor,
@@ -20,9 +21,8 @@ from backend.engine import (
     OpenAICUClient,
     Provider,
     RunCompleted,
-    _lookup_claude_cu_config,
-    _CONTEXT_PRUNE_KEEP_RECENT,
     _build_openai_computer_call_output,
+    _lookup_claude_cu_config,
     _sanitize_openai_response_item_for_replay,
 )
 
@@ -131,6 +131,7 @@ class TestComputerUseEngine:
             )
         executor = engine._build_executor(page=None)
         from backend.engine import DesktopExecutor
+
         assert isinstance(executor, DesktopExecutor)
 
 
@@ -335,9 +336,14 @@ class TestOpenAIRuntimePath:
         assert first_request["tools"] == [{"type": "computer"}]
         assert first_request["include"] == ["reasoning.encrypted_content"]
         assert first_request["input"][0]["role"] == "user"
-        assert first_request["input"][0]["content"][0] == {"type": "input_text", "text": "Open the page and stop"}
+        assert first_request["input"][0]["content"][0] == {
+            "type": "input_text",
+            "text": "Open the page and stop",
+        }
         assert first_request["input"][0]["content"][1]["type"] == "input_image"
-        assert first_request["input"][0]["content"][1]["image_url"].startswith("data:image/png;base64,")
+        assert first_request["input"][0]["content"][1]["image_url"].startswith(
+            "data:image/png;base64,"
+        )
         assert first_request["store"] is False
         second_request = responses_create.call_args_list[1].kwargs
         assert "previous_response_id" not in second_request
@@ -364,11 +370,13 @@ class TestOpenAIRuntimePath:
         assert tool_output["output"]["type"] == "computer_screenshot"
         assert tool_output["output"]["detail"] == "original"
         assert tool_output["output"]["image_url"].startswith("data:image/png;base64,")
-        assert tool_output["acknowledged_safety_checks"] == [{
-            "id": "safe_1",
-            "code": "confirm",
-            "message": "Confirm action",
-        }]
+        assert tool_output["acknowledged_safety_checks"] == [
+            {
+                "id": "safe_1",
+                "code": "confirm",
+                "message": "Confirm action",
+            }
+        ]
 
     def test_prepare_openai_screenshot_downscales_above_doc_threshold(self):
         from backend.engine.openai import (
@@ -593,7 +601,9 @@ class TestOpenAIRuntimePath:
         )
 
         with patch("openai.AsyncOpenAI") as mock_openai:
-            responses_create = AsyncMock(side_effect=[first_response, second_response, third_response])
+            responses_create = AsyncMock(
+                side_effect=[first_response, second_response, third_response]
+            )
             mock_openai.return_value.responses.create = responses_create
             client = OpenAICUClient(
                 api_key="test-key",
@@ -602,7 +612,9 @@ class TestOpenAIRuntimePath:
             )
 
         executor = FakeExecutor()
-        final_text = asyncio.run(client.run_loop("Learn how to do it, then create the folder", executor))
+        final_text = asyncio.run(
+            client.run_loop("Learn how to do it, then create the folder", executor)
+        )
 
         assert final_text == "Done"
         assert executor.calls == [("double_click", {"x": 120, "y": 220})]
@@ -611,7 +623,10 @@ class TestOpenAIRuntimePath:
         second_request = responses_create.call_args_list[1].kwargs
         follow_up = second_request["input"][-1]
         assert follow_up["role"] == "user"
-        assert "not complete until you perform the requested action with the computer tool" in follow_up["content"][0]["text"]
+        assert (
+            "not complete until you perform the requested action with the computer tool"
+            in follow_up["content"][0]["text"]
+        )
         assert follow_up["content"][1]["type"] == "input_image"
 
 
@@ -631,7 +646,9 @@ class TestIterTurnsDispatch:
                 yield RunCompleted(final_text="done")
 
             engine._client.iter_turns = fake_iter_turns  # type: ignore[method-assign]
-            engine._client.run_loop = AsyncMock(side_effect=AssertionError("run_loop should not be used"))
+            engine._client.run_loop = AsyncMock(
+                side_effect=AssertionError("run_loop should not be used")
+            )
 
             events = []
             async for event in engine.iter_turns("noop"):
@@ -672,7 +689,13 @@ class TestSearchEnabledRequiresComputerAction:
             )
             second_response = SimpleNamespace(
                 stop_reason="tool_use",
-                content=[SimpleNamespace(type="tool_use", id="tu_1", input={"action": "double_click", "coordinate": [120, 220]})],
+                content=[
+                    SimpleNamespace(
+                        type="tool_use",
+                        id="tu_1",
+                        input={"action": "double_click", "coordinate": [120, 220]},
+                    )
+                ],
             )
             third_response = SimpleNamespace(
                 stop_reason="end_turn",
@@ -702,6 +725,7 @@ class TestSearchEnabledRequiresComputerAction:
                 )
                 mock_client.return_value.beta.messages.stream = _make_stream
                 from backend.engine import ClaudeCUClient
+
                 client = ClaudeCUClient(
                     api_key="k",
                     model="claude-sonnet-5",
@@ -710,7 +734,9 @@ class TestSearchEnabledRequiresComputerAction:
 
             executor = FakeExecutor()
             events = []
-            async for event in client.iter_turns("Learn first, then create the Projects folder", executor):
+            async for event in client.iter_turns(
+                "Learn first, then create the Projects folder", executor
+            ):
                 events.append(event)
 
             assert len(executor.calls) == 1
@@ -726,7 +752,8 @@ class TestSearchEnabledRequiresComputerAction:
                 and isinstance(message.get("content"), list)
                 and message["content"]
                 and isinstance(message["content"][0], dict)
-                and "not complete until you perform the requested action with the computer tool" in message["content"][0].get("text", "")
+                and "not complete until you perform the requested action with the computer tool"
+                in message["content"][0].get("text", "")
                 for message in second_request["messages"]
             )
 
@@ -758,7 +785,11 @@ class TestSearchEnabledRequiresComputerAction:
                 candidates=[
                     SimpleNamespace(
                         content=SimpleNamespace(
-                            parts=[SimpleNamespace(function_call=None, text="I found instructions online.")]
+                            parts=[
+                                SimpleNamespace(
+                                    function_call=None, text="I found instructions online."
+                                )
+                            ]
                         )
                     )
                 ]
@@ -767,7 +798,14 @@ class TestSearchEnabledRequiresComputerAction:
                 candidates=[
                     SimpleNamespace(
                         content=SimpleNamespace(
-                            parts=[SimpleNamespace(function_call=SimpleNamespace(name="double_click", args={"x": 120, "y": 220}), text=None)]
+                            parts=[
+                                SimpleNamespace(
+                                    function_call=SimpleNamespace(
+                                        name="double_click", args={"x": 120, "y": 220}
+                                    ),
+                                    text=None,
+                                )
+                            ]
                         )
                     )
                 ]
@@ -784,6 +822,7 @@ class TestSearchEnabledRequiresComputerAction:
 
             with patch("google.genai.Client"):
                 from backend.engine import GeminiCUClient
+
                 client = GeminiCUClient(api_key="k", use_builtin_search=True)
                 client._build_config = lambda: SimpleNamespace()
                 client._client.aio.models.generate_content = AsyncMock(
@@ -792,7 +831,9 @@ class TestSearchEnabledRequiresComputerAction:
 
                 executor = FakeExecutor()
                 events = []
-                async for event in client.iter_turns("Learn first, then create the Projects folder", executor):
+                async for event in client.iter_turns(
+                    "Learn first, then create the Projects folder", executor
+                ):
                     events.append(event)
 
                 assert len(executor.calls) == 1
@@ -807,7 +848,8 @@ class TestSearchEnabledRequiresComputerAction:
                     hasattr(content, "parts")
                     and content.parts
                     and getattr(content.parts[0], "text", "")
-                    and "not complete until you perform the requested action with the computer_use tool" in content.parts[0].text
+                    and "not complete until you perform the requested action with the computer_use tool"
+                    in content.parts[0].text
                     for content in second_call["contents"]
                 )
 
@@ -815,10 +857,10 @@ class TestSearchEnabledRequiresComputerAction:
 
 
 class TestOpenAIReasoningEffort:
-    """Regression guards for the April 2026 OpenAI reasoning-effort enum.
+    """Regression guards for the OpenAI reasoning-effort enum.
 
-    GPT-5.5 defaults to ``medium`` and accepts ``xhigh`` directly.
-    ``none`` remains a legacy alias for ``minimal``.
+    GPT-5.6 Luna defaults to ``medium`` and accepts ``xhigh`` directly.
+    ``minimal`` is stored as the wire alias ``none``.
     """
 
     def test_default_effort_is_medium(self):
@@ -826,61 +868,68 @@ class TestOpenAIReasoningEffort:
             client = OpenAICUClient(api_key="test-key", model="gpt-5.6-luna")
         assert client._reasoning_effort == "medium"
 
-    def test_gpt54_default_effort_maps_none_to_minimal(self):
+    def test_default_effort_for_luna_is_medium(self):
         with patch("openai.AsyncOpenAI"):
             client = OpenAICUClient(api_key="test-key", model="gpt-5.6-luna")
-        assert client._reasoning_effort == "minimal"
+        assert client._reasoning_effort == "medium"
 
-    def test_legacy_none_maps_to_minimal(self):
+    def test_legacy_none_is_kept_as_wire_value(self):
         with patch("openai.AsyncOpenAI"):
             client = OpenAICUClient(
-                api_key="test-key", model="gpt-5.6-luna", reasoning_effort="none",
+                api_key="test-key",
+                model="gpt-5.6-luna",
+                reasoning_effort="none",
             )
-        assert client._reasoning_effort == "minimal", (
-            "Legacy 'none' must be mapped to canonical 'minimal' — "
-            "the adapter keeps it only for wire compatibility."
-        )
+        assert client._reasoning_effort == "none"
 
     def test_xhigh_is_accepted(self):
         with patch("openai.AsyncOpenAI"):
             client = OpenAICUClient(
-                api_key="test-key", model="gpt-5.6-luna", reasoning_effort="xhigh",
+                api_key="test-key",
+                model="gpt-5.6-luna",
+                reasoning_effort="xhigh",
             )
         assert client._reasoning_effort == "xhigh"
 
     def test_minimal_is_accepted(self):
         with patch("openai.AsyncOpenAI"):
             client = OpenAICUClient(
-                api_key="test-key", model="gpt-5.6-luna", reasoning_effort="minimal",
+                api_key="test-key",
+                model="gpt-5.6-luna",
+                reasoning_effort="minimal",
             )
-        assert client._reasoning_effort == "minimal"
+        assert client._reasoning_effort == "none"
 
     def test_unknown_coerces_to_medium(self):
         with patch("openai.AsyncOpenAI"):
             client = OpenAICUClient(
-                api_key="test-key", model="gpt-5.6-luna", reasoning_effort="garbage",
+                api_key="test-key",
+                model="gpt-5.6-luna",
+                reasoning_effort="garbage",
             )
         assert client._reasoning_effort == "medium"
+
 
 # === merged from tests/test_coordinate_scaling.py ===
 """Tests for coordinate scaling and denormalization."""
 
 
 import math
+
 import pytest
 
 from backend.engine import (
-    GEMINI_NORMALIZED_MAX,
     _CLAUDE_MAX_LONG_EDGE,
     _CLAUDE_MAX_PIXELS,
+    GEMINI_NORMALIZED_MAX,
     denormalize_x,
     denormalize_y,
     get_claude_scale_factor,
     resize_screenshot_for_claude,
 )
 
-
 # ── Gemini denormalization ────────────────────────────────────────────────────
+
 
 class TestDenormalize:
     """Gemini normalised coords → pixel conversion."""
@@ -906,6 +955,7 @@ class TestDenormalize:
 
 
 # ── Claude screenshot scaling ─────────────────────────────────────────────────
+
 
 class TestClaudeScaleFactor:
     """Scaling factor computation per Anthropic docs."""
@@ -960,8 +1010,10 @@ class TestResizeScreenshot:
 
     def _make_png(self, w: int, h: int) -> bytes:
         """Create a minimal PNG of given size using Pillow."""
-        from PIL import Image
         import io
+
+        from PIL import Image
+
         img = Image.new("RGB", (w, h), color=(128, 128, 128))
         buf = io.BytesIO()
         img.save(buf, format="PNG")
@@ -985,7 +1037,8 @@ class TestResizeScreenshot:
         scale = get_claude_scale_factor(1440, 900)
         result, rw, rh = resize_screenshot_for_claude(png, scale)
         # PNG header: 8-byte signature
-        assert result[:4] == b'\x89PNG'
+        assert result[:4] == b"\x89PNG"
+
 
 # === merged from tests/test_context_pruning.py ===
 """Tests for context pruning logic (both Gemini and Claude)."""
@@ -995,8 +1048,8 @@ import pytest
 
 from backend.engine import _prune_claude_context
 
-
 # ── Claude context pruning ────────────────────────────────────────────────────
+
 
 class TestClaudeContextPruning:
     """Verify _prune_claude_context replaces old screenshots with placeholders."""
@@ -1009,30 +1062,50 @@ class TestClaudeContextPruning:
                 "role": "user",
                 "content": [
                     {"type": "text", "text": "Do something"},
-                    {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "INITIAL_SS"}},
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": "INITIAL_SS",
+                        },
+                    },
                 ],
             }
         ]
         for i in range(n_tool_results):
             # Assistant turn with tool_use
-            messages.append({
-                "role": "assistant",
-                "content": [{"type": "tool_use", "id": f"tu_{i}", "input": {"action": "click"}}],
-            })
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "tool_use", "id": f"tu_{i}", "input": {"action": "click"}}
+                    ],
+                }
+            )
             # User turn with tool_result
-            messages.append({
-                "role": "user",
-                "content": [
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": f"tu_{i}",
-                        "content": [
-                            {"type": "text", "text": "ok"},
-                            {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": f"SS_{i}"}},
-                        ],
-                    }
-                ],
-            })
+            messages.append(
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": f"tu_{i}",
+                            "content": [
+                                {"type": "text", "text": "ok"},
+                                {
+                                    "type": "image",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": "image/png",
+                                        "data": f"SS_{i}",
+                                    },
+                                },
+                            ],
+                        }
+                    ],
+                }
+            )
         return messages
 
     def test_no_pruning_when_short(self):
@@ -1094,6 +1167,7 @@ class TestClaudeContextPruning:
         assert first_content[1]["type"] == "image"
         assert first_content[1]["source"]["data"] == "INITIAL_SS"
 
+
 # === merged from tests/test_adapters_april2026.py ===
 """Adapter-level tests for the April 2026 CU upgrade.
 
@@ -1112,18 +1186,12 @@ All provider SDKs are mocked; no network calls.
 """
 
 
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
-
 import pytest
 
 from backend.engine import (
-    CUActionResult,
-    SafetyDecision,
     _CLAUDE_HIGH_RES_MODELS,
-    get_claude_scale_factor,
+    SafetyDecision,
 )
-
 
 # ---------------------------------------------------------------------------
 # Claude
@@ -1133,11 +1201,16 @@ from backend.engine import (
 class TestClaudeToolVersioning:
     """Tool version + beta header must track model class."""
 
-    @pytest.mark.parametrize("model", [
-        "claude-sonnet-5", "claude-sonnet-5",
-    ])
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "claude-sonnet-5",
+            "claude-sonnet-5",
+        ],
+    )
     def test_new_tool_version_models(self, model):
         from backend.engine import ClaudeCUClient
+
         with patch("anthropic.AsyncAnthropic"):
             c = ClaudeCUClient(api_key="k", model=model)
         assert c._tool_version == "computer_20251124"
@@ -1145,6 +1218,7 @@ class TestClaudeToolVersioning:
 
     def test_unregistered_model_raises_explicit_registry_error(self):
         from backend.engine import ClaudeCUClient
+
         with patch("anthropic.AsyncAnthropic"):
             with pytest.raises(ValueError, match="not in registry"):
                 ClaudeCUClient(api_key="k", model="claude-haiku-5-0-future")
@@ -1170,9 +1244,13 @@ class TestClaudeCoordinateSpace:
 class TestClaudeThinkingMode:
     """``computer_20251124`` rejects ``budget_tokens``; must send adaptive."""
 
-    @pytest.mark.parametrize("model", [
-        "claude-sonnet-5", "claude-sonnet-5",
-    ])
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "claude-sonnet-5",
+            "claude-sonnet-5",
+        ],
+    )
     @pytest.mark.asyncio
     async def test_adaptive_thinking_for_new_tool_version(self, model):
         from backend.engine import ClaudeCUClient
@@ -1252,41 +1330,47 @@ class TestClaudeThinkingMode:
 # ---------------------------------------------------------------------------
 
 
-class TestOpenAIReasoningEffort:
+class TestOpenAIReasoningEffortFromAdapters:
     """GPT-5.5 defaults to ``medium`` and accepts ``xhigh``."""
 
     def test_default_reasoning_effort_is_medium(self):
         from backend.engine import OpenAICUClient
+
         with patch("openai.AsyncOpenAI"):
             c = OpenAICUClient(api_key="k", model="gpt-5.6-luna")
         assert c._reasoning_effort == "medium"
 
     def test_gpt54_default_reasoning_effort_maps_none_to_minimal(self):
         from backend.engine import OpenAICUClient
+
         with patch("openai.AsyncOpenAI"):
             c = OpenAICUClient(api_key="k", model="gpt-5.6-luna")
         assert c._reasoning_effort == "medium"
 
     def test_invalid_effort_falls_back_to_medium(self):
         from backend.engine import OpenAICUClient
+
         with patch("openai.AsyncOpenAI"):
             c = OpenAICUClient(api_key="k", model="gpt-5.6-luna", reasoning_effort="bogus")
         assert c._reasoning_effort == "medium"
 
     def test_xhigh_is_preserved(self):
         from backend.engine import OpenAICUClient
+
         with patch("openai.AsyncOpenAI"):
             c = OpenAICUClient(api_key="k", model="gpt-5.6-luna", reasoning_effort="xhigh")
         assert c._reasoning_effort == "xhigh"
 
     def test_facade_default_passes_medium(self):
         from backend.engine import ComputerUseEngine, Provider
+
         with patch("openai.AsyncOpenAI"):
             eng = ComputerUseEngine(provider=Provider.OPENAI, api_key="k", model="gpt-5.6-luna")
         assert eng._client._reasoning_effort == "medium"
 
     def test_facade_gpt54_default_maps_none_to_minimal(self):
         from backend.engine import ComputerUseEngine, Provider
+
         with patch("openai.AsyncOpenAI"):
             eng = ComputerUseEngine(provider=Provider.OPENAI, api_key="k", model="gpt-5.6-luna")
         assert eng._client._reasoning_effort == "medium"
@@ -1401,12 +1485,15 @@ class TestOpenAIZDRReplay:
 class TestGeminiRequireConfirmation:
     """Safety decision ``require_confirmation`` routes through ``on_safety``."""
 
-    @pytest.mark.parametrize("model", [
-        "gemini-3.6-flash",
-    ])
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "gemini-3.6-flash",
+        ],
+    )
     @pytest.mark.asyncio
     async def test_denied_confirmation_terminates(self, model):
-        from backend.engine import GeminiCUClient, Environment
+        from backend.engine import Environment, GeminiCUClient
 
         # Build the client with the SDK mocked at import time.
         with patch("google.genai.Client"):
@@ -1420,19 +1507,27 @@ class TestGeminiRequireConfirmation:
         # ``safety_decision: require_confirmation`` arg.
         fc = SimpleNamespace(
             name="click_at",
-            args={"x": 10, "y": 20, "safety_decision": {
-                "decision": "require_confirmation",
-                "explanation": "Confirm destructive click",
-            }},
+            args={
+                "x": 10,
+                "y": 20,
+                "safety_decision": {
+                    "decision": "require_confirmation",
+                    "explanation": "Confirm destructive click",
+                },
+            },
         )
-        part = SimpleNamespace(function_call=fc, text=None, inline_data=None, function_response=None)
+        part = SimpleNamespace(
+            function_call=fc, text=None, inline_data=None, function_response=None
+        )
         cand = SimpleNamespace(content=SimpleNamespace(parts=[part], role="model"))
         resp = SimpleNamespace(candidates=[cand])
 
         client._generate = AsyncMock(return_value=resp)  # type: ignore[method-assign]
         # Skip context pruning (expects real SDK types).
         import backend.engine.gemini as gem
+
         with patch.object(gem, "_prune_gemini_context", lambda *a, **k: None):
+
             class FakeExecutor:
                 screen_width = 1280
                 screen_height = 800
@@ -1453,19 +1548,24 @@ class TestGeminiRequireConfirmation:
                 return False
 
             final = await client.run_loop(
-                "noop", FakeExecutor(),
-                turn_limit=1, on_safety=deny_safety,
+                "noop",
+                FakeExecutor(),
+                turn_limit=1,
+                on_safety=deny_safety,
             )
 
         assert explanations == ["Confirm destructive click"]
         assert "terminated" in final.lower() and "safety" in final.lower()
 
-    @pytest.mark.parametrize("model", [
-        "gemini-3.6-flash",
-    ])
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "gemini-3.6-flash",
+        ],
+    )
     @pytest.mark.asyncio
     async def test_approved_confirmation_stamps_acknowledgement(self, model):
-        from backend.engine import GeminiCUClient, Environment
+        from backend.engine import Environment, GeminiCUClient
 
         with patch("google.genai.Client"):
             client = GeminiCUClient(
@@ -1476,22 +1576,32 @@ class TestGeminiRequireConfirmation:
 
         fc = SimpleNamespace(
             name="click_at",
-            args={"x": 10, "y": 20, "safety_decision": {
-                "decision": "require_confirmation",
-                "explanation": "Confirm click",
-            }},
+            args={
+                "x": 10,
+                "y": 20,
+                "safety_decision": {
+                    "decision": "require_confirmation",
+                    "explanation": "Confirm click",
+                },
+            },
         )
-        part = SimpleNamespace(function_call=fc, text=None, inline_data=None, function_response=None)
+        part = SimpleNamespace(
+            function_call=fc, text=None, inline_data=None, function_response=None
+        )
         cand = SimpleNamespace(content=SimpleNamespace(parts=[part], role="model"))
 
         # First turn: function call. Second turn: no-op to terminate.
-        final_part = SimpleNamespace(function_call=None, text="ok", inline_data=None, function_response=None)
+        final_part = SimpleNamespace(
+            function_call=None, text="ok", inline_data=None, function_response=None
+        )
         final_cand = SimpleNamespace(content=SimpleNamespace(parts=[final_part], role="model"))
 
-        responses = iter([
-            SimpleNamespace(candidates=[cand]),
-            SimpleNamespace(candidates=[final_cand]),
-        ])
+        responses = iter(
+            [
+                SimpleNamespace(candidates=[cand]),
+                SimpleNamespace(candidates=[final_cand]),
+            ]
+        )
 
         async def fake_gen(**kwargs):
             return next(responses)
@@ -1499,6 +1609,7 @@ class TestGeminiRequireConfirmation:
         client._generate = fake_gen  # type: ignore[method-assign]
 
         import backend.engine.gemini as gem
+
         with patch.object(gem, "_prune_gemini_context", lambda *a, **k: None):
 
             class FakeExecutor:
@@ -1519,8 +1630,10 @@ class TestGeminiRequireConfirmation:
             executor = FakeExecutor()
 
             final = await client.run_loop(
-                "noop", executor,
-                turn_limit=3, on_safety=lambda _msg: True,
+                "noop",
+                executor,
+                turn_limit=3,
+                on_safety=lambda _msg: True,
             )
 
         # safety_decision must be stripped before reaching executor.
@@ -1531,14 +1644,17 @@ class TestGeminiRequireConfirmation:
         # Final text from the terminal turn.
         assert "ok" in final
 
-    @pytest.mark.parametrize("model", [
-        "gemini-3.6-flash",
-    ])
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "gemini-3.6-flash",
+        ],
+    )
     @pytest.mark.asyncio
     async def test_iter_turns_emits_safetyrequired_and_resumes(self, model):
         from backend.engine import (
-            GeminiCUClient,
             Environment,
+            GeminiCUClient,
             ModelTurnStarted,
             RunCompleted,
             SafetyRequired,
@@ -1554,25 +1670,41 @@ class TestGeminiRequireConfirmation:
 
         gated_fc = SimpleNamespace(
             name="click_at",
-            args={"x": 10, "y": 20, "safety_decision": {
-                "decision": "require_confirmation",
-                "explanation": "Confirm click",
-            }},
+            args={
+                "x": 10,
+                "y": 20,
+                "safety_decision": {
+                    "decision": "require_confirmation",
+                    "explanation": "Confirm click",
+                },
+            },
         )
         gated_part = SimpleNamespace(
-            function_call=gated_fc, text=None, inline_data=None, function_response=None,
+            function_call=gated_fc,
+            text=None,
+            inline_data=None,
+            function_response=None,
         )
         final_part = SimpleNamespace(
-            function_call=None, text="ok", inline_data=None, function_response=None,
+            function_call=None,
+            text="ok",
+            inline_data=None,
+            function_response=None,
         )
-        responses = iter([
-            SimpleNamespace(
-                candidates=[SimpleNamespace(content=SimpleNamespace(parts=[gated_part], role="model"))],
-            ),
-            SimpleNamespace(
-                candidates=[SimpleNamespace(content=SimpleNamespace(parts=[final_part], role="model"))],
-            ),
-        ])
+        responses = iter(
+            [
+                SimpleNamespace(
+                    candidates=[
+                        SimpleNamespace(content=SimpleNamespace(parts=[gated_part], role="model"))
+                    ],
+                ),
+                SimpleNamespace(
+                    candidates=[
+                        SimpleNamespace(content=SimpleNamespace(parts=[final_part], role="model"))
+                    ],
+                ),
+            ]
+        )
 
         async def fake_gen(**kwargs):
             return next(responses)
@@ -1580,6 +1712,7 @@ class TestGeminiRequireConfirmation:
         client._generate = fake_gen  # type: ignore[method-assign]
 
         import backend.engine.gemini as gem
+
         with patch.object(gem, "_prune_gemini_context", lambda *a, **k: None):
 
             class FakeExecutor:
@@ -1612,6 +1745,7 @@ class TestGeminiRequireConfirmation:
             assert isinstance(final, RunCompleted)
             assert final.final_text == "ok"
 
+
 # === merged from tests/test_websearch_tools.py ===
 """Hermetic adapter tests for the CU-only execution phase.
 
@@ -1621,10 +1755,7 @@ not attach search tools to their desktop-action loops.
 """
 
 
-from unittest.mock import patch
-
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # OpenAI
@@ -1636,6 +1767,7 @@ class TestOpenAIWebSearch:
 
     def _make(self, **kwargs):
         from backend.engine import OpenAICUClient
+
         with patch("openai.AsyncOpenAI"):
             return OpenAICUClient(api_key="k", model=kwargs.pop("model", "gpt-5.6-luna"), **kwargs)
 
@@ -1705,8 +1837,11 @@ class TestClaudeWebSearch:
 
     def _make(self, **kwargs):
         from backend.engine import ClaudeCUClient
+
         with patch("anthropic.AsyncAnthropic"):
-            return ClaudeCUClient(api_key="k", model=kwargs.pop("model", "claude-sonnet-5"), **kwargs)
+            return ClaudeCUClient(
+                api_key="k", model=kwargs.pop("model", "claude-sonnet-5"), **kwargs
+            )
 
     def test_disabled_emits_only_computer_tool(self):
         client = self._make(use_builtin_search=False)
@@ -1733,7 +1868,9 @@ class TestClaudeWebSearch:
 
         mock_sdk_client = SimpleNamespace(
             messages=SimpleNamespace(
-                create=AsyncMock(return_value=SimpleNamespace(content=[SimpleNamespace(type="text", text="ok")]))
+                create=AsyncMock(
+                    return_value=SimpleNamespace(content=[SimpleNamespace(type="text", text="ok")])
+                )
             )
         )
 
@@ -1783,18 +1920,26 @@ class TestClaudeWebSearch:
 
         first_sdk_client = SimpleNamespace(
             messages=SimpleNamespace(
-                create=AsyncMock(return_value=SimpleNamespace(content=[SimpleNamespace(type="text", text="ok")]))
+                create=AsyncMock(
+                    return_value=SimpleNamespace(content=[SimpleNamespace(type="text", text="ok")])
+                )
             )
         )
         second_sdk_client = SimpleNamespace(
             messages=SimpleNamespace(
-                create=AsyncMock(return_value=SimpleNamespace(content=[SimpleNamespace(type="text", text="ok")]))
+                create=AsyncMock(
+                    return_value=SimpleNamespace(content=[SimpleNamespace(type="text", text="ok")])
+                )
             )
         )
 
         with patch("anthropic.AsyncAnthropic", side_effect=[first_sdk_client, second_sdk_client]):
-            first = ClaudeCUClient(api_key="shared-key", model="claude-sonnet-5", use_builtin_search=True)
-            second = ClaudeCUClient(api_key="shared-key", model="claude-sonnet-5", use_builtin_search=True)
+            first = ClaudeCUClient(
+                api_key="shared-key", model="claude-sonnet-5", use_builtin_search=True
+            )
+            second = ClaudeCUClient(
+                api_key="shared-key", model="claude-sonnet-5", use_builtin_search=True
+            )
 
         await first._ensure_anthropic_web_search_enabled()
         await second._ensure_anthropic_web_search_enabled()
@@ -1812,18 +1957,26 @@ class TestClaudeWebSearch:
 
         first_sdk_client = SimpleNamespace(
             messages=SimpleNamespace(
-                create=AsyncMock(return_value=SimpleNamespace(content=[SimpleNamespace(type="text", text="ok")]))
+                create=AsyncMock(
+                    return_value=SimpleNamespace(content=[SimpleNamespace(type="text", text="ok")])
+                )
             )
         )
         second_sdk_client = SimpleNamespace(
             messages=SimpleNamespace(
-                create=AsyncMock(return_value=SimpleNamespace(content=[SimpleNamespace(type="text", text="ok")]))
+                create=AsyncMock(
+                    return_value=SimpleNamespace(content=[SimpleNamespace(type="text", text="ok")])
+                )
             )
         )
 
         with patch("anthropic.AsyncAnthropic", side_effect=[first_sdk_client, second_sdk_client]):
-            first = ClaudeCUClient(api_key="shared-key", model="claude-sonnet-5", use_builtin_search=True)
-            second = ClaudeCUClient(api_key="shared-key", model="claude-sonnet-5", use_builtin_search=True)
+            first = ClaudeCUClient(
+                api_key="shared-key", model="claude-sonnet-5", use_builtin_search=True
+            )
+            second = ClaudeCUClient(
+                api_key="shared-key", model="claude-sonnet-5", use_builtin_search=True
+            )
 
         await first._ensure_anthropic_web_search_enabled()
         now[0] += claude_mod._ANTHROPIC_WEB_SEARCH_PROBE_TTL_SECONDS + 1
@@ -1837,9 +1990,7 @@ class TestClaudeWebSearch:
         from backend.engine import ClaudeCUClient
 
         monkeypatch.setenv("CUA_ANTHROPIC_WEB_SEARCH_ENABLED", "1")
-        mock_sdk_client = SimpleNamespace(
-            messages=SimpleNamespace(create=AsyncMock())
-        )
+        mock_sdk_client = SimpleNamespace(messages=SimpleNamespace(create=AsyncMock()))
 
         with patch("anthropic.AsyncAnthropic", return_value=mock_sdk_client):
             client = ClaudeCUClient(
@@ -1864,6 +2015,7 @@ class TestGeminiGoogleSearch:
 
     def _make(self, **kwargs):
         from backend.engine import GeminiCUClient
+
         with patch("google.genai.Client"):
             return GeminiCUClient(api_key="k", **kwargs)
 
@@ -1875,7 +2027,9 @@ class TestGeminiGoogleSearch:
         assert config.tools[0].computer_use is not None
 
     def test_attached_files_are_rejected_for_gemini_computer_use(self):
-        with pytest.raises(ValueError, match="Gemini File Search cannot be combined with Computer Use"):
+        with pytest.raises(
+            ValueError, match="Gemini File Search cannot be combined with Computer Use"
+        ):
             self._make(attached_file_ids=["f_doc"])
 
     def test_enabled_still_emits_only_computer_use_tool(self):
@@ -2026,4 +2180,3 @@ class TestGeminiGoogleSearch:
             assert grounding["webSearchQueries"] == ["grounded answer query"]
 
         asyncio.run(_go())
-

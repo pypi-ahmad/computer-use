@@ -73,7 +73,9 @@ async def test_provider_run_uses_web_planner_before_computer_only_loop():
             on_log("info", "planner called")
             assert kwargs["tools"] == [{"type": "web_search"}]
             assert "Open Chrome" in kwargs["input"]
-            return SimpleNamespace(output_text="Open the application menu, search for Chrome, then launch it.")
+            return SimpleNamespace(
+                output_text="Open the application menu, search for Chrome, then launch it."
+            )
 
         async def run_loop(
             self,

@@ -1,4 +1,3 @@
-from __future__ import annotations
 # === merged from tests/test_sandbox_gpt54.py ===
 """Prompt S3 — OpenAI GPT-5.4 sandbox alignment regression tests.
 
@@ -14,12 +13,12 @@ sandbox + adapter:
   ``detail: "original"`` \u2014 never ``"high"`` or ``"low"``.
 """
 
+from __future__ import annotations
 
 import base64
 from pathlib import Path
 
 from backend.engine import _build_openai_computer_call_output
-
 
 _DOCKERFILE = Path("docker/Dockerfile")
 _OPENAI_ADAPTER = Path("backend/engine/openai.py")
@@ -88,10 +87,10 @@ class TestGpt54AdapterScreenshotDetail:
             # the words \u2014 test_*.py strips them, this is a source scan
             # that only blocks actual dict literals.
             assert '"detail": "high"' not in text, (
-                f"{path} must never send detail=\"high\" in computer_call_output"
+                f'{path} must never send detail="high" in computer_call_output'
             )
             assert '"detail": "low"' not in text, (
-                f"{path} must never send detail=\"low\" in computer_call_output"
+                f'{path} must never send detail="low" in computer_call_output'
             )
             assert "'detail': 'high'" not in text
             assert "'detail': 'low'" not in text
@@ -111,6 +110,7 @@ class TestBrowserSecurityPosture:
         # test runs without the container being on sys.path.
         import importlib.util
         from pathlib import Path
+
         spec = importlib.util.spec_from_file_location(
             "_gpt54_agent_service_check",
             Path(__file__).resolve().parents[2] / "docker" / "agent_service.py",
@@ -123,9 +123,9 @@ class TestBrowserSecurityPosture:
         assert "--no-default-browser-check" in mod._CHROME_FLAGS
         # Per-session profile dir marker — exact path may vary, but the
         # flag must be present so extensions can't mutate a shared profile.
-        assert any(
-            f.startswith("--user-data-dir=") for f in mod._CHROME_FLAGS
-        ), "Chrome must launch with an explicit --user-data-dir"
+        assert any(f.startswith("--user-data-dir=") for f in mod._CHROME_FLAGS), (
+            "Chrome must launch with an explicit --user-data-dir"
+        )
 
     def test_browser_subprocess_uses_minimal_env(self):
         """The browser subprocess must NOT inherit the full host env
@@ -134,6 +134,7 @@ class TestBrowserSecurityPosture:
         env vars passed into ``subprocess.Popen`` for the browser."""
         import importlib.util
         from pathlib import Path
+
         spec = importlib.util.spec_from_file_location(
             "_gpt54_agent_service_env_check",
             Path(__file__).resolve().parents[2] / "docker" / "agent_service.py",
@@ -144,16 +145,21 @@ class TestBrowserSecurityPosture:
         env = mod._browser_minimal_env()
         # Whitelist: exactly these keys — nothing more.
         assert set(env.keys()) == {
-            "DISPLAY", "HOME", "PATH", "LANG", "XDG_RUNTIME_DIR",
-        }, (
-            f"Browser env must be a tight whitelist, got keys: {set(env.keys())}"
-        )
+            "DISPLAY",
+            "HOME",
+            "PATH",
+            "LANG",
+            "XDG_RUNTIME_DIR",
+        }, f"Browser env must be a tight whitelist, got keys: {set(env.keys())}"
         # Must NOT contain any token / key material even if they exist
         # in the host env (belt-and-braces — the whitelist above already
         # excludes them, but this makes the intent explicit).
         for sensitive in (
-            "AGENT_SERVICE_TOKEN", "ANTHROPIC_API_KEY",
-            "OPENAI_API_KEY", "GOOGLE_API_KEY", "CUA_WS_TOKEN",
+            "AGENT_SERVICE_TOKEN",
+            "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
+            "GOOGLE_API_KEY",
+            "CUA_WS_TOKEN",
         ):
             assert sensitive not in env
 
@@ -163,9 +169,10 @@ class TestBrowserSecurityPosture:
         host-env inheritance into the browser launch path must update
         this test with an explicit justification."""
         from pathlib import Path
-        text = (
-            Path(__file__).resolve().parents[2] / "docker" / "agent_service.py"
-        ).read_text(encoding="utf-8")
+
+        text = (Path(__file__).resolve().parents[2] / "docker" / "agent_service.py").read_text(
+            encoding="utf-8"
+        )
         # The forbidden pattern is ``env={**os.environ`` specifically on
         # the browser-launch Popen call. Allow it elsewhere (e.g. inside
         # tests or for non-browser subprocesses) by scoping the assertion
@@ -178,4 +185,3 @@ class TestBrowserSecurityPosture:
             "Browser subprocess must use _browser_minimal_env() "
             "(OpenAI CU guide: do not leak host env to the renderer)."
         )
-

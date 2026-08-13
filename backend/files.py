@@ -20,18 +20,18 @@ GEMINI_CU_FILE_REJECTION = (
 )
 
 __all__ = [
-    "MAX_FILE_BYTES",
     "GEMINI_CU_FILE_REJECTION",
+    "MAX_FILE_BYTES",
+    "cleanup_openai_vector_store",
+    "close_store",
+    "delete_file",
+    "prepare_anthropic_documents",
+    "prepare_openai_file_search",
+    "resolve_uploaded_files",
     "upload_file",
     "upload_file_stream",
-    "delete_file",
-    "close_store",
-    "validate_attached_files",
-    "resolve_uploaded_files",
-    "prepare_openai_file_search",
-    "cleanup_openai_vector_store",
-    "prepare_anthropic_documents",
     "upload_to_anthropic",
+    "validate_attached_files",
 ]
 
 
@@ -118,8 +118,7 @@ async def prepare_openai_file_search(
             if on_log:
                 on_log(
                     "info",
-                    f"OpenAI file_search: indexed {rec.filename} "
-                    f"({rec.size_bytes} bytes)",
+                    f"OpenAI file_search: indexed {rec.filename} ({rec.size_bytes} bytes)",
                 )
         except Exception as exc:
             if on_log:
@@ -172,11 +171,13 @@ async def prepare_anthropic_documents(
             if anthropic_id is None:
                 anthropic_id = await upload_to_anthropic(client, rec, on_log=on_log)
                 file_cache[rec.file_id] = anthropic_id
-            document_blocks.append({
-                "type": "document",
-                "source": {"type": "file", "file_id": anthropic_id},
-                "title": rec.filename,
-            })
+            document_blocks.append(
+                {
+                    "type": "document",
+                    "source": {"type": "file", "file_id": anthropic_id},
+                    "title": rec.filename,
+                }
+            )
         elif ext in (".md", ".docx"):
             cached = inline_text_cache.get(rec.file_id)
             if cached is None:
@@ -184,12 +185,16 @@ async def prepare_anthropic_documents(
                     cached = (rec.filename, extract_text(rec))
                 except Exception as exc:
                     if on_log:
-                        on_log("error", f"Claude inline-text extract failed for {rec.filename}: {exc}")
+                        on_log(
+                            "error", f"Claude inline-text extract failed for {rec.filename}: {exc}"
+                        )
                     continue
                 inline_text_cache[rec.file_id] = cached
             inline_pairs.append(cached)
         elif on_log:
-            on_log("warning", f"Claude attached_file: unsupported extension {ext} for {rec.filename}")
+            on_log(
+                "warning", f"Claude attached_file: unsupported extension {ext} for {rec.filename}"
+            )
 
     return document_blocks, inline_pairs
 

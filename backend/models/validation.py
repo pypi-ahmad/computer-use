@@ -1,12 +1,20 @@
-from __future__ import annotations
 # === merged from backend/parity_check.py ===
 """Parity check utility to ensure alignment between ActionType, engine_capabilities.json, and prompt action lists."""
 
-import logging
-from typing import Set
+from __future__ import annotations
 
+import json
+import logging
+import os
+import platform
+import shutil
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, ClassVar
+
+from backend.models.registry import EngineCapabilities, get_default_schema_path
 from backend.models.schemas import ActionType
-from backend.models.registry import EngineCapabilities
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +27,7 @@ def validate_tool_parity() -> bool:
     """
 
     success = True
-    action_type_values: Set[str] = {a.value for a in ActionType}
+    action_type_values: set[str] = {a.value for a in ActionType}
 
     # 1. Engine capability schema vs ActionType
     try:
@@ -30,7 +38,9 @@ def validate_tool_parity() -> bool:
             if unknown:
                 logger.warning(
                     "SCHEMA WARNING: engine_capabilities.json '%s' has actions "
-                    "not in ActionType enum: %s", engine_name, sorted(unknown),
+                    "not in ActionType enum: %s",
+                    engine_name,
+                    sorted(unknown),
                 )
                 success = False
         logger.info(
@@ -44,6 +54,7 @@ def validate_tool_parity() -> bool:
     # 2. Prompt action drift detection
     try:
         from backend.prompts import validate_prompt_actions
+
         prompt_warnings = validate_prompt_actions()
         if prompt_warnings:
             for w in prompt_warnings:
@@ -78,26 +89,13 @@ Usage::
     python -m backend.models.validation --deep
 """
 
-
-import json
-import os
-import platform
-import shutil
-import sys
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Dict, List, Set
-
-from backend.models.registry import get_default_schema_path
-
-
 # Reuse the live capability loader's path discovery so the validator and
 # runtime always point at the same bundled schema file.
 _DEFAULT_SCHEMA_PATH = get_default_schema_path()
 
 # ── Binary mappings derived from environment_requirements prose ───────────────
 
-_REQUIREMENT_BINARY_MAP: Dict[str, str] = {
+_REQUIREMENT_BINARY_MAP: dict[str, str] = {
     "xdotool": "xdotool",
     "wmctrl": "wmctrl",
     "scrot": "scrot",
@@ -106,7 +104,7 @@ _REQUIREMENT_BINARY_MAP: Dict[str, str] = {
     "node": "node",
 }
 
-_ENV_CHECKS: Dict[str, str] = {
+_ENV_CHECKS: dict[str, str] = {
     "xdotool": "DISPLAY",
     "scrot": "DISPLAY",
     "wmctrl": "DISPLAY",
@@ -115,19 +113,20 @@ _ENV_CHECKS: Dict[str, str] = {
 
 # ── Result dataclasses ───────────────────────────────────────────────────────
 
+
 @dataclass
 class EngineReport:
     """Certification result for a single engine."""
 
     engine: str
     healthy: bool = True
-    schema_issues: List[str] = field(default_factory=list)
-    missing_dependencies: List[str] = field(default_factory=list)
-    missing_env_vars: List[str] = field(default_factory=list)
-    invalid_actions: List[str] = field(default_factory=list)
+    schema_issues: list[str] = field(default_factory=list)
+    missing_dependencies: list[str] = field(default_factory=list)
+    missing_env_vars: list[str] = field(default_factory=list)
+    invalid_actions: list[str] = field(default_factory=list)
     execution_probe: str = "skipped"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialise to a JSON-friendly dict."""
         return {
             "engine": self.engine,
@@ -148,10 +147,10 @@ class CertificationReport:
     platform: str = ""
     engine_count: int = 0
     all_healthy: bool = True
-    engines: List[EngineReport] = field(default_factory=list)
-    global_issues: List[str] = field(default_factory=list)
+    engines: list[EngineReport] = field(default_factory=list)
+    global_issues: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialise to a JSON-friendly dict."""
         return {
             "schema_version": self.schema_version,
@@ -164,6 +163,7 @@ class CertificationReport:
 
 
 # ── Certifier ─────────────────────────────────────────────────────────────────
+
 
 class EngineCertifier:
     """Engine and tool validation framework.
@@ -182,17 +182,17 @@ class EngineCertifier:
         if not self._path.exists():
             raise FileNotFoundError(f"Schema not found: {self._path}")
 
-        with open(self._path, "r", encoding="utf-8") as fh:
-            self._raw: Dict[str, Any] = json.load(fh)
+        with open(self._path, encoding="utf-8") as fh:
+            self._raw: dict[str, Any] = json.load(fh)
 
         self._version: str = self._raw.get("version", "unknown")
-        self._engines_raw: Dict[str, Any] = self._raw.get("engines", {})
+        self._engines_raw: dict[str, Any] = self._raw.get("engines", {})
 
     # ── Phase 1: Schema Integrity ─────────────────────────────────────────
 
-    def validate_schema_integrity(self) -> List[str]:
+    def validate_schema_integrity(self) -> list[str]:
         """Verify top-level schema structure and required fields per engine."""
-        issues: List[str] = []
+        issues: list[str] = []
 
         if "version" not in self._raw:
             issues.append("Missing top-level 'version' field")
@@ -216,9 +216,9 @@ class EngineCertifier:
 
     # ── Phase 2: Engine Registration ──────────────────────────────────────
 
-    def validate_engine_registration(self) -> List[str]:
+    def validate_engine_registration(self) -> list[str]:
         """Verify all engines are properly registered."""
-        issues: List[str] = []
+        issues: list[str] = []
 
         if not self._engines_raw:
             issues.append("No engines defined in schema")
@@ -252,7 +252,7 @@ class EngineCertifier:
             report.schema_issues.append(f"Engine '{engine_name}' not in schema")
             return report
 
-        reqs: List[str] = block.get("environment_requirements", [])
+        reqs: list[str] = block.get("environment_requirements", [])
         self._check_binary_deps(reqs, report)
         self._check_env_vars(reqs, report)
 
@@ -261,11 +261,11 @@ class EngineCertifier:
 
         return report
 
-    def validate_binary_dependencies(self, engine_name: str) -> List[str]:
+    def validate_binary_dependencies(self, engine_name: str) -> list[str]:
         """Return list of missing binary names for the given engine."""
         block = self._engines_raw.get(engine_name, {})
-        reqs: List[str] = block.get("environment_requirements", [])
-        missing: List[str] = []
+        reqs: list[str] = block.get("environment_requirements", [])
+        missing: list[str] = []
 
         for req_text in reqs:
             req_lower = req_text.lower()
@@ -276,7 +276,7 @@ class EngineCertifier:
 
         return missing
 
-    def _check_binary_deps(self, reqs: List[str], report: EngineReport) -> None:
+    def _check_binary_deps(self, reqs: list[str], report: EngineReport) -> None:
         """Populate *report* with any missing binary dependencies from *reqs*."""
         for req_text in reqs:
             req_lower = req_text.lower()
@@ -285,7 +285,7 @@ class EngineCertifier:
                     if binary not in report.missing_dependencies:
                         report.missing_dependencies.append(binary)
 
-    def _check_env_vars(self, reqs: List[str], report: EngineReport) -> None:
+    def _check_env_vars(self, reqs: list[str], report: EngineReport) -> None:
         """Populate *report* with any missing environment variables from *reqs*."""
         for req_text in reqs:
             req_lower = req_text.lower()
@@ -296,9 +296,9 @@ class EngineCertifier:
 
     # ── Phase 4: Action Consistency ───────────────────────────────────────
 
-    def validate_allowed_actions(self, engine_name: str) -> List[str]:
+    def validate_allowed_actions(self, engine_name: str) -> list[str]:
         """Verify categories <-> allowed_actions parity for one engine."""
-        issues: List[str] = []
+        issues: list[str] = []
         block = self._engines_raw.get(engine_name)
         if block is None:
             return [f"Engine '{engine_name}' not in schema"]
@@ -309,8 +309,8 @@ class EngineCertifier:
         if not isinstance(raw_cats, dict) or not isinstance(raw_actions, list):
             return issues
 
-        cat_actions: Set[str] = set()
-        for cat_name, action_list in raw_cats.items():
+        cat_actions: set[str] = set()
+        for _cat_name, action_list in raw_cats.items():
             if isinstance(action_list, list):
                 cat_actions.update(action_list)
 
@@ -325,7 +325,7 @@ class EngineCertifier:
                 f"[{engine_name}] Action '{action}' in allowed_actions but not in any category"
             )
 
-        seen: Set[str] = set()
+        seen: set[str] = set()
         for action in raw_actions:
             if action in seen:
                 issues.append(f"[{engine_name}] Duplicate action in allowed_actions: '{action}'")
@@ -350,7 +350,7 @@ class EngineCertifier:
 
     def _probe_computer_use(self) -> str:
         """Check xdotool/scrot availability and DISPLAY env for CU engine."""
-        missing: List[str] = []
+        missing: list[str] = []
         for binary in ("xdotool", "scrot"):
             if shutil.which(binary) is None:
                 missing.append(binary)
@@ -360,7 +360,7 @@ class EngineCertifier:
             return "skip:DISPLAY not set"
         return "pass"
 
-    _PROBES: Dict[str, Any] = {
+    _PROBES: ClassVar[dict[str, Any]] = {
         "computer_use": _probe_computer_use,
     }
 
@@ -392,9 +392,7 @@ class EngineCertifier:
 
         return report
 
-    def _certify_single_engine(
-        self, engine_name: str, deep: bool = False
-    ) -> EngineReport:
+    def _certify_single_engine(self, engine_name: str, deep: bool = False) -> EngineReport:
         """Run all validation phases for a single engine and return its report."""
         eng_report = EngineReport(engine=engine_name)
 
@@ -417,6 +415,7 @@ class EngineCertifier:
 
 
 # ── CLI entry point ──────────────────────────────────────────────────────────
+
 
 def _print_table(report: CertificationReport) -> None:
     header = f"{'Engine':<20} {'Healthy':<10} {'Missing Deps':<30} {'Execution Probe':<20}"
@@ -451,7 +450,7 @@ def _print_table(report: CertificationReport) -> None:
             print(f"    - {issue}")
 
     for eng in report.engines:
-        detail_lines: List[str] = []
+        detail_lines: list[str] = []
         if eng.invalid_actions:
             detail_lines.extend(f"    Action: {a}" for a in eng.invalid_actions)
         if eng.missing_env_vars:
@@ -473,15 +472,20 @@ def main() -> None:
         description="CUA Engine Certification — validate all engines and tools",
     )
     parser.add_argument(
-        "--deep", action="store_true",
+        "--deep",
+        action="store_true",
         help="Run execution probes (requires live environment)",
     )
     parser.add_argument(
-        "--json", action="store_true", dest="json_output",
+        "--json",
+        action="store_true",
+        dest="json_output",
         help="Output raw JSON report instead of table",
     )
     parser.add_argument(
-        "--schema", type=str, default=None,
+        "--schema",
+        type=str,
+        default=None,
         help="Path to engine_capabilities.json (default: auto-detect)",
     )
     args = parser.parse_args()
@@ -501,4 +505,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

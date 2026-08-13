@@ -1,4 +1,3 @@
-from __future__ import annotations
 # === merged from backend/logging_ctx.py ===
 """Session-scoped logging context.
 
@@ -14,18 +13,24 @@ giving operators a reliable correlation id when two sessions run
 concurrently.
 """
 
+from __future__ import annotations
 
 import contextvars
 import datetime as _dt
+import hashlib
 import json
 import logging
 import os
+import threading
+import time
+from collections.abc import Callable, Iterable
 from contextlib import contextmanager
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any
 
 # Default empty string so logs outside a session just render as "-".
-session_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "session_id", default=""
-)
+session_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("session_id", default="")
 
 
 # Env-var gate for the log-record format. Default "console" keeps the
@@ -47,10 +52,15 @@ class JsonFormatter(logging.Formatter):
     index on exception class.
     """
 
-    def format(self, record: logging.LogRecord) -> str:  # noqa: D401
-        ts = _dt.datetime.fromtimestamp(
-            record.created, tz=_dt.timezone.utc,
-        ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    def format(self, record: logging.LogRecord) -> str:
+        ts = (
+            _dt.datetime.fromtimestamp(
+                record.created,
+                tz=_dt.UTC,
+            )
+            .isoformat(timespec="milliseconds")
+            .replace("+00:00", "Z")
+        )
         payload: dict[str, object] = {
             "ts": ts,
             "level": record.levelname,
@@ -94,7 +104,8 @@ def configure_logging(
     else:
         if fmt_name not in ("console", ""):
             logging.getLogger(__name__).warning(
-                "Unknown LOG_FORMAT=%r; falling back to 'console'", fmt_name,
+                "Unknown LOG_FORMAT=%r; falling back to 'console'",
+                fmt_name,
             )
         formatter = logging.Formatter(
             "%(asctime)s %(levelname)-7s [%(session_id)s] %(name)s: %(message)s",
@@ -112,7 +123,7 @@ def configure_logging(
 class SessionIdFilter(logging.Filter):
     """Inject the current ``session_id`` ContextVar into every LogRecord."""
 
-    def filter(self, record: logging.LogRecord) -> bool:  # noqa: D401
+    def filter(self, record: logging.LogRecord) -> bool:
         sid = session_id_var.get("")
         # Short form (first 8 chars) keeps log lines readable.
         record.session_id = sid[:8] if sid else "-"
@@ -154,6 +165,7 @@ def session_context(session_id: str):
     finally:
         session_id_var.reset(token)
 
+
 # === merged from backend/tracing.py ===
 """In-process session trace recorder.
 
@@ -194,14 +206,6 @@ CLI
 Dumps the JSON trace for *session_id* from the configured trace
 directory (``$CUA_TRACE_DIR``, default ``~/.computer-use/traces/``).
 """
-
-
-import hashlib
-import threading
-import time
-from dataclasses import asdict, dataclass, field
-from pathlib import Path
-from typing import Any, Callable, Iterable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -282,7 +286,7 @@ class TraceEvent:
     session_id: str
     stage: str
     event_type: str
-    duration_ms: Optional[float] = None
+    duration_ms: float | None = None
     payload: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -356,8 +360,8 @@ class SessionTrace:
     started_ts: float = field(default_factory=time.time)
     started_monotonic: float = field(default_factory=time.monotonic)
     events: list[TraceEvent] = field(default_factory=list)
-    finished_ts: Optional[float] = None
-    status: Optional[str] = None  # terminal status — "completed"|"error"|"stopped"
+    finished_ts: float | None = None
+    status: str | None = None  # terminal status — "completed"|"error"|"stopped"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -370,7 +374,7 @@ class SessionTrace:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "SessionTrace":
+    def from_dict(cls, data: dict[str, Any]) -> SessionTrace:
         events = [TraceEvent(**e) for e in data.get("events", [])]
         return cls(
             session_id=str(data.get("session_id", "")),
@@ -430,10 +434,14 @@ def _default_trace_dir() -> Path:
         # from taking the whole session down. The warning lands in the
         # normal logs with the session_id attached.
         import tempfile
+
         fallback = Path(tempfile.gettempdir()) / "cua-traces"
         fallback.mkdir(parents=True, exist_ok=True)
         logger.warning(
-            "trace dir %s unusable (%s); using %s", base, exc, fallback,
+            "trace dir %s unusable (%s); using %s",
+            base,
+            exc,
+            fallback,
         )
         base = fallback
     return base
@@ -527,7 +535,9 @@ def finalize_session(
         tr.finished_ts = time.time()
         tr.status = status
     record(
-        session_id, STAGE_SESSION, EVT_SESSION_END,
+        session_id,
+        STAGE_SESSION,
+        EVT_SESSION_END,
         {"status": status, "event_count": len(tr.events)},
     )
     if not write:
@@ -552,9 +562,13 @@ def record(
         # No-op when called outside a bound session — keeps the
         # instrumentation points free of ``if session_id:`` guards.
         return TraceEvent(
-            ts=time.time(), monotonic=time.monotonic(),
-            session_id="", stage=stage, event_type=event_type,
-            duration_ms=duration_ms, payload={},
+            ts=time.time(),
+            monotonic=time.monotonic(),
+            session_id="",
+            stage=stage,
+            event_type=event_type,
+            duration_ms=duration_ms,
+            payload={},
         )
     tr = _get_or_create(session_id)
     evt = TraceEvent(
@@ -615,8 +629,7 @@ def assert_invariants(trace: SessionTrace) -> None:
             pending = False
         elif evt.event_type == EVT_TOOL_BATCH_COMPLETED and pending:
             raise AssertionError(
-                "tool_batch_completed emitted while a safety approval "
-                "was still pending"
+                "tool_batch_completed emitted while a safety approval was still pending"
             )
 
 
@@ -655,4 +668,5 @@ def _cli(argv: list[str]) -> int:
 
 if __name__ == "__main__":  # pragma: no cover — entry point only
     import sys
+
     raise SystemExit(_cli(sys.argv[1:]))

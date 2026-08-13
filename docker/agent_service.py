@@ -17,10 +17,10 @@ import signal
 import subprocess
 import sys
 import time
-from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from collections import OrderedDict
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Lock, local
-from collections import OrderedDict
 
 # Request-scoped correlation. The server is a ThreadingHTTPServer (one thread
 # per request), so threading.local is the correct scope — a ContextVar would
@@ -57,7 +57,8 @@ except ImportError as exc:
     # log at ERROR so a packaging/rename regression is loud, not silent.
     logger.error(
         "backend.models.registry.resolve_action import failed (%s); "
-        "alias resolution disabled (identity fallback)", exc,
+        "alias resolution disabled (identity fallback)",
+        exc,
     )
 
     def resolve_action(a):
@@ -117,39 +118,81 @@ WINDOW_NORMALIZE_H = int(os.environ.get("CUA_WINDOW_H", "760"))
 #
 # DO NOT expand ``_ENGINE_ACTIONS`` without a matching change to the
 # engine adapters and a short note in ``docker/SECURITY_NOTES.md``.
-_ENGINE_ACTIONS: frozenset[str] = frozenset({
-    "click", "double_click", "triple_click", "right_click", "middle_click", "hover",
-    "type", "type_text_at", "hotkey", "key", "keydown", "keyup",
-    "scroll", "left_mouse_down", "left_mouse_up", "drag",
-    "open_url",
-    # ``zoom`` is a ``computer_20251124``-era action (Claude Opus 4.7
-    # et al.) — always on when the adapter advertises enable_zoom.
-    "zoom",
-})
+_ENGINE_ACTIONS: frozenset[str] = frozenset(
+    {
+        "click",
+        "double_click",
+        "triple_click",
+        "right_click",
+        "middle_click",
+        "hover",
+        "type",
+        "type_text_at",
+        "hotkey",
+        "key",
+        "keydown",
+        "keyup",
+        "scroll",
+        "left_mouse_down",
+        "left_mouse_up",
+        "drag",
+        "open_url",
+        # ``zoom`` is a ``computer_20251124``-era action (Claude Opus 4.7
+        # et al.) — always on when the adapter advertises enable_zoom.
+        "zoom",
+    }
+)
 
-_LEGACY_ACTIONS: frozenset[str] = frozenset({
-    # Window management (wmctrl / xdotool)
-    "focus_window", "window_activate", "close_window", "search_window",
-    "window_minimize", "window_maximize", "window_move", "window_resize",
-    "focus_click", "focus_mouse", "mousemove",
-    # App launch
-    "open_app", "open_terminal",
-    # Clipboard / alternate input
-    "paste", "copy", "type_slow",
-    # Form helpers (desktop approximation)
-    "fill", "clear_input", "select_option",
-    # Browser-like navigation via keyboard shortcuts
-    "reload", "go_back", "go_forward",
-    "new_tab", "close_tab", "switch_tab", "scroll_to",
-    # DOM / JS stubs (never implemented for desktop)
-    "get_text", "find_element", "evaluate_js", "wait_for",
-    # Scrolling directional variants
-    "scroll_up", "scroll_down",
-    # Vision
-    "screenshot", "screenshot_full", "screenshot_region",
-    # Shell / wait
-    "run_command", "wait",
-})
+_LEGACY_ACTIONS: frozenset[str] = frozenset(
+    {
+        # Window management (wmctrl / xdotool)
+        "focus_window",
+        "window_activate",
+        "close_window",
+        "search_window",
+        "window_minimize",
+        "window_maximize",
+        "window_move",
+        "window_resize",
+        "focus_click",
+        "focus_mouse",
+        "mousemove",
+        # App launch
+        "open_app",
+        "open_terminal",
+        # Clipboard / alternate input
+        "paste",
+        "copy",
+        "type_slow",
+        # Form helpers (desktop approximation)
+        "fill",
+        "clear_input",
+        "select_option",
+        # Browser-like navigation via keyboard shortcuts
+        "reload",
+        "go_back",
+        "go_forward",
+        "new_tab",
+        "close_tab",
+        "switch_tab",
+        "scroll_to",
+        # DOM / JS stubs (never implemented for desktop)
+        "get_text",
+        "find_element",
+        "evaluate_js",
+        "wait_for",
+        # Scrolling directional variants
+        "scroll_up",
+        "scroll_down",
+        # Vision
+        "screenshot",
+        "screenshot_full",
+        "screenshot_region",
+        # Shell / wait
+        "run_command",
+        "wait",
+    }
+)
 
 LEGACY_ACTIONS_ENABLED = _env_bool("CUA_ENABLE_LEGACY_ACTIONS", False)
 
@@ -241,6 +284,7 @@ def _blocked_cmd_match(args: list[str]) -> str | None:
             return pattern
     return None
 
+
 # Allowed directories for file upload operations
 _UPLOAD_ALLOWED_PREFIXES = ("/tmp", "/app", "/home")
 
@@ -294,30 +338,72 @@ def _is_safe_upload_path(target: str) -> bool:
             return True
     return False
 
+
 # Strict allowlist of commands permitted in run_command.
 # Note: curl/wget are intentionally excluded (S2) — they double as
 # exfil channels for a prompt-injected VLM. Use xdg-open for web
 # navigation instead.
-_ALLOWED_COMMANDS = frozenset({
-    "ls", "cat", "head", "tail", "grep", "find", "wc", "echo",
-    "pwd", "whoami", "id", "date", "env", "printenv",
-    "which", "file", "stat", "df", "du", "free",
-    "uname", "hostname", "uptime",
-    "xdg-open", "xdotool", "xclip", "scrot", "wmctrl",
-    "xfce4-terminal", "xterm",
-    # Desktop apps accessible via accessibility / run_command
-    "gnome-control-center", "gnome-settings", "gnome-calculator",
-    "gnome-text-editor", "gedit", "gnome-system-monitor",
-    "xfce4-settings-manager", "xfce4-settings-editor",
-    "xfce4-taskmanager", "thunar", "mousepad",
-    "firefox", "google-chrome",
-    # Browsers added via Dockerfile
-    "brave-browser", "microsoft-edge", "microsoft-edge-stable",
-    # Desktop apps added via Dockerfile
-    "vlc", "libreoffice", "soffice",
-    "evince", "gnome-terminal", "flameshot", "xournalpp",
-    "htop",
-})
+_ALLOWED_COMMANDS = frozenset(
+    {
+        "ls",
+        "cat",
+        "head",
+        "tail",
+        "grep",
+        "find",
+        "wc",
+        "echo",
+        "pwd",
+        "whoami",
+        "id",
+        "date",
+        "env",
+        "printenv",
+        "which",
+        "file",
+        "stat",
+        "df",
+        "du",
+        "free",
+        "uname",
+        "hostname",
+        "uptime",
+        "xdg-open",
+        "xdotool",
+        "xclip",
+        "scrot",
+        "wmctrl",
+        "xfce4-terminal",
+        "xterm",
+        # Desktop apps accessible via accessibility / run_command
+        "gnome-control-center",
+        "gnome-settings",
+        "gnome-calculator",
+        "gnome-text-editor",
+        "gedit",
+        "gnome-system-monitor",
+        "xfce4-settings-manager",
+        "xfce4-settings-editor",
+        "xfce4-taskmanager",
+        "thunar",
+        "mousepad",
+        "firefox",
+        "google-chrome",
+        # Browsers added via Dockerfile
+        "brave-browser",
+        "microsoft-edge",
+        "microsoft-edge-stable",
+        # Desktop apps added via Dockerfile
+        "vlc",
+        "libreoffice",
+        "soffice",
+        "evince",
+        "gnome-terminal",
+        "flameshot",
+        "xournalpp",
+        "htop",
+    }
+)
 
 # S6: language interpreters are arbitrary-code-execution primitives that
 # neutralize the run_command allowlist (anything Python/Node can do). They are
@@ -338,7 +424,6 @@ def _effective_allowed_commands() -> frozenset[str]:
 os.environ["DISPLAY"] = ":99"
 
 
-
 # ══════════════════════════════════════════════════════════════════════════════
 #  Screenshots
 # ══════════════════════════════════════════════════════════════════════════════
@@ -348,7 +433,8 @@ def _screenshot_desktop() -> str:
     """Capture the full Xvfb display via scrot (works with any app)."""
     subprocess.run(
         ["scrot", "-z", "-o", "/tmp/screenshot.png"],
-        check=True, timeout=_SUBPROCESS_TIMEOUT,
+        check=True,
+        timeout=_SUBPROCESS_TIMEOUT,
     )
     with open("/tmp/screenshot.png", "rb") as f:
         return base64.b64encode(f.read()).decode("ascii")
@@ -357,6 +443,7 @@ def _screenshot_desktop() -> str:
 # ══════════════════════════════════════════════════════════════════════════════
 #  Actions — xdotool (desktop mode, works with any X11 app)
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 def _read_int_env(name: str, default: int) -> int:
     """Read a non-negative integer env var, falling back to *default*."""
@@ -391,8 +478,10 @@ def _xdo(args: list[str]) -> str:
         args = [a for a in args if a != "--sync"]
 
     result = subprocess.run(
-        ["xdotool"] + args,
-        capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
+        ["xdotool", *args],
+        capture_output=True,
+        text=True,
+        timeout=_SUBPROCESS_TIMEOUT,
     )
     if result.returncode != 0:
         raise RuntimeError(f"xdotool {' '.join(args)} failed: {result.stderr.strip()}")
@@ -474,24 +563,39 @@ def _expand_app_launch_candidates(app_name: str) -> list[str]:
     candidates: list[str] = [requested]
 
     if any(term in lowered for term in ("calculator", "calc", "xcalc", "kcalc", "galculator")):
-        candidates.extend([
-            "gnome-calculator",
-            "galculator",
-            "xfce4-calculator",
-            "mate-calc",
-            "kcalc",
-            "xcalc",
-        ])
+        candidates.extend(
+            [
+                "gnome-calculator",
+                "galculator",
+                "xfce4-calculator",
+                "mate-calc",
+                "kcalc",
+                "xcalc",
+            ]
+        )
 
-    if any(term in lowered for term in ("file explorer", "files", "file manager", "explorer", "nautilus", "thunar", "pcmanfm")):
-        candidates.extend([
+    if any(
+        term in lowered
+        for term in (
+            "file explorer",
+            "files",
+            "file manager",
+            "explorer",
             "nautilus",
             "thunar",
             "pcmanfm",
-            "dolphin",
-            "nemo",
-            "xfe",
-        ])
+        )
+    ):
+        candidates.extend(
+            [
+                "nautilus",
+                "thunar",
+                "pcmanfm",
+                "dolphin",
+                "nemo",
+                "xfe",
+            ]
+        )
 
     # Preserve order while deduping
     seen = set()
@@ -532,7 +636,9 @@ def _xdo_right_click(x: int, y: int) -> dict:
     return {"success": True, "message": f"Right-clicked at ({x}, {y})"}
 
 
-def _xdo_type_text_at(x: int, y: int, text: str, *, press_enter: bool = True, clear_before: bool = False) -> dict:
+def _xdo_type_text_at(
+    x: int, y: int, text: str, *, press_enter: bool = True, clear_before: bool = False
+) -> dict:
     """Composite "type at coordinate": click → optionally clear → type → optionally Enter.
 
     Runs entirely within one /action handler (one ``_lock`` acquisition),
@@ -607,7 +713,9 @@ def _xdo_type(text: str) -> dict:
         # Heuristic: Athena-widget apps typically have generic titles
         _ATHENA_HINTS = ("xcalc", "calculator", "xedit", "bitmap", "editres")
         if any(h in win_name for h in _ATHENA_HINTS):
-            logger.info("Athena-widget window detected ('%s') — reinforcing with key-per-char", win_name)
+            logger.info(
+                "Athena-widget window detected ('%s') — reinforcing with key-per-char", win_name
+            )
             _xdo_type_key_per_char(text)
 
     return {"success": True, "message": f"Typed: {text[:50]}"}
@@ -615,16 +723,41 @@ def _xdo_type(text: str) -> dict:
 
 # Character-to-xdotool-keysym map for key-per-char fallback
 _CHAR_KEYSYM: dict[str, str] = {
-    " ": "space", "!": "exclam", '"': "quotedbl", "#": "numbersign",
-    "$": "dollar", "%": "percent", "&": "ampersand", "'": "apostrophe",
-    "(": "parenleft", ")": "parenright", "*": "asterisk", "+": "plus",
-    ",": "comma", "-": "minus", ".": "period", "/": "slash",
-    ":": "colon", ";": "semicolon", "<": "less", "=": "equal",
-    ">": "greater", "?": "question", "@": "at", "[": "bracketleft",
-    "\\": "backslash", "]": "bracketright", "^": "asciicircum",
-    "_": "underscore", "`": "grave", "{": "braceleft", "|": "bar",
-    "}": "braceright", "~": "asciitilde",
-    "\n": "Return", "\t": "Tab",
+    " ": "space",
+    "!": "exclam",
+    '"': "quotedbl",
+    "#": "numbersign",
+    "$": "dollar",
+    "%": "percent",
+    "&": "ampersand",
+    "'": "apostrophe",
+    "(": "parenleft",
+    ")": "parenright",
+    "*": "asterisk",
+    "+": "plus",
+    ",": "comma",
+    "-": "minus",
+    ".": "period",
+    "/": "slash",
+    ":": "colon",
+    ";": "semicolon",
+    "<": "less",
+    "=": "equal",
+    ">": "greater",
+    "?": "question",
+    "@": "at",
+    "[": "bracketleft",
+    "\\": "backslash",
+    "]": "bracketright",
+    "^": "asciicircum",
+    "_": "underscore",
+    "`": "grave",
+    "{": "braceleft",
+    "|": "bar",
+    "}": "braceright",
+    "~": "asciitilde",
+    "\n": "Return",
+    "\t": "Tab",
 }
 
 
@@ -669,7 +802,10 @@ def _open_terminal() -> dict:
         except Exception as e:
             logger.warning("Failed to open %s: %s", terminal, e)
             continue
-    return {"success": False, "message": "No terminal emulator available (tried xfce4-terminal, xterm)"}
+    return {
+        "success": False,
+        "message": "No terminal emulator available (tried xfce4-terminal, xterm)",
+    }
 
 
 # X11 wheel buttons: 4=up, 5=down, 6=left, 7=right.
@@ -733,7 +869,11 @@ def _xdo_window_maximize(identifier: str) -> dict:
     """Maximise the window matching *identifier* via wmctrl."""
     wids = _xdo(["search", "--name", identifier]).split("\n")
     if wids and wids[0]:
-        subprocess.run(["wmctrl", "-ir", wids[0], "-b", "add,maximized_vert,maximized_horz"], check=False, timeout=_SUBPROCESS_TIMEOUT)
+        subprocess.run(
+            ["wmctrl", "-ir", wids[0], "-b", "add,maximized_vert,maximized_horz"],
+            check=False,
+            timeout=_SUBPROCESS_TIMEOUT,
+        )
         return {"success": True, "message": f"Maximized window: {identifier}"}
     return {"success": False, "message": f"Window not found: {identifier}"}
 
@@ -761,7 +901,11 @@ def _xdo_search_window(identifier: str) -> dict:
     try:
         wids = _xdo(["search", "--name", identifier]).split("\n")
         if wids and wids[0]:
-            return {"success": True, "message": f"Found window: {identifier} (wids: {wids})", "wids": wids}
+            return {
+                "success": True,
+                "message": f"Found window: {identifier} (wids: {wids})",
+                "wids": wids,
+            }
     except Exception:
         pass
     return {"success": False, "message": f"Window not found: {identifier}"}
@@ -836,7 +980,7 @@ _CHROME_FLAGS: list[str] = [
     "--disable-popup-blocking",
     "--disable-translate",
     "--disable-background-networking",
-    "--password-store=basic",          # avoid gnome-keyring / kwallet prompts
+    "--password-store=basic",  # avoid gnome-keyring / kwallet prompts
     "--disable-infobars",
     "--no-default-browser-check",
     f"--user-data-dir={_CHROME_PROFILE_DIR}",
@@ -861,6 +1005,7 @@ def _browser_minimal_env() -> dict[str, str]:
         "XDG_RUNTIME_DIR": os.environ.get("XDG_RUNTIME_DIR", "/tmp/xdg-runtime-dir"),
     }
 
+
 # Known modal window titles that should be auto-dismissed after browser launch
 _KNOWN_MODAL_TITLES = (
     "Welcome to Google Chrome",
@@ -880,8 +1025,7 @@ def _resolve_browser_binary() -> tuple[str, list[str]] | None:
     Preference: google-chrome > chromium-browser > chromium > firefox.
     Returns None when no browser is found.
     """
-    chrome_candidates = ("google-chrome", "google-chrome-stable",
-                         "chromium-browser", "chromium")
+    chrome_candidates = ("google-chrome", "google-chrome-stable", "chromium-browser", "chromium")
     for name in chrome_candidates:
         path = shutil.which(name)
         if path:
@@ -891,11 +1035,14 @@ def _resolve_browser_binary() -> tuple[str, list[str]] | None:
     for name in ("firefox", "firefox-esr"):
         path = shutil.which(name)
         if path:
-            return (path, [
-                "--new-window",
-                f"--width={SCREEN_WIDTH}",
-                f"--height={SCREEN_HEIGHT}",
-            ])
+            return (
+                path,
+                [
+                    "--new-window",
+                    f"--width={SCREEN_WIDTH}",
+                    f"--height={SCREEN_HEIGHT}",
+                ],
+            )
 
     return None
 
@@ -909,7 +1056,9 @@ def _dismiss_known_modals() -> list[str]:
     try:
         result = subprocess.run(
             ["wmctrl", "-l"],
-            capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
+            capture_output=True,
+            text=True,
+            timeout=_SUBPROCESS_TIMEOUT,
         )
         if result.returncode != 0:
             return dismissed
@@ -924,7 +1073,9 @@ def _dismiss_known_modals() -> list[str]:
                 if modal_title.lower() in title.lower():
                     subprocess.run(
                         ["wmctrl", "-c", title],
-                        capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
+                        capture_output=True,
+                        text=True,
+                        timeout=_SUBPROCESS_TIMEOUT,
                     )
                     dismissed.append(title)
                     logger.info("Auto-dismissed modal window: %s", title)
@@ -952,12 +1103,13 @@ def _open_url_in_browser(url: str) -> dict:
         logger.warning("No browser binary found — falling back to xdg-open")
         subprocess.Popen(
             ["xdg-open", url],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         return {"success": True, "message": f"Opened URL (xdg-open fallback): {url}"}
 
     binary, flags = browser
-    cmd = [binary] + flags + [url]
+    cmd = [binary, *flags, url]
     logger.info("Launching browser: %s", " ".join(cmd))
 
     try:
@@ -971,7 +1123,8 @@ def _open_url_in_browser(url: str) -> dict:
         logger.error("Browser launch failed: %s — falling back to xdg-open", exc)
         subprocess.Popen(
             ["xdg-open", url],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         return {"success": True, "message": f"Opened URL (xdg-open fallback after error): {url}"}
 
@@ -1038,13 +1191,27 @@ def _is_terminal_focused() -> bool:
     requires Ctrl+Shift+V instead.
     """
     try:
-        name = subprocess.run(
-            ["xdotool", "getwindowfocus", "getwindowname"],
-            capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
-        ).stdout.strip().lower()
+        name = (
+            subprocess.run(
+                ["xdotool", "getwindowfocus", "getwindowname"],
+                capture_output=True,
+                text=True,
+                timeout=_SUBPROCESS_TIMEOUT,
+            )
+            .stdout.strip()
+            .lower()
+        )
         _TERMINAL_HINTS = (
-            "terminal", "xterm", "konsole", "alacritty", "kitty",
-            "tmux", "bash", "zsh", "sh —", "fish",
+            "terminal",
+            "xterm",
+            "konsole",
+            "alacritty",
+            "kitty",
+            "tmux",
+            "bash",
+            "zsh",
+            "sh —",
+            "fish",
         )
         return any(hint in name for hint in _TERMINAL_HINTS)
     except Exception:
@@ -1055,7 +1222,9 @@ def _xdo_paste(text: str) -> dict:
     """Copy text to clipboard then paste via Ctrl+V (or Ctrl+Shift+V in terminals)."""
     subprocess.run(
         ["xclip", "-selection", "clipboard"],
-        input=text.encode(), check=True, timeout=_SUBPROCESS_TIMEOUT,
+        input=text.encode(),
+        check=True,
+        timeout=_SUBPROCESS_TIMEOUT,
     )
     if _is_terminal_focused():
         _xdo(["key", "--clearmodifiers", "ctrl+shift+v"])
@@ -1166,18 +1335,24 @@ def _wmctrl_close_window(identifier: str) -> dict:
     """Gracefully close a window via EWMH using wmctrl -c."""
     result = subprocess.run(
         ["wmctrl", "-c", identifier],
-        capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
+        capture_output=True,
+        text=True,
+        timeout=_SUBPROCESS_TIMEOUT,
     )
     if result.returncode == 0:
         return {"success": True, "message": f"Closed window: {identifier}"}
-    return {"success": False, "message": f"Failed to close window: {identifier} — {result.stderr.strip()}"}
+    return {
+        "success": False,
+        "message": f"Failed to close window: {identifier} — {result.stderr.strip()}",
+    }
 
 
 def _xdo_screenshot_full() -> str:
     """Capture the full screen via scrot."""
     subprocess.run(
         ["scrot", "-z", "-o", "/tmp/full.png"],
-        check=True, timeout=_SUBPROCESS_TIMEOUT,
+        check=True,
+        timeout=_SUBPROCESS_TIMEOUT,
     )
     with open("/tmp/full.png", "rb") as f:
         return base64.b64encode(f.read()).decode("ascii")
@@ -1187,7 +1362,8 @@ def _xdo_screenshot_region(x: int, y: int, w: int, h: int) -> str:
     """Capture a region of the screen via scrot."""
     subprocess.run(
         ["scrot", "-z", "-o", "-a", f"{x},{y},{w},{h}", "/tmp/region.png"],
-        check=True, timeout=_SUBPROCESS_TIMEOUT,
+        check=True,
+        timeout=_SUBPROCESS_TIMEOUT,
     )
     with open("/tmp/region.png", "rb") as f:
         return base64.b64encode(f.read()).decode("ascii")
@@ -1199,16 +1375,16 @@ def _xdo_focus_click(identifier: str, x: int, y: int) -> dict:
     wids = _xdo(["search", "--name", identifier]).split("\n")
     if not wids or not wids[0]:
         return {"success": False, "message": f"Window not found: {identifier}"}
-    
+
     _xdo(["windowactivate", "--sync", wids[0]])
     time.sleep(0.2)
-    
+
     # 2. Click relative to that window (or absolute if just screen coords provided)
     # The command provided assumes x,y are screen coordinates.
     # To click safely after focus, we just move and click.
     _xdo(["mousemove", "--sync", str(x), str(y)])
     _xdo(["click", "1"])
-    
+
     return {"success": True, "message": f"Focused {identifier} and clicked at ({x}, {y})"}
 
 
@@ -1217,17 +1393,25 @@ def _xdo_focus_click(identifier: str, x: int, y: int) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 _KEY_MAP_XDO = {
-    "enter": "Return", "return": "Return",
+    "enter": "Return",
+    "return": "Return",
     "tab": "Tab",
-    "escape": "Escape", "esc": "Escape",
+    "escape": "Escape",
+    "esc": "Escape",
     "backspace": "BackSpace",
     "delete": "Delete",
     "space": "space",
-    "up": "Up", "down": "Down",
-    "left": "Left", "right": "Right",
-    "home": "Home", "end": "End",
-    "pageup": "Prior", "pagedown": "Next",
+    "up": "Up",
+    "down": "Down",
+    "left": "Left",
+    "right": "Right",
+    "home": "Home",
+    "end": "End",
+    "pageup": "Prior",
+    "pagedown": "Next",
 }
+
+
 def _map_key_combo_xdotool(key: str) -> str:
     """Map a user key string to an xdotool key combo."""
     if "+" in key:
@@ -1259,6 +1443,7 @@ def _do_wait(duration: float) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 #  HTTP Server
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class AgentHandler(BaseHTTPRequestHandler):
     """HTTP handler for the supported desktop automation mode."""
@@ -1297,6 +1482,7 @@ class AgentHandler(BaseHTTPRequestHandler):
             return True
         supplied = self.headers.get("X-Agent-Token", "")
         import hmac
+
         return hmac.compare_digest(supplied, AGENT_SERVICE_TOKEN)
 
     # ── GET ───────────────────────────────────────────────────────────────
@@ -1308,12 +1494,15 @@ class AgentHandler(BaseHTTPRequestHandler):
             return
         _request_ctx.action_id = ""  # GETs carry no action id; reset for symmetry
         if self.path == "/health":
-            self._respond(200, {
-                "status": "ok",
-                "browser": False,
-                "default_mode": DEFAULT_MODE,
-                "supported_modes": ["desktop"],
-            })
+            self._respond(
+                200,
+                {
+                    "status": "ok",
+                    "browser": False,
+                    "default_mode": DEFAULT_MODE,
+                    "supported_modes": ["desktop"],
+                },
+            )
             return
 
         if self.path.startswith("/screenshot"):
@@ -1366,16 +1555,21 @@ class AgentHandler(BaseHTTPRequestHandler):
             if not _is_action_enabled(resolved):
                 logger.info(
                     "action rejected: action=%r resolved=%r legacy_enabled=%s",
-                    raw_action, resolved, LEGACY_ACTIONS_ENABLED,
+                    raw_action,
+                    resolved,
+                    LEGACY_ACTIONS_ENABLED,
                 )
-                self._respond(404, {
-                    "success": False,
-                    # Keep the standard /action error envelope so
-                    # debug callers can treat a gated action like any
-                    # other action failure while the 404 status still
-                    # makes reachability explicit.
-                    "message": f"Unknown or disabled action: {resolved!r}",
-                })
+                self._respond(
+                    404,
+                    {
+                        "success": False,
+                        # Keep the standard /action error envelope so
+                        # debug callers can treat a gated action like any
+                        # other action failure while the 404 status still
+                        # makes reachability explicit.
+                        "message": f"Unknown or disabled action: {resolved!r}",
+                    },
+                )
                 return
 
             # Handle 'wait' outside the lock so it doesn't block
@@ -1402,7 +1596,9 @@ class AgentHandler(BaseHTTPRequestHandler):
                         try:
                             result["screenshot"] = _screenshot_desktop()
                         except Exception:
-                            logger.warning("include_screenshot capture failed; client will re-capture")
+                            logger.warning(
+                                "include_screenshot capture failed; client will re-capture"
+                            )
                     _remember_action_result(action_id, result)
                     self._respond(200, result)
                 except Exception as e:
@@ -1439,11 +1635,11 @@ class AgentHandler(BaseHTTPRequestHandler):
     def _dispatch_action(self, body: dict) -> dict:
         """Route an incoming action to the correct engine dispatcher."""
         start_time = time.time()
-        
+
         # 1. Resolve alias
         raw_action = body.get("action", "")
         action = resolve_action(raw_action)
-        
+
         coords = body.get("coordinates", [])
         text = body.get("text", "")
         target = body.get("target", "")
@@ -1471,8 +1667,15 @@ class AgentHandler(BaseHTTPRequestHandler):
                     result = {"success": False, "message": "Browser mode is no longer supported"}
                 else:
                     result = self._dispatch_desktop(
-                        action, x, y, text, coords, target, magnitude,
-                        press_enter=press_enter, clear_before=clear_before,
+                        action,
+                        x,
+                        y,
+                        text,
+                        coords,
+                        target,
+                        magnitude,
+                        press_enter=press_enter,
+                        clear_before=clear_before,
                     )
         except Exception as e:
             logger.exception(f"Action {action} failed")
@@ -1485,13 +1688,24 @@ class AgentHandler(BaseHTTPRequestHandler):
             "engine": mode,
             "success": result.get("success", False),
             "latency_ms": latency,
-            "raw_action": raw_action
+            "raw_action": raw_action,
         }
         logger.info(json.dumps(log_entry))
-        
+
         return result
 
-    def _dispatch_desktop(self, action: str, x: int, y: int, text: str, coords: list, target: str = "", magnitude=None, press_enter: bool = True, clear_before: bool = False) -> dict:
+    def _dispatch_desktop(
+        self,
+        action: str,
+        x: int,
+        y: int,
+        text: str,
+        coords: list,
+        target: str = "",
+        magnitude=None,
+        press_enter: bool = True,
+        clear_before: bool = False,
+    ) -> dict:
         """Dispatch a single action to the xdotool desktop engine."""
         # ── Mouse / Interaction ───────────────────────────────────────
         if action == "click":
@@ -1589,7 +1803,10 @@ class AgentHandler(BaseHTTPRequestHandler):
         elif action == "close_window":
             identifier = target or text
             if not identifier:
-                return {"success": False, "message": "close_window requires target (window title or class)"}
+                return {
+                    "success": False,
+                    "message": "close_window requires target (window title or class)",
+                }
             return _wmctrl_close_window(identifier)
         elif action == "window_minimize":
             identifier = target or text
@@ -1604,12 +1821,18 @@ class AgentHandler(BaseHTTPRequestHandler):
         elif action == "window_move":
             identifier = target or text
             if not identifier or not coords or len(coords) < 2:
-                return {"success": False, "message": "window_move requires target and 2 coordinates"}
+                return {
+                    "success": False,
+                    "message": "window_move requires target and 2 coordinates",
+                }
             return _xdo_window_move(identifier, coords[0], coords[1])
         elif action == "window_resize":
             identifier = target or text
             if not identifier or not coords or len(coords) < 2:
-                return {"success": False, "message": "window_resize requires target and 2 coordinates"}
+                return {
+                    "success": False,
+                    "message": "window_resize requires target and 2 coordinates",
+                }
             return _xdo_window_resize(identifier, coords[0], coords[1])
         elif action == "search_window":
             identifier = target or text
@@ -1619,7 +1842,7 @@ class AgentHandler(BaseHTTPRequestHandler):
         elif action == "focus_click":
             identifier = target or text
             if not identifier:
-                 return {"success": False, "message": "focus_click requires target (window name)"}
+                return {"success": False, "message": "focus_click requires target (window name)"}
             return _xdo_focus_click(identifier, x, y)
         # ── Fill / Clear (desktop approximation via keyboard) ─────────
         elif action == "fill":
@@ -1651,7 +1874,10 @@ class AgentHandler(BaseHTTPRequestHandler):
             _xdo(["key", "--clearmodifiers", "Delete"])
             return {"success": True, "message": "Cleared input (desktop)"}
         elif action == "select_option":
-            return {"success": False, "message": "select_option not supported in desktop mode — use click"}
+            return {
+                "success": False,
+                "message": "select_option not supported in desktop mode — use click",
+            }
         # ── Browser-like navigation via keyboard shortcuts ─────────────
         elif action == "reload":
             _xdo(["key", "--clearmodifiers", "F5"])
@@ -1668,7 +1894,10 @@ class AgentHandler(BaseHTTPRequestHandler):
             if text:
                 _xdo(["type", "--clearmodifiers", "--delay", "30", "--", text])
                 _xdo(["key", "--clearmodifiers", "Return"])
-            return {"success": True, "message": f"New tab (Ctrl+T){': ' + text[:50] if text else ''}"}
+            return {
+                "success": True,
+                "message": f"New tab (Ctrl+T){': ' + text[:50] if text else ''}",
+            }
         elif action == "close_tab":
             _xdo(["key", "--clearmodifiers", "ctrl+w"])
             return {"success": True, "message": "Closed tab (Ctrl+W)"}
@@ -1686,7 +1915,10 @@ class AgentHandler(BaseHTTPRequestHandler):
             return {"success": True, "message": "Switched to next tab (Ctrl+PageDown)"}
         # ── Scroll to (approximate via scroll) ────────────────────────
         elif action == "scroll_to":
-            return {"success": False, "message": "scroll_to not supported in desktop mode — use scroll"}
+            return {
+                "success": False,
+                "message": "scroll_to not supported in desktop mode — use scroll",
+            }
         # ── DOM / Semantic (not available in desktop mode) ─────────────
         elif action == "get_text":
             return {"success": False, "message": "get_text not supported in desktop mode"}
@@ -1708,7 +1940,10 @@ class AgentHandler(BaseHTTPRequestHandler):
             if not args:
                 return {"success": False, "message": "Empty command"}
             if args[0] not in _effective_allowed_commands():
-                return {"success": False, "message": f"Command not allowed: {args[0]}. Permitted: {', '.join(sorted(_effective_allowed_commands()))}"}
+                return {
+                    "success": False,
+                    "message": f"Command not allowed: {args[0]}. Permitted: {', '.join(sorted(_effective_allowed_commands()))}",
+                }
             # Defense-in-depth: even an allowlisted executable can be
             # weaponised via an inline script (``bash -c 'rm -rf /'``,
             # ``python -c "...os.system('shutdown')..."``). Scan the
@@ -1721,25 +1956,37 @@ class AgentHandler(BaseHTTPRequestHandler):
             if matched is not None:
                 logger.warning(
                     "run_command blocked: pattern=%r executable=%s",
-                    matched, args[0],
+                    matched,
+                    args[0],
                 )
-                return {"success": False, "message": f"Command not allowed: {args[0]}. Permitted: {', '.join(sorted(_effective_allowed_commands()))}"}
+                return {
+                    "success": False,
+                    "message": f"Command not allowed: {args[0]}. Permitted: {', '.join(sorted(_effective_allowed_commands()))}",
+                }
             # S5: wrap in prlimit when available so a runaway child
             # can't burn unbounded CPU / memory inside the container.
             # 20 CPU-seconds and 1 GiB address-space is more than
             # enough for any legitimate shell helper the agent runs.
             _prlimit = shutil.which("prlimit")
             exec_args = (
-                [_prlimit, "--cpu=20", "--as=1073741824", "--nofile=256", "--"] + args
-                if _prlimit else args
+                [_prlimit, "--cpu=20", "--as=1073741824", "--nofile=256", "--", *args]
+                if _prlimit
+                else args
             )
             try:
                 result = subprocess.run(
-                    exec_args, shell=False, capture_output=True, text=True, timeout=30,
+                    exec_args,
+                    shell=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
                     env={**os.environ, "DISPLAY": ":99"},
                 )
                 output = (result.stdout + result.stderr).strip()[:2000]
-                return {"success": result.returncode == 0, "message": output or f"Command exited with code {result.returncode}"}
+                return {
+                    "success": result.returncode == 0,
+                    "message": output or f"Command exited with code {result.returncode}",
+                }
             except subprocess.TimeoutExpired:
                 return {"success": False, "message": "Command timed out after 30s"}
         elif action == "open_terminal":
@@ -1752,7 +1999,10 @@ class AgentHandler(BaseHTTPRequestHandler):
             if len(coords) >= 4:
                 b64 = _xdo_screenshot_region(coords[0], coords[1], coords[2], coords[3])
                 return {"success": True, "message": "Region screenshot captured", "screenshot": b64}
-            return {"success": False, "message": "screenshot_region needs 4 coords [x, y, width, height]"}
+            return {
+                "success": False,
+                "message": "screenshot_region needs 4 coords [x, y, width, height]",
+            }
         elif action == "zoom":
             # Claude ``computer_20251124`` zoom action.  Expects
             # ``region=[x1, y1, x2, y2]`` with top-left to bottom-right

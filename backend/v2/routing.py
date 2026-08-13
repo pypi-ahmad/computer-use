@@ -1,4 +1,5 @@
 """Deterministic route fallback, transient retry, and circuit breaking."""
+
 from __future__ import annotations
 
 import asyncio
@@ -17,7 +18,14 @@ class RouteSpec:
 
 
 class RouteFailure(RuntimeError):
-    def __init__(self, message: str, *, retryable: bool, status_code: int | None = None, retry_after: float | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool,
+        status_code: int | None = None,
+        retry_after: float | None = None,
+    ) -> None:
         super().__init__(message)
         self.retryable = retryable
         self.status_code = status_code
@@ -33,7 +41,13 @@ class RouteResult[T]:
 
 
 class CircuitBreaker:
-    def __init__(self, *, failure_threshold: int = 3, recovery_seconds: float = 30.0, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(
+        self,
+        *,
+        failure_threshold: int = 3,
+        recovery_seconds: float = 30.0,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self._threshold = failure_threshold
         self._recovery = recovery_seconds
         self._clock = clock
@@ -82,11 +96,21 @@ async def run_with_fallback[T](
             except RouteFailure as exc:
                 failures.append(f"{route.id}: {exc}")
                 breaker.failure(route.id)
-                if not exc.retryable or not breaker.allows(route.id) or attempt + 1 >= route.max_attempts:
+                if (
+                    not exc.retryable
+                    or not breaker.allows(route.id)
+                    or attempt + 1 >= route.max_attempts
+                ):
                     break
-                delay = exc.retry_after if exc.retry_after is not None else min(8.0, 0.25 * (2**attempt))
+                delay = (
+                    exc.retry_after
+                    if exc.retry_after is not None
+                    else min(8.0, 0.25 * (2**attempt))
+                )
                 await sleep(delay + random.uniform(0.0, delay * 0.2))
             else:
                 breaker.success(route.id)
-                return RouteResult(value=value, route_id=route.id, attempts=attempts, failures=tuple(failures))
+                return RouteResult(
+                    value=value, route_id=route.id, attempts=attempts, failures=tuple(failures)
+                )
     raise RouteFailure("All configured routes failed: " + "; ".join(failures), retryable=False)

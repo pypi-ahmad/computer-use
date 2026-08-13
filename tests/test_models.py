@@ -21,18 +21,35 @@ class TestActionType:
     def test_cu_native_actions_exist(self):
         """All Gemini CU-native actions should be in the enum."""
         native = [
-            "click_at", "hover_at", "type_text_at", "scroll_at",
-            "drag_and_drop", "key_combination", "navigate",
-            "open_web_browser", "scroll_document", "search", "wait_5_seconds",
+            "click_at",
+            "hover_at",
+            "type_text_at",
+            "scroll_at",
+            "drag_and_drop",
+            "key_combination",
+            "navigate",
+            "open_web_browser",
+            "scroll_document",
+            "search",
+            "wait_5_seconds",
         ]
         for a in native:
             assert ActionType(a) is not None
 
     def test_canonical_actions_exist(self):
         canonical = [
-            "click", "double_click", "right_click", "hover",
-            "type", "key", "scroll", "drag", "open_url",
-            "go_back", "go_forward", "wait",
+            "click",
+            "double_click",
+            "right_click",
+            "hover",
+            "type",
+            "key",
+            "scroll",
+            "drag",
+            "open_url",
+            "go_back",
+            "go_forward",
+            "wait",
         ]
         for a in canonical:
             assert ActionType(a) is not None
@@ -121,6 +138,7 @@ class TestStartTaskRequestNoUnusedFields:
         """StartTaskRequest should expose only the documented retrieval toggle."""
         assert "retrieval_policy" not in StartTaskRequest.model_fields
 
+
 # === merged from tests/test_certifier.py ===
 """Regression test for the ``backend.models.validation`` CLI default schema path.
 
@@ -136,7 +154,6 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -194,13 +211,12 @@ class TestCertifierCli:
             f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
         )
 
+
 # === merged from tests/test_model_policy.py ===
 """Tests for allowed_models.json integrity and model policy."""
 
 
 from pathlib import Path
-
-import pytest
 
 _MODELS_PATH = Path(__file__).resolve().parent.parent / "backend" / "models" / "allowed_models.json"
 
@@ -310,4 +326,3 @@ class TestModelPolicy:
     def test_no_duplicate_model_ids(self, models):
         ids = [m["model_id"] for m in models]
         assert len(ids) == len(set(ids)), f"Duplicate model_ids: {ids}"
-

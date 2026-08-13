@@ -42,8 +42,7 @@ class TestConfig:
 
     def test_resolve_google_accepts_gemini_alias(self):
         """``GEMINI_API_KEY`` is honored as an alias for the google provider."""
-        env = {k: v for k, v in os.environ.items()
-               if k not in ("GOOGLE_API_KEY", "GEMINI_API_KEY")}
+        env = {k: v for k, v in os.environ.items() if k not in ("GOOGLE_API_KEY", "GEMINI_API_KEY")}
         env["GEMINI_API_KEY"] = "AIza-from-gemini-alias"
         with patch.dict(os.environ, env, clear=True):
             key, source = resolve_api_key("google")
@@ -51,8 +50,7 @@ class TestConfig:
         assert source == "env"
 
     def test_resolve_google_prefers_canonical_over_alias(self):
-        env = {k: v for k, v in os.environ.items()
-               if k not in ("GOOGLE_API_KEY", "GEMINI_API_KEY")}
+        env = {k: v for k, v in os.environ.items() if k not in ("GOOGLE_API_KEY", "GEMINI_API_KEY")}
         env["GOOGLE_API_KEY"] = "AIza-canonical"
         env["GEMINI_API_KEY"] = "AIza-alias"
         with patch.dict(os.environ, env, clear=True):
@@ -68,9 +66,14 @@ class TestEnvClamping:
         # Start from a copy of the real env, then drop any var we intend to
         # override or that could otherwise bleed through.
         keys = {
-            "SCREEN_WIDTH", "SCREEN_HEIGHT", "AGENT_SERVICE_PORT", "PORT",
-            "MAX_STEPS", "STEP_TIMEOUT",
-            "CUA_UI_SETTLE_DELAY", "CUA_SCREENSHOT_SETTLE_DELAY",
+            "SCREEN_WIDTH",
+            "SCREEN_HEIGHT",
+            "AGENT_SERVICE_PORT",
+            "PORT",
+            "MAX_STEPS",
+            "STEP_TIMEOUT",
+            "CUA_UI_SETTLE_DELAY",
+            "CUA_SCREENSHOT_SETTLE_DELAY",
             "CUA_POST_ACTION_SCREENSHOT_DELAY",
         }
         scrubbed = {k: v for k, v in os.environ.items() if k not in keys}
@@ -115,6 +118,7 @@ class TestCorsPreflightSecurityHeaders:
 
     def test_preflight_response_has_security_headers(self):
         from fastapi.testclient import TestClient
+
         from backend.server import app
 
         client = TestClient(app)
@@ -133,6 +137,7 @@ class TestCorsPreflightSecurityHeaders:
         assert resp.headers.get("X-Frame-Options") == "DENY"
         assert "no-referrer" in resp.headers.get("Referrer-Policy", "")
 
+
 # === merged from tests/test_logging_ctx.py ===
 """Regression tests for ``backend/logging_ctx.py``.
 
@@ -150,7 +155,7 @@ Covers the two public surfaces introduced by SC1:
 import io
 import json
 import logging
-from typing import Iterator
+from collections.abc import Iterator
 
 import pytest
 
@@ -204,7 +209,8 @@ class TestJsonFormatter:
         assert data["ts"].endswith("Z")
 
     def test_no_session_renders_dash(
-        self, root_with_stream: tuple[logging.Logger, io.StringIO],
+        self,
+        root_with_stream: tuple[logging.Logger, io.StringIO],
     ) -> None:
         """When no session is bound, the filter surfaces ``"-"`` so the
         JSON record always has a stable ``session_id`` field."""
@@ -217,7 +223,8 @@ class TestJsonFormatter:
         assert data["session_id"] == "-"
 
     def test_exception_emits_exc_type_and_traceback(
-        self, root_with_stream: tuple[logging.Logger, io.StringIO],
+        self,
+        root_with_stream: tuple[logging.Logger, io.StringIO],
     ) -> None:
         """``logger.exception(...)`` must include ``exc_type`` and a
         stringified traceback for downstream collectors to index on."""
@@ -265,7 +272,8 @@ class TestConfigureLogging:
                 root.addHandler(h)
 
     def test_unknown_format_falls_back_to_console(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """An unrecognised LOG_FORMAT must not crash startup."""
         monkeypatch.setenv("LOG_FORMAT", "yaml-please")
@@ -320,7 +328,5 @@ class TestPrintAudit:
         assert not offenders, (
             "`print()` outside CLI entrypoints breaks the structured-"
             "logging contract. Convert to logger.* or mark the line "
-            "with ``# noqa: T201`` with justification.\n  "
-            + "\n  ".join(offenders)
+            "with ``# noqa: T201`` with justification.\n  " + "\n  ".join(offenders)
         )
-

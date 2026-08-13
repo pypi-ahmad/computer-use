@@ -40,7 +40,10 @@ def _enforce_public_bind_guardrail(host: str) -> None:
     if host in _LOOPBACK_BIND_HOSTS:
         return
     allow = os.getenv("CUA_ALLOW_PUBLIC_BIND", "").strip().lower() in (
-        "1", "true", "yes", "on",
+        "1",
+        "true",
+        "yes",
+        "on",
     )
     token = os.getenv("CUA_API_TOKEN", "").strip() or os.getenv("CUA_WS_TOKEN", "").strip()
     if not allow:
@@ -76,7 +79,10 @@ def main():
     # footgun where ``DEBUG=1`` in a prod-ish deploy silently enabled
     # uvicorn reload and hot-swapped worker state.
     reload_enabled = os.getenv("CUA_RELOAD", "").strip().lower() in (
-        "1", "true", "yes", "on",
+        "1",
+        "true",
+        "yes",
+        "on",
     )
     _enforce_public_bind_guardrail(config.host)
     uvicorn.run(

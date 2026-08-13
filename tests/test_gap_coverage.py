@@ -26,7 +26,6 @@ from fastapi.testclient import TestClient
 
 from backend.models import AgentSession, SessionStatus
 
-
 # ──────────────────────────────────────────────────────────────────────────────
 # T1 — vnc_http_proxy error paths
 # ──────────────────────────────────────────────────────────────────────────────
@@ -36,6 +35,7 @@ from backend.models import AgentSession, SessionStatus
 def server_client():
     """TestClient over backend.server.app for the /vnc proxy assertions."""
     from backend.server import app
+
     return TestClient(app)
 
 
@@ -43,14 +43,17 @@ class TestVncHttpProxyErrors:
     """/vnc/{path} should reject traversal + non-whitelisted paths and
     surface upstream failures as 502, not leak the exception."""
 
-    @pytest.mark.parametrize("bad_path", [
-        "/etc/passwd",                       # absolute
-        "..%2Fetc%2Fpasswd",                 # encoded slash
-        "core/..%2F..%2Fsecret",             # encoded traversal
-        "nope.html",                         # outside whitelist
-        "app/../../../etc/passwd",           # literal traversal
-        "",                                  # empty
-    ])
+    @pytest.mark.parametrize(
+        "bad_path",
+        [
+            "/etc/passwd",  # absolute
+            "..%2Fetc%2Fpasswd",  # encoded slash
+            "core/..%2F..%2Fsecret",  # encoded traversal
+            "nope.html",  # outside whitelist
+            "app/../../../etc/passwd",  # literal traversal
+            "",  # empty
+        ],
+    )
     def test_rejects_unsafe_paths(self, server_client, bad_path):
         resp = server_client.get(f"/vnc/{bad_path}")
         # Either our 403 (forbidden), or FastAPI's 404 for the empty-path case.
@@ -92,8 +95,10 @@ class TestStartContainer:
         from backend.infra import docker as dm
 
         async def go():
-            with patch.object(dm, "is_container_running", AsyncMock(return_value=True)), \
-                 patch.object(dm, "_wait_for_service", AsyncMock(return_value=True)) as wait_mock:
+            with (
+                patch.object(dm, "is_container_running", AsyncMock(return_value=True)),
+                patch.object(dm, "_wait_for_service", AsyncMock(return_value=True)) as wait_mock,
+            ):
                 with patch.object(dm, "_run", AsyncMock()) as run_mock:
                     ok = await dm.start_container("cua-test")
             assert ok is True
@@ -107,8 +112,10 @@ class TestStartContainer:
         from backend.infra import docker as dm
 
         async def go():
-            with patch.object(dm, "is_container_running", AsyncMock(return_value=True)), \
-                 patch.object(dm, "_wait_for_service", AsyncMock(return_value=False)) as wait_mock:
+            with (
+                patch.object(dm, "is_container_running", AsyncMock(return_value=True)),
+                patch.object(dm, "_wait_for_service", AsyncMock(return_value=False)) as wait_mock,
+            ):
                 with patch.object(dm, "_run", AsyncMock()) as run_mock:
                     ok = await dm.start_container("cua-test")
             assert ok is False
@@ -131,9 +138,11 @@ class TestStartContainer:
                     return (1, "", "No such object")
                 return (0, "container-id", "")
 
-            with patch.object(dm, "is_container_running", AsyncMock(return_value=False)), \
-                 patch.object(dm, "_wait_for_service", AsyncMock(return_value=False)), \
-                 patch.object(dm, "_run", side_effect=fake_run):
+            with (
+                patch.object(dm, "is_container_running", AsyncMock(return_value=False)),
+                patch.object(dm, "_wait_for_service", AsyncMock(return_value=False)),
+                patch.object(dm, "_run", side_effect=fake_run),
+            ):
                 ok = await dm.start_container("cua-test")
 
             assert ok is False
@@ -153,9 +162,11 @@ class TestStartContainer:
                     return (1, "", "")
                 return (0, "", "")
 
-            with patch.object(dm, "is_container_running", AsyncMock(return_value=False)), \
-                 patch.object(dm, "_wait_for_service", AsyncMock(return_value=True)), \
-                 patch.object(dm, "_run", side_effect=fake_run):
+            with (
+                patch.object(dm, "is_container_running", AsyncMock(return_value=False)),
+                patch.object(dm, "_wait_for_service", AsyncMock(return_value=True)),
+                patch.object(dm, "_run", side_effect=fake_run),
+            ):
                 ok = await dm.start_container("cua-test")
             assert ok is True
 
@@ -172,8 +183,10 @@ class TestStartContainer:
                     return (125, "", "daemon error")
                 return (0, "", "")
 
-            with patch.object(dm, "is_container_running", AsyncMock(return_value=False)), \
-                 patch.object(dm, "_run", side_effect=fake_run):
+            with (
+                patch.object(dm, "is_container_running", AsyncMock(return_value=False)),
+                patch.object(dm, "_run", side_effect=fake_run),
+            ):
                 ok = await dm.start_container("cua-test")
             assert ok is False
 
@@ -187,7 +200,9 @@ class TestStartContainer:
 
 class _TextBlock:
     """Stand-in for anthropic response text content blocks."""
+
     type = "text"
+
     def __init__(self, text):
         self.text = text
 
@@ -254,10 +269,7 @@ class TestClaudeRefusalBranch:
         # The refusal branch must return the model text (not the generic fallback
         # for other stop_reasons) and must log a warning prefixed "Claude refused".
         assert "can't help" in final_text.lower()
-        assert any(
-            lvl == "warning" and msg.startswith("Claude refused")
-            for lvl, msg in logs
-        )
+        assert any(lvl == "warning" and msg.startswith("Claude refused") for lvl, msg in logs)
         # The loop must break after a single turn.
         assert len(turns) == 1
         assert turns[0].actions == []
@@ -305,11 +317,14 @@ class TestRunAndNotifyErrorPath:
             except Exception:
                 loop_mock.session.status = SessionStatus.ERROR
                 sess = loop_mock.session
-            await fake_broadcast("agent_finished", {
-                "session_id": loop_mock.session_id,
-                "status": sess.status.value,
-                "steps": len(sess.steps),
-            })
+            await fake_broadcast(
+                "agent_finished",
+                {
+                    "session_id": loop_mock.session_id,
+                    "status": sess.status.value,
+                    "steps": len(sess.steps),
+                },
+            )
             server._cleanup_session(loop_mock.session_id)
 
         # Seed the registries so _cleanup_session has something to pop.
@@ -354,6 +369,7 @@ def agent_service():
 class _FakeHeaders:
     def __init__(self, mapping=None):
         self._m = mapping or {}
+
     def get(self, key, default=""):
         return self._m.get(key, default)
 
@@ -399,6 +415,7 @@ class TestAgentHandlerAuth:
     def test_constant_time_compare_uses_hmac(self, agent_service):
         """Sanity: token comparison is via hmac.compare_digest (no plain ==)."""
         import inspect
+
         src = inspect.getsource(agent_service.AgentHandler._authorized)
         assert "hmac.compare_digest" in src
 
@@ -422,7 +439,9 @@ class TestUploadPathContainment:
         bad = tmp_path / "good2"
         bad.mkdir()
         monkeypatch.setattr(
-            agent_service, "_UPLOAD_ALLOWED_PREFIXES", (str(good),),
+            agent_service,
+            "_UPLOAD_ALLOWED_PREFIXES",
+            (str(good),),
         )
         assert agent_service._is_safe_upload_path(str(good / "ok.txt"))
         # ``good2/...`` string-prefix-matches ``good`` but is not a child:
@@ -435,7 +454,9 @@ class TestUploadPathContainment:
         root = tmp_path / "uploads"
         root.mkdir()
         monkeypatch.setattr(
-            agent_service, "_UPLOAD_ALLOWED_PREFIXES", (str(root),),
+            agent_service,
+            "_UPLOAD_ALLOWED_PREFIXES",
+            (str(root),),
         )
         assert not agent_service._is_safe_upload_path(str(root))
 
@@ -443,7 +464,9 @@ class TestUploadPathContainment:
         root = tmp_path / "uploads"
         (root / "sub").mkdir(parents=True)
         monkeypatch.setattr(
-            agent_service, "_UPLOAD_ALLOWED_PREFIXES", (str(root),),
+            agent_service,
+            "_UPLOAD_ALLOWED_PREFIXES",
+            (str(root),),
         )
         assert agent_service._is_safe_upload_path(str(root / "sub" / "file.bin"))
 
@@ -453,7 +476,9 @@ class TestUploadPathContainment:
         elsewhere = tmp_path / "elsewhere"
         elsewhere.mkdir()
         monkeypatch.setattr(
-            agent_service, "_UPLOAD_ALLOWED_PREFIXES", (str(root),),
+            agent_service,
+            "_UPLOAD_ALLOWED_PREFIXES",
+            (str(root),),
         )
         assert not agent_service._is_safe_upload_path(str(elsewhere / "x"))
 
@@ -491,24 +516,33 @@ class TestApiV1Alias:
 class TestWsSchemaValidation:
     def test_known_event_valid(self):
         from backend.server import validate_outbound
-        err = validate_outbound("agent_finished", {
-            "session_id": "abc", "status": "completed", "steps": 3,
-            "final_text": "done",
-        })
+
+        err = validate_outbound(
+            "agent_finished",
+            {
+                "session_id": "abc",
+                "status": "completed",
+                "steps": 3,
+                "final_text": "done",
+            },
+        )
         assert err is None
 
     def test_known_event_missing_field_reports_error(self):
         from backend.server import validate_outbound
+
         err = validate_outbound("agent_finished", {"session_id": "abc"})
         assert err is not None
         assert "validation error" in err.lower()
 
     def test_unknown_event_passes_through(self):
         from backend.server import validate_outbound
+
         assert validate_outbound("brand_new_event", {"foo": "bar"}) is None
 
     def test_pong_needs_no_payload(self):
         from backend.server import validate_outbound
+
         assert validate_outbound("pong", {}) is None
 
 
@@ -519,8 +553,9 @@ class TestWsSchemaValidation:
 
 class TestDockerLifecycleLock:
     def test_lock_is_module_level_asyncio_lock(self):
-        from backend.infra import docker as docker_manager
         import asyncio as _asyncio
+
+        from backend.infra import docker as docker_manager
 
         assert isinstance(docker_manager._LIFECYCLE_LOCK, _asyncio.Lock)
 
@@ -613,9 +648,13 @@ class TestStreamScreenshotsResilience:
 
         async def driver():
             server._cleanup_session(session_id)
-            with patch.object(server, "capture_screenshot", side_effect=flaky_capture), \
-                patch("backend.infra.docker.is_container_running", new=AsyncMock(return_value=True)), \
-                patch.object(server.config, "ws_screenshot_interval", 0.01):
+            with (
+                patch.object(server, "capture_screenshot", side_effect=flaky_capture),
+                patch(
+                    "backend.infra.docker.is_container_running", new=AsyncMock(return_value=True)
+                ),
+                patch.object(server.config, "ws_screenshot_interval", 0.01),
+            ):
                 ws = FakeWS()
                 server._active_tasks[session_id] = MagicMock()
                 server._active_loops[session_id] = MagicMock()
@@ -665,6 +704,7 @@ class TestCleanupSessionResilience:
         from backend import server
 
         sid = "cleanup-pop-error"
+
         # Monkeypatch _active_tasks to a mapping that raises on pop.
         class ExplodingDict(dict):
             def pop(self, *a, **kw):
@@ -695,16 +735,15 @@ class TestRunAndNotifyOrdering:
         comes AFTER ``await _broadcast`` in ``_run_and_notify``.
         """
         import inspect
+
         from backend import server
 
         src = inspect.getsource(server.api_start_agent)
-        broadcast_idx = src.find("await _broadcast(\"agent_finished\"")
+        broadcast_idx = src.find('await _broadcast("agent_finished"')
         cleanup_idx = src.find("_cleanup_session(loop.session_id)")
         assert broadcast_idx != -1, "expected _broadcast('agent_finished', ...) await"
         assert cleanup_idx != -1, "expected _cleanup_session(loop.session_id) call"
-        assert broadcast_idx < cleanup_idx, (
-            "cleanup must run AFTER the awaited broadcast"
-        )
+        assert broadcast_idx < cleanup_idx, "cleanup must run AFTER the awaited broadcast"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -733,10 +772,7 @@ class TestAgentServiceSubprocessTimeout:
 
         path = Path(__file__).parent.parent / "docker" / "agent_service.py"
         src = path.read_text(encoding="utf-8")
-        hits = [
-            m.group(0) for m in re.finditer(r"timeout=\d+", src)
-            if m.group(0) != "timeout=30"
-        ]
+        hits = [m.group(0) for m in re.finditer(r"timeout=\d+", src) if m.group(0) != "timeout=30"]
         assert hits == [], (
             f"Non-uniform subprocess timeouts remain: {hits}. "
             "All short-op timeouts must use _SUBPROCESS_TIMEOUT."
@@ -751,6 +787,7 @@ class TestAgentServiceSubprocessTimeout:
 class TestRateLimiterEviction:
     def test_bucket_storage_uses_deque(self):
         from collections import deque
+
         from backend.server import _RateLimiter
 
         limiter = _RateLimiter(max_calls=3, window_seconds=60.0)
@@ -760,15 +797,13 @@ class TestRateLimiterEviction:
     def test_evict_to_is_tightened(self):
         from backend.server import _RateLimiter
 
-        assert _RateLimiter._EVICT_TO <= 256, (
-            "P3: _EVICT_TO must be tightened to ≤ 256"
-        )
+        assert _RateLimiter._EVICT_TO <= 256, "P3: _EVICT_TO must be tightened to ≤ 256"
         assert _RateLimiter._EVICT_THRESHOLD < _RateLimiter._HARD_KEY_CEILING, (
             "P3: eviction must trigger before ceiling is reached"
         )
-        assert _RateLimiter._EVICT_THRESHOLD >= int(
-            0.85 * _RateLimiter._HARD_KEY_CEILING
-        ), "P3: eviction threshold should be ≥ 0.85 × ceiling (around 0.9×)"
+        assert _RateLimiter._EVICT_THRESHOLD >= int(0.85 * _RateLimiter._HARD_KEY_CEILING), (
+            "P3: eviction threshold should be ≥ 0.85 × ceiling (around 0.9×)"
+        )
 
     def test_flood_is_bounded_below_ceiling(self):
         from backend.server import _RateLimiter
@@ -795,6 +830,7 @@ class TestRateLimiterEviction:
 class TestTaskMinLength:
     def test_agent_session_rejects_empty_task(self):
         from pydantic import ValidationError
+
         from backend.models import AgentSession
 
         with pytest.raises(ValidationError):
@@ -802,6 +838,7 @@ class TestTaskMinLength:
 
     def test_start_task_request_rejects_empty_task(self):
         from pydantic import ValidationError
+
         from backend.models import StartTaskRequest
 
         with pytest.raises(ValidationError):
@@ -816,12 +853,13 @@ class TestTaskMinLength:
 class TestEnginePackageSplit:
     def test_client_classes_live_in_per_provider_modules(self):
         from backend.engine import (
-            GeminiCUClient, ClaudeCUClient, OpenAICUClient,
+            ClaudeCUClient,
+            GeminiCUClient,
+            OpenAICUClient,
         )
 
         assert GeminiCUClient.__module__ == "backend.engine.gemini", (
-            f"GeminiCUClient must live in backend.engine.gemini, "
-            f"not {GeminiCUClient.__module__}"
+            f"GeminiCUClient must live in backend.engine.gemini, not {GeminiCUClient.__module__}"
         )
         assert ClaudeCUClient.__module__ == "backend.engine.claude"
         assert OpenAICUClient.__module__ == "backend.engine.openai"
@@ -840,16 +878,16 @@ class TestEnginePackageSplit:
     def test_backward_compatible_top_level_imports(self):
         """Public names still importable from the package root."""
         from backend.engine import (  # noqa: F401
-            Provider,
-            Environment,
-            SafetyDecision,
+            ClaudeCUClient,
+            ComputerUseEngine,
             CUActionResult,
             CUTurnRecord,
             DesktopExecutor,
-            ComputerUseEngine,
+            Environment,
             GeminiCUClient,
-            ClaudeCUClient,
             OpenAICUClient,
+            Provider,
+            SafetyDecision,
             _prune_claude_context,
             _prune_gemini_context,
         )
@@ -864,8 +902,10 @@ class TestConcurrentSessionLimit:
     def test_four_concurrent_starts_hit_the_limit(self):
         """With 3 slots already full, 4 concurrent starts must all be 429."""
         import threading
+
         from fastapi.testclient import TestClient
-        from backend.server import app, _MAX_CONCURRENT_SESSIONS, _agent_start_limiter
+
+        from backend.server import _MAX_CONCURRENT_SESSIONS, _agent_start_limiter, app
 
         assert _MAX_CONCURRENT_SESSIONS == 3, (
             "Test assumes the documented concurrent-session ceiling of 3"
@@ -931,6 +971,7 @@ class TestScreenshotStreamerTimeout:
     def test_timeout_does_not_close_websocket(self):
         """A timeout inside the shared publisher must trigger backoff."""
         import httpx
+
         from backend import server
 
         calls = {"n": 0}
@@ -959,9 +1000,13 @@ class TestScreenshotStreamerTimeout:
 
         async def driver():
             server._cleanup_session(session_id)
-            with patch.object(server, "capture_screenshot", side_effect=flaky_capture), \
-                patch("backend.infra.docker.is_container_running", new=AsyncMock(return_value=True)), \
-                patch.object(server.config, "ws_screenshot_interval", 0.01):
+            with (
+                patch.object(server, "capture_screenshot", side_effect=flaky_capture),
+                patch(
+                    "backend.infra.docker.is_container_running", new=AsyncMock(return_value=True)
+                ),
+                patch.object(server.config, "ws_screenshot_interval", 0.01),
+            ):
                 server._active_tasks[session_id] = MagicMock()
                 server._active_loops[session_id] = MagicMock()
                 server._subscribe_screenshots(ws, session_id)
@@ -1023,8 +1068,10 @@ class TestSafetyTimeoutAutoDeny:
 
         # Replace the nested import target inside _run_computer_use_engine
         # with our fake so it hands back the on_safety closure.
-        with patch("backend.engine.ComputerUseEngine", FakeEngine), \
-             patch("backend.prompts.get_system_prompt", return_value="sys"):
+        with (
+            patch("backend.engine.ComputerUseEngine", FakeEngine),
+            patch("backend.prompts.get_system_prompt", return_value="sys"),
+        ):
             # Drive the engine path just long enough to capture on_safety.
             asyncio.run(loop._run_computer_use_engine())
 
@@ -1045,17 +1092,18 @@ class TestSafetyTimeoutAutoDeny:
             # 'coroutine Event.wait was never awaited'.
             if asyncio.iscoroutine(coro):
                 coro.close()
-            raise asyncio.TimeoutError()
+            raise TimeoutError()
 
-        with patch.object(loop, "_emit_log", side_effect=record_emit), \
-             patch("backend.loop.asyncio.wait_for", side_effect=instant_timeout):
+        with (
+            patch.object(loop, "_emit_log", side_effect=record_emit),
+            patch("backend.loop.asyncio.wait_for", side_effect=instant_timeout),
+        ):
             decision = asyncio.run(on_safety("drop production tables"))
 
         assert decision is False, "timeout must auto-deny the action (T3)"
-        assert any(
-            level == "warning" and "timed out" in msg.lower()
-            for level, msg in logs
-        ), f"expected a 'timed out' warning log, got {logs}"
+        assert any(level == "warning" and "timed out" in msg.lower() for level, msg in logs), (
+            f"expected a 'timed out' warning log, got {logs}"
+        )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1071,23 +1119,17 @@ class TestEntrypointServiceVerification:
         src = path.read_text(encoding="utf-8")
 
         # XFCE: kill -0 on the backgrounded PID + a pgrep sanity check.
-        assert 'kill -0 "$XFCE_PID"' in src, (
-            "D1: XFCE backgrounded PID must be verified"
-        )
+        assert 'kill -0 "$XFCE_PID"' in src, "D1: XFCE backgrounded PID must be verified"
         assert "pgrep -x xfwm4" in src or "pgrep -x xfce4-session" in src, (
             "D1: at least one XFCE process must be verified via pgrep"
         )
 
         # x11vnc: uses -bg so must be pgrep-checked after launch.
-        assert "pgrep -x x11vnc" in src, (
-            "D1: x11vnc must be verified via pgrep after -bg launch"
-        )
+        assert "pgrep -x x11vnc" in src, "D1: x11vnc must be verified via pgrep after -bg launch"
 
         # websockify: PID must be kept + checked.
         assert "WS_PID=$!" in src, "D1: websockify PID must be captured"
-        assert 'kill -0 "$WS_PID"' in src, (
-            "D1: websockify PID must be verified"
-        )
+        assert 'kill -0 "$WS_PID"' in src, "D1: websockify PID must be verified"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1097,8 +1139,8 @@ class TestEntrypointServiceVerification:
 
 class TestDockerfileLayerSplit:
     def test_apt_install_is_split_into_multiple_layers(self):
-        from pathlib import Path
         import re
+        from pathlib import Path
 
         path = Path(__file__).parent.parent / "docker" / "Dockerfile"
         src = path.read_text(encoding="utf-8")
@@ -1108,8 +1150,7 @@ class TestDockerfileLayerSplit:
         # plus (d) nodejs and (e) google-chrome, so >= 5 apt-get install
         # invocations total.
         assert len(apt_installs) >= 5, (
-            f"D2: expected at least 5 apt-get install layers, found "
-            f"{len(apt_installs)}"
+            f"D2: expected at least 5 apt-get install layers, found {len(apt_installs)}"
         )
 
 
@@ -1140,7 +1181,8 @@ class TestComposeHardening:
 
     def test_compose_uses_no_new_privileges_and_tmpfs(self):
         from pathlib import Path
-        import yaml
+
+        import yaml  # type: ignore[import-untyped]
 
         path = Path(__file__).parent.parent / "docker-compose.yml"
         doc = yaml.safe_load(path.read_text(encoding="utf-8"))

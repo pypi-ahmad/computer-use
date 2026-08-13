@@ -129,6 +129,8 @@ def test_setup_uses_exact_installers_and_secure_local_defaults() -> None:
     assert "Get-FileHash" not in setup
     assert "[Security.Cryptography.SHA256]::Create()" in setup
     assert "npm rebuild esbuild --foreground-scripts" in setup
+    assert "http://127.0.0.1:8505" in setup
+    assert "localhost:3000" not in setup
 
 
 def test_docker_build_context_keeps_required_readme() -> None:

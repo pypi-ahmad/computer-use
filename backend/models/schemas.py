@@ -4,13 +4,15 @@
 from __future__ import annotations
 
 import enum
-from datetime import datetime, timezone
-from typing import Any, Optional
+import json
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 # ── Action types ──────────────────────────────────────────────────────────────
+
 
 class ActionType(str, enum.Enum):
     """Supported agent actions for the computer-use engine.
@@ -62,14 +64,16 @@ class ActionType(str, enum.Enum):
 
 class AgentAction(BaseModel):
     """Structured action returned by the LLM."""
+
     action: ActionType
-    target: Optional[str] = None
-    coordinates: Optional[list[int]] = Field(default=None, max_length=4)
-    text: Optional[str] = None
-    reasoning: Optional[str] = None
+    target: str | None = None
+    coordinates: list[int] | None = Field(default=None, max_length=4)
+    text: str | None = None
+    reasoning: str | None = None
 
 
 # ── Session management ────────────────────────────────────────────────────────
+
 
 class SessionStatus(str, enum.Enum):
     """Lifecycle states for an agent session."""
@@ -88,16 +92,18 @@ class SessionStatus(str, enum.Enum):
 
 class StepRecord(BaseModel):
     """One step in the agent loop."""
+
     step_number: int
-    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    screenshot_b64: Optional[str] = None  # base64 PNG
-    action: Optional[AgentAction] = None
-    raw_model_response: Optional[str] = None
-    error: Optional[str] = None
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    screenshot_b64: str | None = None  # base64 PNG
+    action: AgentAction | None = None
+    raw_model_response: str | None = None
+    error: str | None = None
 
 
 class AgentSession(BaseModel):
     """Full state of an agent run."""
+
     session_id: str
     task: str = Field(min_length=1, max_length=10_000)
     status: SessionStatus = SessionStatus.IDLE
@@ -105,12 +111,13 @@ class AgentSession(BaseModel):
     engine: str = Field(default="computer_use", max_length=20)
     steps: list[StepRecord] = Field(default_factory=list)
     max_steps: int = Field(default=50, ge=1, le=200)
-    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    final_text: Optional[str] = None
-    gemini_grounding: Optional[dict[str, Any]] = None
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    final_text: str | None = None
+    gemini_grounding: dict[str, Any] | None = None
 
 
 # ── API request / response ────────────────────────────────────────────────────
+
 
 class StartTaskRequest(BaseModel):
     """Validated request body for POST /api/agent/start."""
@@ -121,7 +128,7 @@ class StartTaskRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     task: str = Field(min_length=1, max_length=10_000)
-    api_key: Optional[str] = Field(default=None, max_length=256)
+    api_key: str | None = Field(default=None, max_length=256)
     model: str = Field(default="gemini-3.6-flash", max_length=64)
     max_steps: int = Field(default=50, ge=1, le=200)
     # Deprecated: Desktop and Browser are now a single unified surface.
@@ -132,7 +139,9 @@ class StartTaskRequest(BaseModel):
     engine: str = Field(default="computer_use", max_length=20)
     provider: str = Field(max_length=20)
     execution_target: str = Field(default="docker", max_length=20)  # only "docker" is supported
-    reasoning_effort: Optional[str] = Field(default=None, max_length=10)  # OpenAI only: none|low|medium|high|xhigh|max
+    reasoning_effort: str | None = Field(
+        default=None, max_length=10
+    )  # OpenAI only: none|low|medium|high|xhigh|max
     # Official provider-native web-search toggle.
     # When True, the engine runs a provider-native planning/search pass
     # before Computer Use, then sends the resulting execution brief to a
@@ -154,7 +163,7 @@ class StartTaskRequest(BaseModel):
     # Search docs do not allow combining it with Computer Use.
     # When empty, no provider-side attachment flow is activated and the
     # agent runs in its normal flow (the activation rule is doc-mandated).
-    attached_files: Optional[list[str]] = Field(default=None, max_length=10)
+    attached_files: list[str] | None = Field(default=None, max_length=10)
 
 
 class TaskStatusResponse(BaseModel):
@@ -164,9 +173,9 @@ class TaskStatusResponse(BaseModel):
     status: SessionStatus
     current_step: int
     total_steps: int
-    last_action: Optional[AgentAction] = None
-    final_text: Optional[str] = None
-    gemini_grounding: Optional[dict[str, Any]] = None
+    last_action: AgentAction | None = None
+    final_text: str | None = None
+    gemini_grounding: dict[str, Any] | None = None
 
 
 class StructuredError(BaseModel):
@@ -190,10 +199,11 @@ class StructuredError(BaseModel):
 class LogEntry(BaseModel):
     """Structured log entry emitted over WebSocket."""
 
-    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     level: str = "info"
     message: str
-    data: Optional[dict] = None
+    data: dict | None = None
+
 
 # === merged from backend/_models_loader.py ===
 """Shared loader for the canonical Computer Use model allowlist.
@@ -201,10 +211,6 @@ class LogEntry(BaseModel):
 Moved out of ``backend.engine`` so both the engine and the HTTP server
 can import it without duplicating the helper in two modules.
 """
-
-
-import json
-from pathlib import Path
 
 
 def load_allowed_models_json() -> list[dict]:
@@ -217,4 +223,3 @@ def load_allowed_models_json() -> list[dict]:
     with open(fpath, encoding="utf-8") as f:
         data = json.load(f)
     return data.get("models", [])
-

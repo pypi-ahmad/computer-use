@@ -4,18 +4,18 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
+import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from backend.models.schemas import AgentAction, AgentSession, ActionType, SessionStatus, StepRecord
+from backend.server import _mount_production_frontend, app
 
 
 @pytest.fixture(scope="module")
 def client():
     """Create a FastAPI TestClient for backend.server.app."""
-    from backend.server import app
     return TestClient(app)
 
 
@@ -83,8 +83,10 @@ class TestSystemShutdownEndpoint:
         shutdown.assert_not_awaited()
 
     def test_shutdown_requires_configured_token(self, client):
-        with patch("backend.server._WS_AUTH_TOKEN", "secret"), \
-             patch("backend.server._shutdown_application", new_callable=AsyncMock) as shutdown:
+        with (
+            patch("backend.server._WS_AUTH_TOKEN", "secret"),
+            patch("backend.server._shutdown_application", new_callable=AsyncMock) as shutdown,
+        ):
             response = client.post("/api/v2/system/shutdown")
 
         assert response.status_code == 401
@@ -120,10 +122,16 @@ class TestAgentStartValidation:
     """Test input validation on POST /api/agent/start."""
 
     def test_invalid_engine_rejected(self, client):
-        resp = client.post("/api/agent/start", json={
-            "task": "test", "engine": "invalid", "provider": "google",
-            "model": "gemini-3.6-flash", "mode": "desktop",
-        })
+        resp = client.post(
+            "/api/agent/start",
+            json={
+                "task": "test",
+                "engine": "invalid",
+                "provider": "google",
+                "model": "gemini-3.6-flash",
+                "mode": "desktop",
+            },
+        )
         assert resp.status_code == 400
         assert "engine" in resp.json().get("error", "").lower()
 
@@ -133,6 +141,7 @@ class TestAgentStartValidation:
         Use surface; the model decides whether to drive desktop apps or
         Chromium itself."""
         from backend.server import _agent_start_limiter
+
         _agent_start_limiter._calls.clear()  # avoid collision with prior tests in the rolling window
         fake_loop = SimpleNamespace(session_id="session-browser-1", run=AsyncMock())
         fake_task = Mock()
@@ -142,20 +151,29 @@ class TestAgentStartValidation:
             coro.close()
             return fake_task
 
-        with patch.dict("backend.server._active_tasks", {}, clear=True), \
-             patch.dict("backend.server._active_loops", {}, clear=True), \
-             patch("backend.server.resolve_api_key", return_value=("AIza-test", "ui")), \
-             patch("backend.server.start_container", new_callable=AsyncMock, return_value=True), \
-             patch("backend.server.get_container_state",
-                   return_value={"container": "running", "agent": "ready",
-                                 "last_health_error": None}), \
-             patch("backend.server.AgentLoop", return_value=fake_loop) as mock_agent_loop, \
-             patch("backend.server.asyncio.create_task", side_effect=fake_create_task):
-            resp = client.post("/api/agent/start", json={
-                "task": "test", "engine": "computer_use", "provider": "google",
-                "model": "gemini-3.6-flash", "mode": "browser",
-                "execution_target": "docker",
-            })
+        with (
+            patch.dict("backend.server._active_tasks", {}, clear=True),
+            patch.dict("backend.server._active_loops", {}, clear=True),
+            patch("backend.server.resolve_api_key", return_value=("AIza-test", "ui")),
+            patch("backend.server.start_container", new_callable=AsyncMock, return_value=True),
+            patch(
+                "backend.server.get_container_state",
+                return_value={"container": "running", "agent": "ready", "last_health_error": None},
+            ),
+            patch("backend.server.AgentLoop", return_value=fake_loop) as mock_agent_loop,
+            patch("backend.server.asyncio.create_task", side_effect=fake_create_task),
+        ):
+            resp = client.post(
+                "/api/agent/start",
+                json={
+                    "task": "test",
+                    "engine": "computer_use",
+                    "provider": "google",
+                    "model": "gemini-3.6-flash",
+                    "mode": "browser",
+                    "execution_target": "docker",
+                },
+            )
         assert resp.status_code == 200
         # Response no longer surfaces ``mode``; AgentLoop is no longer
         # called with ``mode=…`` because the unified surface dropped it.
@@ -167,6 +185,7 @@ class TestAgentStartValidation:
         ignored under the unified surface. The request only fails for
         truly invalid fields (engine/provider/model)."""
         from backend.server import _agent_start_limiter
+
         _agent_start_limiter._calls.clear()
         fake_loop = SimpleNamespace(session_id="session-mode-ignored", run=AsyncMock())
         fake_task = Mock()
@@ -176,35 +195,56 @@ class TestAgentStartValidation:
             coro.close()
             return fake_task
 
-        with patch.dict("backend.server._active_tasks", {}, clear=True), \
-             patch.dict("backend.server._active_loops", {}, clear=True), \
-             patch("backend.server.resolve_api_key", return_value=("AIza-test", "ui")), \
-             patch("backend.server.start_container", new_callable=AsyncMock, return_value=True), \
-             patch("backend.server.get_container_state",
-                   return_value={"container": "running", "agent": "ready",
-                                 "last_health_error": None}), \
-             patch("backend.server.AgentLoop", return_value=fake_loop), \
-             patch("backend.server.asyncio.create_task", side_effect=fake_create_task):
-            resp = client.post("/api/agent/start", json={
-                "task": "test", "engine": "computer_use", "provider": "google",
-                "model": "gemini-3.6-flash", "mode": "carplay",
-                "execution_target": "docker",
-            })
+        with (
+            patch.dict("backend.server._active_tasks", {}, clear=True),
+            patch.dict("backend.server._active_loops", {}, clear=True),
+            patch("backend.server.resolve_api_key", return_value=("AIza-test", "ui")),
+            patch("backend.server.start_container", new_callable=AsyncMock, return_value=True),
+            patch(
+                "backend.server.get_container_state",
+                return_value={"container": "running", "agent": "ready", "last_health_error": None},
+            ),
+            patch("backend.server.AgentLoop", return_value=fake_loop),
+            patch("backend.server.asyncio.create_task", side_effect=fake_create_task),
+        ):
+            resp = client.post(
+                "/api/agent/start",
+                json={
+                    "task": "test",
+                    "engine": "computer_use",
+                    "provider": "google",
+                    "model": "gemini-3.6-flash",
+                    "mode": "carplay",
+                    "execution_target": "docker",
+                },
+            )
         assert resp.status_code == 200
 
     def test_invalid_provider_rejected(self, client):
-        resp = client.post("/api/agent/start", json={
-            "task": "test", "engine": "computer_use", "provider": "invalid",
-            "model": "gemini-3.6-flash", "mode": "desktop",
-        })
+        resp = client.post(
+            "/api/agent/start",
+            json={
+                "task": "test",
+                "engine": "computer_use",
+                "provider": "invalid",
+                "model": "gemini-3.6-flash",
+                "mode": "desktop",
+            },
+        )
         assert resp.status_code == 400
         assert "provider" in resp.json().get("error", "").lower()
 
     def test_invalid_model_rejected(self, client):
-        resp = client.post("/api/agent/start", json={
-            "task": "test", "engine": "computer_use", "provider": "google",
-            "model": "nonexistent-model", "mode": "desktop",
-        })
+        resp = client.post(
+            "/api/agent/start",
+            json={
+                "task": "test",
+                "engine": "computer_use",
+                "provider": "google",
+                "model": "nonexistent-model",
+                "mode": "desktop",
+            },
+        )
         assert resp.status_code == 400
         assert "not allowed" in resp.json().get("error", "").lower()
 
@@ -222,24 +262,30 @@ class TestAgentStartValidation:
             coro.close()
             return fake_task
 
-        with patch.dict("backend.server._active_tasks", {}, clear=True), \
-             patch.dict("backend.server._active_loops", {}, clear=True), \
-             patch("backend.server.resolve_api_key", return_value=("sk-test-openai", "ui")), \
-             patch("backend.server.start_container", new_callable=AsyncMock, return_value=True), \
-             patch("backend.server.get_container_state",
-                   return_value={"container": "running", "agent": "ready",
-                                 "last_health_error": None}), \
-             patch("backend.server.AgentLoop", return_value=fake_loop) as mock_agent_loop, \
-             patch("backend.server.asyncio.create_task", side_effect=fake_create_task):
-            resp = client.post("/api/agent/start", json={
-                "task": "open a page",
-                "engine": "computer_use",
-                "provider": "openai",
-                "model": "gpt-5.6-luna",
-                "mode": "desktop",
-                "execution_target": "docker",
-                "max_steps": 5,
-            })
+        with (
+            patch.dict("backend.server._active_tasks", {}, clear=True),
+            patch.dict("backend.server._active_loops", {}, clear=True),
+            patch("backend.server.resolve_api_key", return_value=("sk-test-openai", "ui")),
+            patch("backend.server.start_container", new_callable=AsyncMock, return_value=True),
+            patch(
+                "backend.server.get_container_state",
+                return_value={"container": "running", "agent": "ready", "last_health_error": None},
+            ),
+            patch("backend.server.AgentLoop", return_value=fake_loop) as mock_agent_loop,
+            patch("backend.server.asyncio.create_task", side_effect=fake_create_task),
+        ):
+            resp = client.post(
+                "/api/agent/start",
+                json={
+                    "task": "open a page",
+                    "engine": "computer_use",
+                    "provider": "openai",
+                    "model": "gpt-5.6-luna",
+                    "mode": "desktop",
+                    "execution_target": "docker",
+                    "max_steps": 5,
+                },
+            )
 
         assert resp.status_code == 200
         data = resp.json()
@@ -266,51 +312,75 @@ class TestAgentStartValidation:
             coro.close()
             return fake_task
 
-        with patch.dict("backend.server._active_tasks", {}, clear=True), \
-             patch.dict("backend.server._active_loops", {}, clear=True), \
-             patch("backend.server.resolve_api_key", return_value=("sk-test-openai", "ui")), \
-             patch("backend.server.start_container", new_callable=AsyncMock, return_value=True), \
-             patch("backend.server.get_container_state",
-                   return_value={"container": "running", "agent": "ready",
-                                 "last_health_error": None}), \
-             patch("backend.server.AgentLoop", return_value=fake_loop), \
-             patch("backend.server.asyncio.create_task", side_effect=fake_create_task):
-            resp = client.post("/api/agent/start", json={
-                "task": "open a page",
-                "engine": "computer_use",
-                "provider": "openai",
-                "model": openai_model,
-                "mode": "desktop",
-                "execution_target": "docker",
-                "max_steps": 5,
-            })
+        with (
+            patch.dict("backend.server._active_tasks", {}, clear=True),
+            patch.dict("backend.server._active_loops", {}, clear=True),
+            patch("backend.server.resolve_api_key", return_value=("sk-test-openai", "ui")),
+            patch("backend.server.start_container", new_callable=AsyncMock, return_value=True),
+            patch(
+                "backend.server.get_container_state",
+                return_value={"container": "running", "agent": "ready", "last_health_error": None},
+            ),
+            patch("backend.server.AgentLoop", return_value=fake_loop),
+            patch("backend.server.asyncio.create_task", side_effect=fake_create_task),
+        ):
+            resp = client.post(
+                "/api/agent/start",
+                json={
+                    "task": "open a page",
+                    "engine": "computer_use",
+                    "provider": "openai",
+                    "model": openai_model,
+                    "mode": "desktop",
+                    "execution_target": "docker",
+                    "max_steps": 5,
+                },
+            )
 
         assert resp.status_code == 200
         assert resp.json()["session_id"] == "session-openai-2"
 
     def test_invalid_execution_target_rejected(self, client):
-        resp = client.post("/api/agent/start", json={
-            "task": "test", "engine": "computer_use", "provider": "google",
-            "model": "gemini-3.6-flash", "mode": "desktop",
-            "execution_target": "local",
-        })
+        resp = client.post(
+            "/api/agent/start",
+            json={
+                "task": "test",
+                "engine": "computer_use",
+                "provider": "google",
+                "model": "gemini-3.6-flash",
+                "mode": "desktop",
+                "execution_target": "local",
+            },
+        )
         assert resp.status_code == 400
         assert "execution_target" in resp.json().get("error", "").lower()
 
     def test_empty_task_rejected(self, client):
-        resp = client.post("/api/agent/start", json={
-            "task": "   ", "engine": "computer_use", "provider": "google",
-            "model": "gemini-3.6-flash", "mode": "desktop",
-        })
+        resp = client.post(
+            "/api/agent/start",
+            json={
+                "task": "   ",
+                "engine": "computer_use",
+                "provider": "google",
+                "model": "gemini-3.6-flash",
+                "mode": "desktop",
+            },
+        )
         assert resp.status_code == 400
 
     def test_missing_api_key_rejected(self, client):
         """Without any API key source, should get a clear error."""
         with patch("backend.server.resolve_api_key", return_value=("", "none")):
-            resp = client.post("/api/agent/start", json={
-                "task": "test task", "engine": "computer_use", "provider": "google",
-                "model": "gemini-3.6-flash", "mode": "desktop",
-            })
+            resp = client.post(
+                "/api/agent/start",
+                json={
+                    "task": "test task",
+                    "engine": "computer_use",
+                    "provider": "google",
+                    "model": "gemini-3.6-flash",
+                    "mode": "desktop",
+                },
+            )
         # Should be 400 (no API key)
         assert resp.status_code == 400
         assert "api key" in resp.json().get("error", "").lower()
@@ -320,17 +390,24 @@ class TestSafetyConfirmEndpoint:
     """Tests POST /api/agent/safety-confirm rejects invalid/missing session IDs."""
 
     def test_invalid_session_rejected(self, client):
-        resp = client.post("/api/agent/safety-confirm", json={
-            "session_id": "not-a-uuid", "confirm": True,
-        })
+        resp = client.post(
+            "/api/agent/safety-confirm",
+            json={
+                "session_id": "not-a-uuid",
+                "confirm": True,
+            },
+        )
         data = resp.json()
         assert "error" in data
 
     def test_nonexistent_session(self, client):
-        resp = client.post("/api/agent/safety-confirm", json={
-            "session_id": "00000000-0000-0000-0000-000000000000",
-            "confirm": True,
-        })
+        resp = client.post(
+            "/api/agent/safety-confirm",
+            json={
+                "session_id": "00000000-0000-0000-0000-000000000000",
+                "confirm": True,
+            },
+        )
         data = resp.json()
         assert "error" in data
 
@@ -339,13 +416,21 @@ class TestContainerEndpoints:
     """Tests GET /api/container/status with a mocked Docker backend."""
 
     def test_container_status(self, client):
-        with patch("backend.server.get_container_status", new_callable=AsyncMock,
-                    return_value={"name": "cua-environment", "running": False,
-                                  "image": "cua-ubuntu:latest", "agent_service": False}):
+        with patch(
+            "backend.server.get_container_status",
+            new_callable=AsyncMock,
+            return_value={
+                "name": "cua-environment",
+                "running": False,
+                "image": "cua-ubuntu:latest",
+                "agent_service": False,
+            },
+        ):
             resp = client.get("/api/container/status")
         assert resp.status_code == 200
         data = resp.json()
         assert "running" in data
+
 
 # === merged from tests/test_health_and_ready.py ===
 """SC5 — `/api/health` and `/api/ready` probe regression tests.
@@ -356,20 +441,6 @@ checks (Docker daemon reachable, at least one provider API key set,
 container not in an unexpected state) and must return HTTP 503 with
 a ``reasons`` list when any of them fails.
 """
-
-
-from unittest.mock import AsyncMock, patch
-
-import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-
-from backend.server import _mount_production_frontend, app
-
-
-@pytest.fixture(scope="module")
-def client() -> TestClient:
-    return TestClient(app)
 
 
 def test_production_frontend_mount_is_optional(tmp_path):
@@ -415,10 +486,13 @@ class TestReadiness:
         # Docker reachable + a provider key set + sensible container state.
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-fake-key-for-readiness-probe")
         ok_state = {"container": "running", "agent": "ready", "last_health_error": None}
-        with patch(
-            "backend.server._dm_run",
-            new=AsyncMock(return_value=(0, "25.0.3\n", "")),
-        ), patch("backend.server.get_container_state", return_value=ok_state):
+        with (
+            patch(
+                "backend.server._dm_run",
+                new=AsyncMock(return_value=(0, "25.0.3\n", "")),
+            ),
+            patch("backend.server.get_container_state", return_value=ok_state),
+        ):
             resp = client.get("/api/ready")
         assert resp.status_code == 200
         body = resp.json()
@@ -426,7 +500,9 @@ class TestReadiness:
         assert body["container"] == "running"
 
     def test_ready_503_when_docker_unreachable(
-        self, client: TestClient, monkeypatch: pytest.MonkeyPatch,
+        self,
+        client: TestClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake")
         with patch(
@@ -440,7 +516,9 @@ class TestReadiness:
         assert any("docker daemon" in r.lower() for r in body["reasons"])
 
     def test_ready_503_when_no_provider_key(
-        self, client: TestClient, monkeypatch: pytest.MonkeyPatch,
+        self,
+        client: TestClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         # Explicitly unset all three provider keys so the env scan fails.
         for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY"):
@@ -456,7 +534,9 @@ class TestReadiness:
         assert any("provider API key" in r for r in body["reasons"])
 
     def test_ready_aggregates_multiple_failures(
-        self, client: TestClient, monkeypatch: pytest.MonkeyPatch,
+        self,
+        client: TestClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Both the docker probe AND the key check fail → both reasons
         surface. Operators see every missing thing, not just the first."""
@@ -482,6 +562,7 @@ class TestGracefulShutdownInvariant:
 
     def test_lifespan_cancels_active_tasks_on_shutdown(self) -> None:
         import inspect
+
         from backend import server
 
         src = inspect.getsource(server._lifespan)
@@ -497,6 +578,7 @@ class TestGracefulShutdownInvariant:
             "Lifespan shutdown must drain pending WS broadcast tasks"
             " so agent_finished events reach subscribers."
         )
+
 
 # === merged from tests/test_screenshot_publisher.py ===
 """P-PUB — regression tests for the shared screenshot publisher.
@@ -522,10 +604,9 @@ rather than a real websocket, which keeps them fast and deterministic.
 
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
-
 
 # Short cadence so waiting for "at least one tick" is cheap.
 _FAST_INTERVAL = 0.03
@@ -556,7 +637,7 @@ async def _drain_task(task, *, max_wait: float = 2.0) -> None:
         return
     try:
         await asyncio.wait_for(task, timeout=max_wait)
-    except (asyncio.CancelledError, asyncio.TimeoutError):
+    except (TimeoutError, asyncio.CancelledError):
         pass
 
 
@@ -601,6 +682,7 @@ def server_mod(monkeypatch):
 
     # Patch is_container_running where the publisher imports it.
     import backend.infra.docker as dm
+
     monkeypatch.setattr(dm, "is_container_running", AsyncMock(return_value=True))
 
     yield server, fake_capture
@@ -633,8 +715,7 @@ class TestPublisherRefcount:
 
             assert first_task is not None and not first_task.done()
             assert second_task is first_task, (
-                "Second subscriber started a NEW publisher task — "
-                "refcounting is broken."
+                "Second subscriber started a NEW publisher task — refcounting is broken."
             )
             assert len(server._screenshot_subscribers) == 2
             assert len(server._screenshot_subscribers_by_session[session_id]) == 2
@@ -755,8 +836,6 @@ class TestSingleSubscriberCadence:
         asyncio.run(go())
 
 
-
-
 # ── T3: the 7 unique tests relocated from the deleted test_server_validation.py
 # (the other 21 were byte-identical duplicates of tests already in this file).
 @pytest.fixture(autouse=True)
@@ -770,6 +849,7 @@ def clear_server_rate_limiters():
     _agent_start_limiter._calls.clear()
     _validate_key_limiter._calls.clear()
 
+
 class TestValidationUniques:
     """Server-validation cases not otherwise covered in this module."""
 
@@ -782,14 +862,17 @@ class TestValidationUniques:
         ],
     )
     def test_unexpected_tool_options_rejected_by_request_schema(self, client, field, value):
-        resp = client.post("/api/agent/start", json={
-            "task": "test",
-            "engine": "computer_use",
-            "provider": "openai",
-            "model": "gpt-5.6-luna",
-            "mode": "desktop",
-            field: value,
-        })
+        resp = client.post(
+            "/api/agent/start",
+            json={
+                "task": "test",
+                "engine": "computer_use",
+                "provider": "openai",
+                "model": "gpt-5.6-luna",
+                "mode": "desktop",
+                field: value,
+            },
+        )
         assert resp.status_code == 422
         assert any(field in str(item.get("loc", [])) for item in resp.json().get("detail", []))
 
@@ -805,23 +888,29 @@ class TestValidationUniques:
             coro.close()
             return fake_task
 
-        with patch.dict("backend.server._active_tasks", {}, clear=True), \
-             patch.dict("backend.server._active_loops", {}, clear=True), \
-             patch("backend.server.resolve_api_key", return_value=("sk-ant-test-12345678", "ui")), \
-             patch("backend.server.start_container", new_callable=AsyncMock, return_value=True), \
-             patch("backend.server.get_container_state",
-                   return_value={"container": "running", "agent": "ready",
-                                 "last_health_error": None}), \
-             patch("backend.server.AgentLoop", return_value=fake_loop) as mock_agent_loop, \
-             patch("backend.server.asyncio.create_task", side_effect=fake_create_task):
-            resp = client.post("/api/agent/start", json={
-                "task": "test",
-                "engine": "computer_use",
-                "provider": "anthropic",
-                "model": "claude-sonnet-5",
-                "mode": "desktop",
-                "use_builtin_search": True,
-            })
+        with (
+            patch.dict("backend.server._active_tasks", {}, clear=True),
+            patch.dict("backend.server._active_loops", {}, clear=True),
+            patch("backend.server.resolve_api_key", return_value=("sk-ant-test-12345678", "ui")),
+            patch("backend.server.start_container", new_callable=AsyncMock, return_value=True),
+            patch(
+                "backend.server.get_container_state",
+                return_value={"container": "running", "agent": "ready", "last_health_error": None},
+            ),
+            patch("backend.server.AgentLoop", return_value=fake_loop) as mock_agent_loop,
+            patch("backend.server.asyncio.create_task", side_effect=fake_create_task),
+        ):
+            resp = client.post(
+                "/api/agent/start",
+                json={
+                    "task": "test",
+                    "engine": "computer_use",
+                    "provider": "anthropic",
+                    "model": "claude-sonnet-5",
+                    "mode": "desktop",
+                    "use_builtin_search": True,
+                },
+            )
 
         assert resp.status_code == 200
         assert mock_agent_loop.call_args.kwargs["use_builtin_search"] is True
@@ -838,40 +927,51 @@ class TestValidationUniques:
             coro.close()
             return fake_task
 
-        with patch.dict("backend.server._active_tasks", {}, clear=True), \
-             patch.dict("backend.server._active_loops", {}, clear=True), \
-             patch("backend.server.resolve_api_key", return_value=("sk-test-openai", "ui")), \
-             patch("backend.server.start_container", new_callable=AsyncMock, return_value=True), \
-             patch("backend.server.get_container_state",
-                   return_value={"container": "running", "agent": "ready",
-                                 "last_health_error": None}), \
-             patch("backend.server.AgentLoop", return_value=fake_loop) as mock_agent_loop, \
-             patch("backend.server.asyncio.create_task", side_effect=fake_create_task):
-            resp = client.post("/api/agent/start", json={
-                "task": "test",
-                "engine": "computer_use",
-                "provider": "openai",
-                "model": "gpt-5.6-luna",
-                "mode": "desktop",
-                "use_builtin_search": True,
-                "reasoning_effort": "minimal",
-            })
+        with (
+            patch.dict("backend.server._active_tasks", {}, clear=True),
+            patch.dict("backend.server._active_loops", {}, clear=True),
+            patch("backend.server.resolve_api_key", return_value=("sk-test-openai", "ui")),
+            patch("backend.server.start_container", new_callable=AsyncMock, return_value=True),
+            patch(
+                "backend.server.get_container_state",
+                return_value={"container": "running", "agent": "ready", "last_health_error": None},
+            ),
+            patch("backend.server.AgentLoop", return_value=fake_loop) as mock_agent_loop,
+            patch("backend.server.asyncio.create_task", side_effect=fake_create_task),
+        ):
+            resp = client.post(
+                "/api/agent/start",
+                json={
+                    "task": "test",
+                    "engine": "computer_use",
+                    "provider": "openai",
+                    "model": "gpt-5.6-luna",
+                    "mode": "desktop",
+                    "use_builtin_search": True,
+                    "reasoning_effort": "minimal",
+                },
+            )
 
         assert resp.status_code == 200
         assert mock_agent_loop.call_args.kwargs["use_builtin_search"] is True
         assert mock_agent_loop.call_args.kwargs["reasoning_effort"] == "minimal"
 
     def test_gemini_reference_files_rejected(self, client):
-        resp = client.post("/api/agent/start", json={
-            "task": "test",
-            "engine": "computer_use",
-            "provider": "google",
-            "model": "gemini-3.6-flash",
-            "mode": "desktop",
-            "attached_files": ["f_example123"],
-        })
+        resp = client.post(
+            "/api/agent/start",
+            json={
+                "task": "test",
+                "engine": "computer_use",
+                "provider": "google",
+                "model": "gemini-3.6-flash",
+                "mode": "desktop",
+                "attached_files": ["f_example123"],
+            },
+        )
         assert resp.status_code == 400
-        assert "Gemini File Search cannot be combined with Computer Use" in resp.json().get("error", "")
+        assert "Gemini File Search cannot be combined with Computer Use" in resp.json().get(
+            "error", ""
+        )
 
     def test_gemini_builtin_search_is_accepted_for_split_planner(self, client):
         from backend.server import _agent_start_limiter
@@ -885,23 +985,29 @@ class TestValidationUniques:
             coro.close()
             return fake_task
 
-        with patch.dict("backend.server._active_tasks", {}, clear=True), \
-             patch.dict("backend.server._active_loops", {}, clear=True), \
-             patch("backend.server.resolve_api_key", return_value=("AIza-test", "ui")), \
-             patch("backend.server.start_container", new_callable=AsyncMock, return_value=True), \
-             patch("backend.server.get_container_state",
-                   return_value={"container": "running", "agent": "ready",
-                                 "last_health_error": None}), \
-             patch("backend.server.AgentLoop", return_value=fake_loop) as mock_agent_loop, \
-             patch("backend.server.asyncio.create_task", side_effect=fake_create_task):
-            resp = client.post("/api/agent/start", json={
-                "task": "test",
-                "engine": "computer_use",
-                "provider": "google",
-                "model": "gemini-3.6-flash",
-                "mode": "desktop",
-                "use_builtin_search": True,
-            })
+        with (
+            patch.dict("backend.server._active_tasks", {}, clear=True),
+            patch.dict("backend.server._active_loops", {}, clear=True),
+            patch("backend.server.resolve_api_key", return_value=("AIza-test", "ui")),
+            patch("backend.server.start_container", new_callable=AsyncMock, return_value=True),
+            patch(
+                "backend.server.get_container_state",
+                return_value={"container": "running", "agent": "ready", "last_health_error": None},
+            ),
+            patch("backend.server.AgentLoop", return_value=fake_loop) as mock_agent_loop,
+            patch("backend.server.asyncio.create_task", side_effect=fake_create_task),
+        ):
+            resp = client.post(
+                "/api/agent/start",
+                json={
+                    "task": "test",
+                    "engine": "computer_use",
+                    "provider": "google",
+                    "model": "gemini-3.6-flash",
+                    "mode": "desktop",
+                    "use_builtin_search": True,
+                },
+            )
 
         assert resp.status_code == 200
         assert mock_agent_loop.call_args.kwargs["use_builtin_search"] is True
@@ -915,24 +1021,30 @@ class TestValidationUniques:
             coro.close()
             return fake_task
 
-        with patch.dict("backend.server._active_tasks", {}, clear=True), \
-             patch.dict("backend.server._active_loops", {}, clear=True), \
-             patch("backend.server.resolve_api_key", return_value=("sk-test-openai", "ui")), \
-             patch("backend.server.start_container", new_callable=AsyncMock, return_value=True), \
-             patch("backend.server.get_container_state",
-                   return_value={"container": "running", "agent": "ready",
-                                 "last_health_error": None}), \
-             patch("backend.server.AgentLoop", return_value=fake_loop) as mock_agent_loop, \
-             patch("backend.server.asyncio.create_task", side_effect=fake_create_task):
-            resp = client.post("/api/agent/start", json={
-                "task": "open a page",
-                "engine": "computer_use",
-                "provider": "openai",
-                "model": "gpt-5.6-luna",
-                "mode": "desktop",
-                "execution_target": "docker",
-                "max_steps": 5,
-            })
+        with (
+            patch.dict("backend.server._active_tasks", {}, clear=True),
+            patch.dict("backend.server._active_loops", {}, clear=True),
+            patch("backend.server.resolve_api_key", return_value=("sk-test-openai", "ui")),
+            patch("backend.server.start_container", new_callable=AsyncMock, return_value=True),
+            patch(
+                "backend.server.get_container_state",
+                return_value={"container": "running", "agent": "ready", "last_health_error": None},
+            ),
+            patch("backend.server.AgentLoop", return_value=fake_loop) as mock_agent_loop,
+            patch("backend.server.asyncio.create_task", side_effect=fake_create_task),
+        ):
+            resp = client.post(
+                "/api/agent/start",
+                json={
+                    "task": "open a page",
+                    "engine": "computer_use",
+                    "provider": "openai",
+                    "model": "gpt-5.6-luna",
+                    "mode": "desktop",
+                    "execution_target": "docker",
+                    "max_steps": 5,
+                },
+            )
 
         assert resp.status_code == 200
         assert mock_agent_loop.call_args.kwargs["reasoning_effort"] == "medium"
@@ -946,24 +1058,30 @@ class TestValidationUniques:
             coro.close()
             return fake_task
 
-        with patch.dict("backend.server._active_tasks", {}, clear=True), \
-             patch.dict("backend.server._active_loops", {}, clear=True), \
-             patch("backend.server.resolve_api_key", return_value=("sk-test-openai", "ui")), \
-             patch("backend.server.start_container", new_callable=AsyncMock, return_value=True), \
-             patch("backend.server.get_container_state",
-                   return_value={"container": "running", "agent": "ready",
-                                 "last_health_error": None}), \
-             patch("backend.server.AgentLoop", return_value=fake_loop) as mock_agent_loop, \
-             patch("backend.server.asyncio.create_task", side_effect=fake_create_task):
-            resp = client.post("/api/agent/start", json={
-                "task": "open a page",
-                "engine": "computer_use",
-                "provider": "openai",
-                "model": "gpt-5.6-luna",
-                "mode": "desktop",
-                "execution_target": "docker",
-                "max_steps": 5,
-            })
+        with (
+            patch.dict("backend.server._active_tasks", {}, clear=True),
+            patch.dict("backend.server._active_loops", {}, clear=True),
+            patch("backend.server.resolve_api_key", return_value=("sk-test-openai", "ui")),
+            patch("backend.server.start_container", new_callable=AsyncMock, return_value=True),
+            patch(
+                "backend.server.get_container_state",
+                return_value={"container": "running", "agent": "ready", "last_health_error": None},
+            ),
+            patch("backend.server.AgentLoop", return_value=fake_loop) as mock_agent_loop,
+            patch("backend.server.asyncio.create_task", side_effect=fake_create_task),
+        ):
+            resp = client.post(
+                "/api/agent/start",
+                json={
+                    "task": "open a page",
+                    "engine": "computer_use",
+                    "provider": "openai",
+                    "model": "gpt-5.6-luna",
+                    "mode": "desktop",
+                    "execution_target": "docker",
+                    "max_steps": 5,
+                },
+            )
 
         assert resp.status_code == 200
         assert mock_agent_loop.call_args.kwargs["reasoning_effort"] == "medium"
@@ -1002,10 +1120,15 @@ class TestFileUploadEndpoint:
             extension=".txt",
         )
 
-        with patch("backend.server._require_origin", return_value=None), \
-             patch("backend.server._require_rest_auth", return_value=None), \
-             patch.object(server._agent_start_limiter, "allow", return_value=True), \
-             patch("backend.server.file_registry.upload_file_stream", new=AsyncMock(return_value=fake_rec)) as mock_upload:
+        with (
+            patch("backend.server._require_origin", return_value=None),
+            patch("backend.server._require_rest_auth", return_value=None),
+            patch.object(server._agent_start_limiter, "allow", return_value=True),
+            patch(
+                "backend.server.file_registry.upload_file_stream",
+                new=AsyncMock(return_value=fake_rec),
+            ) as mock_upload,
+        ):
             payload = await server.api_upload_file(request)
 
         assert payload["file_id"] == "f_stream_1"
@@ -1039,13 +1162,15 @@ class TestFileUploadEndpoint:
             form=_form,
         )
 
-        with patch("backend.server._require_origin", return_value=None), \
-             patch("backend.server._require_rest_auth", return_value=None), \
-             patch.object(server._agent_start_limiter, "allow", return_value=True), \
-             patch(
-                 "backend.server.file_registry.upload_file_stream",
-                 new=AsyncMock(side_effect=ValueError("file content does not match .pdf format")),
-             ):
+        with (
+            patch("backend.server._require_origin", return_value=None),
+            patch("backend.server._require_rest_auth", return_value=None),
+            patch.object(server._agent_start_limiter, "allow", return_value=True),
+            patch(
+                "backend.server.file_registry.upload_file_stream",
+                new=AsyncMock(side_effect=ValueError("file content does not match .pdf format")),
+            ),
+        ):
             resp = await server.api_upload_file(request)
 
         assert resp.status_code == 400
