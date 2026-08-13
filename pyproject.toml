@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "computer-use-workbench"
-version = "3.0.2"
+version = "3.0.3"
 description = "Local, provider-native Computer Use agent workbench"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
