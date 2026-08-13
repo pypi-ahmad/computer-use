@@ -1,6 +1,6 @@
 # Deployment Guide
 
-v3.0.1 targets one trusted operator on a workstation. Do not expose it as a public multi-tenant service.
+v3.0.2 targets one trusted operator on a workstation. Do not expose it as a public multi-tenant service.
 
 ## Local development
 

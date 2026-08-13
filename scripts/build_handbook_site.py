@@ -169,11 +169,20 @@ SOURCES = (
     ),
     SourceDoc(
         "release",
+        "docs/release-notes-v3.0.2.md",
+        "v3.0.2 release notes",
+        "Evidence and history",
+        ("all",),
+        "Current patch scope, CI gates, and sandbox image scan fixes.",
+    ),
+    SourceDoc(
+        "release-v301",
         "docs/release-notes-v3.0.1.md",
         "v3.0.1 release notes",
         "Evidence and history",
         ("all",),
-        "Current patch scope and Windows launcher fixes.",
+        "Historical v3.0.1 Windows launcher fixes.",
+        True,
     ),
     SourceDoc(
         "release-v3",
