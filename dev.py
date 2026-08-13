@@ -51,18 +51,38 @@ def _run_checked(command: list[str], *, cwd: Path | None = None) -> None:
     subprocess.run(command, cwd=cwd or ROOT, check=True)
 
 
-def open_dashboard_when_ready(url: str, *, timeout: float = 90.0) -> bool:
+def open_dashboard_when_ready(
+    url: str,
+    *,
+    ready_url: str | None = None,
+    timeout: float = 90.0,
+) -> bool:
     """Open the dashboard once its HTTP server responds."""
+    probe_url = ready_url or url
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=1.0):  # noqa: S310 - fixed loopback URL
+            with urllib.request.urlopen(probe_url, timeout=1.0):  # noqa: S310 - fixed loopback URL
                 webbrowser.open(url)
                 return True
         except (OSError, urllib.error.URLError):
             time.sleep(0.5)
     _info(f"Dashboard did not become ready at {url}; open it manually when startup completes.")
     return False
+
+
+def _wait_for_http(url: str, process: subprocess.Popen[str], *, timeout: float = 30.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        exit_code = process.poll()
+        if exit_code is not None:
+            raise RuntimeError(f"Backend exited with code {exit_code} before becoming ready.")
+        try:
+            with urllib.request.urlopen(url, timeout=1.0):  # noqa: S310 - fixed loopback URL
+                return
+        except (OSError, urllib.error.URLError):
+            time.sleep(0.25)
+    raise RuntimeError(f"Backend did not become ready at {url} within {timeout:g} seconds.")
 
 
 def _dotenv_values() -> dict[str, str]:
@@ -269,7 +289,11 @@ def _spawn_services() -> tuple[subprocess.Popen[str], subprocess.Popen[str]]:
     env.setdefault("PYTHONUNBUFFERED", "1")
 
     backend_command = [_python_executable(), "-m", "backend.main"]
-    frontend_command = [_npm_executable(), "run", "dev"]
+    if os.name == "nt":
+        vite_entrypoint = FRONTEND_DIR / "node_modules" / "vite" / "bin" / "vite.js"
+        frontend_command = [shutil.which("node") or "node", str(vite_entrypoint)]
+    else:
+        frontend_command = [_npm_executable(), "run", "dev"]
 
     creation_flags = 0
     if os.name == "nt":
@@ -283,6 +307,13 @@ def _spawn_services() -> tuple[subprocess.Popen[str], subprocess.Popen[str]]:
         creationflags=creation_flags,
         text=True,
     )
+
+    backend_port = _env_int("PORT", DEFAULT_BACKEND_PORT, dotenv=_dotenv_values())
+    try:
+        _wait_for_http(f"http://127.0.0.1:{backend_port}/api/health", backend)
+    except Exception:
+        _terminate_process(backend, label="backend")
+        raise
 
     _info("Starting frontend...")
     frontend = subprocess.Popen(
@@ -352,9 +383,11 @@ def main() -> int:
         _compose_restart()
         backend, frontend = _spawn_services()
         if args.open_browser:
+            backend_port = _env_int("PORT", DEFAULT_BACKEND_PORT, dotenv=_dotenv_values())
             threading.Thread(
                 target=open_dashboard_when_ready,
                 args=(f"http://127.0.0.1:{DEFAULT_FRONTEND_PORT}",),
+                kwargs={"ready_url": f"http://127.0.0.1:{backend_port}/api/health"},
                 name="dashboard-opener",
                 daemon=True,
             ).start()
