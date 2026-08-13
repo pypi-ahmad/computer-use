@@ -2,13 +2,13 @@
 
 ## Supported Versions
 
-Security fixes are developed for the current default branch and the active 2.x
+Security fixes are developed for the current default branch and the active 3.x
 release line.
 
 | Version | Supported |
 |---|---|
-| `main` / latest 2.x | Yes |
-| 1.x and earlier | No |
+| `main` / latest 3.x | Yes |
+| 2.x and earlier | No |
 
 The application is a local, single-user workbench. It is not a hardened
 multi-tenant service; follow the deployment and network boundaries in
