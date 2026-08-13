@@ -107,7 +107,7 @@ if errorlevel 1 (
 )
 echo [INFO] Python dependencies installed.
 
-for /f "delims=" %%H in ('powershell -NoProfile -Command "(Get-FileHash -Algorithm SHA256 'frontend\package-lock.json').Hash"') do set "LOCK_HASH=%%H"
+for /f "delims=" %%H in ('powershell -NoProfile -Command "$stream = [IO.File]::OpenRead('frontend\package-lock.json'); try { $sha = [Security.Cryptography.SHA256]::Create(); try { [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-','') } finally { $sha.Dispose() } } finally { $stream.Dispose() }"') do set "LOCK_HASH=%%H"
 set "INSTALLED_HASH="
 if exist "frontend\node_modules\.cua-package-lock.sha256" set /p INSTALLED_HASH=<"frontend\node_modules\.cua-package-lock.sha256"
 if /I not "!LOCK_HASH!"=="!INSTALLED_HASH!" (
@@ -117,6 +117,12 @@ if /I not "!LOCK_HASH!"=="!INSTALLED_HASH!" (
   if errorlevel 1 (
     popd >nul
     echo [ERROR] Failed to install frontend dependencies.
+    exit /b !errorlevel!
+  )
+  call npm rebuild esbuild --foreground-scripts
+  if errorlevel 1 (
+    popd >nul
+    echo [ERROR] Failed to prepare the frontend build tool.
     exit /b !errorlevel!
   )
   popd >nul
