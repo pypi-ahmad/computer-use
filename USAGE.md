@@ -35,9 +35,10 @@ workbench into a multi-user service. Keep it on `127.0.0.1` unless you've read
 
 **Two ways to use it**, both fully working today:
 
-1. **The dashboard** (`http://localhost:8505`) — a five-tab web UI. This
+1. **The dashboard** (`http://127.0.0.1:8505`) — a five-tab web UI. This
    is what most people mean by "using the app." It talks to the newer,
-   typed `/api/v2` backend surface.
+   typed `/api/v2` backend surface. Use `127.0.0.1`, not `localhost`: the
+   Vite dev server binds IPv4 loopback only.
 2. **Direct API calls** (curl, scripts, `wscat`) — the original REST +
    WebSocket surface, still fully implemented, with a couple of features
    (Web Search, file attachments) that the dashboard doesn't expose yet.
@@ -98,8 +99,11 @@ On Windows 11, `START.bat` is both the first-run installer and the daily
 launcher. It uses exact winget packages to install missing Docker Desktop,
 Node.js LTS, and uv; creates `.env` when absent; generates the required local
 sandbox secrets without printing or replacing existing values; installs
-locked Python/frontend dependencies; builds the Docker image with cache; and
-opens the dashboard when Vite responds. Normal installer/UAC prompts may
+locked Python/frontend dependencies; rebuilds esbuild after `npm ci`; builds
+the Docker image with cache; starts `dev.py --open-browser`; waits for
+`GET /api/health`; and then opens `http://127.0.0.1:8505`. On Windows, Vite
+is started through Node (`node .../vite/bin/vite.js`) rather than
+`npm.cmd`, and it listens on `127.0.0.1`. Normal installer/UAC prompts may
 appear. If Docker Desktop requires a restart or initial WSL setup, complete it
 and double-click `START.bat` again.
 
@@ -121,7 +125,8 @@ bash setup.sh          # Linux/macOS
 `setup.bat --bootstrap-only` prepares dependencies without launching.
 `setup.bat --clean` performs an explicitly destructive, from-scratch Docker
 rebuild. Normal setup uses Docker's build cache and skips `npm ci` when the
-installed frontend matches `package-lock.json`.
+installed frontend matches `package-lock.json`. After a fresh `npm ci` it
+runs `npm rebuild esbuild --foreground-scripts` so the Vite binary is ready.
 
 For a manual day-to-day start after setup:
 
@@ -130,14 +135,17 @@ For a manual day-to-day start after setup:
 bash dev.sh           # Linux/macOS
 ```
 
-`dev.py` (invoked by either wrapper) does three things every time you run
-it: frees ports `8100`/`8505` if a previous crashed run left
-them held, makes sure the `cua-environment` container is running and
-healthy (starting it via `docker compose up -d` if not), then launches
-the FastAPI backend and the Vite dev server as subprocesses, streaming
-their logs to your terminal. `Ctrl+C` or the sidebar **Stop app** button
-stops active sessions, the backend and frontend processes, and the Docker
-sandbox. The browser tab remains open so it can show the final stopped state.
+`dev.py` (invoked by either wrapper) does four things every time you run
+it: frees ports `8100`/`8505` if a previous crashed run left them held;
+makes sure the `cua-environment` container is running and healthy
+(starting it via `docker compose up -d` if not); launches the FastAPI
+backend and waits for `GET /api/health`; then starts the Vite dev server
+on `127.0.0.1` (through Node on Windows, through `npm run dev` elsewhere)
+and streams both logs to your terminal. With `--open-browser`, it opens
+`http://127.0.0.1:8505` only after that health check succeeds. `Ctrl+C` or
+the sidebar **Stop app** button stops active sessions, the backend and
+frontend processes, and the Docker sandbox. The browser tab remains open
+so it can show the final stopped state.
 
 ### Environment file
 
@@ -164,7 +172,9 @@ process refuses to start when `HOST != 127.0.0.1`.
 
 ## First Run
 
-Open `http://localhost:8505`. On the **Live session** tab, type:
+`START.bat` opens `http://127.0.0.1:8505` after backend health succeeds.
+If the browser does not open, go there manually. On the **Live session**
+tab, type:
 
 > Open the file manager. Stop when the file manager window is visible.
 
@@ -184,9 +194,9 @@ fails before the first frame appears, see [Troubleshooting](#troubleshooting).
 bash dev.sh           # Linux/macOS
 ```
 
-then open `http://localhost:8505`. The Vite dev server proxies `/api`
-and `/api/v2/ws` to the backend, so you don't deal with CORS during
-normal use.
+then use `http://127.0.0.1:8505`. Vite listens on IPv4 loopback and
+proxies `/api` and `/api/v2/ws` to the backend, so you don't deal with
+CORS during normal use.
 
 ## The Dashboard — Five Tabs In Depth
 
@@ -535,7 +545,7 @@ need.
 | `CUA_ALLOW_PUBLIC_BIND` | unset | Explicit opt-in for non-loopback `HOST`. |
 | `CUA_API_TOKEN` | unset | Shared secret gating sensitive/mutating REST operations, `/ws`, `/api/v2/ws/*`, and `/vnc/*`. `CUA_WS_TOKEN` is a deprecated fallback. |
 | `CUA_ALLOWED_HOSTS` | derived from CORS | Extra Host headers to allow. |
-| `CORS_ORIGINS` | `localhost:8505`/`5173` | Comma-separated allowlist. |
+| `CORS_ORIGINS` | `127.0.0.1`/`localhost` on `8505`, `5173`, and `3000` | Comma-separated allowlist. The development dashboard origin is `http://127.0.0.1:8505`. |
 
 ### Sandbox and screen
 
@@ -605,10 +615,16 @@ intentional, not a bug. A missing dependency shows as
 
 ### Frontend will not start
 
+On Windows, use `START.bat` or `dev.py`. Those wait for backend health and
+start Vite through Node. Do not use `npm run dev` as the daily launcher;
+`npm.cmd` can leave an interactive wrapper that never releases the process.
+
+If `node_modules` is missing or esbuild is broken after `npm ci`:
+
 ```powershell
 cd frontend
 npm ci
-npm run dev
+npm rebuild esbuild --foreground-scripts
 ```
 
 Requires Node 22+. If `npm ci` fails on a corporate network, point npm
@@ -711,7 +727,8 @@ also want to drop retained audit screenshots.
 For a deeper look at the runtime contracts and module boundaries, read
 `TECHNICAL.md` or the [Zero to Hero Study Handbook](docs/zero-to-hero-study-handbook.md).
 For prompt patterns, read `docs/computer-use-prompt-guide.md`. For
-changelog and release notes, read `CHANGELOG.md`.
+changelog and release notes, read `CHANGELOG.md` and
+`docs/release-notes-v3.0.1.md`.
 
 ## Appendix A — Operating Patterns
 

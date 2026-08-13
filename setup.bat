@@ -142,7 +142,7 @@ if "%BOOTSTRAP_ONLY%"=="1" (
 )
 
 echo [INFO] Launching the full stack...
-echo [INFO] The browser UI will be available at http://localhost:3000 once Vite is ready.
+echo [INFO] The dashboard opens at http://127.0.0.1:8505 after the backend health check succeeds.
 uv run --frozen python "%~dp0dev.py"
 set "EXIT_CODE=%ERRORLEVEL%"
 

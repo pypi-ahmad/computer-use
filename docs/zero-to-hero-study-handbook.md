@@ -5,7 +5,7 @@ it, and exactly how the code implements that theory. Written for a reader
 who has never seen a Computer Use agent before and wants to end up able to
 read, run, and extend every layer of this codebase.
 
-This repo currently ships **two API generations side by side**:
+The current release is **v3.0.1**. This repo currently ships **two API generations side by side**:
 
 - **v1** — the original unversioned REST + WebSocket surface
   (`/api/agent/start`, `/ws`). Still fully implemented and running in
@@ -495,9 +495,12 @@ current frontend only speaks v2. See Flow H below for the live surface.)*
 
 On Windows 11, double-click `START.bat`. It installs missing Docker Desktop,
 Node.js LTS, and uv through winget; creates `.env` if needed; generates the
-required sandbox secrets; installs locked dependencies; builds the sandbox;
-and opens the dashboard. Existing `.env` values are preserved. If Docker asks
-for a restart or initial WSL setup, complete it and run `START.bat` again.
+required sandbox secrets; installs locked dependencies; rebuilds esbuild;
+builds the sandbox; waits for `GET /api/health`; and opens
+`http://127.0.0.1:8505`. Vite listens on IPv4 loopback and, on Windows, is
+started through Node rather than `npm.cmd`. Existing `.env` values are
+preserved. If Docker asks for a restart or initial WSL setup, complete it and
+run `START.bat` again.
 
 For manual or non-Windows setup:
 
@@ -535,7 +538,7 @@ Set-Location frontend; npm ci; Set-Location ..
 
 ### Runtime access
 
-- UI: `http://localhost:3000` (dev) or `http://127.0.0.1:8100` (built,
+- UI: `http://127.0.0.1:8505` (dev) or `http://127.0.0.1:8100` (built,
   single-process — FastAPI serves `frontend/dist` once it exists)
 - Backend default port: `8100`
 - OpenAPI docs: `/docs`

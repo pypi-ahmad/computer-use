@@ -215,7 +215,7 @@ dialog::backdrop { background: rgb(5 12 17 / 70%); backdrop-filter: blur(4px); }
       <button type="button" data-track="business" aria-pressed="false">Business</button>
     </div>
     <section class="nav-group"><h2>Start here</h2><a class="nav-link" href="#doc-overview" data-audiences="all"><span>Repository overview</span><small>Purpose, supported routes, quick start, and verification status.</small></a><a class="nav-link" href="#doc-business" data-audiences="business"><span>Business guide</span><small>Capabilities, pilot design, controls, measures, and go/no-go questions.</small></a></section><section class="nav-group"><h2>Operate</h2><a class="nav-link" href="#doc-user-manual" data-audiences="user technical"><span>Complete user manual</span><small>Installation, dashboard operation, credentials, safety, APIs, and troubleshooting.</small></a><a class="nav-link" href="#doc-prompt-guide" data-audiences="user technical"><span>Prompt-writing guide</span><small>Write tasks that are bounded, observable, and easier to verify.</small></a><a class="nav-link" href="#doc-deployment" data-audiences="user technical business"><span>Deployment guide</span><small>Local operation, public binding, persistence, backup, and rollback preparation.</small></a></section><section class="nav-group"><h2>Understand</h2><a class="nav-link" href="#doc-handbook" data-audiences="technical user"><span>Zero to Hero technical handbook</span><small>Computer Use theory, architecture, execution flows, and study exercises.</small></a><a class="nav-link" href="#doc-technical" data-audiences="technical"><span>Technical architecture</span><small>Current runtime boundaries, public contracts, authentication, and quality gates.</small></a><a class="nav-link" href="#doc-architecture" data-audiences="technical business"><span>Architecture map</span><small>Verified layers, runtime flow, patterns, and architectural risks.</small></a><a class="nav-link" href="#doc-structure" data-audiences="technical"><span>Repository structure</span><small>Entry points, module boundaries, directories, and naming organization.</small></a><a class="nav-link" href="#doc-stack" data-audiences="technical business"><span>Technology stack</span><small>Runtime, dependencies, infrastructure, toolchain, and configuration.</small></a><a class="nav-link" href="#doc-integrations" data-audiences="technical business"><span>Integrations</span><small>Provider APIs, local stores, credentials, reliability, and observability.</small></a><a class="nav-link" href="#doc-conventions" data-audiences="technical"><span>Engineering conventions</span><small>Naming, formatting, contracts, errors, logging, and testing discipline.</small></a></section><section class="nav-group"><h2>Trust and verify</h2><a class="nav-link" href="#doc-security" data-audiences="all"><span>Security policy</span><small>Supported versions and responsible vulnerability reporting.</small></a><a class="nav-link" href="#doc-testing" data-audiences="technical business"><span>Testing and quality</span><small>Test layers, commands, isolation strategy, and known coverage gaps.</small></a><a class="nav-link" href="#doc-concerns" data-audiences="technical business"><span>Known concerns</span><small>Prioritized risks, privacy watchpoints, and change discipline.</small></a></section><section class="nav-group"><h2>Evidence and history</h2><a class="nav-link" href="#doc-migration" data-audiences="technical"><span>v2 migration</span><small>Contract and operational migration guidance.</small></a><a class="nav-link" href="#doc-rollback" data-audiences="technical business"><span>v2 rollback</span><small>Rollback triggers, procedure, and verification.</small></a><a class="nav-link" href="#doc-release" data-audiences="all"><span>v3.0.1 release notes</span><small>Current patch scope and Windows launcher fixes.</small></a><a class="nav-link" href="#doc-release-v3" data-audiences="all"><span>v3.0.0 release notes</span><small>Historical v3.0.0 release scope.</small></a><a class="nav-link" href="#doc-release-v2" data-audiences="all"><span>v2.0.0 release notes</span><small>Historical v2 release scope.</small></a><a class="nav-link" href="#doc-research" data-audiences="technical business"><span>Provider research audit</span><small>Dated evidence behind the supported provider catalog.</small></a><a class="nav-link" href="#doc-gemini-evaluation" data-audiences="technical business"><span>Gemini successor checklist</span><small>Acceptance criteria for future Gemini route changes.</small></a></section>
-    <p class="build-note">Offline build · source fingerprint aa6ef136b68f</p>
+    <p class="build-note">Offline build · source fingerprint b079232a8580</p>
   </nav>
   <main class="content" id="main-content">
     <section class="hero" aria-labelledby="hero-title">
@@ -232,9 +232,10 @@ dialog::backdrop { background: rgb(5 12 17 / 70%); backdrop-filter: blur(4px); }
     <article class="manual-entry" id="doc-overview" data-audiences="all"><p class="source-label">Start here · Source: README.md</p><section id="overview-computer-use-workbench" class="level1">
 <h1>Computer Use Workbench</h1>
 <p>A local, single-user workbench for provider-native Computer Use
-agents. v2 adds a typed <code>/api/v2</code> contract, deterministic
-route fallback, SQLite audit history, binary frame streaming,
-declarative workflows, and a five-tab React dashboard.</p>
+agents. The current release is <strong>v3.0.1</strong>. The operator
+surface is the typed <code>/api/v2</code> contract, deterministic route
+fallback, SQLite audit history, binary frame streaming, declarative
+workflows, and a five-tab React dashboard.</p>
 <blockquote>
 <p>Computer Use can execute destructive actions. Run the sandbox with
 test accounts and non-sensitive data. This project is not a multi-tenant
@@ -256,10 +257,13 @@ audit</a>.</p>
 <p>On Windows 11, double-click <code>START.bat</code>. It installs
 missing Docker Desktop, Node.js LTS, and <a
 href="https://docs.astral.sh/uv/">uv</a> through winget, creates safe
-local sandbox credentials, installs locked project dependencies, starts
-the stack, and opens the dashboard. Normal Windows installer or UAC
-prompts may appear; if Docker requests a restart, restart and
-double-click the file again.</p>
+local sandbox credentials, installs locked project dependencies,
+rebuilds esbuild, starts the stack, waits for
+<code>GET /api/health</code>, and opens
+<code>http://127.0.0.1:8505</code>. Vite listens on IPv4 loopback so
+that address matches the URL the launcher opens. Normal Windows
+installer or UAC prompts may appear; if Docker requests a restart,
+restart and double-click the file again.</p>
 <div class="sourceCode" id="overview-cb1"><pre
 class="sourceCode powershell"><code class="sourceCode powershell"><span id="overview-cb1-1"><a href="#overview-cb1-1" aria-hidden="true" tabindex="-1"></a><span class="op">.</span>\<span class="fu">START</span><span class="op">.</span><span class="fu">bat</span></span></code></pre></div>
 <p>For manual or non-Windows setup, install Docker, Node.js 22+, and uv,
@@ -295,8 +299,9 @@ see <a href="#doc-user-manual">USAGE.md</a>.</p>
 <td>Install the exact Python environment</td>
 </tr>
 <tr>
-<td><code>uv run python dev.py</code></td>
-<td>Start backend, frontend, and sandbox</td>
+<td><code>uv run python dev.py --open-browser</code></td>
+<td>Start backend, frontend, and sandbox; open the dashboard after
+backend health succeeds</td>
 </tr>
 <tr>
 <td><code>uv run pytest</code></td>
@@ -354,6 +359,7 @@ binary-frame protocol, and exposes providers, live sessions, audit
 export, workflows, and analytics.</li>
 </ul>
 <p>See <a href="#doc-technical">TECHNICAL.md</a>, <a
+href="#doc-release">v3.0.1 release notes</a>, <a
 href="#doc-migration">Migration</a>, <a
 href="#doc-rollback">Rollback</a>, and <a
 href="#doc-security">Security</a>.</p>
@@ -401,6 +407,10 @@ routes:</p>
 <li>Claude Sonnet 5 through Anthropic Messages.</li>
 <li>Gemini 3.6 Flash through Google Interactions.</li>
 </ul>
+<p>The current release is v3.0.1. On Windows 11, <code>START.bat</code>
+installs prerequisites, starts the local stack, and opens the dashboard
+at <code>http://127.0.0.1:8505</code> after the backend health check
+succeeds.</p>
 <p>The practical value is not “AI that can do everything.” The useful
 capability is operating software that lacks a stable API, spans several
 visual steps, or still requires human judgment at checkpoints. The
@@ -741,9 +751,11 @@ multi-user service. Keep it on <code>127.0.0.1</code> unless you've read
 opted in to exposing it.</p>
 <p><strong>Two ways to use it</strong>, both fully working today:</p>
 <ol type="1">
-<li><strong>The dashboard</strong> (<code>http://localhost:8505</code>)
+<li><strong>The dashboard</strong> (<code>http://127.0.0.1:8505</code>)
 — a five-tab web UI. This is what most people mean by "using the app."
-It talks to the newer, typed <code>/api/v2</code> backend surface.</li>
+It talks to the newer, typed <code>/api/v2</code> backend surface. Use
+<code>127.0.0.1</code>, not <code>localhost</code>: the Vite dev server
+binds IPv4 loopback only.</li>
 <li><strong>Direct API calls</strong> (curl, scripts,
 <code>wscat</code>) — the original REST + WebSocket surface, still fully
 implemented, with a couple of features (Web Search, file attachments)
@@ -854,9 +866,14 @@ and the daily launcher. It uses exact winget packages to install missing
 Docker Desktop, Node.js LTS, and uv; creates <code>.env</code> when
 absent; generates the required local sandbox secrets without printing or
 replacing existing values; installs locked Python/frontend dependencies;
-builds the Docker image with cache; and opens the dashboard when Vite
-responds. Normal installer/UAC prompts may appear. If Docker Desktop
-requires a restart or initial WSL setup, complete it and double-click
+rebuilds esbuild after <code>npm ci</code>; builds the Docker image with
+cache; starts <code>dev.py --open-browser</code>; waits for
+<code>GET /api/health</code>; and then opens
+<code>http://127.0.0.1:8505</code>. On Windows, Vite is started through
+Node (<code>node .../vite/bin/vite.js</code>) rather than
+<code>npm.cmd</code>, and it listens on <code>127.0.0.1</code>. Normal
+installer/UAC prompts may appear. If Docker Desktop requires a restart
+or initial WSL setup, complete it and double-click
 <code>START.bat</code> again.</p>
 <p>Provider credentials are not generated. Enter an OpenAI, Anthropic,
 or Google API key in the Provider Manager, or configure Google
@@ -872,21 +889,28 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="user-manual-cb3-
 launching. <code>setup.bat --clean</code> performs an explicitly
 destructive, from-scratch Docker rebuild. Normal setup uses Docker's
 build cache and skips <code>npm ci</code> when the installed frontend
-matches <code>package-lock.json</code>.</p>
+matches <code>package-lock.json</code>. After a fresh
+<code>npm ci</code> it runs
+<code>npm rebuild esbuild --foreground-scripts</code> so the Vite binary
+is ready.</p>
 <p>For a manual day-to-day start after setup:</p>
 <div class="sourceCode" id="user-manual-cb4"><pre
 class="sourceCode powershell"><code class="sourceCode powershell"><span id="user-manual-cb4-1"><a href="#user-manual-cb4-1" aria-hidden="true" tabindex="-1"></a><span class="op">.</span>\dev<span class="op">.</span><span class="fu">bat</span>             <span class="co"># Windows — does not install missing system tools</span></span>
 <span id="user-manual-cb4-2"><a href="#user-manual-cb4-2" aria-hidden="true" tabindex="-1"></a>bash dev<span class="op">.</span><span class="fu">sh</span>           <span class="co"># Linux/macOS</span></span></code></pre></div>
-<p><code>dev.py</code> (invoked by either wrapper) does three things
+<p><code>dev.py</code> (invoked by either wrapper) does four things
 every time you run it: frees ports <code>8100</code>/<code>8505</code>
-if a previous crashed run left them held, makes sure the
+if a previous crashed run left them held; makes sure the
 <code>cua-environment</code> container is running and healthy (starting
-it via <code>docker compose up -d</code> if not), then launches the
-FastAPI backend and the Vite dev server as subprocesses, streaming their
-logs to your terminal. <code>Ctrl+C</code> or the sidebar <strong>Stop
-app</strong> button stops active sessions, the backend and frontend
-processes, and the Docker sandbox. The browser tab remains open so it
-can show the final stopped state.</p>
+it via <code>docker compose up -d</code> if not); launches the FastAPI
+backend and waits for <code>GET /api/health</code>; then starts the Vite
+dev server on <code>127.0.0.1</code> (through Node on Windows, through
+<code>npm run dev</code> elsewhere) and streams both logs to your
+terminal. With <code>--open-browser</code>, it opens
+<code>http://127.0.0.1:8505</code> only after that health check
+succeeds. <code>Ctrl+C</code> or the sidebar <strong>Stop app</strong>
+button stops active sessions, the backend and frontend processes, and
+the Docker sandbox. The browser tab remains open so it can show the
+final stopped state.</p>
 <section id="user-manual-environment-file" class="level3">
 <h3>Environment file</h3>
 <p>The settings you'll actually touch:</p>
@@ -910,8 +934,9 @@ refuses to start when <code>HOST != 127.0.0.1</code>.</p>
 </section>
 <section id="user-manual-first-run" class="level2">
 <h2>First Run</h2>
-<p>Open <code>http://localhost:8505</code>. On the <strong>Live
-session</strong> tab, type:</p>
+<p><code>START.bat</code> opens <code>http://127.0.0.1:8505</code> after
+backend health succeeds. If the browser does not open, go there
+manually. On the <strong>Live session</strong> tab, type:</p>
 <blockquote>
 <p>Open the file manager. Stop when the file manager window is
 visible.</p>
@@ -929,9 +954,9 @@ href="#user-manual-troubleshooting">Troubleshooting</a>.</p>
 class="sourceCode powershell"><code class="sourceCode powershell"><span id="user-manual-cb6-1"><a href="#user-manual-cb6-1" aria-hidden="true" tabindex="-1"></a><span class="op">.</span>\<span class="fu">START</span><span class="op">.</span><span class="fu">bat</span>      <span class="co"># Windows: verify dependencies, launch, and open the UI</span></span></code></pre></div>
 <div class="sourceCode" id="user-manual-cb7"><pre
 class="sourceCode bash"><code class="sourceCode bash"><span id="user-manual-cb7-1"><a href="#user-manual-cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> dev.sh           <span class="co"># Linux/macOS</span></span></code></pre></div>
-<p>then open <code>http://localhost:8505</code>. The Vite dev server
-proxies <code>/api</code> and <code>/api/v2/ws</code> to the backend, so
-you don't deal with CORS during normal use.</p>
+<p>then use <code>http://127.0.0.1:8505</code>. Vite listens on IPv4
+loopback and proxies <code>/api</code> and <code>/api/v2/ws</code> to
+the backend, so you don't deal with CORS during normal use.</p>
 </section>
 <section id="user-manual-the-dashboard--five-tabs-in-depth"
 class="level2">
@@ -1369,8 +1394,10 @@ operators usually need.</p>
 </tr>
 <tr>
 <td><code>CORS_ORIGINS</code></td>
-<td><code>localhost:8505</code>/<code>5173</code></td>
-<td>Comma-separated allowlist.</td>
+<td><code>127.0.0.1</code>/<code>localhost</code> on <code>8505</code>,
+<code>5173</code>, and <code>3000</code></td>
+<td>Comma-separated allowlist. The development dashboard origin is
+<code>http://127.0.0.1:8505</code>.</td>
 </tr>
 </tbody>
 </table>
@@ -1534,10 +1561,16 @@ reinstall with <code>uv sync --frozen</code>.</p>
 </section>
 <section id="user-manual-frontend-will-not-start" class="level3">
 <h3>Frontend will not start</h3>
+<p>On Windows, use <code>START.bat</code> or <code>dev.py</code>. Those
+wait for backend health and start Vite through Node. Do not use
+<code>npm run dev</code> as the daily launcher; <code>npm.cmd</code> can
+leave an interactive wrapper that never releases the process.</p>
+<p>If <code>node_modules</code> is missing or esbuild is broken after
+<code>npm ci</code>:</p>
 <div class="sourceCode" id="user-manual-cb19"><pre
 class="sourceCode powershell"><code class="sourceCode powershell"><span id="user-manual-cb19-1"><a href="#user-manual-cb19-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cd</span> frontend</span>
 <span id="user-manual-cb19-2"><a href="#user-manual-cb19-2" aria-hidden="true" tabindex="-1"></a>npm ci</span>
-<span id="user-manual-cb19-3"><a href="#user-manual-cb19-3" aria-hidden="true" tabindex="-1"></a>npm run dev</span></code></pre></div>
+<span id="user-manual-cb19-3"><a href="#user-manual-cb19-3" aria-hidden="true" tabindex="-1"></a>npm rebuild esbuild <span class="op">--</span>foreground-scripts</span></code></pre></div>
 <p>Requires Node 22+. If <code>npm ci</code> fails on a corporate
 network, point npm at your proxy and retry.</p>
 </section>
@@ -1625,7 +1658,8 @@ read <code>TECHNICAL.md</code> or the <a
 href="#doc-handbook">Zero to Hero Study
 Handbook</a>. For prompt patterns, read
 <code>docs/computer-use-prompt-guide.md</code>. For changelog and
-release notes, read <code>CHANGELOG.md</code>.</p>
+release notes, read <code>CHANGELOG.md</code> and
+<code>docs/release-notes-v3.0.1.md</code>.</p>
 </section>
 <section id="user-manual-appendix-a--operating-patterns" class="level2">
 <h2>Appendix A — Operating Patterns</h2>
@@ -2009,8 +2043,17 @@ through a consequential gate on its own.</p>
 </section>
 <footer class="lesson-nav"><button type="button" data-previous>Previous</button><button type="button" data-next>Next</button></footer></article><article class="manual-entry" id="doc-deployment" data-audiences="user technical business"><p class="source-label">Operate · Source: docs/deployment.md</p><section id="deployment-deployment-guide" class="level1">
 <h1>Deployment Guide</h1>
-<p>v2 targets one trusted operator on a workstation. Do not expose it as
-a public multi-tenant service.</p>
+<p>v3.0.1 targets one trusted operator on a workstation. Do not expose
+it as a public multi-tenant service.</p>
+<section id="deployment-local-development" class="level2">
+<h2>Local development</h2>
+<p>On Windows, <code>START.bat</code> is the supported one-click path.
+It installs dependencies, rebuilds esbuild, starts the stack, waits for
+<code>GET /api/health</code>, and opens
+<code>http://127.0.0.1:8505</code>. Vite listens on IPv4 loopback during
+development. The production-style path below still serves the built SPA
+from FastAPI on port <code>8100</code>.</p>
+</section>
 <section id="deployment-production-style-local-deployment"
 class="level2">
 <h2>Production-style local deployment</h2>
@@ -2089,8 +2132,8 @@ class="level1">
 behind it, and exactly how the code implements that theory. Written for
 a reader who has never seen a Computer Use agent before and wants to end
 up able to read, run, and extend every layer of this codebase.</p>
-<p>This repo currently ships <strong>two API generations side by
-side</strong>:</p>
+<p>The current release is <strong>v3.0.1</strong>. This repo currently
+ships <strong>two API generations side by side</strong>:</p>
 <ul>
 <li><strong>v1</strong> — the original unversioned REST + WebSocket
 surface (<code>/api/agent/start</code>, <code>/ws</code>). Still fully
@@ -2829,10 +2872,13 @@ subject to the 7-day / 1 GiB eviction policy.</li>
 <p>On Windows 11, double-click <code>START.bat</code>. It installs
 missing Docker Desktop, Node.js LTS, and uv through winget; creates
 <code>.env</code> if needed; generates the required sandbox secrets;
-installs locked dependencies; builds the sandbox; and opens the
-dashboard. Existing <code>.env</code> values are preserved. If Docker
-asks for a restart or initial WSL setup, complete it and run
-<code>START.bat</code> again.</p>
+installs locked dependencies; rebuilds esbuild; builds the sandbox;
+waits for <code>GET /api/health</code>; and opens
+<code>http://127.0.0.1:8505</code>. Vite listens on IPv4 loopback and,
+on Windows, is started through Node rather than <code>npm.cmd</code>.
+Existing <code>.env</code> values are preserved. If Docker asks for a
+restart or initial WSL setup, complete it and run <code>START.bat</code>
+again.</p>
 <p>For manual or non-Windows setup:</p>
 <ol type="1">
 <li>Copy <code>.env.example</code> to <code>.env</code>.</li>
@@ -2866,7 +2912,7 @@ class="sourceCode powershell"><code class="sourceCode powershell"><span id="hand
 <section id="handbook-runtime-access" class="level3">
 <h3>Runtime access</h3>
 <ul>
-<li>UI: <code>http://localhost:3000</code> (dev) or
+<li>UI: <code>http://127.0.0.1:8505</code> (dev) or
 <code>http://127.0.0.1:8100</code> (built, single-process — FastAPI
 serves <code>frontend/dist</code> once it exists)</li>
 <li>Backend default port: <code>8100</code></li>
@@ -3054,12 +3100,17 @@ handles, WebSocket subscribers, frame broker, and circuit breaker are
 process-local. SQLite uses WAL for durable v2 records. The Docker
 sandbox is the only component allowed to execute OS input.</p>
 <p>On Windows, <code>START.bat</code> is the one-click entry point. It
-delegates prerequisite and dependency setup to <code>setup.bat</code>,
-then starts <code>dev.py --open-browser</code>. <code>dev.py</code> owns
-the backend/frontend development processes, waits for readiness, opens
-the dashboard, and forwards shutdown to its children. The normal
-production path builds <code>frontend/dist</code> and serves it from
-FastAPI instead.</p>
+delegates prerequisite and dependency setup to <code>setup.bat</code>
+(including <code>npm rebuild esbuild</code> after a fresh
+<code>npm ci</code>), then starts <code>dev.py --open-browser</code>.
+<code>dev.py</code> starts the backend first and waits for
+<code>GET /api/health</code> before launching Vite. On Windows it starts
+Vite through <code>node .../vite/bin/vite.js</code> rather than
+<code>npm.cmd</code>. Vite binds <code>127.0.0.1</code> on port
+<code>8505</code> by default. The dashboard opener probes backend
+health, then opens <code>http://127.0.0.1:8505</code>. Shutdown is
+forwarded to both children. The normal production path builds
+<code>frontend/dist</code> and serves it from FastAPI instead.</p>
 </section>
 <section id="technical-model-catalog-and-request-path" class="level2">
 <h2>Model catalog and request path</h2>
@@ -3357,6 +3408,9 @@ class="level3">
 <ul>
 <li>Startup validates tool parity; failure is logged as a warning rather
 than aborting the process.</li>
+<li>Local development waits for <code>GET /api/health</code> before
+starting Vite. Vite binds <code>127.0.0.1</code>; on Windows it is
+spawned through Node rather than <code>npm.cmd</code>.</li>
 <li>Shutdown cancels and awaits in-flight agent/broadcast/screenshot
 tasks, clears registries, and closes shared clients.</li>
 <li>Exactly one backend worker is required because credentials, active
@@ -3385,8 +3439,8 @@ lost on restart.</li>
 <section id="architecture-6-evidence" class="level2">
 <h2>6) Evidence</h2>
 <ul>
-<li><code>README.md</code> sections “Architecture”, “Safety and trust
-boundary”, and “Scope”.</li>
+<li><code>README.md</code> sections “Quick start”, “Architecture”, and
+“Verification status”.</li>
 <li><code>TECHNICAL.md</code> - stated runtime, request, frame,
 persistence, credential, and public-contract architecture.</li>
 <li><code>backend/v2/api.py:195-285</code> - session validation,
@@ -3494,9 +3548,14 @@ Uvicorn.</li>
 registers v1/v2 HTTP and WebSocket surfaces, bridges v2 sessions to
 <code>AgentLoop</code>, and optionally serves
 <code>frontend/dist</code>.</li>
+<li><code>START.bat</code> and <code>setup.bat</code> are the Windows
+install/launch path. After a fresh <code>npm ci</code>, setup rebuilds
+esbuild.</li>
 <li><code>dev.py</code>, <code>dev.bat</code>, and <code>dev.sh</code>
 coordinate the local Docker sandbox, backend, and Vite development
-server.</li>
+server. On Windows, <code>dev.py</code> waits for
+<code>GET /api/health</code>, then starts Vite through Node on
+<code>127.0.0.1</code>.</li>
 <li><code>frontend/src/main.tsx</code> mounts the React application;
 <code>frontend/src/App.tsx</code> owns the five routes/views.</li>
 <li><code>docker/entrypoint.sh</code> starts the virtual desktop
@@ -3684,7 +3743,7 @@ validation boundaries.</li>
 <tr>
 <td>Runtime versions</td>
 <td>Python 3.12-3.14; Node.js 22; Ubuntu 24.04 sandbox</td>
-<td><code>pyproject.toml:12</code>; <code>docs/deployment.md:7</code>;
+<td><code>pyproject.toml:12</code>; <code>docs/deployment.md:15</code>;
 <code>docker/Dockerfile:1</code></td>
 </tr>
 <tr>
@@ -3703,7 +3762,10 @@ npm/<code>frontend/package-lock.json</code></td>
 </tbody>
 </table>
 <p>Bash and Windows batch wrappers support setup/development. The
-package is <code>computer-use-workbench</code> 3.0.1.</p>
+package is <code>computer-use-workbench</code> 3.0.1. On Windows,
+<code>START.bat</code> bootstraps dependencies and <code>dev.py</code>
+waits for backend health, binds Vite to <code>127.0.0.1</code>, and
+starts Vite through Node.</p>
 </section>
 <section id="stack-2-production-frameworks-and-dependencies"
 class="level2">
@@ -3932,7 +3994,7 @@ resource/security constraints.</li>
 <code>.github/workflows/release.yml:1-45</code> - CI and release
 toolchain.</li>
 <li><code>.env.example:1-45</code> and
-<code>docs/deployment.md:1-36</code> - supported configuration and
+<code>docs/deployment.md:1-61</code> - supported configuration and
 deployment prerequisites.</li>
 </ul>
 </section>
@@ -4003,7 +4065,7 @@ deployment prerequisites.</li>
 <td>human desktop observation/control</td>
 <td>VNC password + optional WS token</td>
 <td>high</td>
-<td><code>docker-compose.yml</code>; <code>USAGE.md:72-84</code></td>
+<td><code>docker-compose.yml</code>; <code>USAGE.md:75-86</code></td>
 </tr>
 <tr>
 <td>GitHub Actions</td>
@@ -4035,28 +4097,28 @@ deployment prerequisites.</li>
 <td><code>backend/v2/persistence.py</code></td>
 <td>history has no automatic eviction</td>
 <td><code>backend/v2/persistence.py:49-176</code>;
-<code>USAGE.md:785-799</code></td>
+<code>USAGE.md:719-723</code></td>
 </tr>
 <tr>
 <td>Frame directory</td>
 <td>audit image bytes outside SQLite</td>
 <td><code>backend/v2/retention.py</code></td>
 <td>sensitive screen content on disk</td>
-<td><code>TECHNICAL.md:24-28</code></td>
+<td><code>TECHNICAL.md:56-62</code></td>
 </tr>
 <tr>
 <td>Process memory</td>
 <td>credentials, tasks, clients, prompts, traces, circuit state</td>
 <td>server/v2/infra registries</td>
 <td>lost on restart; one-worker constraint</td>
-<td><code>docs/deployment.md:14-20</code></td>
+<td><code>docs/deployment.md:26</code></td>
 </tr>
 <tr>
 <td>Provider file stores</td>
 <td>attached-file/vector artifacts</td>
 <td><code>backend/files.py</code></td>
 <td>data leaves host/provider lifecycle</td>
-<td><code>USAGE.md:802-817</code></td>
+<td><code>USAGE.md:801-820</code></td>
 </tr>
 </tbody>
 </table>
@@ -4130,7 +4192,7 @@ image scan.</li>
 <section id="integrations-6-evidence" class="level2">
 <h2>6) Evidence</h2>
 <ul>
-<li><code>TECHNICAL.md:12-39</code> - provider routes, frames,
+<li><code>TECHNICAL.md:11-70</code> - provider routes, frames,
 persistence, credentials, and contracts.</li>
 <li><code>backend/v2/api.py:195-285</code> - credential resolution,
 executable providers, route attempts, fallback, and audit writes.</li>
@@ -4141,8 +4203,8 @@ and sandbox executor selection.</li>
 <li><code>backend/providers/anthropic.py:31-96</code> and sibling
 provider modules - provider run boundaries.</li>
 <li><code>.env.example:1-45</code>,
-<code>docs/deployment.md:22-36</code>, and
-<code>USAGE.md:294-320,509-560</code> - credential and operational
+<code>docs/deployment.md:36-52</code>, and
+<code>USAGE.md:309-329,533-567</code> - credential and operational
 contracts.</li>
 <li><code>docker-compose.yml:1-73</code> and
 <code>docker/agent_service.py:72-97</code> - sandbox service and token
@@ -4375,7 +4437,7 @@ expectations.</li>
 <section id="security-supported-versions" class="level2">
 <h2>Supported Versions</h2>
 <p>Security fixes are developed for the current default branch and the
-active 2.x release line.</p>
+active 3.x release line.</p>
 <table>
 <thead>
 <tr>
@@ -4385,11 +4447,11 @@ active 2.x release line.</p>
 </thead>
 <tbody>
 <tr>
-<td><code>main</code> / latest 2.x</td>
+<td><code>main</code> / latest 3.x</td>
 <td>Yes</td>
 </tr>
 <tr>
-<td>1.x and earlier</td>
+<td>2.x and earlier</td>
 <td>No</td>
 </tr>
 </tbody>
@@ -4479,6 +4541,10 @@ contracts.</li>
 <li>Other root tests cover files, infrastructure, models, executor
 boundaries, provider run contracts, regression fixes, and hot
 paths.</li>
+<li><code>tests/test_windows_launcher.py</code> covers dashboard health
+probing, the Vite <code>127.0.0.1</code> bind, Windows Vite spawn
+through Node, and <code>setup.bat</code> installer/esbuild
+contracts.</li>
 <li><code>tests/integration/test_gemini_live_sdk.py</code> is the opt-in
 live Gemini Interactions test.</li>
 <li><code>evals/test_degraded_container_startup.py</code> tests a
@@ -4620,7 +4686,7 @@ organization.</li>
 <li><code>evals/README.md:1-17</code> and
 <code>evals/test_degraded_container_startup.py</code> - evaluation
 boundary and isolation.</li>
-<li><code>USAGE.md:631-665</code> - documented local verification
+<li><code>USAGE.md:661-684</code> - documented local verification
 commands.</li>
 </ul>
 </section>

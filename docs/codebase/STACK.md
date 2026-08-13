@@ -5,11 +5,11 @@
 | Area | Value | Evidence |
 |---|---|---|
 | Primary languages | Python; TypeScript/TSX | `pyproject.toml`; `frontend/tsconfig.json` |
-| Runtime versions | Python 3.12-3.14; Node.js 22; Ubuntu 24.04 sandbox | `pyproject.toml:12`; `docs/deployment.md:7`; `docker/Dockerfile:1` |
+| Runtime versions | Python 3.12-3.14; Node.js 22; Ubuntu 24.04 sandbox | `pyproject.toml:12`; `docs/deployment.md:15`; `docker/Dockerfile:1` |
 | Package managers | uv/`uv.lock`; npm/`frontend/package-lock.json` | `.github/workflows/ci.yml:20-24,61-67` |
 | Module/build systems | Hatchling wheel; Vite SPA; Docker/Compose | `pyproject.toml:1-3,27-28`; `frontend/package.json:7-12`; `docker-compose.yml` |
 
-Bash and Windows batch wrappers support setup/development. The package is `computer-use-workbench` 3.0.1.
+Bash and Windows batch wrappers support setup/development. The package is `computer-use-workbench` 3.0.1. On Windows, `START.bat` bootstraps dependencies and `dev.py` waits for backend health, binds Vite to `127.0.0.1`, and starts Vite through Node.
 
 ## 2) Production Frameworks and Dependencies
 
@@ -96,4 +96,4 @@ npm --prefix frontend run build
 - `docker/Dockerfile:1-27,213,237-252` - Ubuntu base, non-root runtime, ports, health check, and entrypoint.
 - `docker-compose.yml:1-73` - sandbox networking and resource/security constraints.
 - `.github/workflows/ci.yml:1-91` and `.github/workflows/release.yml:1-45` - CI and release toolchain.
-- `.env.example:1-45` and `docs/deployment.md:1-36` - supported configuration and deployment prerequisites.
+- `.env.example:1-45` and `docs/deployment.md:1-61` - supported configuration and deployment prerequisites.

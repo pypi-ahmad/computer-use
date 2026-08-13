@@ -12,6 +12,10 @@ Computer Use Workbench lets a person give an AI model a task, observe it operati
 - Claude Sonnet 5 through Anthropic Messages.
 - Gemini 3.6 Flash through Google Interactions.
 
+The current release is v3.0.1. On Windows 11, `START.bat` installs
+prerequisites, starts the local stack, and opens the dashboard at
+`http://127.0.0.1:8505` after the backend health check succeeds.
+
 The practical value is not “AI that can do everything.” The useful capability is operating software that lacks a stable API, spans several visual steps, or still requires human judgment at checkpoints. The workbench is best treated as an evaluation environment for discovering which tasks are reliable enough to automate and which still need a person.
 
 ## What the workbench provides

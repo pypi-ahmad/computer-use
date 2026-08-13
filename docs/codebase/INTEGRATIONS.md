@@ -9,17 +9,17 @@
 | Google Gen AI API | HTTPS API/SDK | Interactions Computer Use and optional planning | API key or browser OAuth | high | `backend/engine/gemini.py`; `backend/providers/gemini.py` |
 | Docker Engine | local process/API | build/start/stop sandbox | host Docker access | high | `backend/infra/docker.py`; Compose |
 | Sandbox action service | loopback HTTP | screenshots and OS actions | `X-Agent-Token` shared secret | critical | `backend/executor.py`; `docker/agent_service.py:72-97` |
-| VNC/noVNC | TCP/WebSocket | human desktop observation/control | VNC password + optional WS token | high | `docker-compose.yml`; `USAGE.md:72-84` |
+| VNC/noVNC | TCP/WebSocket | human desktop observation/control | VNC password + optional WS token | high | `docker-compose.yml`; `USAGE.md:75-86` |
 | GitHub Actions | hosted automation | CI, audits, image scan, releases | repository permissions | medium | `.github/workflows/` |
 
 ## 2) Data Stores
 
 | Store | Role | Access layer | Key risk | Evidence |
 |---|---|---|---|---|
-| SQLite/WAL | v2 sessions, actions, events, metrics, workflows, checkpoints | `backend/v2/persistence.py` | history has no automatic eviction | `backend/v2/persistence.py:49-176`; `USAGE.md:785-799` |
-| Frame directory | audit image bytes outside SQLite | `backend/v2/retention.py` | sensitive screen content on disk | `TECHNICAL.md:24-28` |
-| Process memory | credentials, tasks, clients, prompts, traces, circuit state | server/v2/infra registries | lost on restart; one-worker constraint | `docs/deployment.md:14-20` |
-| Provider file stores | attached-file/vector artifacts | `backend/files.py` | data leaves host/provider lifecycle | `USAGE.md:802-817` |
+| SQLite/WAL | v2 sessions, actions, events, metrics, workflows, checkpoints | `backend/v2/persistence.py` | history has no automatic eviction | `backend/v2/persistence.py:49-176`; `USAGE.md:719-723` |
+| Frame directory | audit image bytes outside SQLite | `backend/v2/retention.py` | sensitive screen content on disk | `TECHNICAL.md:56-62` |
+| Process memory | credentials, tasks, clients, prompts, traces, circuit state | server/v2/infra registries | lost on restart; one-worker constraint | `docs/deployment.md:26` |
+| Provider file stores | attached-file/vector artifacts | `backend/files.py` | data leaves host/provider lifecycle | `USAGE.md:801-820` |
 
 ## 3) Secrets and Credentials Handling
 
@@ -52,11 +52,11 @@ Timeouts/limits are environment-configured and clamped (`STEP_TIMEOUT`, max step
 
 ## 6) Evidence
 
-- `TECHNICAL.md:12-39` - provider routes, frames, persistence, credentials, and contracts.
+- `TECHNICAL.md:11-70` - provider routes, frames, persistence, credentials, and contracts.
 - `backend/v2/api.py:195-285` - credential resolution, executable providers, route attempts, fallback, and audit writes.
 - `backend/v2/persistence.py:49-176` - SQLite schema access and WAL behavior.
 - `backend/engine/__init__.py:752-848` - provider client and sandbox executor selection.
 - `backend/providers/anthropic.py:31-96` and sibling provider modules - provider run boundaries.
-- `.env.example:1-45`, `docs/deployment.md:22-36`, and `USAGE.md:294-320,509-560` - credential and operational contracts.
+- `.env.example:1-45`, `docs/deployment.md:36-52`, and `USAGE.md:309-329,533-567` - credential and operational contracts.
 - `docker-compose.yml:1-73` and `docker/agent_service.py:72-97` - sandbox service and token boundary.
 - `.github/workflows/ci.yml:1-91` - audits and image scanning.
