@@ -1,4 +1,5 @@
 """Typed HTTP contracts for the clean `/api/v2` surface."""
+
 from __future__ import annotations
 
 import asyncio
@@ -82,7 +83,9 @@ class SessionInput(ContractModel):
     credential_session_id: str | None = None
     max_steps: int = Field(default=50, ge=1, le=200)
     reasoning_effort: str | None = Field(default=None, pattern="^(none|low|medium|high|xhigh|max)$")
-    safety_policy: str = Field(default="provider_default", pattern="^(provider_default|confirm_mutating|read_only)$")
+    safety_policy: str = Field(
+        default="provider_default", pattern="^(provider_default|confirm_mutating|read_only)$"
+    )
     use_builtin_search: bool = False
     attached_files: list[str] = Field(default_factory=list, max_length=20)
     retain_audit_frames: bool = True
@@ -105,9 +108,19 @@ class ErrorEnvelope(ContractModel):
     request_id: str
 
 
-def error_response(request: Request, status: int, code: str, message: str, *, details: Any = None, retryable: bool = False) -> JSONResponse:
+def error_response(
+    request: Request,
+    status: int,
+    code: str,
+    message: str,
+    *,
+    details: Any = None,
+    retryable: bool = False,
+) -> JSONResponse:
     request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
-    error = ErrorEnvelope(code=code, message=message, details=details, is_retryable=retryable, request_id=request_id)
+    error = ErrorEnvelope(
+        code=code, message=message, details=details, is_retryable=retryable, request_id=request_id
+    )
     return JSONResponse(status_code=status, content={"error": error.model_dump(by_alias=True)})
 
 
@@ -161,11 +174,26 @@ def _model_payload(model: ComputerUseModel) -> dict[str, Any]:
 
 
 def _session_payload(session: StoredSession) -> dict[str, Any]:
-    return {"id": session.id, "task": session.task, "model": session.model, "primaryRoute": session.primary_route, "status": session.status, "createdAt": session.created_at}
+    return {
+        "id": session.id,
+        "task": session.task,
+        "model": session.model,
+        "primaryRoute": session.primary_route,
+        "status": session.status,
+        "createdAt": session.created_at,
+    }
 
 
 def _workflow_payload(workflow: WorkflowVersion) -> dict[str, Any]:
-    return {"id": workflow.id, "slug": workflow.slug, "name": workflow.name, "version": workflow.version, "variablesSchema": workflow.variables_schema, "steps": workflow.steps, "createdAt": workflow.created_at}
+    return {
+        "id": workflow.id,
+        "slug": workflow.slug,
+        "name": workflow.name,
+        "version": workflow.version,
+        "variablesSchema": workflow.variables_schema,
+        "steps": workflow.steps,
+        "createdAt": workflow.created_at,
+    }
 
 
 def _route_readiness(provider: str) -> tuple[bool, str]:
@@ -189,7 +217,11 @@ def _route_readiness(provider: str) -> tuple[bool, str]:
 
 @router.get("/models")
 def list_models() -> dict[str, Any]:
-    return {"data": [_model_payload(model) for model in CATALOG.models()], "catalogVersion": CATALOG.version, "verifiedAt": CATALOG.verified_at}
+    return {
+        "data": [_model_payload(model) for model in CATALOG.models()],
+        "catalogVersion": CATALOG.version,
+        "verifiedAt": CATALOG.verified_at,
+    }
 
 
 @router.get("/provider-routes")
@@ -204,7 +236,17 @@ def list_provider_routes() -> dict[str, Any]:
             seen.add(key)
             configured, auth_mode = _route_readiness(route.provider)
             executable = route.provider in {"OPENAI", "ANTHROPIC", "GOOGLE"}
-            data.append({"id": route.id, "provider": route.provider, "transport": route.transport, "isConfigured": configured, "isExecutable": executable, "authMode": auth_mode, "circuitState": _circuit_breaker.state(f"{model.logical_id}@{route.id}")})
+            data.append(
+                {
+                    "id": route.id,
+                    "provider": route.provider,
+                    "transport": route.transport,
+                    "isConfigured": configured,
+                    "isExecutable": executable,
+                    "authMode": auth_mode,
+                    "circuitState": _circuit_breaker.state(f"{model.logical_id}@{route.id}"),
+                }
+            )
     return {"data": data}
 
 
@@ -218,7 +260,9 @@ def create_credential_session(payload: CredentialSessionInput, request: Request)
 
 
 @router.get("/credential-sessions/{credential_session_id}", response_model=None)
-def get_credential_session(credential_session_id: str, request: Request) -> dict[str, Any] | JSONResponse:
+def get_credential_session(
+    credential_session_id: str, request: Request
+) -> dict[str, Any] | JSONResponse:
     session = credential_vault.status(credential_session_id)
     if session is None:
         return error_response(request, 404, "NOT_FOUND", "Credential session not found or expired")
@@ -243,7 +287,9 @@ def _google_oauth_client() -> tuple[str, str]:
 
 
 @router.post("/credential-sessions/google/oauth/start", status_code=201, response_model=None)
-def start_google_oauth(payload: GoogleOAuthStartInput, request: Request) -> dict[str, Any] | JSONResponse:
+def start_google_oauth(
+    payload: GoogleOAuthStartInput, request: Request
+) -> dict[str, Any] | JSONResponse:
     try:
         client_id, client_secret = _google_oauth_client()
     except (OSError, ValueError, json.JSONDecodeError) as exc:
@@ -251,7 +297,9 @@ def start_google_oauth(payload: GoogleOAuthStartInput, request: Request) -> dict
     credential_session = credential_vault.create_empty(ttl_seconds=payload.ttl_seconds)
     state = secrets.token_urlsafe(32)
     verifier = secrets.token_urlsafe(64)
-    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    challenge = (
+        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    )
     redirect_uri = os.getenv("CUA_GOOGLE_OAUTH_REDIRECT_URI", "").strip() or str(
         request.url_for("google_oauth_callback")
     )
@@ -263,19 +311,23 @@ def start_google_oauth(payload: GoogleOAuthStartInput, request: Request) -> dict
             "client_secret": client_secret,
             "verifier": verifier,
             "redirect_uri": redirect_uri,
-            "quota_project_id": payload.quota_project_id or os.getenv("GOOGLE_CLOUD_PROJECT", "").strip() or None,
+            "quota_project_id": payload.quota_project_id
+            or os.getenv("GOOGLE_CLOUD_PROJECT", "").strip()
+            or None,
         }
-    query = urlencode({
-        "client_id": client_id,
-        "redirect_uri": redirect_uri,
-        "response_type": "code",
-        "scope": " ".join(_GOOGLE_OAUTH_SCOPES),
-        "access_type": "offline",
-        "prompt": "consent",
-        "state": state,
-        "code_challenge": challenge,
-        "code_challenge_method": "S256",
-    })
+    query = urlencode(
+        {
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": " ".join(_GOOGLE_OAUTH_SCOPES),
+            "access_type": "offline",
+            "prompt": "consent",
+            "state": state,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+        }
+    )
     return {
         "credentialSessionId": credential_session.id,
         "expiresAt": credential_session.expires_at,
@@ -283,8 +335,12 @@ def start_google_oauth(payload: GoogleOAuthStartInput, request: Request) -> dict
     }
 
 
-@router.get("/credential-sessions/google/oauth/callback", name="google_oauth_callback", response_model=None)
-async def google_oauth_callback(request: Request, code: str = "", state: str = "", error: str = "") -> HTMLResponse:
+@router.get(
+    "/credential-sessions/google/oauth/callback", name="google_oauth_callback", response_model=None
+)
+async def google_oauth_callback(
+    request: Request, code: str = "", state: str = "", error: str = ""
+) -> HTMLResponse:
     with _oauth_lock:
         flow = _oauth_flows.pop(state, None)
     if error or not code or flow is None or float(flow["expires_at"]) <= time.time():
@@ -303,7 +359,9 @@ async def google_oauth_callback(request: Request, code: str = "", state: str = "
             },
         )
     if token_response.is_error:
-        return HTMLResponse("<h1>Google sign-in failed</h1><p>Token exchange was rejected.</p>", status_code=400)
+        return HTMLResponse(
+            "<h1>Google sign-in failed</h1><p>Token exchange was rejected.</p>", status_code=400
+        )
     token = token_response.json()
     credentials = Credentials(
         token=token.get("access_token"),
@@ -320,7 +378,9 @@ async def google_oauth_callback(request: Request, code: str = "", state: str = "
             quota_project_id=flow["quota_project_id"],
         )
     except KeyError:
-        return HTMLResponse("<h1>Google sign-in failed</h1><p>The credential session expired.</p>", status_code=400)
+        return HTMLResponse(
+            "<h1>Google sign-in failed</h1><p>The credential session expired.</p>", status_code=400
+        )
     return HTMLResponse(
         "<h1>Google sign-in complete</h1><p>You can close this window and return to the workbench.</p>"
         "<script>window.opener?.postMessage({type:'cua-google-oauth-complete'}, window.location.origin);window.close()</script>"
@@ -337,23 +397,42 @@ async def create_session(payload: SessionInput, request: Request) -> dict[str, A
     try:
         model = CATALOG.get(payload.model)
     except ValueError as exc:
-        return error_response(request, 422, "VALIDATION_ERROR", str(exc), details={"field": "model"})
+        return error_response(
+            request, 422, "VALIDATION_ERROR", str(exc), details={"field": "model"}
+        )
     primary = payload.primary_route or model.routes[0].id
     primary_route = next((route for route in model.routes if route.id == primary), None)
     if primary_route is None:
-        return error_response(request, 422, "VALIDATION_ERROR", "Primary route is not compatible with the selected model", details={"allowedRoutes": [route.id for route in model.routes]})
+        return error_response(
+            request,
+            422,
+            "VALIDATION_ERROR",
+            "Primary route is not compatible with the selected model",
+            details={"allowedRoutes": [route.id for route in model.routes]},
+        )
 
-    selections: list[tuple[str, ComputerUseModel, Any]] = [(f"{model.logical_id}@{primary}", model, primary_route)]
+    selections: list[tuple[str, ComputerUseModel, Any]] = [
+        (f"{model.logical_id}@{primary}", model, primary_route)
+    ]
     for fallback in payload.fallback_routes:
         fallback_model_id = payload.model if isinstance(fallback, str) else fallback.model
         fallback_route_id = fallback if isinstance(fallback, str) else fallback.route
         try:
             fallback_model = CATALOG.get(fallback_model_id)
         except ValueError:
-            return error_response(request, 422, "VALIDATION_ERROR", f"Unknown fallback model: {fallback_model_id}")
-        fallback_route = next((route for route in fallback_model.routes if route.id == fallback_route_id), None)
+            return error_response(
+                request, 422, "VALIDATION_ERROR", f"Unknown fallback model: {fallback_model_id}"
+            )
+        fallback_route = next(
+            (route for route in fallback_model.routes if route.id == fallback_route_id), None
+        )
         if fallback_route is None:
-            return error_response(request, 422, "VALIDATION_ERROR", f"Route {fallback_route_id} is not compatible with {fallback_model_id}")
+            return error_response(
+                request,
+                422,
+                "VALIDATION_ERROR",
+                f"Route {fallback_route_id} is not compatible with {fallback_model_id}",
+            )
         key = f"{fallback_model.logical_id}@{fallback_route.id}"
         if key not in {item[0] for item in selections}:
             selections.append((key, fallback_model, fallback_route))
@@ -368,7 +447,9 @@ async def create_session(payload: SessionInput, request: Request) -> dict[str, A
             return error_response(request, 422, "ATTACHED_FILES_INVALID", str(exc))
 
     serialized_fallbacks = [key for key, _, _ in selections[1:]]
-    stored = _store().create_session(payload.task, payload.model, primary, fallbacks=serialized_fallbacks)
+    stored = _store().create_session(
+        payload.task, payload.model, primary, fallbacks=serialized_fallbacks
+    )
     _store().set_session_status(stored.id, "RUNNING")
     _store().append_event(stored.id, "SESSION_STARTED", {"primaryRoute": selections[0][0]})
     _retention.set_enabled(stored.id, payload.retain_audit_frames)
@@ -389,23 +470,42 @@ async def create_session(payload: SessionInput, request: Request) -> dict[str, A
                 confirmed=True,
             )
         elif event.get("event") == "LOG":
-            _store().append_event(stored.id, "LOG", {"level": event.get("level"), "message": event.get("message")})
+            _store().append_event(
+                stored.id, "LOG", {"level": event.get("level"), "message": event.get("message")}
+            )
 
     async def _invoke(spec: RouteSpec) -> ExecutionOutcome:
         selected_model, route = selection_by_id[spec.id]
         if route.provider not in {"OPENAI", "ANTHROPIC", "GOOGLE"}:
-            raise RouteFailure("Route is unavailable: no verified execution bridge", retryable=False)
-        credential = credential_vault.resolve(payload.credential_session_id, route.provider) if payload.credential_session_id else None
-        oauth_credentials = credential.oauth_credentials if credential and credential.method == "oauth" else None
+            raise RouteFailure(
+                "Route is unavailable: no verified execution bridge", retryable=False
+            )
+        credential = (
+            credential_vault.resolve(payload.credential_session_id, route.provider)
+            if payload.credential_session_id
+            else None
+        )
+        oauth_credentials = (
+            credential.oauth_credentials if credential and credential.method == "oauth" else None
+        )
         quota_project_id = credential.quota_project_id if credential else None
         if credential is None:
-            env_names = {"OPENAI": ("OPENAI_API_KEY",), "ANTHROPIC": ("ANTHROPIC_API_KEY",), "GOOGLE": ("GOOGLE_API_KEY", "GEMINI_API_KEY")}[route.provider]
-            raw_key = next((os.getenv(name, "").strip() for name in env_names if os.getenv(name, "").strip()), "")
+            env_names = {
+                "OPENAI": ("OPENAI_API_KEY",),
+                "ANTHROPIC": ("ANTHROPIC_API_KEY",),
+                "GOOGLE": ("GOOGLE_API_KEY", "GEMINI_API_KEY"),
+            }[route.provider]
+            raw_key = next(
+                (os.getenv(name, "").strip() for name in env_names if os.getenv(name, "").strip()),
+                "",
+            )
         else:
             raw_key = credential.get_secret_value()
         if not raw_key and oauth_credentials is None:
             raise RouteFailure(f"No credential is available for {route.provider}", retryable=False)
-        _store().append_event(stored.id, "ROUTE_ATTEMPTED", {"route": spec.id, "provider": route.provider})
+        _store().append_event(
+            stored.id, "ROUTE_ATTEMPTED", {"route": spec.id, "provider": route.provider}
+        )
         try:
             return await orchestrator.start(
                 ExecutionRequest(
@@ -415,7 +515,9 @@ async def create_session(payload: SessionInput, request: Request) -> dict[str, A
                     model_id=route.model_id,
                     api_key=raw_key or None,
                     max_steps=payload.max_steps,
-                    reasoning_effort=payload.reasoning_effort if selected_model.family == "OPENAI" else None,
+                    reasoning_effort=payload.reasoning_effort
+                    if selected_model.family == "OPENAI"
+                    else None,
                     oauth_credentials=oauth_credentials,
                     quota_project_id=quota_project_id,
                     safety_policy=payload.safety_policy,
@@ -433,14 +535,23 @@ async def create_session(payload: SessionInput, request: Request) -> dict[str, A
     async def _coordinate() -> None:
         try:
             result = await run_with_fallback(
-                [RouteSpec(key, route.provider, route.model_id, max_attempts=1) for key, _, route in selections],
+                [
+                    RouteSpec(key, route.provider, route.model_id, max_attempts=1)
+                    for key, _, route in selections
+                ],
                 _invoke,
                 _circuit_breaker,
             )
             outcome = result.value
             if live_action_count == 0:
                 for sequence, action in enumerate(outcome.actions, start=1):
-                    _store().append_action(stored.id, sequence, str(action.get("action", "UNKNOWN")).upper(), action, confirmed=True)
+                    _store().append_action(
+                        stored.id,
+                        sequence,
+                        str(action.get("action", "UNKNOWN")).upper(),
+                        action,
+                        confirmed=True,
+                    )
             _store().append_metric(
                 stored.id,
                 "EXECUTION",
@@ -448,8 +559,18 @@ async def create_session(payload: SessionInput, request: Request) -> dict[str, A
                 outcome.input_tokens,
                 outcome.output_tokens,
             )
-            _store().append_event(stored.id, "ROUTE_SUCCEEDED", {"route": result.route_id, "attempts": result.attempts, "executionSessionId": outcome.session_id})
-            _store().save_checkpoint(stored.id, payload.task, len(outcome.actions), None, {"status": outcome.status})
+            _store().append_event(
+                stored.id,
+                "ROUTE_SUCCEEDED",
+                {
+                    "route": result.route_id,
+                    "attempts": result.attempts,
+                    "executionSessionId": outcome.session_id,
+                },
+            )
+            _store().save_checkpoint(
+                stored.id, payload.task, len(outcome.actions), None, {"status": outcome.status}
+            )
             _store().set_session_status(stored.id, outcome.status)
             orchestrator.publish(stored.id, {"event": "SESSION_TERMINAL", "status": outcome.status})
         except asyncio.CancelledError:
@@ -460,47 +581,75 @@ async def create_session(payload: SessionInput, request: Request) -> dict[str, A
         except RouteFailure as exc:
             _store().append_event(stored.id, "SESSION_FAILED", {"message": str(exc)})
             _store().set_session_status(stored.id, "ERROR")
-            orchestrator.publish(stored.id, {"event": "SESSION_TERMINAL", "status": "ERROR", "message": str(exc)})
+            orchestrator.publish(
+                stored.id, {"event": "SESSION_TERMINAL", "status": "ERROR", "message": str(exc)}
+            )
         except Exception as exc:
             _store().append_event(stored.id, "SESSION_REQUIRES_REVIEW", {"message": str(exc)})
             _store().set_session_status(stored.id, "ERROR")
-            orchestrator.publish(stored.id, {"event": "SESSION_TERMINAL", "status": "ERROR", "message": str(exc)})
+            orchestrator.publish(
+                stored.id, {"event": "SESSION_TERMINAL", "status": "ERROR", "message": str(exc)}
+            )
 
     task = asyncio.create_task(_coordinate())
     orchestrator.track(stored.id, task)
-    return {**_session_payload(stored), "status": "RUNNING", "executionSessionId": stored.id, "activeRoute": selections[0][0], "fallbackRoutes": serialized_fallbacks}
+    return {
+        **_session_payload(stored),
+        "status": "RUNNING",
+        "executionSessionId": stored.id,
+        "activeRoute": selections[0][0],
+        "fallbackRoutes": serialized_fallbacks,
+    }
 
 
 @router.get("/sessions")
 def list_sessions(cursor: int = 0, limit: int = 50) -> dict[str, Any]:
-    items, next_cursor = _store().list_sessions(cursor=max(0, cursor), limit=max(1, min(limit, 100)))
+    items, next_cursor = _store().list_sessions(
+        cursor=max(0, cursor), limit=max(1, min(limit, 100))
+    )
     return {"data": [_session_payload(item) for item in items], "nextCursor": next_cursor}
 
 
 @router.get("/sessions/{session_id}", response_model=None)
 def get_session(session_id: str, request: Request) -> dict[str, Any] | JSONResponse:
     session = _store().get_session(session_id)
-    return _session_payload(session) if session is not None else error_response(request, 404, "NOT_FOUND", "Session not found")
+    return (
+        _session_payload(session)
+        if session is not None
+        else error_response(request, 404, "NOT_FOUND", "Session not found")
+    )
 
 
 @router.patch("/sessions/{session_id}", response_model=None)
-def stop_session(session_id: str, payload: SessionPatch, request: Request) -> dict[str, Any] | JSONResponse:
+def stop_session(
+    session_id: str, payload: SessionPatch, request: Request
+) -> dict[str, Any] | JSONResponse:
     session = _store().get_session(session_id)
     if session is not None:
         orchestrator.stop(session_id)
         session = _store().set_session_status(session_id, payload.status)
-    return _session_payload(session) if session is not None else error_response(request, 404, "NOT_FOUND", "Session not found")
+    return (
+        _session_payload(session)
+        if session is not None
+        else error_response(request, 404, "NOT_FOUND", "Session not found")
+    )
 
 
 @router.post("/sessions/{session_id}/safety-decisions", response_model=None)
-def decide_safety(session_id: str, payload: SafetyDecisionInput, request: Request) -> dict[str, Any] | JSONResponse:
+def decide_safety(
+    session_id: str, payload: SafetyDecisionInput, request: Request
+) -> dict[str, Any] | JSONResponse:
     from backend import safety as safety_registry
 
     execution_id = orchestrator.execution_id(session_id)
     if execution_id is None:
-        return error_response(request, 404, "NOT_FOUND", "No active safety decision exists for this session")
+        return error_response(
+            request, 404, "NOT_FOUND", "No active safety decision exists for this session"
+        )
     if not safety_registry.verify_nonce(execution_id, payload.nonce):
-        return error_response(request, 403, "INVALID_NONCE", "Invalid or expired safety decision nonce")
+        return error_response(
+            request, 403, "INVALID_NONCE", "Invalid or expired safety decision nonce"
+        )
     safety_registry.decisions[execution_id] = payload.confirm
     safety_registry.set_decision(execution_id)
     _store().append_event(session_id, "SAFETY_DECIDED", {"confirmed": payload.confirm})
@@ -541,7 +690,9 @@ def list_metrics(session_id: str, cursor: int = 0, limit: int = 50) -> dict[str,
 
 
 @router.get("/analytics")
-def analytics(session_id: str | None = None, model: str | None = None, route: str | None = None) -> dict[str, Any]:
+def analytics(
+    session_id: str | None = None, model: str | None = None, route: str | None = None
+) -> dict[str, Any]:
     return _store().analytics(session_id=session_id, model=model, route=route)
 
 
@@ -551,7 +702,15 @@ def diagnostics() -> dict[str, Any]:
     for model in CATALOG.models():
         for route in model.routes:
             configured, auth_mode = _route_readiness(route.provider)
-            routes.append({"model": model.logical_id, "route": route.id, "provider": route.provider, "configured": configured, "authMode": auth_mode})
+            routes.append(
+                {
+                    "model": model.logical_id,
+                    "route": route.id,
+                    "provider": route.provider,
+                    "configured": configured,
+                    "authMode": auth_mode,
+                }
+            )
     return {
         "catalogVersion": CATALOG.version,
         "verifiedAt": CATALOG.verified_at,
@@ -563,7 +722,9 @@ def diagnostics() -> dict[str, Any]:
 
 
 @router.get("/sessions/{session_id}/export", response_model=None)
-def export_session(session_id: str, request: Request, include_frames: bool = False) -> Response | JSONResponse:
+def export_session(
+    session_id: str, request: Request, include_frames: bool = False
+) -> Response | JSONResponse:
     session = _store().get_session(session_id)
     if session is None:
         return error_response(request, 404, "NOT_FOUND", "Session not found")
@@ -596,12 +757,19 @@ def retention_preview() -> dict[str, int]:
 def retention_prune() -> dict[str, int]:
     before = _retention.preview()
     removed = _retention.evict()
-    return {"removedFileCount": len(removed), "reclaimedBytes": before["totalBytes"] - _retention.preview()["totalBytes"]}
+    return {
+        "removedFileCount": len(removed),
+        "reclaimedBytes": before["totalBytes"] - _retention.preview()["totalBytes"],
+    }
 
 
 @router.post("/workflows", status_code=201)
 def create_workflow(payload: WorkflowInput) -> dict[str, Any]:
-    return _workflow_payload(_store().create_workflow(payload.slug, payload.name, payload.variables_schema, payload.steps))
+    return _workflow_payload(
+        _store().create_workflow(
+            payload.slug, payload.name, payload.variables_schema, payload.steps
+        )
+    )
 
 
 @router.get("/workflows")
@@ -610,24 +778,44 @@ def list_workflows() -> dict[str, Any]:
 
 
 @router.post("/workflows/{workflow_id}/versions", status_code=201, response_model=None)
-def create_workflow_version(workflow_id: str, payload: WorkflowVersionInput, request: Request) -> dict[str, Any] | JSONResponse:
+def create_workflow_version(
+    workflow_id: str, payload: WorkflowVersionInput, request: Request
+) -> dict[str, Any] | JSONResponse:
     try:
-        return _workflow_payload(_store().create_workflow_version(workflow_id, payload.steps, payload.variables_schema))
+        return _workflow_payload(
+            _store().create_workflow_version(workflow_id, payload.steps, payload.variables_schema)
+        )
     except KeyError:
         return error_response(request, 404, "NOT_FOUND", "Workflow not found")
 
 
 @router.post("/workflows/{workflow_id}/compile", response_model=None)
-def compile_workflow(workflow_id: str, payload: WorkflowCompileInput, request: Request) -> dict[str, Any] | JSONResponse:
+def compile_workflow(
+    workflow_id: str, payload: WorkflowCompileInput, request: Request
+) -> dict[str, Any] | JSONResponse:
     workflow = _store().get_workflow(workflow_id)
     if workflow is None:
         return error_response(request, 404, "NOT_FOUND", "Workflow not found")
     required = workflow.variables_schema.get("required", [])
     missing = [name for name in required if name not in payload.variables]
     if missing:
-        return error_response(request, 422, "WORKFLOW_VARIABLES_INVALID", "Required workflow variables are missing", details={"missing": missing})
+        return error_response(
+            request,
+            422,
+            "WORKFLOW_VARIABLES_INVALID",
+            "Required workflow variables are missing",
+            details={"missing": missing},
+        )
 
     def substitute(step: str) -> str:
-        return re.sub(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", lambda match: str(payload.variables.get(match.group(1), match.group(0))), step)
+        return re.sub(
+            r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}",
+            lambda match: str(payload.variables.get(match.group(1), match.group(0))),
+            step,
+        )
 
-    return {"workflowId": workflow.id, "version": workflow.version, "instructions": [substitute(step) for step in workflow.steps]}
+    return {
+        "workflowId": workflow.id,
+        "version": workflow.version,
+        "instructions": [substitute(step) for step in workflow.steps],
+    }

@@ -17,7 +17,6 @@ from google.genai import types
 
 from backend.engine import Environment, GeminiCUClient
 
-
 pytestmark = pytest.mark.integration
 
 

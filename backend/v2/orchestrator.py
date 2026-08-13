@@ -1,4 +1,5 @@
 """Bridge between v2 sessions and the existing Computer Use execution engine."""
+
 from __future__ import annotations
 
 import asyncio

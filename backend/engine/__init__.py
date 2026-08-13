@@ -11,24 +11,29 @@ import io
 import logging
 import math
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable
+from typing import Any
 
 from backend.executor import (
-    ActionExecutor,
-    CUActionResult,
     DEFAULT_SCREEN_HEIGHT,
     DEFAULT_SCREEN_WIDTH,
+    ActionExecutor,
+    CUActionResult,
     DesktopExecutor,
-    GEMINI_NORMALIZED_MAX,
     SafetyDecision,
-    _is_allowed_key_token,
     close_shared_executor_clients,
     denormalize_x,
     denormalize_y,
 )
-from backend.infra.config import config as _app_config
+from backend.executor import (
+    GEMINI_NORMALIZED_MAX as GEMINI_NORMALIZED_MAX,
+)
+from backend.executor import (
+    _is_allowed_key_token as _is_allowed_key_token,
+)
+from backend.infra.config import config as _app_config  # noqa: F401
 from backend.models.schemas import load_allowed_models_json as _load_allowed_models_json
 
 logger = logging.getLogger(__name__)
@@ -37,6 +42,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def get_model_capabilities(model_id: str, provider: str | None = None) -> dict:
     """Return the allowed_models.json entry for *model_id* as a plain dict.
@@ -47,7 +53,9 @@ def get_model_capabilities(model_id: str, provider: str | None = None) -> dict:
     """
     try:
         for m in _load_allowed_models_json():
-            if m.get("model_id") == model_id and (provider is None or m.get("provider") == provider):
+            if m.get("model_id") == model_id and (
+                provider is None or m.get("provider") == provider
+            ):
                 return dict(m)
     except Exception:
         pass
@@ -76,7 +84,10 @@ def claude_web_search_tool_version(model_id: str) -> str:
     filtering); falls back to the legacy ``web_search_20250305`` for any
     model that doesn't declare one.
     """
-    return get_model_capabilities(model_id, "anthropic").get("web_search_tool") or "web_search_20250305"
+    return (
+        get_model_capabilities(model_id, "anthropic").get("web_search_tool")
+        or "web_search_20250305"
+    )
 
 
 def default_openai_reasoning_effort_for_model(model: str) -> str:
@@ -90,6 +101,7 @@ def default_openai_reasoning_effort_for_model(model: str) -> str:
 
 def _to_plain_dict(value: Any) -> dict[str, Any]:
     """Convert SDK objects or typed dict-like values into a plain dict."""
+
     def _to_plain_value(item: Any) -> Any:
         if isinstance(item, dict):
             return {key: _to_plain_value(value) for key, value in item.items()}
@@ -103,7 +115,8 @@ def _to_plain_dict(value: Any) -> dict[str, Any]:
             return _to_plain_value(item.dict())
         if hasattr(item, "__dict__"):
             return {
-                key: _to_plain_value(value) for key, value in vars(item).items()
+                key: _to_plain_value(value)
+                for key, value in vars(item).items()
                 if not key.startswith("_")
             }
         return item
@@ -212,6 +225,7 @@ def _sanitize_openai_response_item_for_replay(item: Any) -> dict[str, Any]:
                 part.pop("logprobs", None)
     return item_dict
 
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -219,7 +233,7 @@ DEFAULT_TURN_LIMIT = 25
 
 
 async def _invoke_safety(
-    callback: "Callable[[str], Any] | None",
+    callback: Callable[[str], Any] | None,
     explanation: str,
 ) -> bool:
     """Invoke a safety callback that may be sync or async. Returns False if None."""
@@ -235,6 +249,7 @@ async def _invoke_safety(
 # Shared retry helper for provider LLM calls (AI4)
 # ---------------------------------------------------------------------------
 
+
 # Transient-error classes surfaced by the vendor SDKs. We catch them by
 # class name via the import guard so this module keeps working even if
 # a specific SDK version doesn't ship one of these.
@@ -248,22 +263,39 @@ def _collect_transient_error_types() -> tuple[type[BaseException], ...]:
         # by ~5–10 seconds of backoff. ``InternalServerError`` covers 5xx.
         from anthropic import (
             APIConnectionError as _A_CE,
+        )
+        from anthropic import (
             APITimeoutError as _A_TE,
+        )
+        from anthropic import (
             InternalServerError as _A_500,
+        )
+        from anthropic import (
             RateLimitError as _A_RLE,
         )
+
         classes += [_A_RLE, _A_CE, _A_TE, _A_500]
     except Exception as exc:
         # C-14: an SDK upgrade renaming any of these would silently turn
         # the retry into a no-op for that vendor. Surface it loudly.
         logger.warning("Anthropic transient-error classes unavailable: %s", exc)
     try:  # pragma: no cover
-        from openai import RateLimitError as _O_RLE, APIConnectionError as _O_CE, APITimeoutError as _O_TE
+        from openai import (
+            APIConnectionError as _O_CE,
+        )
+        from openai import (
+            APITimeoutError as _O_TE,
+        )
+        from openai import (
+            RateLimitError as _O_RLE,
+        )
+
         classes += [_O_RLE, _O_CE, _O_TE]
     except Exception as exc:
         logger.warning("OpenAI transient-error classes unavailable: %s", exc)
     try:  # pragma: no cover
         import httpx as _httpx
+
         classes += [_httpx.TimeoutException, _httpx.ConnectError]
     except Exception as exc:
         logger.warning("httpx transient-error classes unavailable: %s", exc)
@@ -287,10 +319,10 @@ if _RETRY_DISABLED:  # pragma: no cover — only when all vendor SDK imports fai
 
 
 async def _call_with_retry(
-    coro_factory: "Callable[[], Any]",
+    coro_factory: Callable[[], Any],
     *,
     provider: str = "llm",
-    on_log: "Callable[[str, str], None] | None" = None,
+    on_log: Callable[[str, str], None] | None = None,
     attempts: int = 3,
     base_delay: float = 0.8,
 ) -> Any:
@@ -333,26 +365,24 @@ async def _call_with_retry(
 # Secret scrubbing for free-text model output (AI6)
 # ---------------------------------------------------------------------------
 
-import re as _re
-
 # Known API-key prefixes / shapes. Anything matching these gets redacted
 # before being broadcast to the frontend.
-_SECRET_PATTERNS: tuple[tuple[str, "_re.Pattern[str]"], ...] = (
-    ("openai",     _re.compile(r"sk-[A-Za-z0-9_\-]{16,}")),
-    ("anthropic",  _re.compile(r"sk-ant-[A-Za-z0-9_\-]{16,}")),
-    ("google",     _re.compile(r"AIza[0-9A-Za-z_\-]{20,}")),
-    ("github",     _re.compile(r"gh[pousr]_[A-Za-z0-9]{16,}")),
+_SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("openai", re.compile(r"sk-[A-Za-z0-9_\-]{16,}")),
+    ("anthropic", re.compile(r"sk-ant-[A-Za-z0-9_\-]{16,}")),
+    ("google", re.compile(r"AIza[0-9A-Za-z_\-]{20,}")),
+    ("github", re.compile(r"gh[pousr]_[A-Za-z0-9]{16,}")),
     # AI-5: cover all known AWS access-key prefixes (long-term IAM, STS,
     # role/instance/user/etc.) — the prior pattern only matched ``AKIA``.
-    ("aws-access", _re.compile(r"(?:AKIA|ASIA|AROA|AIDA|AIPA|ANPA|ANVA|ABIA|ACCA)[0-9A-Z]{16}")),
-    ("slack",      _re.compile(r"xox[aboprs]-[A-Za-z0-9\-]{10,}")),
+    ("aws-access", re.compile(r"(?:AKIA|ASIA|AROA|AIDA|AIPA|ANPA|ANVA|ABIA|ACCA)[0-9A-Z]{16}")),
+    ("slack", re.compile(r"xox[aboprs]-[A-Za-z0-9\-]{10,}")),
     # Generic JWT / OAuth access tokens (base64url ``eyJ`` header.payload[.sig]).
     # Covers GCP/service-account JWTs and any Bearer token the model might echo
     # from a captured request header. Listed before ``bearer`` so the raw token
     # is redacted even when it appears bare (no ``Bearer`` prefix).
-    ("jwt",        _re.compile(r"eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+(?:\.[A-Za-z0-9_\-]+)?")),
+    ("jwt", re.compile(r"eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+(?:\.[A-Za-z0-9_\-]+)?")),
     # Generic ``Bearer <token>`` / ``Authorization`` header values.
-    ("bearer",     _re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._\-]{20,}")),
+    ("bearer", re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._\-]{20,}")),
 )
 
 
@@ -364,6 +394,7 @@ def scrub_secrets(text: str | None) -> str | None:
     for label, pat in _SECRET_PATTERNS:
         out = pat.sub(f"[REDACTED:{label}]", out)
     return out
+
 
 # Anthropic coordinate scaling: images with longest edge >1568px or
 # total pixels >1,150,000 are internally downsampled.  We pre-resize
@@ -409,6 +440,7 @@ def _uses_claude_20251124(
         return tool_version == "computer_20251124"
     return any(model_id.startswith(prefix) for prefix in _CLAUDE_HIGH_RES_MODELS)
 
+
 # Context pruning: replace screenshots older than this many turns with
 # a placeholder to prevent unbounded context growth.
 _CONTEXT_PRUNE_KEEP_RECENT = 3
@@ -419,6 +451,7 @@ _IMAGE_PNG = "image/png"
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
+
 
 class Provider(str, Enum):
     """LLM provider selection for the CU agent loop."""
@@ -467,8 +500,7 @@ def validate_builtin_search_config(
     if provider_key == "gemini":
         if not model.startswith("gemini-3"):
             raise ValueError(
-                "Gemini Google Search planning is enabled only for Gemini 3 models "
-                "in this app.",
+                "Gemini Google Search planning is enabled only for Gemini 3 models in this app.",
             )
     return
 
@@ -477,9 +509,11 @@ def validate_builtin_search_config(
 # Data classes
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class CUTurnRecord:
     """Record of one agent-loop turn, emitted via on_turn callback."""
+
     turn: int
     model_text: str
     actions: list[CUActionResult]
@@ -494,6 +528,7 @@ class CUTurnRecord:
 # that wants a per-turn provider stream. The default app path drives the
 # native Computer Use client directly through ``execute_task``.
 
+
 @dataclass
 class ModelTurnStarted:
     """Model call has produced text + pending tool uses for this turn.
@@ -501,6 +536,7 @@ class ModelTurnStarted:
     Consumers should execute the pending tool uses and then read the
     following ``ToolBatchCompleted`` event from the iterator.
     """
+
     turn: int
     model_text: str
     pending_tool_uses: int
@@ -509,6 +545,7 @@ class ModelTurnStarted:
 @dataclass
 class ToolBatchCompleted:
     """All tool uses for the current turn have been executed on the desktop."""
+
     turn: int
     model_text: str
     results: list[CUActionResult]
@@ -521,12 +558,14 @@ class SafetyRequired:
 
     The decision comes back to ``iter_turns`` via ``agen.asend(bool)``.
     """
+
     explanation: str
 
 
 @dataclass
 class RunCompleted:
     """The provider loop exited cleanly with a final text response."""
+
     final_text: str
 
 
@@ -537,6 +576,7 @@ class RunFailed:
     Transient retries are handled inside ``_call_with_retry`` before any
     event is yielded, so reaching this event means the run should abort.
     """
+
     error: str
 
 
@@ -547,14 +587,15 @@ TurnEvent = ModelTurnStarted | ToolBatchCompleted | SafetyRequired | RunComplete
 # Shim: drive a legacy ``run_loop`` through the iter_turns contract.
 # ---------------------------------------------------------------------------
 
+
 async def iter_turns_via_run_loop(
-    run_loop: "Callable[..., Any]",
+    run_loop: Callable[..., Any],
     *,
     goal: str,
-    executor: "ActionExecutor",
+    executor: ActionExecutor,
     turn_limit: int,
-    on_safety: "Callable[[str], Any] | None",
-    on_log: "Callable[[str, str], None] | None",
+    on_safety: Callable[[str], Any] | None,
+    on_log: Callable[[str, str], None] | None,
 ):
     """Adapt a provider's callback-driven ``run_loop`` to ``iter_turns``.
 
@@ -569,9 +610,10 @@ async def iter_turns_via_run_loop(
     ``backend.safety`` asyncio.Event registry.
     """
     import asyncio as _asyncio
-    queue: "_asyncio.Queue[tuple[str, Any]]" = _asyncio.Queue()
 
-    def _on_turn(rec: "CUTurnRecord") -> None:
+    queue: _asyncio.Queue[tuple[str, Any]] = _asyncio.Queue()
+
+    def _on_turn(rec: CUTurnRecord) -> None:
         # Keep it strictly non-blocking — queue is unbounded so put_nowait is safe.
         queue.put_nowait(("turn", rec))
 
@@ -667,7 +709,8 @@ def get_claude_scale_factor(
 
 
 def resize_screenshot_for_claude(
-    png_bytes: bytes, scale: float,
+    png_bytes: bytes,
+    scale: float,
 ) -> tuple[bytes, int, int]:
     """Resize a PNG screenshot by *scale* factor.
 
@@ -705,14 +748,24 @@ def resize_screenshot_for_claude(
 # Unified ComputerUseEngine facade
 # ---------------------------------------------------------------------------
 
-_READ_ONLY_ACTIONS = frozenset({
-    "capture_screenshot", "cursor_position", "get_current_url", "hover_at",
-    "move", "scroll", "scroll_at", "wait",
-})
+_READ_ONLY_ACTIONS = frozenset(
+    {
+        "capture_screenshot",
+        "cursor_position",
+        "get_current_url",
+        "hover_at",
+        "move",
+        "scroll",
+        "scroll_at",
+        "wait",
+    }
+)
 
 
 class _SafetyPolicyExecutor:
-    def __init__(self, delegate: ActionExecutor, policy: str, confirm: Callable[[str], Any] | None) -> None:
+    def __init__(
+        self, delegate: ActionExecutor, policy: str, confirm: Callable[[str], Any] | None
+    ) -> None:
         self._delegate = delegate
         self._policy = policy
         self._confirm = confirm
@@ -722,7 +775,9 @@ class _SafetyPolicyExecutor:
     async def execute(self, name: str, args: dict[str, Any]) -> CUActionResult:
         if name not in _READ_ONLY_ACTIONS:
             if self._policy == "read_only":
-                return CUActionResult(name=name, success=False, error="Blocked by read-only safety policy")
+                return CUActionResult(
+                    name=name, success=False, error="Blocked by read-only safety policy"
+                )
             if self._policy == "confirm_mutating":
                 approved = await _invoke_safety(self._confirm, f"Allow computer action '{name}'?")
                 if not approved:
@@ -738,6 +793,7 @@ class _SafetyPolicyExecutor:
     async def aclose(self) -> None:
         if hasattr(self._delegate, "aclose"):
             await self._delegate.aclose()
+
 
 class ComputerUseEngine:
     """Single entry point for native Computer Use across providers and environments.
@@ -789,6 +845,7 @@ class ComputerUseEngine:
         self._safety_policy = safety_policy
         if provider == Provider.GEMINI and self._attached_file_ids:
             from backend.files import GEMINI_CU_FILE_REJECTION
+
             raise ValueError(GEMINI_CU_FILE_REJECTION)
 
         # Web Search ON is implemented as a provider-native planning
@@ -917,7 +974,7 @@ class ComputerUseEngine:
             return final_text
         finally:
             # Close httpx client to prevent resource leaks
-            if hasattr(executor, 'aclose'):
+            if hasattr(executor, "aclose"):
                 try:
                     await executor.aclose()
                 except Exception:
@@ -974,48 +1031,46 @@ class ComputerUseEngine:
 # Per-provider client re-exports (Q2 — class bodies live in their own files)
 # ---------------------------------------------------------------------------
 
-from backend.engine.gemini import GeminiCUClient, _prune_gemini_context  # noqa: E402
 from backend.engine.claude import (  # noqa: E402
     ClaudeCUClient,
     _prune_claude_context,
 )
+from backend.engine.gemini import GeminiCUClient, _prune_gemini_context  # noqa: E402
 from backend.engine.openai import OpenAICUClient  # noqa: E402
 
 __all__ = [
-    "Provider",
-    "Environment",
-    "SafetyDecision",
+    "ActionExecutor",
     "CUActionResult",
     "CUTurnRecord",
+    "ClaudeCUClient",
+    "ComputerUseEngine",
+    "DesktopExecutor",
+    "Environment",
+    "GeminiCUClient",
     "ModelTurnStarted",
-    "ToolBatchCompleted",
-    "SafetyRequired",
+    "OpenAICUClient",
+    "Provider",
     "RunCompleted",
     "RunFailed",
+    "SafetyDecision",
+    "SafetyRequired",
+    "ToolBatchCompleted",
     "TurnEvent",
-    "iter_turns_via_run_loop",
-    "ActionExecutor",
-    "DesktopExecutor",
-    "GeminiCUClient",
-    "ClaudeCUClient",
-    "OpenAICUClient",
-    "ComputerUseEngine",
+    "_build_openai_computer_call_output",
+    "_call_with_retry",
+    "_extract_openai_output_text",
+    "_lookup_claude_cu_config",
+    "_prune_claude_context",
+    "_prune_gemini_context",
+    "_sanitize_openai_response_item_for_replay",
+    "claude_web_search_tool_version",
+    "close_shared_executor_clients",
+    "default_openai_reasoning_effort_for_model",
     "denormalize_x",
     "denormalize_y",
     "get_claude_scale_factor",
-    "resize_screenshot_for_claude",
-    "_prune_claude_context",
-    "_prune_gemini_context",
-    "_extract_openai_output_text",
-    "_build_openai_computer_call_output",
-    "_sanitize_openai_response_item_for_replay",
-    "_lookup_claude_cu_config",
     "get_model_capabilities",
-    "claude_web_search_tool_version",
-    "default_openai_reasoning_effort_for_model",
-    "_call_with_retry",
+    "iter_turns_via_run_loop",
+    "resize_screenshot_for_claude",
     "scrub_secrets",
-    "close_shared_executor_clients",
 ]
-
-

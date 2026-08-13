@@ -80,11 +80,13 @@ async def test_anthropic_files_api_and_inline_text_are_distinct(monkeypatch, tmp
     )
 
     assert uploaded == [("source.txt", b"document text", "text/plain")]
-    assert document_blocks == [{
-        "type": "document",
-        "source": {"type": "file", "file_id": "file_uploaded"},
-        "title": "source.txt",
-    }]
+    assert document_blocks == [
+        {
+            "type": "document",
+            "source": {"type": "file", "file_id": "file_uploaded"},
+            "title": "source.txt",
+        }
+    ]
     assert inline_pairs == [("guide.md", "# Guide\n\nUse this.")]
 
 

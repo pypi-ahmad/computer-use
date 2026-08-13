@@ -1,4 +1,3 @@
-from __future__ import annotations
 """Server-side file storage for the file_search / RAG flow.
 
 Clients can POST files to ``/api/files/upload`` *before* starting an
@@ -28,6 +27,7 @@ The store lives entirely in memory (metadata) + a temp directory
 crashed frontend can't leak disk forever.
 """
 
+from __future__ import annotations
 
 import asyncio
 import logging
@@ -39,7 +39,6 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -80,9 +79,9 @@ class UploadedFile:
 def _mime_for(ext: str) -> str:
     """Return the MIME type expected by the provider APIs for *ext*."""
     return {
-        ".md":   "text/markdown",
-        ".txt":  "text/plain",
-        ".pdf":  "application/pdf",
+        ".md": "text/markdown",
+        ".txt": "text/plain",
+        ".pdf": "application/pdf",
         ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     }[ext]
 
@@ -100,7 +99,7 @@ def _validate_magic(ext: str, head: bytes) -> bool:
 class FileStore:
     """Process-wide in-memory registry of uploads, persisted to disk."""
 
-    def __init__(self, root: Optional[Path] = None) -> None:
+    def __init__(self, root: Path | None = None) -> None:
         self._root = Path(root) if root else Path(tempfile.gettempdir()) / "cua-uploads"
         self._root.mkdir(parents=True, exist_ok=True)
         self._files: dict[str, UploadedFile] = {}
@@ -122,14 +121,13 @@ class FileStore:
         if not filename or len(filename) > 255:
             raise ValueError("filename must be 1-255 characters")
         # Reject path-traversal attempts; we only consume the basename.
-        if any(c in filename for c in ('\x00', '/', '\\')):
+        if any(c in filename for c in ("\x00", "/", "\\")):
             raise ValueError("filename contains forbidden characters")
 
         ext = Path(filename).suffix.lower()
         if ext not in ALLOWED_EXTS:
             raise ValueError(
-                f"unsupported extension {ext!r}; allowed: "
-                + ", ".join(sorted(ALLOWED_EXTS))
+                f"unsupported extension {ext!r}; allowed: " + ", ".join(sorted(ALLOWED_EXTS))
             )
 
         size = len(data)
@@ -137,8 +135,7 @@ class FileStore:
             raise ValueError("file is empty")
         if size > MAX_FILE_BYTES:
             raise ValueError(
-                f"file exceeds {MAX_FILE_BYTES} bytes "
-                f"({size / (1024 * 1024):.1f} MB > 1 GB)"
+                f"file exceeds {MAX_FILE_BYTES} bytes ({size / (1024 * 1024):.1f} MB > 1 GB)"
             )
         if not _validate_magic(ext, data[:8]):
             raise ValueError(f"file content does not match {ext} format")
@@ -180,14 +177,13 @@ class FileStore:
         """
         if not filename or len(filename) > 255:
             raise ValueError("filename must be 1-255 characters")
-        if any(c in filename for c in ('\x00', '/', '\\')):
+        if any(c in filename for c in ("\x00", "/", "\\")):
             raise ValueError("filename contains forbidden characters")
 
         ext = Path(filename).suffix.lower()
         if ext not in ALLOWED_EXTS:
             raise ValueError(
-                f"unsupported extension {ext!r}; allowed: "
-                + ", ".join(sorted(ALLOWED_EXTS))
+                f"unsupported extension {ext!r}; allowed: " + ", ".join(sorted(ALLOWED_EXTS))
             )
         if chunk_size <= 0:
             chunk_size = 1024 * 1024
@@ -199,7 +195,7 @@ class FileStore:
         head = bytearray()
 
         try:
-            with open(part_path, "wb") as fh:
+            with open(part_path, "wb") as fh:  # noqa: ASYNC230
                 while True:
                     chunk = await read(chunk_size)
                     if not chunk:
@@ -246,7 +242,7 @@ class FileStore:
                 pass
             raise
 
-    async def get(self, file_id: str) -> Optional[UploadedFile]:
+    async def get(self, file_id: str) -> UploadedFile | None:
         """Return the metadata for *file_id* or ``None`` if unknown."""
         async with self._lock:
             return self._files.get(file_id)
@@ -283,7 +279,7 @@ class FileStore:
             for r in recs
         ]
 
-    async def gc(self, *, now: Optional[float] = None) -> int:
+    async def gc(self, *, now: float | None = None) -> int:
         """Sweep uploads older than ``UPLOAD_TTL_SECONDS``.  Returns count removed."""
         cutoff = (now or time.time()) - UPLOAD_TTL_SECONDS
         async with self._lock:

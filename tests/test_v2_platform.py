@@ -69,7 +69,9 @@ def test_route_fallback_skips_open_circuit_and_retries_transient_failures() -> N
             raise RouteFailure("rate limited", retryable=True, status_code=429)
         return "ok"
 
-    result = asyncio.run(run_with_fallback([primary, fallback], invoke, breaker, sleep=lambda _: asyncio.sleep(0)))
+    result = asyncio.run(
+        run_with_fallback([primary, fallback], invoke, breaker, sleep=lambda _: asyncio.sleep(0))
+    )
     assert result.value == "ok"
     assert result.route_id == "fallback"
     assert calls == ["primary", "fallback"]
@@ -146,7 +148,8 @@ def test_v2_api_contract(monkeypatch) -> None:
         assert models.json()["data"][0]["logicalId"]
 
         credential = client.post(
-            "/api/v2/credential-sessions", json={"credentials": {"OPENAI": "sk-secret"}, "ttlSeconds": 60}
+            "/api/v2/credential-sessions",
+            json={"credentials": {"OPENAI": "sk-secret"}, "ttlSeconds": 60},
         )
         assert credential.status_code == 201
         assert "sk-secret" not in credential.text
@@ -154,7 +157,12 @@ def test_v2_api_contract(monkeypatch) -> None:
         credential_id = credential.json()["id"]
         workflow = client.post(
             "/api/v2/workflows",
-            json={"slug": "checkout", "name": "Checkout", "variablesSchema": {"type": "object"}, "steps": ["Open cart"]},
+            json={
+                "slug": "checkout",
+                "name": "Checkout",
+                "variablesSchema": {"type": "object"},
+                "steps": ["Open cart"],
+            },
         )
         assert workflow.status_code == 201
 
@@ -164,7 +172,14 @@ def test_v2_api_contract(monkeypatch) -> None:
         assert envelope["code"] == "VALIDATION_ERROR"
         assert envelope["requestId"]
 
-        created = client.post("/api/v2/sessions", json={"task": "open browser", "model": "gpt-5.6-luna", "credentialSessionId": credential_id})
+        created = client.post(
+            "/api/v2/sessions",
+            json={
+                "task": "open browser",
+                "model": "gpt-5.6-luna",
+                "credentialSessionId": credential_id,
+            },
+        )
         assert created.status_code == 201
         session_id = created.json()["id"]
         assert client.get(f"/api/v2/sessions/{session_id}").status_code == 200
@@ -174,7 +189,13 @@ def test_v2_api_contract(monkeypatch) -> None:
 
         fallback = client.post(
             "/api/v2/sessions",
-            json={"task": "fallback", "model": "gpt-5.6-luna", "primaryRoute": "openai-direct", "fallbackRoutes": [{"model": "claude-sonnet-5", "route": "anthropic-direct"}], "credentialSessionId": credential_id},
+            json={
+                "task": "fallback",
+                "model": "gpt-5.6-luna",
+                "primaryRoute": "openai-direct",
+                "fallbackRoutes": [{"model": "claude-sonnet-5", "route": "anthropic-direct"}],
+                "credentialSessionId": credential_id,
+            },
         )
         assert fallback.status_code == 201
         assert fallback.json()["activeRoute"] == "gpt-5.6-luna@openai-direct"
@@ -206,7 +227,11 @@ def test_v2_api_contract(monkeypatch) -> None:
         monkeypatch.setattr(
             server,
             "_v2_frame_broker",
-            SimpleNamespace(capture=AsyncMock(return_value=BinaryFrame(9, 2, 1, 1000, FrameCodec.WEBP, b"frame"))),
+            SimpleNamespace(
+                capture=AsyncMock(
+                    return_value=BinaryFrame(9, 2, 1, 1000, FrameCodec.WEBP, b"frame")
+                )
+            ),
         )
         monkeypatch.setattr(
             server,
@@ -221,9 +246,16 @@ def test_v2_api_contract(monkeypatch) -> None:
 
 
 def test_vendor_protocol_adapters_validate_and_canonicalize() -> None:
-    assert parse_openai_action({"action": {"type": "click", "x": 12, "y": 34}}).type.value == "CLICK"
+    assert (
+        parse_openai_action({"action": {"type": "click", "x": 12, "y": 34}}).type.value == "CLICK"
+    )
     assert parse_anthropic_action({"input": {"action": "type", "text": "hello"}}).text == "hello"
-    assert parse_gemini_action({"functionCall": {"name": "scroll_at", "args": {"x": 1, "y": 2, "delta_y": 50}}}).delta_y == 50
+    assert (
+        parse_gemini_action(
+            {"functionCall": {"name": "scroll_at", "args": {"x": 1, "y": 2, "delta_y": 50}}}
+        ).delta_y
+        == 50
+    )
     try:
         parse_openai_action({"action": {"type": "click", "x": -1, "y": 0}})
     except ProtocolActionError:

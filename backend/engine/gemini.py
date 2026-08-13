@@ -74,9 +74,7 @@ def _extract_gemini_grounding_payload(response: Any) -> dict[str, Any] | None:
     if not isinstance(search_entry, dict):
         search_entry = _to_plain_dict(search_entry)
     rendered_content = str(
-        search_entry.get("renderedContent")
-        or search_entry.get("rendered_content")
-        or ""
+        search_entry.get("renderedContent") or search_entry.get("rendered_content") or ""
     ).strip()
 
     normalized_chunks: list[dict[str, Any]] = []
@@ -92,7 +90,9 @@ def _extract_gemini_grounding_payload(response: Any) -> dict[str, Any] | None:
         normalized_chunks.append({"web": {"uri": uri, "title": title}})
 
     normalized_supports: list[dict[str, Any]] = []
-    for raw_support in grounding.get("grounding_supports") or grounding.get("groundingSupports") or []:
+    for raw_support in (
+        grounding.get("grounding_supports") or grounding.get("groundingSupports") or []
+    ):
         support = raw_support if isinstance(raw_support, dict) else _to_plain_dict(raw_support)
         segment = support.get("segment") or {}
         if not isinstance(segment, dict):
@@ -189,11 +189,7 @@ def _prune_gemini_context(contents: list[Any], max_history_turns: int) -> None:
     if len(keep_indexes) == len(contents):
         return
 
-    contents[:] = [
-        content
-        for idx, content in enumerate(contents)
-        if idx in keep_indexes
-    ]
+    contents[:] = [content for idx, content in enumerate(contents) if idx in keep_indexes]
 
 
 class GeminiCUClient:
@@ -347,7 +343,10 @@ class GeminiCUClient:
         inner generator and its yielded events are forwarded back.
         """
         inner = self._iter_turns_core(
-            goal, executor, turn_limit=turn_limit, on_log=on_log,
+            goal,
+            executor,
+            turn_limit=turn_limit,
+            on_log=on_log,
         )
         try:
             sent: Any = None
@@ -356,7 +355,7 @@ class GeminiCUClient:
                     ev = await inner.asend(sent)
                 except StopAsyncIteration:
                     return
-                sent = (yield ev)
+                sent = yield ev
         finally:
             await inner.aclose()
 
@@ -393,14 +392,18 @@ class GeminiCUClient:
 
         for turn in range(turn_limit):
             if _turn_start is not None and on_log:
-                on_log("info", f"turn_duration_ms={int((time.monotonic()-_turn_start)*1000)} provider=google model={self._model}")
+                on_log(
+                    "info",
+                    f"turn_duration_ms={int((time.monotonic() - _turn_start) * 1000)} provider=google model={self._model}",
+                )
             _turn_start = time.monotonic()
             if on_log:
                 on_log("info", f"Gemini CU turn {turn + 1}/{turn_limit}")
 
             try:
                 interaction = await _call_with_retry(
-                    lambda items=next_input, previous_id=previous_interaction_id: self._create_interaction(
+                    lambda items=next_input,
+                    previous_id=previous_interaction_id: self._create_interaction(
                         items,
                         previous_interaction_id=previous_id,
                     ),
@@ -414,21 +417,35 @@ class GeminiCUClient:
                 # Try to provide actionable info for common error patterns
                 if "INVALID_ARGUMENT" in error_msg:
                     if on_log:
-                        on_log("error",
+                        on_log(
+                            "error",
                             "INVALID_ARGUMENT usually means: (1) screenshot too large/corrupt, "
                             "(2) model doesn't support computer_use tool, or "
                             "(3) conversation context exceeded limits. "
-                            f"last screenshot: {len(screenshot_bytes)} bytes")
+                            f"last screenshot: {len(screenshot_bytes)} bytes",
+                        )
                 yield RunCompleted(final_text=f"Gemini API error: {error_msg}")
                 return
-            interaction_id = interaction.get("id") if isinstance(interaction, dict) else getattr(interaction, "id", "")
-            interaction_usage = interaction.get("usage", {}) if isinstance(interaction, dict) else _to_plain_dict(getattr(interaction, "usage", None))
+            interaction_id = (
+                interaction.get("id")
+                if isinstance(interaction, dict)
+                else getattr(interaction, "id", "")
+            )
+            interaction_usage = (
+                interaction.get("usage", {})
+                if isinstance(interaction, dict)
+                else _to_plain_dict(getattr(interaction, "usage", None))
+            )
             self._usage["input_tokens"] += int(interaction_usage.get("total_input_tokens") or 0)
             self._usage["output_tokens"] += int(interaction_usage.get("total_output_tokens") or 0)
             previous_interaction_id = str(interaction_id or "")
             outputs = self._interaction_outputs(interaction)
             function_calls = [item for item in outputs if item.get("type") == "function_call"]
-            interaction_text = interaction.get("output_text") if isinstance(interaction, dict) else getattr(interaction, "output_text", "")
+            interaction_text = (
+                interaction.get("output_text")
+                if isinstance(interaction, dict)
+                else getattr(interaction, "output_text", "")
+            )
             turn_text = str(interaction_text or "").strip()
             if not turn_text:
                 turn_text = " ".join(
@@ -439,7 +456,11 @@ class GeminiCUClient:
 
             # No function calls → model is done
             if not function_calls:
-                if _gemini_final_needs_computer_use(goal, turn_text) and not saw_computer_action and not nudged_for_computer_use:
+                if (
+                    _gemini_final_needs_computer_use(goal, turn_text)
+                    and not saw_computer_action
+                    and not nudged_for_computer_use
+                ):
                     if on_log:
                         on_log(
                             "info",
@@ -518,7 +539,9 @@ class GeminiCUClient:
                     on_log("warning", f"Screenshot capture failed at turn {turn + 1}: {ss_err}")
                 screenshot_bytes = b""
 
-            screenshot_b64 = base64.standard_b64encode(screenshot_bytes).decode() if screenshot_bytes else ""
+            screenshot_b64 = (
+                base64.standard_b64encode(screenshot_bytes).decode() if screenshot_bytes else ""
+            )
 
             if terminated and not results:
                 yield RunCompleted(final_text="Agent terminated: safety confirmation denied.")
@@ -557,12 +580,14 @@ class GeminiCUClient:
                 ]
                 if screenshot_ok:
                     parts.append(self._image_input(screenshot_bytes))
-                result_inputs.append({
-                    "type": "function_result",
-                    "name": r.name,
-                    "call_id": str(call.get("id") or ""),
-                    "result": parts,
-                })
+                result_inputs.append(
+                    {
+                        "type": "function_result",
+                        "name": r.name,
+                        "call_id": str(call.get("id") or ""),
+                        "result": parts,
+                    }
+                )
 
             if not result_inputs:
                 if on_log:
@@ -572,7 +597,10 @@ class GeminiCUClient:
             next_input = result_inputs
 
         if _turn_start is not None and on_log:
-            on_log("info", f"turn_duration_ms={int((time.monotonic()-_turn_start)*1000)} provider=google model={self._model}")
+            on_log(
+                "info",
+                f"turn_duration_ms={int((time.monotonic() - _turn_start) * 1000)} provider=google model={self._model}",
+            )
         yield RunCompleted(
             final_text=f"Gemini CU reached the turn limit ({turn_limit}) without a final response.",
         )
@@ -626,12 +654,14 @@ class GeminiCUClient:
 
             if isinstance(event, ToolBatchCompleted):
                 if on_turn:
-                    on_turn(CUTurnRecord(
-                        turn=event.turn,
-                        model_text=event.model_text or pending_turn_text,
-                        actions=event.results,
-                        screenshot_b64=event.screenshot_b64,
-                    ))
+                    on_turn(
+                        CUTurnRecord(
+                            turn=event.turn,
+                            model_text=event.model_text or pending_turn_text,
+                            actions=event.results,
+                            screenshot_b64=event.screenshot_b64,
+                        )
+                    )
                 pending_turn_text = ""
                 continue
 
@@ -644,4 +674,3 @@ class GeminiCUClient:
 # ---------------------------------------------------------------------------
 # Claude Computer Use Client
 # ---------------------------------------------------------------------------
-

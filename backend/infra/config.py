@@ -122,66 +122,119 @@ class Config:
             container_name=os.getenv("CONTAINER_NAME", cls.container_name),
             agent_service_host=os.getenv("AGENT_SERVICE_HOST", cls.agent_service_host),
             agent_service_port=_clamp_int(
-                "AGENT_SERVICE_PORT", cls.agent_service_port, lo=1, hi=65535,
+                "AGENT_SERVICE_PORT",
+                cls.agent_service_port,
+                lo=1,
+                hi=65535,
             ),
             agent_mode=os.getenv("AGENT_MODE", cls.agent_mode),
             screen_width=_clamp_int(
-                "SCREEN_WIDTH", cls.screen_width, lo=640, hi=4096,
+                "SCREEN_WIDTH",
+                cls.screen_width,
+                lo=640,
+                hi=4096,
             ),
             screen_height=_clamp_int(
-                "SCREEN_HEIGHT", cls.screen_height, lo=480, hi=4096,
+                "SCREEN_HEIGHT",
+                cls.screen_height,
+                lo=480,
+                hi=4096,
             ),
             max_steps=_clamp_int(
-                "MAX_STEPS", cls.max_steps, lo=1, hi=200,
+                "MAX_STEPS",
+                cls.max_steps,
+                lo=1,
+                hi=200,
             ),
             step_timeout=_clamp_float(
-                "STEP_TIMEOUT", cls.step_timeout, lo=1.0, hi=600.0,
+                "STEP_TIMEOUT",
+                cls.step_timeout,
+                lo=1.0,
+                hi=600.0,
             ),
             host=os.getenv("HOST", cls.host),
             port=_clamp_int("PORT", cls.port, lo=1, hi=65535),
             debug=os.getenv("DEBUG", "").lower() in ("1", "true", "yes"),
             reload=os.getenv("CUA_RELOAD", "").lower() in ("1", "true", "yes"),
             anthropic_web_search_enabled=_env_bool(
-                "CUA_ANTHROPIC_WEB_SEARCH_ENABLED", cls.anthropic_web_search_enabled,
+                "CUA_ANTHROPIC_WEB_SEARCH_ENABLED",
+                cls.anthropic_web_search_enabled,
             ),
             ws_screenshot_interval=_clamp_float(
-                "CUA_WS_SCREENSHOT_INTERVAL", cls.ws_screenshot_interval, lo=0.05, hi=60.0,
+                "CUA_WS_SCREENSHOT_INTERVAL",
+                cls.ws_screenshot_interval,
+                lo=0.05,
+                hi=60.0,
             ),
             ws_screenshot_suspend_when_idle=_env_bool(
-                "CUA_WS_SCREENSHOT_SUSPEND_WHEN_IDLE", cls.ws_screenshot_suspend_when_idle,
+                "CUA_WS_SCREENSHOT_SUSPEND_WHEN_IDLE",
+                cls.ws_screenshot_suspend_when_idle,
             ),
             ui_settle_delay=_clamp_float(
-                "CUA_UI_SETTLE_DELAY", cls.ui_settle_delay, lo=0.0, hi=30.0,
+                "CUA_UI_SETTLE_DELAY",
+                cls.ui_settle_delay,
+                lo=0.0,
+                hi=30.0,
             ),
             ui_settle_delay_min=_clamp_float(
-                "CUA_UI_SETTLE_DELAY_MIN", cls.ui_settle_delay_min, lo=0.0, hi=5.0,
+                "CUA_UI_SETTLE_DELAY_MIN",
+                cls.ui_settle_delay_min,
+                lo=0.0,
+                hi=5.0,
             ),
             ui_settle_delay_nav=_clamp_float(
-                "CUA_UI_SETTLE_DELAY_NAV", cls.ui_settle_delay_nav, lo=0.0, hi=30.0,
+                "CUA_UI_SETTLE_DELAY_NAV",
+                cls.ui_settle_delay_nav,
+                lo=0.0,
+                hi=30.0,
             ),
             preview_max_edge=_clamp_int(
-                "CUA_PREVIEW_MAX_EDGE", cls.preview_max_edge, lo=240, hi=4096,
+                "CUA_PREVIEW_MAX_EDGE",
+                cls.preview_max_edge,
+                lo=240,
+                hi=4096,
             ),
             preview_jpeg_quality=_clamp_int(
-                "CUA_PREVIEW_JPEG_QUALITY", cls.preview_jpeg_quality, lo=10, hi=95,
+                "CUA_PREVIEW_JPEG_QUALITY",
+                cls.preview_jpeg_quality,
+                lo=10,
+                hi=95,
             ),
             ws_screenshot_backoff_cap=_clamp_float(
-                "CUA_WS_SCREENSHOT_BACKOFF_CAP", cls.ws_screenshot_backoff_cap, lo=1.0, hi=120.0,
+                "CUA_WS_SCREENSHOT_BACKOFF_CAP",
+                cls.ws_screenshot_backoff_cap,
+                lo=1.0,
+                hi=120.0,
             ),
             screenshot_settle_delay=_clamp_float(
-                "CUA_SCREENSHOT_SETTLE_DELAY", cls.screenshot_settle_delay, lo=0.0, hi=30.0,
+                "CUA_SCREENSHOT_SETTLE_DELAY",
+                cls.screenshot_settle_delay,
+                lo=0.0,
+                hi=30.0,
             ),
             post_action_screenshot_delay=_clamp_float(
-                "CUA_POST_ACTION_SCREENSHOT_DELAY", cls.post_action_screenshot_delay, lo=0.0, hi=60.0,
+                "CUA_POST_ACTION_SCREENSHOT_DELAY",
+                cls.post_action_screenshot_delay,
+                lo=0.0,
+                hi=60.0,
             ),
             container_ready_timeout=_clamp_float(
-                "CUA_CONTAINER_READY_TIMEOUT", cls.container_ready_timeout, lo=1.0, hi=300.0,
+                "CUA_CONTAINER_READY_TIMEOUT",
+                cls.container_ready_timeout,
+                lo=1.0,
+                hi=300.0,
             ),
             container_ready_poll_base=_clamp_float(
-                "CUA_CONTAINER_READY_POLL_BASE", cls.container_ready_poll_base, lo=0.05, hi=10.0,
+                "CUA_CONTAINER_READY_POLL_BASE",
+                cls.container_ready_poll_base,
+                lo=0.05,
+                hi=10.0,
             ),
             container_ready_poll_cap=_clamp_float(
-                "CUA_CONTAINER_READY_POLL_CAP", cls.container_ready_poll_cap, lo=0.1, hi=30.0,
+                "CUA_CONTAINER_READY_POLL_CAP",
+                cls.container_ready_poll_cap,
+                lo=0.1,
+                hi=30.0,
             ),
         )
 
@@ -253,7 +306,7 @@ class KeyStatus:
 
     provider: str
     available: bool = False
-    source: str = "none"          # "none" | "env" | "dotenv" | "ui"
+    source: str = "none"  # "none" | "env" | "dotenv" | "ui"
     masked_key: str = ""
 
 
@@ -333,10 +386,12 @@ def get_all_key_statuses() -> list[dict]:
             source=source,
             masked_key=_mask_key(value) if value else "",
         )
-        statuses.append({
-            "provider": status.provider,
-            "available": status.available,
-            "source": status.source,
-            "masked_key": status.masked_key,
-        })
+        statuses.append(
+            {
+                "provider": status.provider,
+                "available": status.available,
+                "source": status.source,
+                "masked_key": status.masked_key,
+            }
+        )
     return statuses

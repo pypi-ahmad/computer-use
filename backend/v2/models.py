@@ -1,4 +1,5 @@
 """Validated, transport-aware Computer Use model catalog."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -50,7 +51,9 @@ class ModelCatalog:
 
     @classmethod
     def load(cls, path: Path | None = None) -> ModelCatalog:
-        source = path or Path(__file__).resolve().parents[1] / "models" / "computer_use_models.v2.json"
+        source = (
+            path or Path(__file__).resolve().parents[1] / "models" / "computer_use_models.v2.json"
+        )
         document = _CatalogDocument.model_validate_json(source.read_text(encoding="utf-8"))
         return cls(document)
 

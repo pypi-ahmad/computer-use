@@ -5,8 +5,9 @@ import os
 import re
 import sys
 import time
+from collections.abc import Iterable
 from html.parser import HTMLParser
-from typing import Iterable
+from typing import ClassVar
 from urllib.request import Request, urlopen
 
 TARGET_MODEL = "gemini-3.6-flash"
@@ -38,7 +39,7 @@ _NEW_ITEM_PREFIXES = (
 
 
 class _VisibleTextParser(HTMLParser):
-    _BLOCK_TAGS = {
+    _BLOCK_TAGS: ClassVar[set[str]] = {
         "article",
         "br",
         "div",
@@ -57,7 +58,7 @@ class _VisibleTextParser(HTMLParser):
         "tr",
         "ul",
     }
-    _SKIP_TAGS = {"script", "style", "noscript"}
+    _SKIP_TAGS: ClassVar[set[str]] = {"script", "style", "noscript"}
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=False)
@@ -231,8 +232,7 @@ def main() -> int:
         raw_html = fetch_changelog_html()
     except Exception as exc:  # pragma: no cover - network failure path
         print(
-            "Gemini changelog watchdog could not fetch the changelog: "
-            f"{exc}",
+            f"Gemini changelog watchdog could not fetch the changelog: {exc}",
             file=sys.stderr,
         )
         return 2

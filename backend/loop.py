@@ -11,15 +11,16 @@ import asyncio
 import hashlib
 import logging
 import uuid
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 # AI6: reuse the shared secret-scrubber from backend.engine so the
 # patterns and redaction format stay consistent between what flows
 # through the provider clients and what loop.py broadcasts over the
 # WebSocket.
 from backend.engine import scrub_secrets as _scrub_secrets
-
 from backend.infra.config import config
+from backend.infra.observability import session_id_var
 from backend.models.schemas import (
     ActionType,
     AgentAction,
@@ -29,7 +30,6 @@ from backend.models.schemas import (
     StepRecord,
     StructuredError,
 )
-from backend.infra.observability import session_id_var
 
 logger = logging.getLogger(__name__)
 
@@ -37,25 +37,39 @@ logger = logging.getLogger(__name__)
 # CU action name → ActionType best-effort mapping for the step timeline.
 # Static mapping, defined once at module level.
 _CU_ACTION_MAP: dict[str, ActionType] = {
-    "click_at": ActionType.CLICK, "double_click": ActionType.DOUBLE_CLICK,
-    "right_click": ActionType.RIGHT_CLICK, "triple_click": ActionType.CLICK,
+    "click_at": ActionType.CLICK,
+    "double_click": ActionType.DOUBLE_CLICK,
+    "right_click": ActionType.RIGHT_CLICK,
+    "triple_click": ActionType.CLICK,
     "middle_click": ActionType.CLICK,
-    "hover_at": ActionType.HOVER, "type_text_at": ActionType.TYPE,
-    "type_at_cursor": ActionType.TYPE, "key_combination": ActionType.KEY,
-    "scroll_document": ActionType.SCROLL, "scroll_at": ActionType.SCROLL,
-    "drag_and_drop": ActionType.DRAG, "navigate": ActionType.OPEN_URL,
-    "open_web_browser": ActionType.OPEN_URL, "search": ActionType.OPEN_URL,
-    "go_back": ActionType.GO_BACK, "go_forward": ActionType.GO_FORWARD,
+    "hover_at": ActionType.HOVER,
+    "type_text_at": ActionType.TYPE,
+    "type_at_cursor": ActionType.TYPE,
+    "key_combination": ActionType.KEY,
+    "scroll_document": ActionType.SCROLL,
+    "scroll_at": ActionType.SCROLL,
+    "drag_and_drop": ActionType.DRAG,
+    "navigate": ActionType.OPEN_URL,
+    "open_web_browser": ActionType.OPEN_URL,
+    "search": ActionType.OPEN_URL,
+    "go_back": ActionType.GO_BACK,
+    "go_forward": ActionType.GO_FORWARD,
     "wait_5_seconds": ActionType.WAIT,
-    "click": ActionType.CLICK, "move": ActionType.HOVER,
-    "type": ActionType.TYPE, "keypress": ActionType.KEY,
-    "scroll": ActionType.SCROLL, "drag": ActionType.DRAG,
-    "wait": ActionType.WAIT, "screenshot": ActionType.SCREENSHOT,
-    "done": ActionType.DONE, "error": ActionType.ERROR,
+    "click": ActionType.CLICK,
+    "move": ActionType.HOVER,
+    "type": ActionType.TYPE,
+    "keypress": ActionType.KEY,
+    "scroll": ActionType.SCROLL,
+    "drag": ActionType.DRAG,
+    "wait": ActionType.WAIT,
+    "screenshot": ActionType.SCREENSHOT,
+    "done": ActionType.DONE,
+    "error": ActionType.ERROR,
     # Reuse existing enum members (no schema change): zoom returns a region
     # screenshot; mouse-down/up are click primitives; hold_key is a key event.
     "zoom": ActionType.SCREENSHOT,
-    "left_mouse_down": ActionType.CLICK, "left_mouse_up": ActionType.CLICK,
+    "left_mouse_down": ActionType.CLICK,
+    "left_mouse_up": ActionType.CLICK,
     "hold_key": ActionType.KEY,
 }
 
@@ -125,9 +139,9 @@ class AgentLoop:
         reasoning_effort: str | None = None,
         use_builtin_search: bool = False,
         attached_files: list[str] | None = None,
-        on_step: Optional[Callable] = None,
-        on_log: Optional[Callable] = None,
-        on_screenshot: Optional[Callable] = None,
+        on_step: Callable | None = None,
+        on_log: Callable | None = None,
+        on_screenshot: Callable | None = None,
         oauth_credentials: Any | None = None,
         quota_project_id: str | None = None,
         safety_policy: str = "provider_default",
@@ -243,6 +257,7 @@ class AgentLoop:
             # Always drop safety-registry state for this session.
             try:
                 from backend import safety as safety_registry
+
                 safety_registry.clear(self.session.session_id)
             except Exception:
                 pass
@@ -314,7 +329,7 @@ class AgentLoop:
         # so the engine terminates cleanly on its next turn boundary.
         last_fingerprints: list[str] = []
 
-        def _fingerprint(action: "AgentAction | None") -> str:
+        def _fingerprint(action: AgentAction | None) -> str:
             if action is None:
                 return ""
             parts = [action.action.value if hasattr(action.action, "value") else str(action.action)]
@@ -325,7 +340,9 @@ class AgentLoop:
                 # so a stuck loop typing a long string that diverges only after
                 # char 64 is still detected as a duplicate fingerprint.
                 parts.append(
-                    hashlib.blake2b(action.text.encode("utf-8", "replace"), digest_size=8).hexdigest()
+                    hashlib.blake2b(
+                        action.text.encode("utf-8", "replace"), digest_size=8
+                    ).hexdigest()
                 )
             return "|".join(parts)
 
@@ -404,8 +421,7 @@ class AgentLoop:
                 if len(last_fingerprints) == 3 and len(set(last_fingerprints)) == 1:
                     self._emit_log(
                         "warning",
-                        "Stuck-agent detected (3 consecutive identical actions); "
-                        "requesting stop.",
+                        "Stuck-agent detected (3 consecutive identical actions); requesting stop.",
                     )
                     self._stop_requested = True
                     # Flipping the flag alone does not interrupt the
@@ -432,6 +448,7 @@ class AgentLoop:
             ``require_confirmation``.
             """
             from backend import safety as safety_registry
+
             sid = self.session.session_id
             # B2: arm (create a fresh cleared event + mint a nonce) BEFORE
             # broadcasting, so a client confirmation can only ever .set() an
@@ -440,13 +457,17 @@ class AgentLoop:
             self._emit_log(
                 "warning",
                 f"Safety confirmation required: {explanation}",
-                data={"type": "safety_confirmation", "explanation": explanation,
-                      "session_id": sid, "nonce": nonce},
+                data={
+                    "type": "safety_confirmation",
+                    "explanation": explanation,
+                    "session_id": sid,
+                    "nonce": nonce,
+                },
             )
             try:
                 await asyncio.wait_for(evt.wait(), timeout=60.0)
                 decision = bool(safety_registry.decisions.pop(sid, False))
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 self._emit_log("warning", "Safety confirmation timed out, denying action")
                 decision = False
             finally:
@@ -472,9 +493,7 @@ class AgentLoop:
                 final_text = await self._run_task
             except asyncio.CancelledError:
                 final_text = (
-                    "Agent stopped by user."
-                    if self._stop_requested
-                    else "Agent cancelled."
+                    "Agent stopped by user." if self._stop_requested else "Agent cancelled."
                 )
                 self._emit_log("info", final_text)
             self.session.final_text = _scrub_secrets(final_text) or final_text
@@ -485,9 +504,7 @@ class AgentLoop:
             )
             self._emit_log("info", f"CU engine completed: {final_text[:300]}")
             self.session.status = (
-                SessionStatus.STOPPED
-                if self._stop_requested
-                else SessionStatus.COMPLETED
+                SessionStatus.STOPPED if self._stop_requested else SessionStatus.COMPLETED
             )
         except Exception as exc:
             self._emit_log("error", f"CU engine failed: {exc}")
@@ -498,11 +515,10 @@ class AgentLoop:
 
         return self.session
 
-    def _fire_callback(self, cb: Optional[Callable], *args) -> None:
+    def _fire_callback(self, cb: Callable | None, *args) -> None:
         """Invoke a callback, swallowing exceptions to keep the loop alive."""
         if cb:
             try:
                 cb(*args)
             except Exception:
                 logger.warning("Callback %r raised an exception", cb, exc_info=True)
-

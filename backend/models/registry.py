@@ -1,4 +1,3 @@
-from __future__ import annotations
 # === merged from backend/engine_capabilities.py ===
 """Engine Capability Registry — structured, machine-readable engine metadata.
 
@@ -18,11 +17,12 @@ Usage::
     caps.get_engine_actions("computer_use")               # → frozenset(...)
 """
 
+from __future__ import annotations
 
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, FrozenSet, Optional, Set
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -41,18 +41,19 @@ _DEFAULT_SCHEMA_PATH = get_default_schema_path()
 
 # ── Dataclass-like typed containers ───────────────────────────────────────────
 
+
 class EngineSchema:
     """Typed representation of a single engine's capability block."""
 
-    __slots__ = ("name", "display_name", "description", "allowed_actions")
+    __slots__ = ("allowed_actions", "description", "display_name", "name")
 
-    def __init__(self, name: str, raw: Dict[str, Any]) -> None:
+    def __init__(self, name: str, raw: dict[str, Any]) -> None:
         """Parse a single engine's JSON block into typed fields."""
         self.name: str = name
         self.display_name: str = raw.get("display_name", name)
         self.description: str = raw.get("description", "")
         raw_actions = raw.get("allowed_actions", [])
-        self.allowed_actions: FrozenSet[str] = frozenset(
+        self.allowed_actions: frozenset[str] = frozenset(
             raw_actions if isinstance(raw_actions, list) else []
         )
 
@@ -61,6 +62,7 @@ class EngineSchema:
 
 
 # ── Main capability class ────────────────────────────────────────────────────
+
 
 class EngineCapabilities:
     """Machine-readable engine capability registry.
@@ -84,18 +86,18 @@ class EngineCapabilities:
         if not path.exists():
             raise FileNotFoundError(f"Engine capability schema not found: {path}")
 
-        with open(path, "r", encoding="utf-8") as fh:
-            raw: Dict[str, Any] = json.load(fh)
+        with open(path, encoding="utf-8") as fh:
+            raw: dict[str, Any] = json.load(fh)
 
         self._version: str = raw.get("version", "unknown")
 
         # Parse each engine block into EngineSchema objects.
-        self._engines: Dict[str, EngineSchema] = {}
+        self._engines: dict[str, EngineSchema] = {}
         for name, block in raw.get("engines", {}).items():
             self._engines[name] = EngineSchema(name, block)
 
         # Materialise a global action → engines reverse index.
-        self._action_index: Dict[str, Set[str]] = {}
+        self._action_index: dict[str, set[str]] = {}
         for eng_name, eng in self._engines.items():
             for action in eng.allowed_actions:
                 self._action_index.setdefault(action, set()).add(eng_name)
@@ -115,15 +117,15 @@ class EngineCapabilities:
         return self._version
 
     @property
-    def engine_names(self) -> FrozenSet[str]:
+    def engine_names(self) -> frozenset[str]:
         """All registered engine names."""
         return frozenset(self._engines.keys())
 
-    def get_engine(self, engine_name: str) -> Optional[EngineSchema]:
+    def get_engine(self, engine_name: str) -> EngineSchema | None:
         """Return the full ``EngineSchema`` for *engine_name*, or ``None``."""
         return self._engines.get(engine_name)
 
-    def get_engine_actions(self, engine_name: str) -> FrozenSet[str]:
+    def get_engine_actions(self, engine_name: str) -> frozenset[str]:
         """Return the set of allowed actions for *engine_name*.
 
         Returns an empty frozenset if the engine is unknown.
@@ -144,9 +146,7 @@ class EngineCapabilities:
             return False
         return action in eng.allowed_actions
 
-    def validate_action_detailed(
-        self, engine_name: str, action: str
-    ) -> tuple[bool, str]:
+    def validate_action_detailed(self, engine_name: str, action: str) -> tuple[bool, str]:
         """Validate and return a ``(ok, message)`` tuple.
 
         On failure the message explains *why* and may suggest alternative
@@ -165,13 +165,13 @@ class EngineCapabilities:
             alt_str = ", ".join(alternatives)
             return (
                 False,
-                f"Action {action!r} is not supported by {engine_name}. "
-                f"Supported by: {alt_str}",
+                f"Action {action!r} is not supported by {engine_name}. Supported by: {alt_str}",
             )
         return (
             False,
             f"Action {action!r} is not supported by any registered engine.",
         )
+
 
 # === merged from backend/action_aliases.py ===
 """Action alias resolution for the computer_use engine.
@@ -248,7 +248,6 @@ ACTION_ALIASES: dict[str, str] = {
 }
 
 
-
 def resolve_action(action: str) -> str:
     """Resolve an action string to its canonical ActionType value.
 
@@ -267,4 +266,3 @@ def resolve_action(action: str) -> str:
 # Action names are short symbolic tokens; anything longer than this is
 # either broken input or an attempt to bloat logs.
 _MAX_ACTION_LEN = 64
-

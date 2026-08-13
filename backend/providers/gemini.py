@@ -6,15 +6,16 @@ The public ``run`` function owns the documented provider loop shape:
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
+from backend.engine import DEFAULT_TURN_LIMIT, Environment
+from backend.engine.gemini import GeminiCUClient
 from backend.executor import (
     DEFAULT_SCREEN_HEIGHT,
     DEFAULT_SCREEN_WIDTH,
     DesktopExecutor,
 )
-from backend.engine import DEFAULT_TURN_LIMIT, Environment
-from backend.engine.gemini import GeminiCUClient
 from backend.providers._common import (
     EventCallback,
     ProviderTools,
@@ -40,6 +41,7 @@ async def run(
     file_ids = list(files or [])
     if file_ids:
         from backend.files import GEMINI_CU_FILE_REJECTION
+
         raise ValueError(GEMINI_CU_FILE_REJECTION)
 
     client = options.get("client")

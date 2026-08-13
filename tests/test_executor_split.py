@@ -39,11 +39,11 @@ def test_every_client_emitted_action_has_executor_handler():
     import inspect
     import re
 
-    from backend.executor import DesktopExecutor
     import backend.engine.claude as claude_mod
     import backend.engine.openai as openai_mod
+    from backend.executor import DesktopExecutor
 
-    exec_actions = {n[len("_act_"):] for n in dir(DesktopExecutor) if n.startswith("_act_")}
+    exec_actions = {n[len("_act_") :] for n in dir(DesktopExecutor) if n.startswith("_act_")}
     pat = re.compile(r"""executor\.execute\(\s*["']([a-zA-Z_]+)["']""")
     emitted: set[str] = set()
     for mod in (claude_mod, openai_mod):
@@ -57,6 +57,7 @@ def test_every_client_emitted_action_has_executor_handler():
 async def _run_bundled_capture():
     """Helper: execute a click with include_screenshot and capture wire payloads."""
     from unittest.mock import AsyncMock
+
     from backend.executor import DesktopExecutor
 
     captured = []
@@ -75,6 +76,7 @@ async def _run_bundled_capture():
 
     ex = DesktopExecutor(screen_width=1440, screen_height=900, normalize_coords=False)
     import backend.engine as _eng
+
     _orig = _eng._app_config.ui_settle_delay
     ex._get_client = AsyncMock(return_value=_Client())
     result = await ex.execute("click_at", {"x": 10, "y": 20, "include_screenshot": True})
@@ -85,8 +87,11 @@ def test_p1_include_screenshot_is_sent_and_bundled_frame_surfaces():
     """P1: execute(..., include_screenshot=True via args) adds the flag to the
     /action POST and the bundled screenshot surfaces in the result extra."""
     import asyncio
+
     captured, result = asyncio.run(_run_bundled_capture())
     assert captured and captured[0].get("include_screenshot") == 1
     # include_screenshot must NOT leak as an action field beyond the flag
-    assert "include_screenshot" not in result.extra or result.extra.get("screenshot") == "BUNDLED_B64"
+    assert (
+        "include_screenshot" not in result.extra or result.extra.get("screenshot") == "BUNDLED_B64"
+    )
     assert result.extra.get("screenshot") == "BUNDLED_B64"

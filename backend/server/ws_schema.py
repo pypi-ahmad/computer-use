@@ -15,8 +15,7 @@ Kept intentionally permissive for forward compat: unknown events fall
 through as :class:`GenericWSEvent` rather than being rejected.
 """
 
-
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -62,8 +61,8 @@ class AgentFinishedEvent(_WSEventBase):
     session_id: str
     status: str
     steps: int
-    final_text: Optional[str] = None
-    gemini_grounding: Optional[dict[str, Any]] = None
+    final_text: str | None = None
+    gemini_grounding: dict[str, Any] | None = None
 
 
 class AuthFailedEvent(_WSEventBase):
@@ -86,16 +85,16 @@ class GenericWSEvent(_WSEventBase):
     event: str
 
 
-WSEvent = Union[
-    ScreenshotEvent,
-    ScreenshotStreamEvent,
-    LogEvent,
-    StepEvent,
-    AgentFinishedEvent,
-    AuthFailedEvent,
-    PongEvent,
-    GenericWSEvent,
-]
+WSEvent = (
+    ScreenshotEvent
+    | ScreenshotStreamEvent
+    | LogEvent
+    | StepEvent
+    | AgentFinishedEvent
+    | AuthFailedEvent
+    | PongEvent
+    | GenericWSEvent
+)
 
 
 _TYPED_EVENTS: dict[str, type[_WSEventBase]] = {
@@ -109,7 +108,7 @@ _TYPED_EVENTS: dict[str, type[_WSEventBase]] = {
 }
 
 
-def validate_outbound(event: str, data: dict[str, Any]) -> Optional[str]:
+def validate_outbound(event: str, data: dict[str, Any]) -> str | None:
     """Validate a dict payload against the registered event schema.
 
     Returns ``None`` if the payload is valid, otherwise a short string

@@ -12,29 +12,29 @@ import hashlib
 import logging
 import os
 import time
-from typing import Any, Callable
+from collections.abc import AsyncIterator, Callable
+from typing import Any
 
-from backend.executor import ActionExecutor, CUActionResult
-from backend.infra.config import config as _app_config
 from backend.engine import (
+    _CONTEXT_PRUNE_KEEP_RECENT,
+    _IMAGE_PNG,
+    DEFAULT_TURN_LIMIT,
     CUTurnRecord,
     ModelTurnStarted,
-    ToolBatchCompleted,
     RunCompleted,
+    ToolBatchCompleted,
     TurnEvent,
+    _append_source_footer,
     _call_with_retry,
+    _lookup_claude_cu_config,
     _to_plain_dict,
     claude_web_search_tool_version,
     get_claude_scale_factor,
     resize_screenshot_for_claude,
-    _append_source_footer,
     validate_builtin_search_config,
-    DEFAULT_TURN_LIMIT,
-    _CONTEXT_PRUNE_KEEP_RECENT,
-    _IMAGE_PNG,
-    _lookup_claude_cu_config,
 )
-from typing import AsyncIterator
+from backend.executor import ActionExecutor, CUActionResult
+from backend.infra.config import config as _app_config
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,8 @@ def _is_anthropic_web_search_enablement_error(exc: Exception) -> bool:
     if "web search" not in msg:
         return False
     return any(
-        token in msg for token in (
+        token in msg
+        for token in (
             "not enabled",
             "enable web search",
             "organization",
@@ -95,8 +96,7 @@ def _extract_claude_sources(content_blocks: list[Any]) -> list[tuple[str, str]]:
             block_dict = block.model_dump()
         elif hasattr(block, "__dict__"):
             block_dict = {
-                key: value for key, value in vars(block).items()
-                if not key.startswith("_")
+                key: value for key, value in vars(block).items() if not key.startswith("_")
             }
         elif isinstance(block, dict):
             block_dict = dict(block)
@@ -119,15 +119,16 @@ def _extract_claude_sources(content_blocks: list[Any]) -> list[tuple[str, str]]:
                     sources.append((result.get("title") or url, url))
     return sources
 
+
 # Per-turn Claude max_tokens budget. Opus 4.7 long-plan tasks frequently
 # truncate at 16k; bumping to 32k removes the artificial ceiling while
 # staying well inside the model's response limit. Override via
 # ``CUA_CLAUDE_MAX_TOKENS`` if a deployment needs a tighter bound.
-import os as _os
 try:
-    _CLAUDE_MAX_TOKENS = max(1024, min(int(_os.getenv("CUA_CLAUDE_MAX_TOKENS", "32768")), 128000))
+    _CLAUDE_MAX_TOKENS = max(1024, min(int(os.getenv("CUA_CLAUDE_MAX_TOKENS", "32768")), 128000))
 except ValueError:
     _CLAUDE_MAX_TOKENS = 32768
+
 
 def _claude_caching_on() -> bool:
     """Return True when Claude prompt caching is enabled.
@@ -143,6 +144,7 @@ def _claude_caching_on() -> bool:
 # ---------------------------------------------------------------------------
 # Claude Computer Use Client
 # ---------------------------------------------------------------------------
+
 
 class ClaudeCUClient:
     """Native Claude computer-use tool protocol.
@@ -188,9 +190,7 @@ class ClaudeCUClient:
         try:
             import anthropic
         except ImportError as exc:
-            raise ImportError(
-                "anthropic is required. Install: pip install anthropic"
-            ) from exc
+            raise ImportError("anthropic is required. Install: pip install anthropic") from exc
 
         self._anthropic = anthropic
         # AsyncAnthropic avoids the per-call thread-pool hop we used to
@@ -360,6 +360,7 @@ class ClaudeCUClient:
             return [], []
 
         from backend.files import prepare_anthropic_documents
+
         return await prepare_anthropic_documents(
             self._client,
             self._attached_file_ids,
@@ -458,7 +459,9 @@ class ClaudeCUClient:
             yield RunCompleted(final_text="Error: Could not capture initial screenshot")
             return
         screenshot_bytes, _, _ = await asyncio.to_thread(
-            resize_screenshot_for_claude, screenshot_bytes, scale,
+            resize_screenshot_for_claude,
+            screenshot_bytes,
+            scale,
         )
         screenshot_b64 = base64.standard_b64encode(screenshot_bytes).decode()
 
@@ -470,7 +473,7 @@ class ClaudeCUClient:
 
         if inline_pairs:
             inline_sections = "\n\n".join(
-                f"<attached_file name=\"{name}\">\n{text}\n</attached_file>"
+                f'<attached_file name="{name}">\n{text}\n</attached_file>'
                 for name, text in inline_pairs
             )
             goal_text = (
@@ -483,14 +486,16 @@ class ClaudeCUClient:
 
         initial_content: list[dict[str, Any]] = [{"type": "text", "text": goal_text}]
         initial_content.extend(document_blocks)
-        initial_content.append({
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": _IMAGE_PNG,
-                "data": screenshot_b64,
-            },
-        })
+        initial_content.append(
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": _IMAGE_PNG,
+                    "data": screenshot_b64,
+                },
+            }
+        )
 
         messages: list[dict[str, Any]] = [
             {
@@ -505,7 +510,10 @@ class ClaudeCUClient:
 
         for turn in range(turn_limit):
             if _turn_start is not None and on_log:
-                on_log("info", f"turn_duration_ms={int((time.monotonic()-_turn_start)*1000)} provider=anthropic model={self._model}")
+                on_log(
+                    "info",
+                    f"turn_duration_ms={int((time.monotonic() - _turn_start) * 1000)} provider=anthropic model={self._model}",
+                )
             _turn_start = time.monotonic()
             if on_log:
                 on_log("info", f"Claude CU turn {turn + 1}/{turn_limit}")
@@ -530,25 +538,32 @@ class ClaudeCUClient:
             # caching is on; fall back to the plain string otherwise.
             _system_param: Any = self._system_prompt
             if self._system_prompt and _claude_caching_on():
-                _system_param = [{
-                    "type": "text",
-                    "text": self._system_prompt,
-                    "cache_control": {"type": "ephemeral"},
-                }]
+                _system_param = [
+                    {
+                        "type": "text",
+                        "text": self._system_prompt,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ]
+
             # D2: stream the turn. ``_CLAUDE_MAX_TOKENS`` (32768) exceeds the
             # SDK's ~16K non-streaming HTTP-timeout guidance, so use the beta
             # streaming context manager and resolve the terminal message — the
             # BetaMessage returned by ``get_final_message()`` is identical to
             # what ``create()`` returned, so downstream parsing is unchanged.
-            async def _stream_final():
+            async def _stream_final(
+                system=_system_param,
+                betas=_betas,
+                thinking=thinking_cfg,
+            ):
                 async with self._client.beta.messages.stream(
                     model=self._model,
                     max_tokens=_CLAUDE_MAX_TOKENS,
-                    system=_system_param,
+                    system=system,
                     tools=tools,
                     messages=messages,
-                    betas=_betas,
-                    thinking=thinking_cfg,
+                    betas=betas,
+                    thinking=thinking,
                 ) as stream:
                     return await stream.get_final_message()
 
@@ -571,8 +586,7 @@ class ClaudeCUClient:
             # assistant content and we forward them verbatim by virtue
             # of having appended ``assistant_content`` above.
             tool_uses = [b for b in assistant_content if b.type == "tool_use"]
-            text_blocks = [b.text for b in assistant_content
-                          if hasattr(b, "text") and b.text]
+            text_blocks = [b.text for b in assistant_content if hasattr(b, "text") and b.text]
             turn_text = " ".join(text_blocks)
 
             stop = response.stop_reason
@@ -591,8 +605,10 @@ class ClaudeCUClient:
                 # Emit an empty-actions tool-batch event so consumers
                 # still get a step record for this turn.
                 yield ToolBatchCompleted(
-                    turn=turn + 1, model_text=refusal_reason,
-                    results=[], screenshot_b64=None,
+                    turn=turn + 1,
+                    model_text=refusal_reason,
+                    results=[],
+                    screenshot_b64=None,
                 )
                 yield RunCompleted(final_text=refusal_reason)
                 return
@@ -601,8 +617,10 @@ class ClaudeCUClient:
                 if on_log:
                     on_log("error", "Claude context window exceeded")
                 yield ToolBatchCompleted(
-                    turn=turn + 1, model_text=final_text,
-                    results=[], screenshot_b64=None,
+                    turn=turn + 1,
+                    model_text=final_text,
+                    results=[],
+                    screenshot_b64=None,
                 )
                 yield RunCompleted(final_text=final_text)
                 return
@@ -611,13 +629,19 @@ class ClaudeCUClient:
                 if on_log:
                     on_log("warning", f"Claude stop_reason={stop}")
                 yield ToolBatchCompleted(
-                    turn=turn + 1, model_text=final_text,
-                    results=[], screenshot_b64=None,
+                    turn=turn + 1,
+                    model_text=final_text,
+                    results=[],
+                    screenshot_b64=None,
                 )
                 yield RunCompleted(final_text=final_text)
                 return
             if stop == "end_turn" or not tool_uses:
-                if (self._use_builtin_search or self._attached_file_ids) and not saw_computer_action and not nudged_for_computer_use:
+                if (
+                    (self._use_builtin_search or self._attached_file_ids)
+                    and not saw_computer_action
+                    and not nudged_for_computer_use
+                ):
                     if on_log:
                         on_log(
                             "info",
@@ -628,30 +652,36 @@ class ClaudeCUClient:
                     except Exception:
                         refreshed_screenshot = screenshot_bytes
                     refreshed_screenshot, _, _ = await asyncio.to_thread(
-                        resize_screenshot_for_claude, refreshed_screenshot, scale,
+                        resize_screenshot_for_claude,
+                        refreshed_screenshot,
+                        scale,
                     )
-                    messages.append({
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": (
-                                    "Use any planning or attached-file context to continue, but do not stop yet. "
-                                    "This app's purpose is computer use: the task is not complete until you perform "
-                                    "the requested action with the computer tool on the current screen. "
-                                    "Continue with computer actions now."
-                                ),
-                            },
-                            {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": _IMAGE_PNG,
-                                    "data": base64.standard_b64encode(refreshed_screenshot).decode(),
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": (
+                                        "Use any planning or attached-file context to continue, but do not stop yet. "
+                                        "This app's purpose is computer use: the task is not complete until you perform "
+                                        "the requested action with the computer tool on the current screen. "
+                                        "Continue with computer actions now."
+                                    ),
                                 },
-                            },
-                        ],
-                    })
+                                {
+                                    "type": "image",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": _IMAGE_PNG,
+                                        "data": base64.standard_b64encode(
+                                            refreshed_screenshot
+                                        ).decode(),
+                                    },
+                                },
+                            ],
+                        }
+                    )
                     nudged_for_computer_use = True
                     continue
                 final_text = _append_source_footer(
@@ -661,8 +691,10 @@ class ClaudeCUClient:
                 if on_log:
                     on_log("info", f"Claude CU completed: {final_text[:200]}")
                 yield ToolBatchCompleted(
-                    turn=turn + 1, model_text=turn_text,
-                    results=[], screenshot_b64=None,
+                    turn=turn + 1,
+                    model_text=turn_text,
+                    results=[],
+                    screenshot_b64=None,
                 )
                 yield RunCompleted(final_text=final_text)
                 return
@@ -686,7 +718,10 @@ class ClaudeCUClient:
             last_idx = len(tool_uses) - 1
             for idx, tu in enumerate(tool_uses):
                 result = await self._execute_claude_action(
-                    tu.input, executor, scale_factor=scale, action_id=tu.id,
+                    tu.input,
+                    executor,
+                    scale_factor=scale,
+                    action_id=tu.id,
                     include_screenshot=(idx == last_idx),
                 )
                 results.append(result)
@@ -697,7 +732,9 @@ class ClaudeCUClient:
             else:
                 screenshot_bytes = await executor.capture_screenshot()
             screenshot_bytes, _, _ = await asyncio.to_thread(
-                resize_screenshot_for_claude, screenshot_bytes, scale,
+                resize_screenshot_for_claude,
+                screenshot_bytes,
+                scale,
             )
             screenshot_b64 = base64.standard_b64encode(screenshot_bytes).decode()
 
@@ -711,24 +748,30 @@ class ClaudeCUClient:
                 if result.error:
                     content.append({"type": "text", "text": f"Error: {result.error}"})
                 if idx == last_idx:
-                    content.append({
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": _IMAGE_PNG,
-                            "data": screenshot_b64,
-                        },
-                    })
+                    content.append(
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": _IMAGE_PNG,
+                                "data": screenshot_b64,
+                            },
+                        }
+                    )
                 elif not result.error:
-                    content.append({
-                        "type": "text",
-                        "text": "[screenshot attached to the final tool result in this batch]",
-                    })
-                tool_result_parts.append({
-                    "type": "tool_result",
-                    "tool_use_id": tu.id,
-                    "content": content,
-                })
+                    content.append(
+                        {
+                            "type": "text",
+                            "text": "[screenshot attached to the final tool result in this batch]",
+                        }
+                    )
+                tool_result_parts.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tu.id,
+                        "content": content,
+                    }
+                )
 
             yield ToolBatchCompleted(
                 turn=turn + 1,
@@ -740,7 +783,10 @@ class ClaudeCUClient:
             messages.append({"role": "user", "content": tool_result_parts})
 
         if _turn_start is not None and on_log:
-            on_log("info", f"turn_duration_ms={int((time.monotonic()-_turn_start)*1000)} provider=anthropic model={self._model}")
+            on_log(
+                "info",
+                f"turn_duration_ms={int((time.monotonic() - _turn_start) * 1000)} provider=anthropic model={self._model}",
+            )
         yield RunCompleted(
             final_text=f"Claude CU reached the turn limit ({turn_limit}) without a final response."
         )
@@ -768,26 +814,35 @@ class ClaudeCUClient:
         pending_turn_text = ""
 
         async for event in self.iter_turns(
-            goal, executor, turn_limit=turn_limit, on_log=on_log,
+            goal,
+            executor,
+            turn_limit=turn_limit,
+            on_log=on_log,
         ):
             if isinstance(event, ModelTurnStarted):
                 pending_turn_text = event.model_text
             elif isinstance(event, ToolBatchCompleted):
                 if on_turn:
-                    on_turn(CUTurnRecord(
-                        turn=event.turn,
-                        model_text=event.model_text or pending_turn_text,
-                        actions=event.results,
-                        screenshot_b64=event.screenshot_b64,
-                    ))
+                    on_turn(
+                        CUTurnRecord(
+                            turn=event.turn,
+                            model_text=event.model_text or pending_turn_text,
+                            actions=event.results,
+                            screenshot_b64=event.screenshot_b64,
+                        )
+                    )
                 pending_turn_text = ""
             elif isinstance(event, RunCompleted):
                 final_text = event.final_text
         return final_text
 
     async def _execute_claude_action(
-        self, action_input: dict, executor: ActionExecutor,
-        *, scale_factor: float = 1.0, action_id: str | None = None,
+        self,
+        action_input: dict,
+        executor: ActionExecutor,
+        *,
+        scale_factor: float = 1.0,
+        action_id: str | None = None,
         include_screenshot: bool = False,
     ) -> CUActionResult:
         """Map Claude computer tool actions to executor calls.
@@ -834,13 +889,18 @@ class ClaudeCUClient:
         elif action == "type":
             text = action_input.get("text", "")
             try:
-                result = await executor.execute("type_at_cursor", {
-                    "text": text,
-                    "press_enter": False,
-                })
+                result = await executor.execute(
+                    "type_at_cursor",
+                    {
+                        "text": text,
+                        "press_enter": False,
+                    },
+                )
                 return CUActionResult(
-                    name="type", success=result.success,
-                    error=result.error, extra={"text": text},
+                    name="type",
+                    success=result.success,
+                    error=result.error,
+                    extra={"text": text},
                 )
             except Exception as exc:
                 return CUActionResult(name="type", success=False, error=str(exc))
@@ -865,9 +925,7 @@ class ClaudeCUClient:
             return await executor.execute("hover_at", args)
 
         elif action == "left_click_drag":
-            start = _upscale_coord(
-                action_input.get("start_coordinate", coord or [0, 0])
-            )
+            start = _upscale_coord(action_input.get("start_coordinate", coord or [0, 0]))
             end = _upscale_coord(action_input.get("coordinate", [0, 0]))
             args["x"], args["y"] = start[0], start[1]
             args["destination_x"], args["destination_y"] = end[0], end[1]
@@ -898,17 +956,21 @@ class ClaudeCUClient:
             # to a full-screen screenshot with a success=False note so
             # the model can still make forward progress.
             region = action_input.get("region")
-            if (not isinstance(region, (list, tuple))
-                    or len(region) != 4
-                    or not all(isinstance(v, int) for v in region)):
+            if (
+                not isinstance(region, (list, tuple))
+                or len(region) != 4
+                or not all(isinstance(v, int) for v in region)
+            ):
                 return CUActionResult(
-                    name="zoom", success=False,
+                    name="zoom",
+                    success=False,
                     error="zoom requires region=[x1, y1, x2, y2] of ints",
                 )
             x1, y1, x2, y2 = region
             if x1 >= x2 or y1 >= y2:
                 return CUActionResult(
-                    name="zoom", success=False,
+                    name="zoom",
+                    success=False,
                     error=f"zoom region is inverted or empty: {region!r}",
                 )
             sw = getattr(executor, "screen_width", None) or 0
@@ -920,21 +982,28 @@ class ClaudeCUClient:
                 y2 = max(y1 + 1, min(y2, sh))
             try:
                 return await executor.execute(
-                    "zoom", {"region": [x1, y1, x2, y2]},
+                    "zoom",
+                    {"region": [x1, y1, x2, y2]},
                 )
             except Exception as exc:
                 return CUActionResult(
-                    name="zoom", success=False,
+                    name="zoom",
+                    success=False,
                     error=f"zoom failed: {exc}",
                 )
 
         else:
-            return CUActionResult(name=action, success=False,
-                                  error=f"Unknown Claude action: {action}")
+            return CUActionResult(
+                name=action, success=False, error=f"Unknown Claude action: {action}"
+            )
 
     async def _special_click(
-        self, action: str, coord: list[int] | None, executor: ActionExecutor,
-        *, action_id: str | None = None,
+        self,
+        action: str,
+        coord: list[int] | None,
+        executor: ActionExecutor,
+        *,
+        action_id: str | None = None,
     ) -> CUActionResult:
         """Handle double_click, right_click, triple_click, and middle_click."""
         x, y = (coord[0], coord[1]) if coord else (0, 0)
@@ -945,7 +1014,6 @@ class ClaudeCUClient:
             return await executor.execute(action, click_args)
         except Exception as exc:
             return CUActionResult(name=action, success=False, error=str(exc))
-
 
 
 # ---------------------------------------------------------------------------
@@ -985,4 +1053,3 @@ def _prune_claude_context(messages: list[dict], keep_recent: int) -> None:
                 part.clear()
                 part["type"] = "text"
                 part["text"] = "[screenshot omitted]"
-
