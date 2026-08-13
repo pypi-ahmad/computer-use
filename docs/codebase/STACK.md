@@ -15,7 +15,7 @@ Bash and Windows batch wrappers support setup/development. The package is `compu
 
 ### Backend
 
-- FastAPI 0.121.0 and Uvicorn 0.35.0 expose REST, WebSocket, OpenAPI, and the production frontend bundle.
+- FastAPI 0.141.1 and Uvicorn 0.35.0 expose REST, WebSocket, OpenAPI, and the production frontend bundle.
 - Pydantic 2.13.0 defines request, response, provider, and action contracts.
 - Provider SDKs are OpenAI 2.30.0, Anthropic 0.88.0, Google Gen AI 2.7.0, and Google Auth 2.49.1 for OAuth credentials.
 - SQLite from the Python standard library stores v2 sessions, actions, events, metrics, workflows, and checkpoints in WAL mode.
@@ -23,7 +23,7 @@ Bash and Windows batch wrappers support setup/development. The package is `compu
 
 | Dependency | Version | Role in system | Evidence |
 |---|---:|---|---|
-| FastAPI | 0.121.0 | HTTP, WebSocket, OpenAPI, static bundle | `pyproject.toml:17` |
+| FastAPI | 0.141.1 | HTTP, WebSocket, OpenAPI, static bundle | `pyproject.toml:15` |
 | Pydantic | 2.13.0 | Request/domain contracts | `pyproject.toml:23` |
 | OpenAI | 2.30.0 | OpenAI provider SDK | `pyproject.toml:21` |
 | Anthropic | 0.88.0 | Anthropic provider SDK | `pyproject.toml:16` |
@@ -51,7 +51,7 @@ Bash and Windows batch wrappers support setup/development. The package is `compu
 | uv + Hatchling | Locked Python install and package build | `uv.lock`; `pyproject.toml:1-3` |
 | Ruff 0.14.4 | Python lint/format/import order | `pyproject.toml:40,42-59` |
 | mypy 1.18.2 | Python static typing | `pyproject.toml:39,61-73` |
-| pytest 8.4.2 + pytest-cov | Python tests and coverage | `pyproject.toml:37-40` |
+| pytest 9.0.3 + pytest-cov | Python tests and coverage | `pyproject.toml:31-38` |
 | Vite + TypeScript + ESLint | Frontend build and static checks | `frontend/package.json:7-12,26-34` |
 | Vitest + Testing Library | Browser component/protocol tests | `frontend/package.json:13-25,35` |
 | GitHub Actions + Trivy | CI, audits, container scan, releases | `.github/workflows/ci.yml`; `.github/workflows/release.yml` |

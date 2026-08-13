@@ -143,15 +143,16 @@ RUN arch="$(dpkg --print-architecture)" \
 # Idempotent: ``|| true`` so rebuilds with upstream removal succeed.
 RUN apt-get remove -y light-locker xfce4-screensaver xfce4-power-manager 2>/dev/null || true
 
-# Install Node.js LTS 22 for desktop tooling and optional in-container tasks.
-# Upgrade npm after the distro install so the bundled CLI packages include
-# the HIGH/CRITICAL fixes Trivy requires (tar, glob, minimatch, brace-expansion).
+# Install the Node.js 22 runtime for optional in-container scripts.
+# Remove npm/corepack so Trivy does not fail on unused CLI packages
+# (brace-expansion, ip-address) bundled with the Node installer.
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get update \
     && apt-get install -y --no-install-recommends nodejs \
-    && npm install -g npm@latest \
-    && rm -rf /var/lib/apt/lists/* /root/.npm
-RUN node -v && npm -v && npx -v
+    && rm -rf /usr/lib/node_modules/npm /usr/lib/node_modules/corepack \
+        /usr/bin/npm /usr/bin/npx /usr/bin/corepack \
+        /var/lib/apt/lists/* /root/.npm
+RUN node -v
 
 # Sandbox Python only runs agent_service.py (stdlib + optional action aliases).
 # Do not uv-sync the host workbench stack into this image; those packages are
