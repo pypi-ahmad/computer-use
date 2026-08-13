@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [3.0.3] - 2026-08-13
+
+### Fixed
+
+- Patched FastAPI/Starlette, Pillow, pypdf, python-multipart, cryptography,
+  and pytest so `pip-audit` is clean.
+- The agent-finished broadcast test matches formatted source, so the
+  Python 3.12–3.14 CI jobs pass.
+- The sandbox image keeps the Node runtime but removes npm/corepack so
+  Trivy is not blocked by unused CLI packages.
+
 ## [3.0.2] - 2026-08-13
 
 ### Fixed
