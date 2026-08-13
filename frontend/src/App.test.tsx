@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { expect, it, vi } from 'vitest'
 import App from './App'
 
-vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ data: [] }), { headers: { 'content-type': 'application/json' } })))
+vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(JSON.stringify({ data: [] }), { headers: { 'content-type': 'application/json' } }))))
 
 it('provides all five operational workspaces', async () => {
   render(<MemoryRouter><App /></MemoryRouter>)

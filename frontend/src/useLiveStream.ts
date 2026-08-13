@@ -8,14 +8,21 @@ export function useLiveStream(sessionId: string | null) {
   const [connected, setConnected] = useState(false)
   const [events, setEvents] = useState<StreamEvent[]>([])
   const [error, setError] = useState('')
+  const [activeSession, setActiveSession] = useState<string | null>(null)
   useEffect(() => {
-    if (!sessionId) { setFrameUrl(null); setConnected(false); return }
+    if (!sessionId) return
     const scheme = location.protocol === 'https:' ? 'wss' : 'ws'
     const token = getAppToken() || String(import.meta.env.VITE_WS_TOKEN ?? '').trim()
     const ws = new WebSocket(`${scheme}://${location.host}/api/v2/ws/${encodeURIComponent(sessionId)}${token ? `?token=${encodeURIComponent(token)}` : ''}`)
     ws.binaryType = 'arraybuffer'
     let currentUrl: string | null = null
-    ws.onopen = () => setConnected(true)
+    ws.onopen = () => {
+      setActiveSession(sessionId)
+      setConnected(true)
+      setFrameUrl(null)
+      setEvents([])
+      setError('')
+    }
     ws.onclose = () => setConnected(false)
     ws.onmessage = (event) => {
       if (typeof event.data === 'string') {
@@ -35,5 +42,11 @@ export function useLiveStream(sessionId: string | null) {
     }
     return () => { ws.close(); if (currentUrl) URL.revokeObjectURL(currentUrl) }
   }, [sessionId])
-  return { frameUrl, connected, events, error }
+  const live = activeSession === sessionId
+  return {
+    frameUrl: live ? frameUrl : null,
+    connected: live && connected,
+    events: live ? events : [],
+    error: live ? error : '',
+  }
 }

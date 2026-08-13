@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest'
-import { api, ApiError } from './api'
+import { api } from './api'
 
 beforeEach(() => vi.stubGlobal('fetch', vi.fn()))
 
@@ -7,8 +7,10 @@ it('creates a v2 session with credential and routing state', async () => {
   vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ id: 's1', status: 'RUNNING' }), { status: 201, headers: { 'content-type': 'application/json' } }))
   await api.createSession({ task: 'Run audit', model: 'gpt-5.6-luna', primaryRoute: 'openai-direct', fallbackRoutes: [], credentialSessionId: 'cred-1', maxSteps: 25, reasoningEffort: 'medium', safetyPolicy: 'provider_default', useBuiltinSearch: false, attachedFiles: [], retainAuditFrames: true })
   const init = vi.mocked(fetch).mock.calls[0]?.[1]
+  const body = init?.body
   expect(fetch).toHaveBeenCalledWith('/api/v2/sessions', expect.objectContaining({ method: 'POST' }))
-  expect(JSON.parse(String(init?.body))).toMatchObject({ credentialSessionId: 'cred-1', primaryRoute: 'openai-direct', fallbackRoutes: [] })
+  if (typeof body !== 'string') throw new Error('expected JSON string body')
+  expect(JSON.parse(body)).toMatchObject({ credentialSessionId: 'cred-1', primaryRoute: 'openai-direct', fallbackRoutes: [] })
 })
 
 it('surfaces the structured v2 error envelope', async () => {
