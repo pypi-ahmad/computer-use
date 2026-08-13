@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-08-13
+
+### Fixed
+
+- Windows local launcher now waits for backend health before opening the
+  dashboard, binds Vite to 127.0.0.1, starts Vite through Node instead of
+  `npm.cmd`, and rebuilds esbuild during setup so the frontend starts
+  reliably.
+
 ## [3.0.0] - 2026-08-12
 
 ### Added

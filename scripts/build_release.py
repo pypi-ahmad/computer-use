@@ -38,7 +38,7 @@ def main() -> int:
 
     for name in ("README.md", "TECHNICAL.md", "CHANGELOG.md", "LICENSE", "pyproject.toml", "uv.lock"):
         copy(ROOT / name, STAGE / name)
-    for name in ("deployment.md", "migration-v2.md", "rollback-v2.md", "release-notes-v3.0.0.md", "research-audit-2026-07-23.md"):
+    for name in ("deployment.md", "migration-v2.md", "rollback-v2.md", "release-notes-v3.0.1.md", "release-notes-v3.0.0.md", "research-audit-2026-07-23.md"):
         copy(ROOT / "docs" / name, STAGE / "docs" / name)
     copy(ROOT / "frontend" / "dist", STAGE / "frontend" / "dist")
     copy(ROOT / "backend", STAGE / "backend")
