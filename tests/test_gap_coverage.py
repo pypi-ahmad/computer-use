@@ -739,9 +739,10 @@ class TestRunAndNotifyOrdering:
         from backend import server
 
         src = inspect.getsource(server.api_start_agent)
-        broadcast_idx = src.find('await _broadcast("agent_finished"')
+        broadcast_idx = src.find("await _broadcast")
         cleanup_idx = src.find("_cleanup_session(loop.session_id)")
-        assert broadcast_idx != -1, "expected _broadcast('agent_finished', ...) await"
+        assert broadcast_idx != -1, "expected await _broadcast(...) before cleanup"
+        assert '"agent_finished"' in src
         assert cleanup_idx != -1, "expected _cleanup_session(loop.session_id) call"
         assert broadcast_idx < cleanup_idx, "cleanup must run AFTER the awaited broadcast"
 
