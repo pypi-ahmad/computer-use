@@ -374,7 +374,8 @@ def test_sandbox_python_does_not_install_the_host_workbench_stack(dockerfile: st
     assert workdir < venv
     assert "uv sync" not in dockerfile
     assert "setup_22.x" in dockerfile
-    assert "npm install -g npm@latest" in dockerfile
+    assert "/usr/lib/node_modules/npm" in dockerfile
+    assert "npm install -g" not in dockerfile
 
 
 # ---------------------------------------------------------------------------
