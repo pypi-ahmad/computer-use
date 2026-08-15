@@ -79,6 +79,18 @@ New to this codebase? Open the [interactive Zero to Hero handbook](docs/zero-to-
 
 Release publication is gated by `.github/workflows/ci.yml`: Ruff, formatting, mypy, Python 3.12–3.14 tests, evals, frontend lint/typecheck/tests/build, dependency audits, sandbox image build, and a blocking high/critical image scan. Live provider smoke tests are conditional and must be recorded in the release verification matrix; missing credentials are disclosed, never treated as a pass.
 
+## Community
+
+| Need | File |
+|---|---|
+| Test a running install or run CI-equivalent checks | [TESTING.md](TESTING.md) |
+| Report a bug | [GitHub Issues](https://github.com/pypi-ahmad/computer-use/issues/new/choose) |
+| Support / what we will not debug | [SUPPORT.md](SUPPORT.md) |
+| Contribute a change | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Security vulnerability | [SECURITY.md](SECURITY.md) |
+| Data on your machine and your responsibility | [DATA.md](DATA.md) |
+| License (open use under MIT) | [LICENSE](LICENSE) |
+
 Licensed under MIT.
 
 <p align="center">Made with ❤️ by Ahmad Mujtaba</p>

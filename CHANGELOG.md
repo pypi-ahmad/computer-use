@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Root community docs for testing, support, and operator data
+  responsibility (`TESTING.md`, `SUPPORT.md`, `DATA.md`) plus a GitHub
+  bug-report issue template.
+
 ## [3.1.0] - 2026-08-16
 
 ### Added
