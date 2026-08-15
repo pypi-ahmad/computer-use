@@ -43,9 +43,9 @@ This is different from:
   turn by turn, based on what it currently sees.
 
 The active catalog contains three native Computer Use routes: Claude Sonnet 5
-(`computer_20251124` through Anthropic Messages), GPT-5.6 Luna (the
-`computer` tool inside OpenAI Responses), and Gemini 3.6 Flash (Google
-Interactions Computer Use). Each has its own request/response shape, its own
+(`computer_20251124` through Anthropic Messages), GPT-5.6 Luna or GPT-5.6
+Terra (the `computer` tool inside OpenAI Responses), and Gemini 3.7 Flash or Gemini 3.5
+Flash-Lite (Google Interactions Computer Use). Each has its own request/response shape, its own
 coordinate convention, and its own safety-confirmation mechanics. This repo's
 core architectural bet is: **absorb every one of those differences
 into small per-provider adapters, so the rest of the system — the loop,
@@ -143,8 +143,10 @@ The v2 platform (`backend/v2/`) adds three ideas that v1 doesn't have:
   (`backend/v2/persistence.py`) instead of living only in browser memory,
   so you can inspect what happened after the fact from the Audit tab.
 
-The selected route is always one of `openai-direct` (GPT-5.6 Luna),
-`anthropic-direct` (Claude Sonnet 5), or `gemini-direct` (Gemini 3.6 Flash).
+The selected route is always one of `openai-direct` (GPT-5.6 Luna or
+GPT-5.6 Terra),
+`anthropic-direct` (Claude Sonnet 5), or `gemini-direct` (Gemini 3.7 Flash
+or Gemini 3.5 Flash-Lite).
 All three support API-key credentials; Gemini can instead use a browser OAuth
 flow whose refreshable credential remains only in the process-local vault.
 
@@ -234,7 +236,7 @@ binary frame streaming *around* that same core, not a parallel one.
 | Provider and executor | `ComputerUseEngine`, provider adapters, `DesktopExecutor`, and the sandbox are shared. |
 | Credentials | v1 resolves environment keys; v2 additionally supports process-local API-key and Google OAuth sessions. |
 | Routing and persistence | v2 adds explicit ordered fallback, circuit breaking, SQLite WAL history, and retained audit frames. |
-| Frame streaming | v1 uses `/ws`; v2 uses coalesced binary `CUAF` frames at `/api/v2/ws/{id}`. |
+| Frame streaming | v1 uses `/ws`; v2 uses coalesced binary `CUAF` frames at `/api/v2/ws/desktop` (idle sandbox) and `/api/v2/ws/{id}` (active run). |
 | Frontend | The shipped TypeScript dashboard uses only the v2 surface. |
 
 The **v1 frontend has been removed** from this snapshot (all of
@@ -249,7 +251,7 @@ there simply isn't a shipped v1 UI anymore. The current frontend
 
 ```text
 v1 caller: any HTTP client → POST /api/agent/start, WS /ws
-v2 caller: frontend/src/App.tsx → POST /api/v2/sessions, WS /api/v2/ws/{id}
+v2 caller: frontend/src/App.tsx → WS /api/v2/ws/desktop, POST /api/v2/sessions, WS /api/v2/ws/{id}
    |
    v
 FastAPI Server (backend/server/__init__.py)
@@ -279,7 +281,7 @@ FastAPI Server (backend/server/__init__.py)
 
 Realtime back-channel:
   v1: AgentLoop -> FastAPI WS broadcast (/ws) -> (no shipped v1 UI in this snapshot)
-  v2: FrameBroker (backend/v2/frames.py) -> /api/v2/ws/{id} -> useLiveStream.ts -> App.tsx
+  v2: FrameBroker (backend/v2/frames.py) -> /api/v2/ws/desktop or /api/v2/ws/{id} -> useLiveStream.ts -> App.tsx
 ```
 
 ---
@@ -293,7 +295,7 @@ Realtime back-channel:
 - **v2 services:** ordered fallback, API-key/OAuth vault, SQLite audit, frame retention, and CUAF streaming in `backend/v2/routing.py`, `credentials.py`, `persistence.py`, `retention.py`, and `frames.py`.
 - **Sandbox:** isolated desktop, allowlisted input, and token-protected action service in `docker/agent_service.py`, `docker/entrypoint.sh`, and `docker-compose.yml`.
 - **Frontend:** five-tab v2 workbench, token-aware API/WS clients, and preview decoding in `frontend/src/App.tsx`, `api.ts`, `useLiveStream.ts`, and `protocol.ts`.
-- **Tooling:** local configuration, development orchestration, and release/documentation builds in `.env.example`, `dev.py`, `setup.*`, and `scripts/`.
+- **Tooling:** local configuration, development orchestration, and release/documentation builds in `.env.example`, `run.cmd`, `dev.py`, `setup.*`, and `scripts/`.
 
 ---
 
@@ -460,9 +462,10 @@ current frontend only speaks v2. See Flow H below for the live surface.)*
 
 ### Flow H (v2 only): Live binary frame streaming
 
-1. The frontend opens `wss://.../api/v2/ws/{sessionId}` from
-   `useLiveStream.ts`, optionally appending `?token=` if
-   the session-scoped workbench token is configured from `CUA_API_TOKEN`.
+1. The frontend opens `ws://.../api/v2/ws/desktop` from
+   `useLiveStream.ts` as soon as the Live tab mounts, optionally
+   appending `?token=` if `CUA_API_TOKEN` is configured. After **Start
+   run** it reconnects to `/api/v2/ws/{sessionId}`.
 2. `v2_websocket_endpoint()` sends a `SESSION_STREAM_READY` JSON event,
    then loops: capture a frame via the shared `FrameBroker`
    (`backend/v2/frames.py` — concurrent callers share one in-flight
@@ -470,13 +473,15 @@ current frontend only speaks v2. See Flow H below for the live surface.)*
    JSON metadata event, then send the actual pixels as a binary `CUAF`
    frame (`pack_cuaf_frame()` — a fixed 30-byte header: magic, version,
    codec, sequence, width, height, timestamp, followed by the raw
-   WebP/JPEG bytes).
+   WebP/JPEG bytes). A capture failure sends `FRAME_CAPTURE_FAILED` and
+   retries instead of closing the socket.
 3. `frontend/src/protocol.ts::decodeCuafFrame()` parses that header back
    out and hands the frontend an object URL to paint into `<img>`.
-4. If audit-frame retention is enabled for the session, the canonical
-   (uncompressed) frame is also written to disk via
+4. If audit-frame retention is enabled for a real session id, the
+   canonical (uncompressed) frame is also written to disk via
    `FrameRetentionStore.put()`, hashed and content-addressed, subject to
-   the 7-day / 1 GiB eviction policy.
+   the 7-day / 1 GiB eviction policy. The idle `desktop` stream is never
+   retained.
 
 ---
 
@@ -493,14 +498,17 @@ current frontend only speaks v2. See Flow H below for the live surface.)*
 
 ### Environment setup
 
-On Windows 11, double-click `START.bat`. It installs missing Docker Desktop,
+On Windows 11, double-click `run.cmd`. It installs missing Docker Desktop,
 Node.js LTS, and uv through winget; creates `.env` if needed; generates the
-required sandbox secrets; installs locked dependencies; rebuilds esbuild;
-builds the sandbox; waits for `GET /api/health`; and opens
-`http://127.0.0.1:8505`. Vite listens on IPv4 loopback and, on Windows, is
+required sandbox secrets; installs locked dependencies only when they are
+missing; rebuilds esbuild after a fresh `npm ci`; builds the sandbox image
+only when `cua-ubuntu:latest` is absent; waits for `GET /api/health`; and
+opens `http://127.0.0.1:8505`. The Live tab should show the XFCE desktop
+without starting a run. Vite listens on IPv4 loopback and, on Windows, is
 started through Node rather than `npm.cmd`. Existing `.env` values are
-preserved. If Docker asks for a restart or initial WSL setup, complete it and
-run `START.bat` again.
+preserved. The backend loads the repository-root `.env`. If Docker asks
+for a restart or initial WSL setup, complete it and run `run.cmd` again.
+`START.bat` still always runs the full `setup.bat` bootstrap.
 
 For manual or non-Windows setup:
 
@@ -519,7 +527,7 @@ For manual or non-Windows setup:
 Windows one-click install and launch:
 
 ```powershell
-.\START.bat
+.\run.cmd
 ```
 
 Manual bootstrap and launch:

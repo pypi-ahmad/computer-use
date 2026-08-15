@@ -8,25 +8,33 @@ subscribers, frame broker, and circuit breaker are process-local. SQLite uses
 WAL for durable v2 records. The Docker sandbox is the only component allowed
 to execute OS input.
 
-On Windows, `START.bat` is the one-click entry point. It delegates prerequisite
-and dependency setup to `setup.bat` (including `npm rebuild esbuild` after a
-fresh `npm ci`), then starts `dev.py --open-browser`. `dev.py` starts the
-backend first and waits for `GET /api/health` before launching Vite. On
-Windows it starts Vite through `node .../vite/bin/vite.js` rather than
-`npm.cmd`. Vite binds `127.0.0.1` on port `8505` by default. The dashboard
-opener probes backend health, then opens `http://127.0.0.1:8505`. Shutdown is
-forwarded to both children. The normal production path builds `frontend/dist`
-and serves it from FastAPI instead.
+On Windows, `run.cmd` is the one-file entry point: it installs missing
+host tools and project dependencies, skips steps that are already done,
+then starts `dev.py --open-browser`. `START.bat` remains the always-bootstrap
+path (`setup.bat --bootstrap-only`, then `dev.bat --open-browser`). `dev.py`
+starts the backend first and waits for `GET /api/health` before launching
+Vite. On Windows it starts Vite through `node .../vite/bin/vite.js` rather
+than `npm.cmd`. Vite binds `127.0.0.1` on port `8505` by default. The
+dashboard opener probes backend health, then opens `http://127.0.0.1:8505`.
+Shutdown is forwarded to both children. The normal production path builds
+`frontend/dist` and serves it from FastAPI on port `8100`.
+
+`backend/infra/config.py` loads the repository-root `.env` (not
+`backend/.env`) so `AGENT_SERVICE_TOKEN` matches the value Compose injects
+into the sandbox. Default CORS/WebSocket origins include
+`http://127.0.0.1:8505` and `http://127.0.0.1:8100`.
 
 ## Model catalog and request path
 
-The catalog exposes exactly three executable, provider-native routes:
+The catalog exposes five Computer Use models on three executable, provider-native routes:
 
 | Model | Route | Transport |
 |---|---|---|
-| Gemini 3.6 Flash | `gemini-direct` | Google Interactions Computer Use |
+| Gemini 3.7 Flash | `gemini-direct` | Google Interactions Computer Use |
+| Gemini 3.5 Flash-Lite | `gemini-direct` | Google Interactions Computer Use |
 | Claude Sonnet 5 | `anthropic-direct` | Anthropic Messages Computer Use |
 | GPT-5.6 Luna | `openai-direct` | OpenAI Responses Computer Use |
+| GPT-5.6 Terra | `openai-direct` | OpenAI Responses Computer Use |
 
 1. `POST /api/v2/sessions` validates the selected model, compatible primary
    route, ordered explicit fallbacks, attached files, and runtime options.
@@ -49,9 +57,13 @@ route before a session starts; Gemini Computer Use sessions reject attachments.
 One frame broker coalesces screenshot demand. The canonical full frame remains
 the model input; browser previews are compressed WebP/JPEG and sent as binary
 `CUAF` frames with version, codec, sequence, dimensions, and timestamp. The
-v2 stream at `/api/v2/ws/{session_id}` sends JSON lifecycle, safety, routing,
-metric, and log events alongside frames. Slow clients keep only the latest
-pending frame.
+Live tab opens `/api/v2/ws/desktop` as soon as the dashboard loads so the
+sandbox is visible without starting a run. That preview id is not retained
+as audit frames. When a session starts, the client switches to
+`/api/v2/ws/{session_id}`, which also sends JSON lifecycle, safety, routing,
+metric, and log events. A failed screenshot keeps the socket open and retries
+instead of closing the stream. Slow clients keep only the latest pending
+frame.
 
 ## Persistence, audit, and retention
 

@@ -22,9 +22,11 @@ npm --prefix frontend run test:run
 - `tests/test_server.py`, `tests/test_v2_platform.py`, and provider-run contract tests cover HTTP/WebSocket, OAuth/credential, safety, and v2 domain contracts.
 - Other root tests cover files, infrastructure, models, executor boundaries, provider run contracts, regression fixes, and hot paths.
 - `tests/test_windows_launcher.py` covers dashboard health probing, the Vite `127.0.0.1` bind, Windows Vite spawn through Node, and `setup.bat` installer/esbuild contracts.
+- `tests/test_v2_platform.py` covers the idle `/api/v2/ws/desktop` stream (capture retry, no audit-frame retention).
+- `tests/test_infra.py` asserts the repository-root `.env` path; `tests/test_audit_fixes.py` asserts `http://127.0.0.1:8100` is an allowed WebSocket origin.
 - `tests/integration/test_gemini_live_sdk.py` is the opt-in live Gemini Interactions test.
 - `evals/test_degraded_container_startup.py` tests a degraded startup scenario offline with Docker/provider boundaries mocked.
-- `frontend/src/api.test.ts`, `frontend/src/App.test.tsx`, and `frontend/src/protocol.test.ts` cover HTTP behavior, user-visible dashboard behavior, and CUAF decoding.
+- `frontend/src/api.test.ts`, `frontend/src/App.test.tsx`, `frontend/src/protocol.test.ts`, and `frontend/src/useLiveStream.test.ts` cover HTTP behavior, the idle desktop stream, CUAF decoding, and dashboard empty-state copy.
 
 Setup is centralized in `tests/conftest.py`, `evals/conftest.py`, and `frontend/src/test/setup.ts`.
 

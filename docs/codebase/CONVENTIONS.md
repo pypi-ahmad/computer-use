@@ -43,7 +43,7 @@ Run `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy`, `npm -
 - Public enum values are upper-snake strings. v2 errors are `{error: {code, message, details, isRetryable, requestId}}`.
 - Unknown request fields are forbidden. List endpoints use `data` plus a cursor where applicable.
 - WebSocket control/lifecycle messages are JSON; preview images use the versioned binary CUAF envelope.
-- Model and route capabilities belong in `backend/models/*.json`; the supported direct catalog is intentionally limited to GPT-5.6 Luna, Claude Sonnet 5, and Gemini 3.6 Flash.
+- Model and route capabilities belong in `backend/models/*.json`; the supported direct catalog is intentionally limited to GPT-5.6 Luna, GPT-5.6 Terra, Claude Sonnet 5, Gemini 3.7 Flash, and Gemini 3.5 Flash-Lite.
 
 ## 4) Error and Logging Conventions
 

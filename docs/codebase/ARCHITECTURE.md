@@ -6,9 +6,9 @@ The project is a local, single-operator modular monolith paired with one Docker 
 
 The v2 layer is additive rather than a separate runtime: it validates and
 persists richer v2 contracts, then bridges execution into the existing
-`AgentLoop` and provider engines. Its catalog contains only GPT-5.6 Luna via
-OpenAI Responses, Claude Sonnet 5 via Anthropic Messages, and Gemini 3.6 Flash
-via Google Interactions.
+`AgentLoop` and provider engines. Its catalog contains only GPT-5.6 Luna or
+GPT-5.6 Terra via OpenAI Responses, Claude Sonnet 5 via Anthropic Messages,
+and Gemini 3.7 Flash or Gemini 3.5 Flash-Lite via Google Interactions.
 
 ## 2) System Flow
 
@@ -21,7 +21,7 @@ React dashboard -> FastAPI v2 contract -> SQLite session/coordinator -> AgentLoo
 3. The coordinator resolves process-local/environment credentials, including Google OAuth when selected, and dispatches through the v2 orchestrator into `AgentLoop` after sandbox readiness succeeds.
 4. `ComputerUseEngine` selects the native OpenAI/Anthropic/Google client; its provider loop alternates inference with canonical actions sent by `DesktopExecutor` to the token-protected sandbox service. Safety prompts pause on an in-memory nonce handshake and the dashboard can approve or deny them.
 5. v2 persists actions, metrics, events, audit frames, and terminal state; uncertain post-action failures are not replayed or failed over.
-6. The API returns/query exposes durable audit state, while WebSockets stream JSON control events and newest-only binary CUAF preview frames.
+6. The API returns/query exposes durable audit state. The dashboard opens `/api/v2/ws/desktop` immediately for the sandbox preview, then `/api/v2/ws/{session_id}` during a run. Both send newest-only binary CUAF frames; the session socket also carries JSON control events. Capture failures retry without closing the socket.
 
 ## 3) Layer/Module Responsibilities
 

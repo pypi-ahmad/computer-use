@@ -21,7 +21,7 @@
 
 - `backend/main.py` configures logging, enforces the public-bind guardrail, and launches `backend.server:app` with Uvicorn.
 - `backend/server/__init__.py` constructs the FastAPI app, registers v1/v2 HTTP and WebSocket surfaces, bridges v2 sessions to `AgentLoop`, and optionally serves `frontend/dist`.
-- `START.bat` and `setup.bat` are the Windows install/launch path. After a fresh `npm ci`, setup rebuilds esbuild.
+- `run.cmd` is the one-file Windows setup-if-needed launcher. `START.bat` and `setup.bat` remain the always-bootstrap path. After a fresh `npm ci`, setup rebuilds esbuild.
 - `dev.py`, `dev.bat`, and `dev.sh` coordinate the local Docker sandbox, backend, and Vite development server. On Windows, `dev.py` waits for `GET /api/health`, then starts Vite through Node on `127.0.0.1`.
 - `frontend/src/main.tsx` mounts the React application; `frontend/src/App.tsx` owns the five routes/views.
 - `docker/entrypoint.sh` starts the virtual desktop services and `docker/agent_service.py` inside the sandbox.

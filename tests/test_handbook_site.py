@@ -64,7 +64,14 @@ def test_generated_handbook_is_offline_and_internally_linked() -> None:
     assert 'data-track="technical"' in content
     assert 'data-track="business"' in content
     assert all(
-        model in content for model in ("GPT-5.6 Luna", "Claude Sonnet 5", "Gemini 3.6 Flash")
+        model in content
+        for model in (
+            "GPT-5.6 Luna",
+            "GPT-5.6 Terra",
+            "Claude Sonnet 5",
+            "Gemini 3.7 Flash",
+            "Gemini 3.5 Flash-Lite",
+        )
     )
     assert "<script src=" not in content
     assert '<link rel="stylesheet"' not in content

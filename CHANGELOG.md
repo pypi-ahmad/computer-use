@@ -4,6 +4,37 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `run.cmd`, a single Windows file that installs missing host tools and
+  project dependencies, then starts the workbench. Already-present
+  tools, `cua-ubuntu:latest`, and a working Vite install are skipped.
+- The Live tab streams the sandbox desktop on `/api/v2/ws/desktop`
+  before any run starts.
+
+### Fixed
+
+- The backend loads the repository-root `.env`, so `AGENT_SERVICE_TOKEN`
+  matches the sandbox and screenshots no longer return `401`.
+- Default CORS/WebSocket origins include `http://127.0.0.1:8100` so the
+  production bundle can open the live stream.
+- A failed screenshot keeps the v2 frame socket open and retries.
+
+### Changed
+
+- Replaced Gemini 3.6 Flash with Gemini 3.7 Flash as the default Google
+  Computer Use model.
+- Added Gemini 3.5 Flash-Lite as a second selectable Gemini Computer Use
+  model on the existing `gemini-direct` route.
+- Added GPT-5.6 Terra as a second selectable OpenAI Computer Use model on
+  `openai-direct`. GPT-5.6 Luna remains the default.
+- OpenAI Computer Use now holds click/drag/move/scroll modifier `keys`,
+  accepts drag paths as `{x,y}` objects or `[x,y]` pairs, and optionally
+  restricts navigation with `CUA_ALLOWED_NAV_HOSTS`.
+- Claude Computer Use accepts official `left_click`, holds click/scroll
+  modifiers (`key` / `text`), accepts `scroll_direction`/`scroll_amount`,
+  and sends X11 `display_number` from `DISPLAY`.
+
 ## [3.0.3] - 2026-08-13
 
 ### Fixed
