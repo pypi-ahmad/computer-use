@@ -516,7 +516,7 @@ async def create_session(payload: SessionInput, request: Request) -> dict[str, A
                     api_key=raw_key or None,
                     max_steps=payload.max_steps,
                     reasoning_effort=payload.reasoning_effort
-                    if selected_model.family == "OPENAI"
+                    if selected_model.family in {"OPENAI", "GEMINI"}
                     else None,
                     oauth_credentials=oauth_credentials,
                     quota_project_id=quota_project_id,
@@ -694,6 +694,20 @@ def analytics(
     session_id: str | None = None, model: str | None = None, route: str | None = None
 ) -> dict[str, Any]:
     return _store().analytics(session_id=session_id, model=model, route=route)
+
+
+@router.get("/desktop")
+def desktop() -> dict[str, str]:
+    params = {
+        "autoconnect": "1",
+        "reconnect": "1",
+        "resize": "scale",
+        "path": "vnc/websockify",
+    }
+    password = os.getenv("VNC_PASSWORD", "").strip()
+    if password:
+        params["password"] = password
+    return {"viewerUrl": f"/vnc/vnc.html?{urlencode(params)}"}
 
 
 @router.get("/diagnostics")

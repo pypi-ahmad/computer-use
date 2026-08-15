@@ -143,9 +143,17 @@ def test_vite_listens_on_the_same_address_the_launcher_opens() -> None:
     vite_config = (ROOT / "frontend" / "vite.config.ts").read_text(encoding="utf-8")
 
     assert "host: '127.0.0.1'" in vite_config
+    assert "'/vnc'" in vite_config
 
 
 def test_windows_starts_vite_without_an_interactive_batch_wrapper() -> None:
     launcher = (ROOT / "dev.py").read_text(encoding="utf-8")
 
     assert 'FRONTEND_DIR / "node_modules" / "vite" / "bin" / "vite.js"' in launcher
+
+
+def test_compose_restart_waits_for_sandbox_health() -> None:
+    launcher = (ROOT / "dev.py").read_text(encoding="utf-8")
+
+    assert '"--wait"' in launcher
+    assert '"--wait-timeout"' in launcher

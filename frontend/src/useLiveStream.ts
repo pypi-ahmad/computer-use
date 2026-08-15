@@ -3,24 +3,24 @@ import { decodeCuafFrame } from './protocol'
 import type { StreamEvent } from './types'
 import { getAppToken } from './api'
 
+export const DESKTOP_STREAM_ID = 'desktop'
+
 export function useLiveStream(sessionId: string | null) {
   const [frameUrl, setFrameUrl] = useState<string | null>(null)
   const [connected, setConnected] = useState(false)
   const [events, setEvents] = useState<StreamEvent[]>([])
   const [error, setError] = useState('')
   const [activeSession, setActiveSession] = useState<string | null>(null)
+  const streamId = sessionId ?? DESKTOP_STREAM_ID
   useEffect(() => {
-    if (!sessionId) return
     const scheme = location.protocol === 'https:' ? 'wss' : 'ws'
     const token = getAppToken() || String(import.meta.env.VITE_WS_TOKEN ?? '').trim()
-    const ws = new WebSocket(`${scheme}://${location.host}/api/v2/ws/${encodeURIComponent(sessionId)}${token ? `?token=${encodeURIComponent(token)}` : ''}`)
+    const ws = new WebSocket(`${scheme}://${location.host}/api/v2/ws/${encodeURIComponent(streamId)}${token ? `?token=${encodeURIComponent(token)}` : ''}`)
     ws.binaryType = 'arraybuffer'
     let currentUrl: string | null = null
     ws.onopen = () => {
-      setActiveSession(sessionId)
+      setActiveSession(streamId)
       setConnected(true)
-      setFrameUrl(null)
-      setEvents([])
       setError('')
     }
     ws.onclose = () => setConnected(false)
@@ -40,9 +40,14 @@ export function useLiveStream(sessionId: string | null) {
         currentUrl = next; setFrameUrl(next)
       } catch { setError('The session stream sent a malformed frame.') }
     }
-    return () => { ws.close(); if (currentUrl) URL.revokeObjectURL(currentUrl) }
-  }, [sessionId])
-  const live = activeSession === sessionId
+    return () => {
+      ws.close()
+      if (currentUrl) URL.revokeObjectURL(currentUrl)
+      setFrameUrl(null)
+      setConnected(false)
+    }
+  }, [streamId])
+  const live = activeSession === streamId
   return {
     frameUrl: live ? frameUrl : null,
     connected: live && connected,
