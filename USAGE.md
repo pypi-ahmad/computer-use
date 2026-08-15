@@ -760,7 +760,7 @@ For a deeper look at the runtime contracts and module boundaries, read
 `TECHNICAL.md` or the [Zero to Hero Study Handbook](docs/zero-to-hero-study-handbook.md).
 For prompt patterns, read `docs/computer-use-prompt-guide.md`. For
 changelog and release notes, read `CHANGELOG.md` and
-`docs/release-notes-v3.0.3.md`.
+`docs/release-notes-v3.1.0.md`.
 
 ## Appendix A — Operating Patterns
 

@@ -49,6 +49,7 @@ def main() -> int:
         "deployment.md",
         "migration-v2.md",
         "rollback-v2.md",
+        "release-notes-v3.1.0.md",
         "release-notes-v3.0.3.md",
         "release-notes-v3.0.2.md",
         "release-notes-v3.0.1.md",
@@ -60,7 +61,7 @@ def main() -> int:
     copy(ROOT / "backend", STAGE / "backend")
     copy(ROOT / "docker", STAGE / "docker")
     copy(ROOT / "docker-compose.yml", STAGE / "docker-compose.yml")
-    for name in ("setup.bat", "setup.sh", "dev.bat", "dev.sh", "dev.py", ".env.example"):
+    for name in ("setup.bat", "setup.sh", "dev.bat", "dev.sh", "dev.py", "run.cmd", ".env.example"):
         copy(ROOT / name, STAGE / name)
     copy(
         ROOT / "backend" / "models" / "computer_use_models.v2.json",
