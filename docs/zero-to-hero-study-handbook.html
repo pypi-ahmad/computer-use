@@ -215,14 +215,14 @@ dialog::backdrop { background: rgb(5 12 17 / 70%); backdrop-filter: blur(4px); }
       <button type="button" data-track="business" aria-pressed="false">Business</button>
     </div>
     <section class="nav-group"><h2>Start here</h2><a class="nav-link" href="#doc-overview" data-audiences="all"><span>Repository overview</span><small>Purpose, supported routes, quick start, and verification status.</small></a><a class="nav-link" href="#doc-business" data-audiences="business"><span>Business guide</span><small>Capabilities, pilot design, controls, measures, and go/no-go questions.</small></a></section><section class="nav-group"><h2>Operate</h2><a class="nav-link" href="#doc-user-manual" data-audiences="user technical"><span>Complete user manual</span><small>Installation, dashboard operation, credentials, safety, APIs, and troubleshooting.</small></a><a class="nav-link" href="#doc-prompt-guide" data-audiences="user technical"><span>Prompt-writing guide</span><small>Write tasks that are bounded, observable, and easier to verify.</small></a><a class="nav-link" href="#doc-deployment" data-audiences="user technical business"><span>Deployment guide</span><small>Local operation, public binding, persistence, backup, and rollback preparation.</small></a></section><section class="nav-group"><h2>Understand</h2><a class="nav-link" href="#doc-handbook" data-audiences="technical user"><span>Zero to Hero technical handbook</span><small>Computer Use theory, architecture, execution flows, and study exercises.</small></a><a class="nav-link" href="#doc-technical" data-audiences="technical"><span>Technical architecture</span><small>Current runtime boundaries, public contracts, authentication, and quality gates.</small></a><a class="nav-link" href="#doc-architecture" data-audiences="technical business"><span>Architecture map</span><small>Verified layers, runtime flow, patterns, and architectural risks.</small></a><a class="nav-link" href="#doc-structure" data-audiences="technical"><span>Repository structure</span><small>Entry points, module boundaries, directories, and naming organization.</small></a><a class="nav-link" href="#doc-stack" data-audiences="technical business"><span>Technology stack</span><small>Runtime, dependencies, infrastructure, toolchain, and configuration.</small></a><a class="nav-link" href="#doc-integrations" data-audiences="technical business"><span>Integrations</span><small>Provider APIs, local stores, credentials, reliability, and observability.</small></a><a class="nav-link" href="#doc-conventions" data-audiences="technical"><span>Engineering conventions</span><small>Naming, formatting, contracts, errors, logging, and testing discipline.</small></a></section><section class="nav-group"><h2>Trust and verify</h2><a class="nav-link" href="#doc-security" data-audiences="all"><span>Security policy</span><small>Supported versions and responsible vulnerability reporting.</small></a><a class="nav-link" href="#doc-testing" data-audiences="technical business"><span>Testing and quality</span><small>Test layers, commands, isolation strategy, and known coverage gaps.</small></a><a class="nav-link" href="#doc-concerns" data-audiences="technical business"><span>Known concerns</span><small>Prioritized risks, privacy watchpoints, and change discipline.</small></a></section><section class="nav-group"><h2>Evidence and history</h2><a class="nav-link" href="#doc-migration" data-audiences="technical"><span>v2 migration</span><small>Contract and operational migration guidance.</small></a><a class="nav-link" href="#doc-rollback" data-audiences="technical business"><span>v2 rollback</span><small>Rollback triggers, procedure, and verification.</small></a><a class="nav-link" href="#doc-release" data-audiences="all"><span>v3.0.3 release notes</span><small>Current patch scope, dependency audit, and remaining CI gates.</small></a><a class="nav-link" href="#doc-release-v302" data-audiences="all"><span>v3.0.2 release notes</span><small>Historical v3.0.2 CI and sandbox notes.</small></a><a class="nav-link" href="#doc-release-v301" data-audiences="all"><span>v3.0.1 release notes</span><small>Historical v3.0.1 Windows launcher fixes.</small></a><a class="nav-link" href="#doc-release-v3" data-audiences="all"><span>v3.0.0 release notes</span><small>Historical v3.0.0 release scope.</small></a><a class="nav-link" href="#doc-release-v2" data-audiences="all"><span>v2.0.0 release notes</span><small>Historical v2 release scope.</small></a><a class="nav-link" href="#doc-research" data-audiences="technical business"><span>Provider research audit</span><small>Dated evidence behind the supported provider catalog.</small></a><a class="nav-link" href="#doc-gemini-evaluation" data-audiences="technical business"><span>Gemini successor checklist</span><small>Acceptance criteria for future Gemini route changes.</small></a></section>
-    <p class="build-note">Offline build · source fingerprint b7237f058fa7</p>
+    <p class="build-note">Offline build · source fingerprint cc9487893107</p>
   </nav>
   <main class="content" id="main-content">
     <section class="hero" aria-labelledby="hero-title">
       <p class="eyebrow">Local AI operator workbench · Complete manual</p>
       <h1 id="hero-title">From first run to full system understanding.</h1>
       <p class="hero-lede">Learn to operate, evaluate, and extend a provider-native Computer Use agent. Choose a reading track, then follow the verified source all the way from a task prompt to an audited sandbox action.</p>
-      <div class="route-status" aria-label="Supported model routes"><span>GPT-5.6 Luna</span><span>Claude Sonnet 5</span><span>Gemini 3.6 Flash</span></div>
+      <div class="route-status" aria-label="Supported model routes"><span>GPT-5.6 Luna</span><span>GPT-5.6 Terra</span><span>Claude Sonnet 5</span><span>Gemini 3.7 Flash</span><span>Gemini 3.5 Flash-Lite</span></div>
       <div class="track-route" data-track-route="user"><a href="#doc-overview"><span>1</span>Repository overview</a><a href="#doc-user-manual"><span>2</span>Complete user manual</a><a href="#doc-prompt-guide"><span>3</span>Prompt-writing guide</a><a href="#doc-deployment"><span>4</span>Deployment guide</a></div><div class="track-route" data-track-route="technical"><a href="#doc-handbook"><span>1</span>Zero to Hero technical handbook</a><a href="#doc-technical"><span>2</span>Technical architecture</a><a href="#doc-architecture"><span>3</span>Architecture map</a><a href="#doc-structure"><span>4</span>Repository structure</a><a href="#doc-testing"><span>5</span>Testing and quality</a></div><div class="track-route" data-track-route="business"><a href="#doc-business"><span>1</span>Business guide</a><a href="#doc-security"><span>2</span>Security policy</a><a href="#doc-concerns"><span>3</span>Known concerns</a><a href="#doc-deployment"><span>4</span>Deployment guide</a></div>
     </section>
     <section class="trace-panel" aria-labelledby="trace-title">
@@ -244,28 +244,30 @@ service and does not make model actions safe by itself.</p>
 <section id="overview-supported-execution-routes" class="level2">
 <h2>Supported execution routes</h2>
 <p>The workbench exposes exactly three direct provider-native routes:
-GPT-5.6 Luna through OpenAI Responses, Claude Sonnet 5 through Anthropic
-Messages, and Gemini 3.6 Flash through Google Interactions. All three
-accept API keys; Gemini also supports browser OAuth through the v2
-Provider Manager.</p>
+GPT-5.6 Luna or GPT-5.6 Terra through OpenAI Responses, Claude Sonnet 5
+through Anthropic Messages, and Gemini 3.7 Flash or Gemini 3.5
+Flash-Lite through Google Interactions. All three accept API keys;
+Gemini also supports browser OAuth through the v2 Provider Manager.</p>
 <p>The dated model and deprecation evidence is in <a
 href="#doc-research">the July 23 research
 audit</a>.</p>
 </section>
 <section id="overview-quick-start" class="level2">
 <h2>Quick start</h2>
-<p>On Windows 11, double-click <code>START.bat</code>. It installs
-missing Docker Desktop, Node.js LTS, and <a
-href="https://docs.astral.sh/uv/">uv</a> through winget, creates safe
-local sandbox credentials, installs locked project dependencies,
-rebuilds esbuild, starts the stack, waits for
-<code>GET /api/health</code>, and opens
-<code>http://127.0.0.1:8505</code>. Vite listens on IPv4 loopback so
+<p>On Windows 11, double-click <code>run.cmd</code>. That single file
+installs anything that is missing (Docker Desktop, Node.js LTS, <a
+href="https://docs.astral.sh/uv/">uv</a>, Python 3.12, locked
+Python/frontend dependencies, and the sandbox image), then starts the
+stack, waits for <code>GET /api/health</code>, and opens
+<code>http://127.0.0.1:8505</code>. Already-present tools,
+<code>cua-ubuntu:latest</code>, and a working Vite install are skipped.
+<code>START.bat</code> still exists and always runs the full
+<code>setup.bat</code> bootstrap first. Vite listens on IPv4 loopback so
 that address matches the URL the launcher opens. Normal Windows
 installer or UAC prompts may appear; if Docker requests a restart,
-restart and double-click the file again.</p>
+restart and run <code>run.cmd</code> again.</p>
 <div class="sourceCode" id="overview-cb1"><pre
-class="sourceCode powershell"><code class="sourceCode powershell"><span id="overview-cb1-1"><a href="#overview-cb1-1" aria-hidden="true" tabindex="-1"></a><span class="op">.</span>\<span class="fu">START</span><span class="op">.</span><span class="fu">bat</span></span></code></pre></div>
+class="sourceCode powershell"><code class="sourceCode powershell"><span id="overview-cb1-1"><a href="#overview-cb1-1" aria-hidden="true" tabindex="-1"></a><span class="op">.</span>\run<span class="op">.</span><span class="fu">cmd</span></span></code></pre></div>
 <p>For manual or non-Windows setup, install Docker, Node.js 22+, and uv,
 then use the commands in <a href="#doc-user-manual">USAGE.md</a>. Provider API
 keys or Google OAuth can be configured in the v2 Provider Manager.
@@ -291,8 +293,12 @@ see <a href="#doc-user-manual">USAGE.md</a>.</p>
 </thead>
 <tbody>
 <tr>
+<td><code>run.cmd</code></td>
+<td>One-file Windows setup-if-needed, then launch the app</td>
+</tr>
+<tr>
 <td><code>START.bat</code></td>
-<td>Install missing Windows dependencies and launch the app</td>
+<td>Always bootstrap through <code>setup.bat</code>, then launch</td>
 </tr>
 <tr>
 <td><code>uv sync --frozen</code></td>
@@ -355,8 +361,9 @@ or one GiB by default.</li>
 <li>The sandbox is an isolated Ubuntu/XFCE container exposing
 authenticated screenshot and input endpoints.</li>
 <li>React consumes camelCase contracts and the <code>CUAF</code>
-binary-frame protocol, and exposes providers, live sessions, audit
-export, workflows, and analytics.</li>
+binary-frame protocol. The Live tab streams the sandbox desktop
+immediately on <code>/api/v2/ws/desktop</code>, then switches to
+<code>/api/v2/ws/{session_id}</code> for an active run.</li>
 </ul>
 <p>See <a href="#doc-technical">TECHNICAL.md</a>, <a
 href="#doc-release">v3.0.3 release notes</a>, <a
@@ -403,14 +410,16 @@ it operating an isolated desktop, approve sensitive actions, and review
 what happened afterward. It supports three direct provider-native
 routes:</p>
 <ul>
-<li>GPT-5.6 Luna through OpenAI Responses.</li>
+<li>GPT-5.6 Luna or GPT-5.6 Terra through OpenAI Responses.</li>
 <li>Claude Sonnet 5 through Anthropic Messages.</li>
-<li>Gemini 3.6 Flash through Google Interactions.</li>
+<li>Gemini 3.7 Flash or Gemini 3.5 Flash-Lite through Google
+Interactions.</li>
 </ul>
-<p>The current release is v3.0.3. On Windows 11, <code>START.bat</code>
-installs prerequisites, starts the local stack, and opens the dashboard
-at <code>http://127.0.0.1:8505</code> after the backend health check
-succeeds.</p>
+<p>The current release is v3.0.3. On Windows 11, <code>run.cmd</code>
+installs anything missing, starts the local stack, and opens the
+dashboard at <code>http://127.0.0.1:8505</code> after the backend health
+check succeeds. The Live tab shows the isolated desktop as soon as the
+sandbox is ready; a run is not required to see the screen.</p>
 <p>The practical value is not “AI that can do everything.” The useful
 capability is operating software that lacks a stable API, spans several
 visual steps, or still requires human judgment at checkpoints. The
@@ -435,7 +444,8 @@ directly on the host workstation.</td>
 </tr>
 <tr>
 <td>Live session view</td>
-<td>An operator can watch the task and stop the session.</td>
+<td>An operator sees the sandbox desktop immediately and can stop a
+running task.</td>
 </tr>
 <tr>
 <td>Safety policies</td>
@@ -860,21 +870,25 @@ independently authenticated reverse proxy in front of the workbench.</p>
 <div class="sourceCode" id="user-manual-cb1"><pre
 class="sourceCode powershell"><code class="sourceCode powershell"><span id="user-manual-cb1-1"><a href="#user-manual-cb1-1" aria-hidden="true" tabindex="-1"></a>git clone https<span class="op">://</span>github<span class="op">.</span><span class="fu">com</span><span class="op">/</span>pypi-ahmad<span class="op">/</span>computer-use<span class="op">.</span><span class="fu">git</span></span>
 <span id="user-manual-cb1-2"><a href="#user-manual-cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">cd</span> computer-use</span>
-<span id="user-manual-cb1-3"><a href="#user-manual-cb1-3" aria-hidden="true" tabindex="-1"></a><span class="op">.</span>\<span class="fu">START</span><span class="op">.</span><span class="fu">bat</span></span></code></pre></div>
-<p>On Windows 11, <code>START.bat</code> is both the first-run installer
-and the daily launcher. It uses exact winget packages to install missing
-Docker Desktop, Node.js LTS, and uv; creates <code>.env</code> when
-absent; generates the required local sandbox secrets without printing or
-replacing existing values; installs locked Python/frontend dependencies;
-rebuilds esbuild after <code>npm ci</code>; builds the Docker image with
-cache; starts <code>dev.py --open-browser</code>; waits for
+<span id="user-manual-cb1-3"><a href="#user-manual-cb1-3" aria-hidden="true" tabindex="-1"></a><span class="op">.</span>\run<span class="op">.</span><span class="fu">cmd</span></span></code></pre></div>
+<p>On Windows 11, <code>run.cmd</code> is the one-file first-run
+installer and daily launcher. It uses exact winget packages to install
+missing Docker Desktop, Node.js LTS, and uv; creates <code>.env</code>
+when absent; generates the required local sandbox secrets without
+printing or replacing existing values; installs locked Python/frontend
+dependencies only when they are missing; rebuilds esbuild after a fresh
+<code>npm ci</code>; builds the Docker image only when
+<code>cua-ubuntu:latest</code> is absent; starts
+<code>dev.py --open-browser</code>; waits for
 <code>GET /api/health</code>; and then opens
-<code>http://127.0.0.1:8505</code>. On Windows, Vite is started through
-Node (<code>node .../vite/bin/vite.js</code>) rather than
+<code>http://127.0.0.1:8505</code>. <code>START.bat</code> still exists
+and always runs <code>setup.bat --bootstrap-only</code> first (including
+a cached <code>docker compose build</code>). On Windows, Vite is started
+through Node (<code>node .../vite/bin/vite.js</code>) rather than
 <code>npm.cmd</code>, and it listens on <code>127.0.0.1</code>. Normal
 installer/UAC prompts may appear. If Docker Desktop requires a restart
-or initial WSL setup, complete it and double-click
-<code>START.bat</code> again.</p>
+or initial WSL setup, complete it and run <code>run.cmd</code>
+again.</p>
 <p>Provider credentials are not generated. Enter an OpenAI, Anthropic,
 or Google API key in the Provider Manager, or configure Google
 OAuth.</p>
@@ -926,17 +940,29 @@ SCREEN_HEIGHT=900
 MAX_STEPS=50</code></pre>
 <p><code>AGENT_SERVICE_TOKEN</code> and <code>VNC_PASSWORD</code> are
 required sandbox secrets — generate real random values, don't leave them
-blank or copy an example. If you intend to bind the backend to a
-non-loopback address, also set <code>CUA_ALLOW_PUBLIC_BIND=1</code> and
+blank or copy an example. The backend loads this file from the
+<strong>repository root</strong> (next to
+<code>docker-compose.yml</code>), not from <code>backend/.env</code>. If
+the token in <code>.env</code> does not match the value Compose passed
+into the container, screenshots return <code>401</code> and the viewport
+stays blank. If you intend to bind the backend to a non-loopback
+address, also set <code>CUA_ALLOW_PUBLIC_BIND=1</code> and
 <code>CUA_API_TOKEN=&lt;secret&gt;</code>; without both, the process
 refuses to start when <code>HOST != 127.0.0.1</code>.</p>
 </section>
 </section>
 <section id="user-manual-first-run" class="level2">
 <h2>First Run</h2>
-<p><code>START.bat</code> opens <code>http://127.0.0.1:8505</code> after
-backend health succeeds. If the browser does not open, go there
-manually. On the <strong>Live session</strong> tab, type:</p>
+<p><code>run.cmd</code> (or <code>START.bat</code>) opens
+<code>http://127.0.0.1:8505</code> after backend health succeeds. If the
+browser does not open, go there manually. The <strong>Live
+session</strong> viewport should show the sandbox XFCE desktop within a
+few seconds — you do not need to start a run first. The header reads
+<strong>Stream linked</strong> once <code>/api/v2/ws/desktop</code> is
+connected. If the viewport stays on <strong>Connecting to
+sandbox</strong> or never shows a desktop, see <a
+href="#user-manual-troubleshooting">Troubleshooting</a>.</p>
+<p>Then type a local smoke-test task:</p>
 <blockquote>
 <p>Open the file manager. Stop when the file manager window is
 visible.</p>
@@ -945,13 +971,12 @@ visible.</p>
 smoke test of screenshot capture, action dispatch, and the live stream
 end to end. If the viewport shows the file manager opening and the
 session status badge reaches <code>COMPLETED</code>, the install is
-working. If the run fails before the first frame appears, see <a
-href="#user-manual-troubleshooting">Troubleshooting</a>.</p>
+working.</p>
 </section>
 <section id="user-manual-daily-operation" class="level2">
 <h2>Daily Operation</h2>
 <div class="sourceCode" id="user-manual-cb6"><pre
-class="sourceCode powershell"><code class="sourceCode powershell"><span id="user-manual-cb6-1"><a href="#user-manual-cb6-1" aria-hidden="true" tabindex="-1"></a><span class="op">.</span>\<span class="fu">START</span><span class="op">.</span><span class="fu">bat</span>      <span class="co"># Windows: verify dependencies, launch, and open the UI</span></span></code></pre></div>
+class="sourceCode powershell"><code class="sourceCode powershell"><span id="user-manual-cb6-1"><a href="#user-manual-cb6-1" aria-hidden="true" tabindex="-1"></a><span class="op">.</span>\run<span class="op">.</span><span class="fu">cmd</span>        <span class="co"># Windows: setup if needed, launch, and open the UI</span></span></code></pre></div>
 <div class="sourceCode" id="user-manual-cb7"><pre
 class="sourceCode bash"><code class="sourceCode bash"><span id="user-manual-cb7-1"><a href="#user-manual-cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> dev.sh           <span class="co"># Linux/macOS</span></span></code></pre></div>
 <p>then use <code>http://127.0.0.1:8505</code>. Vite listens on IPv4
@@ -973,10 +998,15 @@ provider/transport actually executes the model — see <a
 href="#user-manual-provider-model-and-routing">Provider, Model, and
 Routing</a>). Below that, a <strong>Start run</strong> button, or
 <strong>Stop run</strong> once one is active.</li>
-<li><strong>Right (Viewport):</strong> the live screenshot the model
-itself is seeing, updated in real time over a binary WebSocket stream.
-Above it, a five-stage pipeline indicator (capture → encode → infer →
-validate → act) highlights whichever stage the current turn is in.</li>
+<li><strong>Right (Viewport):</strong> the live sandbox desktop. The
+dashboard opens <code>/api/v2/ws/desktop</code> as soon as the page
+loads, so you see XFCE before any run. After <strong>Start run</strong>,
+the client switches to <code>/api/v2/ws/{session_id}</code> and the same
+viewport shows what the model is seeing. Above it, a five-stage pipeline
+indicator (capture → encode → infer → validate → act) highlights
+whichever stage the current turn is in. The header reads <strong>Stream
+linked</strong> when the WebSocket is up, or <strong>Stream
+idle</strong> while it is connecting.</li>
 </ul>
 <p>If the model raises a safety-sensitive action, an amber "Approval
 required" banner appears above the viewport with the provider's
@@ -1056,12 +1086,12 @@ another over time.</p>
 <h2>Provider, Model, and Routing</h2>
 <p><strong>Provider</strong> = which company's AI you're using (OpenAI,
 Anthropic, or Google). <strong>Model</strong> = the provider-native
-Computer Use model. This release exposes only GPT-5.6 Luna, Claude
-Sonnet 5, and Gemini 3.6 Flash. <strong>Route</strong> = the direct
-technical path used to reach that provider: <code>openai-direct</code>,
-<code>anthropic-direct</code>, or <code>gemini-direct</code>.
-Cloud-intermediary and older preview-model routes are not catalogued or
-selectable.</p>
+Computer Use model. This release exposes only GPT-5.6 Luna, GPT-5.6
+Terra, Claude Sonnet 5, Gemini 3.7 Flash, and Gemini 3.5 Flash-Lite.
+<strong>Route</strong> = the direct technical path used to reach that
+provider: <code>openai-direct</code>, <code>anthropic-direct</code>, or
+<code>gemini-direct</code>. Cloud-intermediary and older preview-model
+routes are not catalogued or selectable.</p>
 <p>When you start a Live session, you pick a <strong>primary
 route</strong>. If you don't pick one, the app defaults to the first
 route the model exposes. There is no automatic "pick the
@@ -1395,9 +1425,11 @@ operators usually need.</p>
 <tr>
 <td><code>CORS_ORIGINS</code></td>
 <td><code>127.0.0.1</code>/<code>localhost</code> on <code>8505</code>,
-<code>5173</code>, and <code>3000</code></td>
-<td>Comma-separated allowlist. The development dashboard origin is
-<code>http://127.0.0.1:8505</code>.</td>
+<code>8100</code>, <code>5173</code>, and <code>3000</code></td>
+<td>Comma-separated allowlist. Dev UI is
+<code>http://127.0.0.1:8505</code>; the production bundle served by
+FastAPI is <code>http://127.0.0.1:8100</code>. Both origins must be
+allowed or the live stream gets <code>403</code>.</td>
 </tr>
 </tbody>
 </table>
@@ -1561,10 +1593,35 @@ reinstall with <code>uv sync --frozen</code>.</p>
 </section>
 <section id="user-manual-frontend-will-not-start" class="level3">
 <h3>Frontend will not start</h3>
-<p>On Windows, use <code>START.bat</code> or <code>dev.py</code>. Those
+<p>On Windows, use <code>run.cmd</code> or <code>dev.py</code>. Those
 wait for backend health and start Vite through Node. Do not use
 <code>npm run dev</code> as the daily launcher; <code>npm.cmd</code> can
 leave an interactive wrapper that never releases the process.</p>
+</section>
+<section
+id="user-manual-viewport-says-connecting-to-sandbox-or-never-shows-a-desktop"
+class="level3">
+<h3>Viewport says "Connecting to sandbox" or never shows a desktop</h3>
+<p>The Live tab streams <code>/api/v2/ws/desktop</code> without starting
+a run. Check, in order:</p>
+<ol type="1">
+<li>The sandbox is up:
+<code>docker ps --filter name=cua-environment</code> should show
+<code>healthy</code>. If not, <code>docker compose up -d</code> and wait
+~30 seconds.</li>
+<li>The agent service answers:
+<code>curl http://127.0.0.1:9222/health</code>.</li>
+<li>The backend loaded the root <code>.env</code>. A log line
+<code>Agent service rejected request (token mismatch)</code> or repeated
+<code>401 Unauthorized</code> on <code>/screenshot</code> means restart
+the backend after confirming <code>AGENT_SERVICE_TOKEN</code> in the
+repo-root <code>.env</code> matches
+<code>docker exec cua-environment printenv AGENT_SERVICE_TOKEN</code>.</li>
+<li>You are using <code>http://127.0.0.1:8505</code> (dev) or
+<code>http://127.0.0.1:8100</code> (production bundle). A WebSocket
+<code>403</code> means the page origin is not on the CORS
+allowlist.</li>
+</ol>
 <p>If <code>node_modules</code> is missing or esbuild is broken after
 <code>npm ci</code>:</p>
 <div class="sourceCode" id="user-manual-cb19"><pre
@@ -1754,7 +1811,11 @@ count.</li>
 or a 6000px long edge are downscaled before upload; returned pixel
 coordinates are remapped back to real screen space automatically.</li>
 <li><strong>Reasoning effort defaults.</strong>
-<code>gpt-5.6-luna</code> defaults to <code>medium</code>.</li>
+<code>gpt-5.6-luna</code> and <code>gpt-5.6-terra</code> default to
+<code>medium</code>.</li>
+<li><strong>Navigation hosts.</strong> Set
+<code>CUA_ALLOWED_NAV_HOSTS</code> (comma-separated) to restrict
+<code>navigate</code> / <code>open_url</code> to those hostnames.</li>
 </ul>
 </section>
 <section id="user-manual-anthropic" class="level3">
@@ -1783,9 +1844,9 @@ text — there is no Anthropic-side vector store equivalent.</li>
 the configured <code>SCREEN_WIDTH</code>/<code>SCREEN_HEIGHT</code>.
 Restart the backend after changing those so the executor picks up the
 new geometry.</li>
-<li><strong>Interactions state.</strong> Gemini 3.6 Flash continues
-turns with <code>previous_interaction_id</code>; action results include
-the current screenshot.</li>
+<li><strong>Interactions state.</strong> Gemini 3.7 Flash and Gemini 3.5
+Flash-Lite continue turns with <code>previous_interaction_id</code>;
+action results include the current screenshot.</li>
 <li><strong>Prompt-injection detection.</strong> Computer Use requests
 enable Google's built-in prompt-injection detection and preserve its
 confirmation handshake.</li>
@@ -2047,12 +2108,18 @@ through a consequential gate on its own.</p>
 it as a public multi-tenant service.</p>
 <section id="deployment-local-development" class="level2">
 <h2>Local development</h2>
-<p>On Windows, <code>START.bat</code> is the supported one-click path.
-It installs dependencies, rebuilds esbuild, starts the stack, waits for
+<p>On Windows, <code>run.cmd</code> is the supported one-file path. It
+installs anything missing, starts the stack, waits for
 <code>GET /api/health</code>, and opens
-<code>http://127.0.0.1:8505</code>. Vite listens on IPv4 loopback during
-development. The production-style path below still serves the built SPA
-from FastAPI on port <code>8100</code>.</p>
+<code>http://127.0.0.1:8505</code>. <code>START.bat</code> still always
+runs the full <code>setup.bat</code> bootstrap. Vite listens on IPv4
+loopback during development. The production-style path below still
+serves the built SPA from FastAPI on port <code>8100</code>. Both
+<code>http://127.0.0.1:8505</code> and
+<code>http://127.0.0.1:8100</code> are default WebSocket origins so the
+live desktop stream works on either URL. The backend loads the
+repository-root <code>.env</code> so <code>AGENT_SERVICE_TOKEN</code>
+matches the sandbox.</p>
 </section>
 <section id="deployment-production-style-local-deployment"
 class="level2">
@@ -2091,11 +2158,11 @@ not recoverable after restart.</p>
 <section id="deployment-provider-authentication" class="level2">
 <h2>Provider authentication</h2>
 <p>The supported catalog contains only three direct routes: GPT-5.6 Luna
-through OpenAI Responses, Claude Sonnet 5 through Anthropic Messages,
-and Gemini 3.6 Flash through Google Interactions. All three accept API
-keys from the environment or a process-local credential session. Gemini
-also supports a browser OAuth flow; set
-<code>GOOGLE_OAUTH_CLIENT_ID</code> and
+or GPT-5.6 Terra through OpenAI Responses, Claude Sonnet 5 through
+Anthropic Messages, and Gemini 3.7 Flash or Gemini 3.5 Flash-Lite
+through Google Interactions. All three accept API keys from the
+environment or a process-local credential session. Gemini also supports
+a browser OAuth flow; set <code>GOOGLE_OAUTH_CLIENT_ID</code> and
 <code>GOOGLE_OAUTH_CLIENT_SECRET</code> (or
 <code>GOOGLE_OAUTH_CLIENT_SECRET_FILE</code>), with optional
 <code>GOOGLE_CLOUD_PROJECT</code> and
@@ -2103,6 +2170,10 @@ also supports a browser OAuth flow; set
 </section>
 <section id="deployment-network-hardening" class="level2">
 <h2>Network hardening</h2>
+<p>Optional <code>CUA_ALLOWED_NAV_HOSTS</code> (comma-separated
+hostnames) restricts <code>navigate</code> / <code>open_url</code>
+targets. Unset means any <code>http</code>/<code>https</code> URL is
+allowed; when set, other hosts are rejected.</p>
 <p>Keep all ports loopback-bound. External binding requires
 <code>CUA_ALLOW_PUBLIC_BIND=1</code> and <code>CUA_API_TOKEN</code>,
 plus an authenticated TLS reverse proxy. The same token protects REST,
@@ -2177,14 +2248,14 @@ sees.</li>
 </ul>
 <p>The active catalog contains three native Computer Use routes: Claude
 Sonnet 5 (<code>computer_20251124</code> through Anthropic Messages),
-GPT-5.6 Luna (the <code>computer</code> tool inside OpenAI Responses),
-and Gemini 3.6 Flash (Google Interactions Computer Use). Each has its
-own request/response shape, its own coordinate convention, and its own
-safety-confirmation mechanics. This repo's core architectural bet is:
-<strong>absorb every one of those differences into small per-provider
-adapters, so the rest of the system — the loop, the executor, the
-sandbox, the UI — never has to know which vendor is
-running.</strong></p>
+GPT-5.6 Luna or GPT-5.6 Terra (the <code>computer</code> tool inside
+OpenAI Responses), and Gemini 3.7 Flash or Gemini 3.5 Flash-Lite (Google
+Interactions Computer Use). Each has its own request/response shape, its
+own coordinate convention, and its own safety-confirmation mechanics.
+This repo's core architectural bet is: <strong>absorb every one of those
+differences into small per-provider adapters, so the rest of the system
+— the loop, the executor, the sandbox, the UI — never has to know which
+vendor is running.</strong></p>
 </section>
 <section id="handbook-the-agentic-loop-perceive--think--act"
 class="level3">
@@ -2299,10 +2370,11 @@ living only in browser memory, so you can inspect what happened after
 the fact from the Audit tab.</li>
 </ul>
 <p>The selected route is always one of <code>openai-direct</code>
-(GPT-5.6 Luna), <code>anthropic-direct</code> (Claude Sonnet 5), or
-<code>gemini-direct</code> (Gemini 3.6 Flash). All three support API-key
-credentials; Gemini can instead use a browser OAuth flow whose
-refreshable credential remains only in the process-local vault.</p>
+(GPT-5.6 Luna or GPT-5.6 Terra), <code>anthropic-direct</code> (Claude
+Sonnet 5), or <code>gemini-direct</code> (Gemini 3.7 Flash or Gemini 3.5
+Flash-Lite). All three support API-key credentials; Gemini can instead
+use a browser OAuth flow whose refreshable credential remains only in
+the process-local vault.</p>
 </section>
 <section id="handbook-glossary" class="level3">
 <h3>Glossary</h3>
@@ -2484,7 +2556,8 @@ history, and retained audit frames.</td>
 <tr>
 <td>Frame streaming</td>
 <td>v1 uses <code>/ws</code>; v2 uses coalesced binary <code>CUAF</code>
-frames at <code>/api/v2/ws/{id}</code>.</td>
+frames at <code>/api/v2/ws/desktop</code> (idle sandbox) and
+<code>/api/v2/ws/{id}</code> (active run).</td>
 </tr>
 <tr>
 <td>Frontend</td>
@@ -2508,7 +2581,7 @@ id="handbook-main-flow-diagram-v1-execution-core-shared-by-both-surfaces"
 class="level3">
 <h3>Main flow diagram (v1 execution core, shared by both surfaces)</h3>
 <pre class="text"><code>v1 caller: any HTTP client → POST /api/agent/start, WS /ws
-v2 caller: frontend/src/App.tsx → POST /api/v2/sessions, WS /api/v2/ws/{id}
+v2 caller: frontend/src/App.tsx → WS /api/v2/ws/desktop, POST /api/v2/sessions, WS /api/v2/ws/{id}
    |
    v
 FastAPI Server (backend/server/__init__.py)
@@ -2538,7 +2611,7 @@ FastAPI Server (backend/server/__init__.py)
 
 Realtime back-channel:
   v1: AgentLoop -&gt; FastAPI WS broadcast (/ws) -&gt; (no shipped v1 UI in this snapshot)
-  v2: FrameBroker (backend/v2/frames.py) -&gt; /api/v2/ws/{id} -&gt; useLiveStream.ts -&gt; App.tsx</code></pre>
+  v2: FrameBroker (backend/v2/frames.py) -&gt; /api/v2/ws/desktop or /api/v2/ws/{id} -&gt; useLiveStream.ts -&gt; App.tsx</code></pre>
 <hr />
 </section>
 </section>
@@ -2577,8 +2650,8 @@ clients, and preview decoding in <code>frontend/src/App.tsx</code>,
 <code>protocol.ts</code>.</li>
 <li><strong>Tooling:</strong> local configuration, development
 orchestration, and release/documentation builds in
-<code>.env.example</code>, <code>dev.py</code>, <code>setup.*</code>,
-and <code>scripts/</code>.</li>
+<code>.env.example</code>, <code>run.cmd</code>, <code>dev.py</code>,
+<code>setup.*</code>, and <code>scripts/</code>.</li>
 </ul>
 <hr />
 </section>
@@ -2807,10 +2880,11 @@ tried.</li>
 class="level3">
 <h3>Flow H (v2 only): Live binary frame streaming</h3>
 <ol type="1">
-<li>The frontend opens <code>wss://.../api/v2/ws/{sessionId}</code> from
-<code>useLiveStream.ts</code>, optionally appending <code>?token=</code>
-if the session-scoped workbench token is configured from
-<code>CUA_API_TOKEN</code>.</li>
+<li>The frontend opens <code>ws://.../api/v2/ws/desktop</code> from
+<code>useLiveStream.ts</code> as soon as the Live tab mounts, optionally
+appending <code>?token=</code> if <code>CUA_API_TOKEN</code> is
+configured. After <strong>Start run</strong> it reconnects to
+<code>/api/v2/ws/{sessionId}</code>.</li>
 <li><code>v2_websocket_endpoint()</code> sends a
 <code>SESSION_STREAM_READY</code> JSON event, then loops: capture a
 frame via the shared <code>FrameBroker</code>
@@ -2819,14 +2893,17 @@ in-flight capture instead of triggering redundant screenshots), send a
 <code>FRAME</code> JSON metadata event, then send the actual pixels as a
 binary <code>CUAF</code> frame (<code>pack_cuaf_frame()</code> — a fixed
 30-byte header: magic, version, codec, sequence, width, height,
-timestamp, followed by the raw WebP/JPEG bytes).</li>
+timestamp, followed by the raw WebP/JPEG bytes). A capture failure sends
+<code>FRAME_CAPTURE_FAILED</code> and retries instead of closing the
+socket.</li>
 <li><code>frontend/src/protocol.ts::decodeCuafFrame()</code> parses that
 header back out and hands the frontend an object URL to paint into
 <code>&lt;img&gt;</code>.</li>
-<li>If audit-frame retention is enabled for the session, the canonical
-(uncompressed) frame is also written to disk via
+<li>If audit-frame retention is enabled for a real session id, the
+canonical (uncompressed) frame is also written to disk via
 <code>FrameRetentionStore.put()</code>, hashed and content-addressed,
-subject to the 7-day / 1 GiB eviction policy.</li>
+subject to the 7-day / 1 GiB eviction policy. The idle
+<code>desktop</code> stream is never retained.</li>
 </ol>
 <hr />
 </section>
@@ -2869,16 +2946,21 @@ subject to the 7-day / 1 GiB eviction policy.</li>
 </section>
 <section id="handbook-environment-setup" class="level3">
 <h3>Environment setup</h3>
-<p>On Windows 11, double-click <code>START.bat</code>. It installs
-missing Docker Desktop, Node.js LTS, and uv through winget; creates
+<p>On Windows 11, double-click <code>run.cmd</code>. It installs missing
+Docker Desktop, Node.js LTS, and uv through winget; creates
 <code>.env</code> if needed; generates the required sandbox secrets;
-installs locked dependencies; rebuilds esbuild; builds the sandbox;
-waits for <code>GET /api/health</code>; and opens
-<code>http://127.0.0.1:8505</code>. Vite listens on IPv4 loopback and,
-on Windows, is started through Node rather than <code>npm.cmd</code>.
-Existing <code>.env</code> values are preserved. If Docker asks for a
-restart or initial WSL setup, complete it and run <code>START.bat</code>
-again.</p>
+installs locked dependencies only when they are missing; rebuilds
+esbuild after a fresh <code>npm ci</code>; builds the sandbox image only
+when <code>cua-ubuntu:latest</code> is absent; waits for
+<code>GET /api/health</code>; and opens
+<code>http://127.0.0.1:8505</code>. The Live tab should show the XFCE
+desktop without starting a run. Vite listens on IPv4 loopback and, on
+Windows, is started through Node rather than <code>npm.cmd</code>.
+Existing <code>.env</code> values are preserved. The backend loads the
+repository-root <code>.env</code>. If Docker asks for a restart or
+initial WSL setup, complete it and run <code>run.cmd</code> again.
+<code>START.bat</code> still always runs the full <code>setup.bat</code>
+bootstrap.</p>
 <p>For manual or non-Windows setup:</p>
 <ol type="1">
 <li>Copy <code>.env.example</code> to <code>.env</code>.</li>
@@ -2899,7 +2981,7 @@ Google API key; alternatively configure Google OAuth.</li>
 <h3>Typical command sequences</h3>
 <p>Windows one-click install and launch:</p>
 <div class="sourceCode" id="handbook-cb6"><pre
-class="sourceCode powershell"><code class="sourceCode powershell"><span id="handbook-cb6-1"><a href="#handbook-cb6-1" aria-hidden="true" tabindex="-1"></a><span class="op">.</span>\<span class="fu">START</span><span class="op">.</span><span class="fu">bat</span></span></code></pre></div>
+class="sourceCode powershell"><code class="sourceCode powershell"><span id="handbook-cb6-1"><a href="#handbook-cb6-1" aria-hidden="true" tabindex="-1"></a><span class="op">.</span>\run<span class="op">.</span><span class="fu">cmd</span></span></code></pre></div>
 <p>Manual bootstrap and launch:</p>
 <div class="sourceCode" id="handbook-cb7"><pre
 class="sourceCode bash"><code class="sourceCode bash"><span id="handbook-cb7-1"><a href="#handbook-cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> setup.sh          <span class="co"># or setup.bat on Windows</span></span></code></pre></div>
@@ -3099,23 +3181,31 @@ runs as one process because the credential vault, active execution
 handles, WebSocket subscribers, frame broker, and circuit breaker are
 process-local. SQLite uses WAL for durable v2 records. The Docker
 sandbox is the only component allowed to execute OS input.</p>
-<p>On Windows, <code>START.bat</code> is the one-click entry point. It
-delegates prerequisite and dependency setup to <code>setup.bat</code>
-(including <code>npm rebuild esbuild</code> after a fresh
-<code>npm ci</code>), then starts <code>dev.py --open-browser</code>.
-<code>dev.py</code> starts the backend first and waits for
-<code>GET /api/health</code> before launching Vite. On Windows it starts
-Vite through <code>node .../vite/bin/vite.js</code> rather than
-<code>npm.cmd</code>. Vite binds <code>127.0.0.1</code> on port
-<code>8505</code> by default. The dashboard opener probes backend
-health, then opens <code>http://127.0.0.1:8505</code>. Shutdown is
-forwarded to both children. The normal production path builds
-<code>frontend/dist</code> and serves it from FastAPI instead.</p>
+<p>On Windows, <code>run.cmd</code> is the one-file entry point: it
+installs missing host tools and project dependencies, skips steps that
+are already done, then starts <code>dev.py --open-browser</code>.
+<code>START.bat</code> remains the always-bootstrap path
+(<code>setup.bat --bootstrap-only</code>, then
+<code>dev.bat --open-browser</code>). <code>dev.py</code> starts the
+backend first and waits for <code>GET /api/health</code> before
+launching Vite. On Windows it starts Vite through
+<code>node .../vite/bin/vite.js</code> rather than <code>npm.cmd</code>.
+Vite binds <code>127.0.0.1</code> on port <code>8505</code> by default.
+The dashboard opener probes backend health, then opens
+<code>http://127.0.0.1:8505</code>. Shutdown is forwarded to both
+children. The normal production path builds <code>frontend/dist</code>
+and serves it from FastAPI on port <code>8100</code>.</p>
+<p><code>backend/infra/config.py</code> loads the repository-root
+<code>.env</code> (not <code>backend/.env</code>) so
+<code>AGENT_SERVICE_TOKEN</code> matches the value Compose injects into
+the sandbox. Default CORS/WebSocket origins include
+<code>http://127.0.0.1:8505</code> and
+<code>http://127.0.0.1:8100</code>.</p>
 </section>
 <section id="technical-model-catalog-and-request-path" class="level2">
 <h2>Model catalog and request path</h2>
-<p>The catalog exposes exactly three executable, provider-native
-routes:</p>
+<p>The catalog exposes five Computer Use models on three executable,
+provider-native routes:</p>
 <table>
 <thead>
 <tr>
@@ -3126,7 +3216,12 @@ routes:</p>
 </thead>
 <tbody>
 <tr>
-<td>Gemini 3.6 Flash</td>
+<td>Gemini 3.7 Flash</td>
+<td><code>gemini-direct</code></td>
+<td>Google Interactions Computer Use</td>
+</tr>
+<tr>
+<td>Gemini 3.5 Flash-Lite</td>
 <td><code>gemini-direct</code></td>
 <td>Google Interactions Computer Use</td>
 </tr>
@@ -3137,6 +3232,11 @@ routes:</p>
 </tr>
 <tr>
 <td>GPT-5.6 Luna</td>
+<td><code>openai-direct</code></td>
+<td>OpenAI Responses Computer Use</td>
+</tr>
+<tr>
+<td>GPT-5.6 Terra</td>
 <td><code>openai-direct</code></td>
 <td>OpenAI Responses Computer Use</td>
 </tr>
@@ -3170,10 +3270,14 @@ reject attachments.</p>
 <p>One frame broker coalesces screenshot demand. The canonical full
 frame remains the model input; browser previews are compressed WebP/JPEG
 and sent as binary <code>CUAF</code> frames with version, codec,
-sequence, dimensions, and timestamp. The v2 stream at
-<code>/api/v2/ws/{session_id}</code> sends JSON lifecycle, safety,
-routing, metric, and log events alongside frames. Slow clients keep only
-the latest pending frame.</p>
+sequence, dimensions, and timestamp. The Live tab opens
+<code>/api/v2/ws/desktop</code> as soon as the dashboard loads so the
+sandbox is visible without starting a run. That preview id is not
+retained as audit frames. When a session starts, the client switches to
+<code>/api/v2/ws/{session_id}</code>, which also sends JSON lifecycle,
+safety, routing, metric, and log events. A failed screenshot keeps the
+socket open and retries instead of closing the stream. Slow clients keep
+only the latest pending frame.</p>
 </section>
 <section id="technical-persistence-audit-and-retention" class="level2">
 <h2>Persistence, audit, and retention</h2>
@@ -3261,8 +3365,9 @@ is the only component intended to execute OS input.</p>
 <p>The v2 layer is additive rather than a separate runtime: it validates
 and persists richer v2 contracts, then bridges execution into the
 existing <code>AgentLoop</code> and provider engines. Its catalog
-contains only GPT-5.6 Luna via OpenAI Responses, Claude Sonnet 5 via
-Anthropic Messages, and Gemini 3.6 Flash via Google Interactions.</p>
+contains only GPT-5.6 Luna or GPT-5.6 Terra via OpenAI Responses, Claude
+Sonnet 5 via Anthropic Messages, and Gemini 3.7 Flash or Gemini 3.5
+Flash-Lite via Google Interactions.</p>
 </section>
 <section id="architecture-2-system-flow" class="level2">
 <h2>2) System Flow</h2>
@@ -3285,9 +3390,12 @@ nonce handshake and the dashboard can approve or deny them.</li>
 <li>v2 persists actions, metrics, events, audit frames, and terminal
 state; uncertain post-action failures are not replayed or failed
 over.</li>
-<li>The API returns/query exposes durable audit state, while WebSockets
-stream JSON control events and newest-only binary CUAF preview
-frames.</li>
+<li>The API returns/query exposes durable audit state. The dashboard
+opens <code>/api/v2/ws/desktop</code> immediately for the sandbox
+preview, then <code>/api/v2/ws/{session_id}</code> during a run. Both
+send newest-only binary CUAF frames; the session socket also carries
+JSON control events. Capture failures retry without closing the
+socket.</li>
 </ol>
 </section>
 <section id="architecture-3-layermodule-responsibilities"
@@ -3548,8 +3656,9 @@ Uvicorn.</li>
 registers v1/v2 HTTP and WebSocket surfaces, bridges v2 sessions to
 <code>AgentLoop</code>, and optionally serves
 <code>frontend/dist</code>.</li>
-<li><code>START.bat</code> and <code>setup.bat</code> are the Windows
-install/launch path. After a fresh <code>npm ci</code>, setup rebuilds
+<li><code>run.cmd</code> is the one-file Windows setup-if-needed
+launcher. <code>START.bat</code> and <code>setup.bat</code> remain the
+always-bootstrap path. After a fresh <code>npm ci</code>, setup rebuilds
 esbuild.</li>
 <li><code>dev.py</code>, <code>dev.bat</code>, and <code>dev.sh</code>
 coordinate the local Docker sandbox, backend, and Vite development
@@ -3763,9 +3872,10 @@ npm/<code>frontend/package-lock.json</code></td>
 </table>
 <p>Bash and Windows batch wrappers support setup/development. The
 package is <code>computer-use-workbench</code> 3.0.3. On Windows,
-<code>START.bat</code> bootstraps dependencies and <code>dev.py</code>
-waits for backend health, binds Vite to <code>127.0.0.1</code>, and
-starts Vite through Node.</p>
+<code>run.cmd</code> is the one-file setup-if-needed launcher;
+<code>START.bat</code> always bootstraps through <code>setup.bat</code>.
+<code>dev.py</code> waits for backend health, binds Vite to
+<code>127.0.0.1</code>, and starts Vite through Node.</p>
 </section>
 <section id="stack-2-production-frameworks-and-dependencies"
 class="level2">
@@ -4346,8 +4456,8 @@ camelCase.</li>
 the versioned binary CUAF envelope.</li>
 <li>Model and route capabilities belong in
 <code>backend/models/*.json</code>; the supported direct catalog is
-intentionally limited to GPT-5.6 Luna, Claude Sonnet 5, and Gemini 3.6
-Flash.</li>
+intentionally limited to GPT-5.6 Luna, GPT-5.6 Terra, Claude Sonnet 5,
+Gemini 3.7 Flash, and Gemini 3.5 Flash-Lite.</li>
 </ul>
 </section>
 </section>
@@ -4545,15 +4655,22 @@ paths.</li>
 probing, the Vite <code>127.0.0.1</code> bind, Windows Vite spawn
 through Node, and <code>setup.bat</code> installer/esbuild
 contracts.</li>
+<li><code>tests/test_v2_platform.py</code> covers the idle
+<code>/api/v2/ws/desktop</code> stream (capture retry, no audit-frame
+retention).</li>
+<li><code>tests/test_infra.py</code> asserts the repository-root
+<code>.env</code> path; <code>tests/test_audit_fixes.py</code> asserts
+<code>http://127.0.0.1:8100</code> is an allowed WebSocket origin.</li>
 <li><code>tests/integration/test_gemini_live_sdk.py</code> is the opt-in
 live Gemini Interactions test.</li>
 <li><code>evals/test_degraded_container_startup.py</code> tests a
 degraded startup scenario offline with Docker/provider boundaries
 mocked.</li>
 <li><code>frontend/src/api.test.ts</code>,
-<code>frontend/src/App.test.tsx</code>, and
-<code>frontend/src/protocol.test.ts</code> cover HTTP behavior,
-user-visible dashboard behavior, and CUAF decoding.</li>
+<code>frontend/src/App.test.tsx</code>,
+<code>frontend/src/protocol.test.ts</code>, and
+<code>frontend/src/useLiveStream.test.ts</code> cover HTTP behavior, the
+idle desktop stream, CUAF decoding, and dashboard empty-state copy.</li>
 </ul>
 <p>Setup is centralized in <code>tests/conftest.py</code>,
 <code>evals/conftest.py</code>, and
@@ -4828,14 +4945,17 @@ not send inline <code>api_key</code> in session requests.</li>
 <code>/api/v2/sessions/{id}/safety-decisions</code>, and
 cursor-paginated action/event/metric endpoints.</li>
 <li>Update WebSocket clients to parse JSON control events and binary
-<code>CUAF</code> preview frames at
-<code>/api/v2/ws/{session_id}</code>. Supply <code>CUA_API_TOKEN</code>
-when workbench authentication is enabled.</li>
+<code>CUAF</code> preview frames. The dashboard opens
+<code>/api/v2/ws/desktop</code> for the idle sandbox view (no
+audit-frame retention) and <code>/api/v2/ws/{session_id}</code> once a
+run starts. Supply <code>CUA_API_TOKEN</code> when workbench
+authentication is enabled.</li>
 <li>Select an explicit primary route and ordered fallbacks. The server
 will not choose dynamically by price or latency.</li>
-<li>Replace all model selections with the three supported logical IDs:
-<code>gpt-5.6-luna</code>, <code>claude-sonnet-5</code>, and
-<code>gemini-3.6-flash</code>.</li>
+<li>Replace all model selections with the supported logical IDs:
+<code>gpt-5.6-luna</code>, <code>gpt-5.6-terra</code>,
+<code>claude-sonnet-5</code>, <code>gemini-3.7-flash</code>, and
+<code>gemini-3.5-flash-lite</code>.</li>
 </ol>
 <p>Before deleting v1 state, run the v2 contract tests, create and
 delete a disposable session, verify approve/deny safety confirmation,
@@ -5145,11 +5265,12 @@ Bedrock, or Vertex execution claim is made.</p>
 <footer class="lesson-nav"><button type="button" data-previous>Previous</button><button type="button" data-next>Next</button></footer></div></details><details class="manual-entry evidence-entry" id="doc-gemini-evaluation" data-audiences="technical business"><summary><span>Gemini successor checklist</span><small>Acceptance criteria for future Gemini route changes.</small></summary><div class="entry-body"><p class="source-label">Evidence and history · Source: docs/gemini-successor-evaluation.md</p><section id="gemini-evaluation-gemini-successor-evaluation-checklist"
 class="level1">
 <h1>Gemini Successor Evaluation Checklist</h1>
-<p>Use this checklist when <code>gemini-3.6-flash</code> has a
-deprecation, shutdown announcement, or documented successor. The purpose
-is to keep the Gemini allowlist strictly tied to official capability
-documentation instead of assuming that a newer Gemini model supports
-Computer Use.</p>
+<p>Use this checklist when an allowlisted Gemini Computer Use model
+(<code>gemini-3.7-flash</code> or <code>gemini-3.5-flash-lite</code>)
+has a deprecation, shutdown announcement, or documented successor. The
+purpose is to keep the Gemini allowlist strictly tied to official
+capability documentation instead of assuming that a newer Gemini model
+supports Computer Use.</p>
 <p>Related documentation:</p>
 <ul>
 <li><a href="#doc-prompt-guide">Computer Use Prompt

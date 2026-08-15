@@ -4,11 +4,15 @@ v3.0.3 targets one trusted operator on a workstation. Do not expose it as a publ
 
 ## Local development
 
-On Windows, `START.bat` is the supported one-click path. It installs
-dependencies, rebuilds esbuild, starts the stack, waits for `GET /api/health`,
-and opens `http://127.0.0.1:8505`. Vite listens on IPv4 loopback during
-development. The production-style path below still serves the built SPA from
-FastAPI on port `8100`.
+On Windows, `run.cmd` is the supported one-file path. It installs anything
+missing, starts the stack, waits for `GET /api/health`, and opens
+`http://127.0.0.1:8505`. `START.bat` still always runs the full
+`setup.bat` bootstrap. Vite listens on IPv4 loopback during development.
+The production-style path below still serves the built SPA from FastAPI
+on port `8100`. Both `http://127.0.0.1:8505` and `http://127.0.0.1:8100`
+are default WebSocket origins so the live desktop stream works on either
+URL. The backend loads the repository-root `.env` so `AGENT_SERVICE_TOKEN`
+matches the sandbox.
 
 ## Production-style local deployment
 
@@ -35,15 +39,20 @@ after restart.
 
 ## Provider authentication
 
-The supported catalog contains only three direct routes: GPT-5.6 Luna through
-OpenAI Responses, Claude Sonnet 5 through Anthropic Messages, and Gemini 3.6
-Flash through Google Interactions. All three accept API keys from the
+The supported catalog contains only three direct routes: GPT-5.6 Luna or
+GPT-5.6 Terra through OpenAI Responses, Claude Sonnet 5 through Anthropic
+Messages, and Gemini 3.7 Flash or Gemini 3.5 Flash-Lite through Google
+Interactions. All three accept API keys from the
 environment or a process-local credential session. Gemini also supports a
 browser OAuth flow; set `GOOGLE_OAUTH_CLIENT_ID` and
 `GOOGLE_OAUTH_CLIENT_SECRET` (or `GOOGLE_OAUTH_CLIENT_SECRET_FILE`), with
 optional `GOOGLE_CLOUD_PROJECT` and `CUA_GOOGLE_OAUTH_REDIRECT_URI`.
 
 ## Network hardening
+
+Optional `CUA_ALLOWED_NAV_HOSTS` (comma-separated hostnames) restricts
+`navigate` / `open_url` targets. Unset means any `http`/`https` URL is
+allowed; when set, other hosts are rejected.
 
 Keep all ports loopback-bound. External binding requires
 `CUA_ALLOW_PUBLIC_BIND=1` and `CUA_API_TOKEN`, plus an authenticated TLS

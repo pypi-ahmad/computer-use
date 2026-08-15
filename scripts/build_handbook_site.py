@@ -632,7 +632,7 @@ dialog::backdrop { background: rgb(5 12 17 / 70%); backdrop-filter: blur(4px); }
       <p class="eyebrow">Local AI operator workbench · Complete manual</p>
       <h1 id="hero-title">From first run to full system understanding.</h1>
       <p class="hero-lede">Learn to operate, evaluate, and extend a provider-native Computer Use agent. Choose a reading track, then follow the verified source all the way from a task prompt to an audited sandbox action.</p>
-      <div class="route-status" aria-label="Supported model routes"><span>GPT-5.6 Luna</span><span>Claude Sonnet 5</span><span>Gemini 3.6 Flash</span></div>
+      <div class="route-status" aria-label="Supported model routes"><span>GPT-5.6 Luna</span><span>GPT-5.6 Terra</span><span>Claude Sonnet 5</span><span>Gemini 3.7 Flash</span><span>Gemini 3.5 Flash-Lite</span></div>
       __TRACK_ROUTES__
     </section>
     <section class="trace-panel" aria-labelledby="trace-title">

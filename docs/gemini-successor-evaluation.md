@@ -1,6 +1,7 @@
 # Gemini Successor Evaluation Checklist
 
-Use this checklist when `gemini-3.6-flash` has a deprecation,
+Use this checklist when an allowlisted Gemini Computer Use model
+(`gemini-3.7-flash` or `gemini-3.5-flash-lite`) has a deprecation,
 shutdown announcement, or documented successor. The purpose is to keep the
 Gemini allowlist strictly tied to official capability documentation instead of
 assuming that a newer Gemini model supports Computer Use.
