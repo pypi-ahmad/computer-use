@@ -7,6 +7,7 @@ body:
     attributes:
       value: |
         Search existing issues first. Vulnerabilities go to SECURITY.md, not here.
+        Testers welcome. Do not offer money or paid support.
         Do not paste API keys, AGENT_SERVICE_TOKEN, VNC_PASSWORD, CUA_API_TOKEN, or live desktop screenshots.
   - type: dropdown
     id: version

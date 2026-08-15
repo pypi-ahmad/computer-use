@@ -1,0 +1,57 @@
+name: Feature or improvement
+description: Suggest a capability or a change to something that already exists
+title: "[idea] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing issues first. Time, tests, and ideas are welcome.
+        Do not offer money, sponsorship, or paid support. Vulnerabilities go to SECURITY.md.
+        Do not paste API keys, AGENT_SERVICE_TOKEN, VNC_PASSWORD, CUA_API_TOKEN, or live desktop screenshots.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - New feature
+        - Improvement to an existing flow
+        - Documentation or operator-guide gap
+        - Test coverage or CI
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is hard or missing today? Point at a tab, route, or file if you can.
+      placeholder: On Live session, …
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should change? Keep it one idea.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it helps an operator
+      description: Local single-user workbench only. Not a hosted multi-tenant product.
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Can you send a pull request?
+      options:
+        - "Yes, I can open a PR"
+        - "I can test a patch"
+        - "Idea only"
+    validations:
+      required: true
+  - type: textarea
+    id: extras
+    attributes:
+      label: Extra context
+      description: Related issues, first-party provider docs, or a redacted sketch. No secrets.

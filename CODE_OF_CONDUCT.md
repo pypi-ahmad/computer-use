@@ -104,6 +104,13 @@ is officially representing the project in public or other spaces. Examples
 include using an official email address, posting through an official account,
 or acting as an appointed representative at an online or offline event.
 
+For this repository those spaces are GitHub issues, pull requests, review
+comments, and releases on `pypi-ahmad/computer-use`. There is no official
+chat, Discord, or Slack. Local clones, sandbox desktops, and operator data
+are not community spaces — see [DATA.md](DATA.md). Vulnerabilities go to
+[SECURITY.md](SECURITY.md) (`[computer-use security]`), not this conduct
+address.
+
 ## Attribution
 
 This Code of Conduct is adapted from the [Contributor Covenant, version
