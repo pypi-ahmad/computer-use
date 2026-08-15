@@ -15,6 +15,9 @@ it('provides all six operational workspaces', async () => {
   for (const label of ['Live session', 'Audit trail', 'Session cost', 'Workflow library', 'Providers', 'Analytics']) {
     expect(screen.getByRole('link', { name: new RegExp(label, 'i') })).toBeInTheDocument()
   }
+  const mission = await screen.findByText('Mission control')
+  expect(mission.closest('.sidebar')).toBeTruthy()
+  expect(screen.getByText(/Viewport \/ 1440/).closest('.sidebar')).toBeNull()
   expect(await screen.findByTitle('Sandbox desktop')).toHaveAttribute('src', '/vnc/vnc.html?autoconnect=1&path=vnc%2Fwebsockify')
   expect(screen.queryByText('No session on the wire')).not.toBeInTheDocument()
   await userEvent.click(screen.getByRole('link', { name: /providers/i }))

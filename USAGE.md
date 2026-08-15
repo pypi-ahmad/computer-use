@@ -230,9 +230,10 @@ Form fields on a tab remount when you leave and return.
 
 ### 1. Live session
 
-This is the one you'll use most. It's split into two halves:
+This is the one you'll use most. Mission control sits in the left
+CONTROL sidebar. The main pane is the live desktop.
 
-- **Left (Mission control):** task box; Computer Use model; primary
+- **CONTROL sidebar (Mission control):** task box; Computer Use model; primary
   route; optional **Fallback model** (`model@route`); **Reasoning**
   when the catalog lists `reasoningEfforts` (hidden for Claude Sonnet 5);
   **Safety policy** (`provider_default` / `confirm_mutating` /
@@ -242,7 +243,7 @@ This is the one you'll use most. It's split into two halves:
   `maxSteps: 50`. **Stop run** patches the session to `STOPPING`.
   Default model is the first catalog entry (`gemini-3.7-flash`);
   default route prefers `gemini-direct`.
-- **Right (Viewport):** a noVNC iframe. On load the client calls
+- **Main (Viewport):** a noVNC iframe. On load the client calls
   `GET /api/v2/desktop`, rewrites `path` to `vnc/websockify`, waits
   until `/vnc/vnc.html` returns 200, then shows XFCE. You do not start
   a run to see the desktop. The iframe stays noVNC for the whole
