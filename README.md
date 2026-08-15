@@ -1,6 +1,6 @@
 # Computer Use Workbench
 
-A local, single-user workbench for provider-native Computer Use agents. The current release is **v3.0.3**. The operator surface is the typed `/api/v2` contract, deterministic route fallback, SQLite audit history, binary frame streaming, declarative workflows, and a five-tab React dashboard.
+A local, single-user workbench for provider-native Computer Use agents. The current release is **v3.1.0**. The operator surface is the typed `/api/v2` contract, deterministic route fallback, SQLite audit history, binary frame streaming, declarative workflows, and a five-tab React dashboard.
 
 > Computer Use can execute destructive actions. Run the sandbox with test accounts and non-sensitive data. This project is not a multi-tenant service and does not make model actions safe by itself.
 
@@ -71,7 +71,7 @@ For the full operator guide — every dashboard tab, provider/credential setup, 
 - The sandbox is an isolated Ubuntu/XFCE container exposing authenticated screenshot and input endpoints.
 - React consumes camelCase contracts and the `CUAF` binary-frame protocol. The Live tab streams the sandbox desktop immediately on `/api/v2/ws/desktop`, then switches to `/api/v2/ws/{session_id}` for an active run.
 
-See [TECHNICAL.md](TECHNICAL.md), [v3.0.3 release notes](docs/release-notes-v3.0.3.md), [Migration](docs/migration-v2.md), [Rollback](docs/rollback-v2.md), and [Security](SECURITY.md).
+See [TECHNICAL.md](TECHNICAL.md), [v3.1.0 release notes](docs/release-notes-v3.1.0.md), [Migration](docs/migration-v2.md), [Rollback](docs/rollback-v2.md), and [Security](SECURITY.md).
 
 New to this codebase? Open the [interactive Zero to Hero handbook](docs/zero-to-hero-study-handbook.html) for guided GitHub-user, technical, and business tracks. Its [Markdown source](docs/zero-to-hero-study-handbook.md) remains available for plain-text reading and PDF generation.
 
