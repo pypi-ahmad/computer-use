@@ -9,6 +9,8 @@ All notable changes to this project are documented in this file.
 - Root community docs for testing, support, and operator data
   responsibility (`TESTING.md`, `SUPPORT.md`, `DATA.md`) plus a GitHub
   bug-report issue template.
+- README open-source notice: clones and local use welcome; operator
+  owns all in-app data including PDF and other file uploads.
 
 ## [3.1.0] - 2026-08-16
 

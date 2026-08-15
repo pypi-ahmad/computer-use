@@ -1,12 +1,33 @@
 # Data responsibility
 
-You operate this workbench. The project does not host your sessions,
-keys, or sandbox desktop. You are responsible for what the agent sees
-and does.
+**All data used in this app is your responsibility only.** That includes
+PDFs, `.txt` / `.md` / `.docx` uploads, files inside the XFCE sandbox,
+browser cookies and pages the agent opens, screenshots, audit frames,
+SQLite history, `.env` secrets, and the text of every task.
+
+This project does not host your data. Maintainers do not receive your
+files or keys when you clone or run the workbench. The MIT license
+provides the software as-is, with no warranty.
+
+You operate this workbench on your machine. You are responsible for
+what the agent sees and does.
 
 Computer Use can execute destructive actions. README requires test
 accounts and non-sensitive data. This repo does not make model actions
 safe by itself.
+
+## Files you attach or place in the sandbox
+
+- Live session accepts `.md`, `.txt`, `.pdf`, and `.docx` on non-Gemini
+  routes (`frontend/src/App.tsx` `accept` list; `backend/files.py`).
+- Those uploads go to the selected provider's Files API / vector store
+  **only when a session attaches them**. Treat that as sending the file
+  to OpenAI or Anthropic yourself.
+- Gemini File Search cannot be combined with Computer Use here.
+  Attaching files with a Gemini model fails at session start.
+- Anything stored or opened on the sandbox desktop (including PDFs the
+  agent downloads) is still your data. The container is isolated Ubuntu,
+  not a legal or safety review of the contents.
 
 ## What stays on your machine
 
