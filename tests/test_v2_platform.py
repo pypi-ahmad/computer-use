@@ -46,6 +46,17 @@ def test_model_catalog_is_transport_aware_and_computer_use_only() -> None:
     assert catalog.get("gemini-3.7-flash").reasoning_efforts == ["low", "medium", "high"]
 
 
+def test_google_route_is_configured_from_process_google_api_key(monkeypatch) -> None:
+    from backend.v2.api import _route_readiness
+
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.setenv("GOOGLE_API_KEY", "AIza-from-user-env")
+    configured, auth_mode = _route_readiness("GOOGLE")
+    assert configured is True
+    assert auth_mode == "API_KEY_OR_OAUTH"
+
+
 def test_sqlite_store_persists_session_actions_events_metrics_and_workflow_versions() -> None:
     store = SqliteStore(":memory:")
     assert store.journal_mode in {"memory", "wal"}
