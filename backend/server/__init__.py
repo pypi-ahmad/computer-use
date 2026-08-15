@@ -2154,7 +2154,7 @@ from backend.server.ws_schema import (  # noqa: E402, F401
 class _SPAStaticFiles(StaticFiles):
     """Serve the built SPA while preserving real 404s for service routes."""
 
-    _SPA_ROUTES = ("audit", "workflows", "providers", "analytics")
+    _SPA_ROUTES = ("audit", "cost", "workflows", "providers", "analytics")
 
     async def get_response(self, path: str, scope: dict):
         route_path = path.replace("\\", "/").lstrip("/")
