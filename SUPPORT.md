@@ -1,7 +1,11 @@
 # Support
 
-This repository is a local, single-user Computer Use workbench. There is
-no hosted product, no SLA, and no multi-tenant support desk.
+This repository is open source (MIT). Clone it, run it on your own
+machine, and use your own API keys. There is no hosted product, no SLA,
+and no multi-tenant support desk.
+
+Files and other data you put into a local clone (PDFs, documents,
+sandbox contents) are your responsibility only. See [DATA.md](DATA.md).
 
 ## First, read these
 

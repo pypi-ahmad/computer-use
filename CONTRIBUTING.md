@@ -1,8 +1,12 @@
 # Contributing
 
-Thank you for helping improve Computer Use Workbench. Contributions should be
-focused, reviewable, and backed by tests or documentation that demonstrate the
+Clones, forks, and pull requests are welcome. Use this workbench on your
+own machine with your own API keys. Contributions should be focused,
+reviewable, and backed by tests or documentation that demonstrate the
 observable result.
+
+You are solely responsible for data you run through a clone (PDFs and
+other uploads, sandbox files, keys). See [DATA.md](DATA.md).
 
 ## Before You Start
 
