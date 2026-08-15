@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 logger = logging.getLogger(__name__)
 
 # Load .env file from project root (does NOT override existing system env vars)
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _ENV_FILE = _PROJECT_ROOT / ".env"
 if _ENV_FILE.exists():
     load_dotenv(_ENV_FILE, override=False)
@@ -24,7 +24,7 @@ class Config:
     """Runtime configuration — values come from env vars or runtime overrides."""
 
     # Gemini
-    gemini_model: str = "gemini-3.6-flash"
+    gemini_model: str = "gemini-3.7-flash"
 
     # Docker container
     container_name: str = "cua-environment"

@@ -52,7 +52,7 @@ class TestComputerUseEngine:
             engine = ComputerUseEngine(
                 provider=Provider.GEMINI,
                 api_key="test-key",
-                model="gemini-3.6-flash",
+                model="gemini-3.7-flash",
             )
         assert engine.provider == Provider.GEMINI
 
@@ -84,7 +84,7 @@ class TestComputerUseEngine:
                 provider=Provider.GEMINI,
                 api_key="test-key",
             )
-        assert engine._client._model == "gemini-3.6-flash"
+        assert engine._client._model == "gemini-3.7-flash"
 
     def test_default_claude_model(self):
         with patch("anthropic.Anthropic"):
@@ -639,7 +639,7 @@ class TestIterTurnsDispatch:
                 engine = ComputerUseEngine(
                     provider=Provider.GEMINI,
                     api_key="test-key",
-                    model="gemini-3.6-flash",
+                    model="gemini-3.7-flash",
                 )
 
             async def fake_iter_turns(*args, **kwargs):
@@ -1488,7 +1488,7 @@ class TestGeminiRequireConfirmation:
     @pytest.mark.parametrize(
         "model",
         [
-            "gemini-3.6-flash",
+            "gemini-3.7-flash",
         ],
     )
     @pytest.mark.asyncio
@@ -1560,7 +1560,7 @@ class TestGeminiRequireConfirmation:
     @pytest.mark.parametrize(
         "model",
         [
-            "gemini-3.6-flash",
+            "gemini-3.7-flash",
         ],
     )
     @pytest.mark.asyncio
@@ -1647,7 +1647,7 @@ class TestGeminiRequireConfirmation:
     @pytest.mark.parametrize(
         "model",
         [
-            "gemini-3.6-flash",
+            "gemini-3.7-flash",
         ],
     )
     @pytest.mark.asyncio

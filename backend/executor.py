@@ -155,6 +155,12 @@ def _validated_http_url(url: str) -> str:
         candidate = "https://" + candidate
     elif scheme not in {"http", "https"}:
         raise ValueError(f"unsupported URL scheme: {url!r}")
+    host = (urlsplit(candidate).hostname or "").lower()
+    raw_allow = os.getenv("CUA_ALLOWED_NAV_HOSTS", "").strip()
+    if raw_allow:
+        allowed = {item.strip().lower() for item in raw_allow.split(",") if item.strip()}
+        if host and not any(host == item or host.endswith("." + item) for item in allowed):
+            raise ValueError(f"host {host!r} is not on CUA_ALLOWED_NAV_HOSTS")
     return candidate
 
 
@@ -178,8 +184,59 @@ _FAST_SETTLE_ACTIONS: frozenset[str] = frozenset(
         "move",
         "left_mouse_down",
         "left_mouse_up",
+        "mouse_down",
+        "mouse_up",
+        "key_down",
+        "key_up",
+        "wait",
+        "take_screenshot",
     }
 )
+
+
+def normalize_desktop_action(name: str, args: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """Map Gemini 3.x desktop names/args onto existing handlers.
+
+    Official 3.x desktop actions use ``click`` / ``type`` / ``wait`` / ``hotkey``
+    and ``start_x`` drag fields. Legacy 2.5 names (``click_at``, ``type_text_at``)
+    pass through unchanged. ``intent`` is reasoning-only and is dropped.
+    """
+    normalized = dict(args)
+    normalized.pop("intent", None)
+    if name == "click":
+        return "click_at", normalized
+    if name == "type":
+        normalized.setdefault("press_enter", False)
+        if "x" in normalized and "y" in normalized:
+            normalized.setdefault("clear_before_typing", False)
+            return "type_text_at", normalized
+        return "type_at_cursor", normalized
+    if name == "hotkey":
+        keys = normalized.get("keys")
+        if isinstance(keys, list):
+            normalized["keys"] = "+".join(str(part) for part in keys)
+        return "key_combination", normalized
+    if name == "press_key":
+        key = normalized.pop("key", normalized.get("keys", ""))
+        if isinstance(key, list):
+            key = "+".join(str(part) for part in key)
+        normalized["keys"] = str(key)
+        return "key_combination", normalized
+    if name == "scroll":
+        if "magnitude" not in normalized and "magnitude_in_pixels" in normalized:
+            normalized["magnitude"] = normalized.pop("magnitude_in_pixels")
+        return "scroll_at", normalized
+    if name == "drag_and_drop":
+        if "x" not in normalized and "start_x" in normalized:
+            normalized["x"] = normalized.pop("start_x")
+            if "start_y" in normalized:
+                normalized["y"] = normalized.pop("start_y")
+        if "destination_x" not in normalized and "end_x" in normalized:
+            normalized["destination_x"] = normalized.pop("end_x")
+            if "end_y" in normalized:
+                normalized["destination_y"] = normalized.pop("end_y")
+        return name, normalized
+    return name, normalized
 
 
 def _settle_delay_for(name: str) -> float:
@@ -225,6 +282,18 @@ class ActionExecutor(Protocol):
 _SHARED_HTTPX_CLIENTS: dict[str, httpx.AsyncClient] = {}
 _SHARED_HTTPX_LOCK = asyncio.Lock()
 _SCREENSHOT_CLIENT: httpx.AsyncClient | None = None
+
+# Agent HTTP is last in the container entrypoint. The first desktop-WS
+# frames can land while the port is mapped but the process is not yet
+# answering. Retry transport errors; 4xx/5xx still fail immediately.
+_SCREENSHOT_TRANSPORT_ERRORS = (
+    httpx.ConnectError,
+    httpx.RemoteProtocolError,
+    httpx.ReadError,
+    httpx.WriteError,
+)
+_SCREENSHOT_TRANSPORT_ATTEMPTS = 8
+_SCREENSHOT_TRANSPORT_DELAY_S = 0.4
 
 
 def _agent_headers() -> dict[str, str] | None:
@@ -290,14 +359,31 @@ async def check_service_health() -> bool:
         return False
 
 
+async def _get_screenshot_response(*, mode: str = "desktop") -> httpx.Response:
+    """GET /screenshot, retrying only transport disconnects during sandbox warmup."""
+    delay = _SCREENSHOT_TRANSPORT_DELAY_S
+    last_exc: httpx.HTTPError | None = None
+    for attempt in range(_SCREENSHOT_TRANSPORT_ATTEMPTS):
+        try:
+            return await _get_client().get(
+                f"{_app_config.agent_service_url}/screenshot",
+                params={"mode": mode},
+                headers=_agent_headers(),
+            )
+        except _SCREENSHOT_TRANSPORT_ERRORS as exc:
+            last_exc = exc
+            if attempt + 1 >= _SCREENSHOT_TRANSPORT_ATTEMPTS:
+                raise
+            await asyncio.sleep(delay)
+            delay = min(delay * 2.0, 1.5)
+    assert last_exc is not None
+    raise last_exc
+
+
 async def capture_screenshot(*, mode: str = "desktop") -> str:
     """Fetch the latest screenshot as base64, with docker fallback on 5xx/unreachable."""
     try:
-        response = await _get_client().get(
-            f"{_app_config.agent_service_url}/screenshot",
-            params={"mode": mode},
-            headers=_agent_headers(),
-        )
+        response = await _get_screenshot_response(mode=mode)
     except httpx.HTTPError as exc:
         logger.warning(
             "Agent service screenshot request failed (%s), falling back to docker exec",
@@ -399,7 +485,11 @@ class DesktopExecutor:
 
     async def execute(self, name: str, args: dict[str, Any]) -> CUActionResult:
         """Map a CU action to the agent_service ``/action`` endpoint."""
-        handler = getattr(self, f"_act_{name}", None)
+        raw_args = dict(args or {})
+        action_id = str(raw_args.pop("action_id", "") or "") or None
+        include_screenshot = bool(raw_args.pop("include_screenshot", False))
+        handler_name, handler_args = normalize_desktop_action(name, raw_args)
+        handler = getattr(self, f"_act_{handler_name}", None)
         if handler is None:
             return CUActionResult(
                 name=name,
@@ -407,13 +497,12 @@ class DesktopExecutor:
                 error=f"Unimplemented desktop action: {name}",
             )
         try:
-            handler_args = dict(args or {})
             previous_action_id = self._current_action_id
             previous_substep = self._current_action_substep
             previous_include = self._include_screenshot
-            self._current_action_id = str(handler_args.pop("action_id", "") or "") or None
+            self._current_action_id = action_id
             self._current_action_substep = 0
-            self._include_screenshot = bool(handler_args.pop("include_screenshot", False))
+            self._include_screenshot = include_screenshot
             try:
                 extra = await handler(handler_args) or {}
             finally:
@@ -427,7 +516,7 @@ class DesktopExecutor:
                     error=extra.get("message", "Action failed"),
                     extra=extra,
                 )
-            await asyncio.sleep(_settle_delay_for(name))
+            await asyncio.sleep(_settle_delay_for(handler_name))
             return CUActionResult(name=name, success=True, extra=extra)
         except Exception as exc:
             if _app_config.debug or os.getenv("CUA_DEBUG_TB") == "1":
@@ -650,6 +739,50 @@ class DesktopExecutor:
         await asyncio.sleep(_app_config.post_action_screenshot_delay)
         return {}
 
+    async def _act_wait(self, a: dict) -> dict:
+        try:
+            delay = float(a.get("seconds", 1))
+        except (TypeError, ValueError):
+            delay = 1.0
+        delay = min(max(delay, 0.0), 30.0)
+        await asyncio.sleep(delay)
+        return {"seconds": delay}
+
+    async def _act_take_screenshot(self, a: dict) -> dict:
+        return {}
+
+    async def _act_mouse_down(self, a: dict) -> dict:
+        extra: dict[str, Any] = {}
+        if "x" in a and "y" in a:
+            extra = await self._act_hover_at(a)
+        result = await self._act_left_mouse_down(a)
+        return {**extra, **result}
+
+    async def _act_mouse_up(self, a: dict) -> dict:
+        extra: dict[str, Any] = {}
+        if "x" in a and "y" in a:
+            extra = await self._act_hover_at(a)
+        result = await self._act_left_mouse_up(a)
+        return {**extra, **result}
+
+    async def _act_key_down(self, a: dict) -> dict:
+        key = str(a.get("key", "")).strip()
+        key = _MODIFIER_MAP.get(key.lower(), key)
+        if "+" in key or not _is_allowed_key_token(key):
+            logger.warning("Rejected disallowed key_down token: %r", key)
+            return {"success": False, "message": f"Disallowed key token: {key!r}"}
+        result = await self._post_action({"action": "keydown", "text": key, "mode": "desktop"})
+        return {"key": key, **result}
+
+    async def _act_key_up(self, a: dict) -> dict:
+        key = str(a.get("key", "")).strip()
+        key = _MODIFIER_MAP.get(key.lower(), key)
+        if "+" in key or not _is_allowed_key_token(key):
+            logger.warning("Rejected disallowed key_up token: %r", key)
+            return {"success": False, "message": f"Disallowed key token: {key!r}"}
+        result = await self._post_action({"action": "keyup", "text": key, "mode": "desktop"})
+        return {"key": key, **result}
+
     async def _act_zoom(self, a: dict) -> dict:
         region = a.get("region") or []
         if len(region) != 4:
@@ -720,22 +853,33 @@ class DesktopExecutor:
 
     async def capture_screenshot(self) -> bytes:
         """Capture a screenshot via the agent_service, with docker exec fallback."""
-        try:
-            client = await self._get_client()
-            resp = await client.get(
-                f"{self._service_url}/screenshot",
-                params={"mode": "desktop"},
-                headers=self._auth_headers(),
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            return base64.b64decode(data["screenshot"])
-        except Exception as exc:
-            logger.warning(
-                "Agent service screenshot failed (%s), falling back to docker exec",
-                exc,
-            )
-            return await self._fallback_screenshot()
+        delay = _SCREENSHOT_TRANSPORT_DELAY_S
+        last_exc: Exception | None = None
+        for attempt in range(_SCREENSHOT_TRANSPORT_ATTEMPTS):
+            try:
+                client = await self._get_client()
+                resp = await client.get(
+                    f"{self._service_url}/screenshot",
+                    params={"mode": "desktop"},
+                    headers=self._auth_headers(),
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                return base64.b64decode(data["screenshot"])
+            except _SCREENSHOT_TRANSPORT_ERRORS as exc:
+                last_exc = exc
+                if attempt + 1 >= _SCREENSHOT_TRANSPORT_ATTEMPTS:
+                    break
+                await asyncio.sleep(delay)
+                delay = min(delay * 2.0, 1.5)
+            except Exception as exc:
+                last_exc = exc
+                break
+        logger.warning(
+            "Agent service screenshot failed (%s), falling back to docker exec",
+            last_exc,
+        )
+        return await self._fallback_screenshot()
 
     async def _fallback_screenshot(self) -> bytes:
         """Grab a screenshot via ``docker exec scrot`` as last resort."""

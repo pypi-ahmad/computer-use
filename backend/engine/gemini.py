@@ -13,6 +13,7 @@ import logging
 import re
 import time
 from collections.abc import AsyncIterator, Callable
+from io import BytesIO
 from typing import Any
 
 from backend.engine import (
@@ -33,6 +34,8 @@ from backend.engine import (
 from backend.executor import ActionExecutor, CUActionResult, SafetyDecision
 
 logger = logging.getLogger(__name__)
+
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 _GEMINI_UI_ACTION_TASK_RE = re.compile(
     r"\b(open|launch|start|search|click|type|enter|press|navigate|visit|"
@@ -199,7 +202,7 @@ class GeminiCUClient:
         self,
         api_key: str | None = None,
         # Lifecycle watchdog/checklist: see .github/workflows/gemini-changelog-watchdog.yml and docs/gemini-successor-evaluation.md before changing this model.
-        model: str = "gemini-3.6-flash",
+        model: str = "gemini-3.7-flash",
         environment: Environment = Environment.DESKTOP,
         excluded_actions: list[str] | None = None,
         system_instruction: str | None = None,
@@ -215,6 +218,7 @@ class GeminiCUClient:
         attached_file_ids: list[str] | None = None,
         credentials: Any | None = None,
         quota_project_id: str | None = None,
+        thinking_level: str | None = None,
     ):
         try:
             from google import genai
@@ -236,6 +240,8 @@ class GeminiCUClient:
         self._environment = environment
         self._excluded = excluded_actions or []
         self._system_instruction = system_instruction
+        level = (thinking_level or "").strip().lower()
+        self._thinking_level = level if level in {"low", "medium", "high"} else None
         max_history_turns = int(max_history_turns)
         if max_history_turns < 1:
             raise ValueError("Gemini max_history_turns must be >= 1.")
@@ -263,9 +269,13 @@ class GeminiCUClient:
         previous_interaction_id: str | None = None,
         tools: list[dict[str, Any]] | None = None,
     ) -> Any:
+        raw_env = getattr(self, "_environment", None)
+        environment = getattr(raw_env, "value", raw_env)
+        if environment not in {"desktop", "browser", "mobile"}:
+            environment = "desktop"
         tool: dict[str, Any] = {
             "type": "computer_use",
-            "environment": "desktop",
+            "environment": environment,
             "enable_prompt_injection_detection": True,
         }
         if self._excluded:
@@ -279,6 +289,9 @@ class GeminiCUClient:
             request["system_instruction"] = self._system_instruction
         if previous_interaction_id:
             request["previous_interaction_id"] = previous_interaction_id
+        thinking_level = getattr(self, "_thinking_level", None)
+        if thinking_level:
+            request["generation_config"] = {"thinking_level": thinking_level}
         if self._client is not None:
             return await self._client.aio.interactions.create(**request)
 
@@ -306,10 +319,29 @@ class GeminiCUClient:
             return response.json()
 
     @staticmethod
-    def _image_input(data: bytes) -> dict[str, Any]:
+    def _ensure_png(data: bytes) -> bytes:
+        """Return PNG bytes. Official Computer Use results use image/png."""
+        if data.startswith(_PNG_MAGIC):
+            return data
+        from PIL import Image
+
+        try:
+            image = Image.open(BytesIO(data))
+            if image.mode not in {"RGB", "L"}:
+                image = image.convert("RGB")
+            buffer = BytesIO()
+            image.save(buffer, format="PNG")
+            return buffer.getvalue()
+        except Exception:
+            logger.warning("Screenshot is not PNG and could not be converted")
+            return data
+
+    @classmethod
+    def _image_input(cls, data: bytes) -> dict[str, Any]:
+        png = cls._ensure_png(data)
         return {
             "type": "image",
-            "data": base64.standard_b64encode(data).decode(),
+            "data": base64.standard_b64encode(png).decode(),
             "mime_type": _IMAGE_PNG,
         }
 
@@ -500,6 +532,7 @@ class GeminiCUClient:
             # Execute each function call
             results: list[CUActionResult] = []
             terminated = False
+            terminate_reason = "Agent terminated: safety confirmation denied."
 
             result_inputs: list[dict[str, Any]] = []
             for idx, fc in enumerate(function_calls):
@@ -512,7 +545,14 @@ class GeminiCUClient:
                 safety_confirmed = False
                 if "safety_decision" in args:
                     sd = args.pop("safety_decision")
-                    if isinstance(sd, dict) and sd.get("decision") == "require_confirmation":
+                    decision = sd.get("decision") if isinstance(sd, dict) else None
+                    if decision == "blocked":
+                        if on_log:
+                            on_log("warning", f"Safety blocked {function_name}")
+                        terminated = True
+                        terminate_reason = "Agent terminated: safety decision blocked the action."
+                        break
+                    if decision == "require_confirmation":
                         confirmed = yield SafetyRequired(
                             explanation=str(sd.get("explanation", "")),
                         )
@@ -544,7 +584,7 @@ class GeminiCUClient:
             )
 
             if terminated and not results:
-                yield RunCompleted(final_text="Agent terminated: safety confirmation denied.")
+                yield RunCompleted(final_text=terminate_reason)
                 return
 
             yield ToolBatchCompleted(
@@ -555,7 +595,7 @@ class GeminiCUClient:
             )
 
             if terminated:
-                yield RunCompleted(final_text="Agent terminated: safety confirmation denied.")
+                yield RunCompleted(final_text=terminate_reason)
                 return
 
             current_url = executor.get_current_url()
@@ -583,7 +623,7 @@ class GeminiCUClient:
                 result_inputs.append(
                     {
                         "type": "function_result",
-                        "name": r.name,
+                        "name": str(call.get("name") or r.name),
                         "call_id": str(call.get("id") or ""),
                         "result": parts,
                     }

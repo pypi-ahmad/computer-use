@@ -63,6 +63,13 @@ _CU_ACTION_MAP: dict[str, ActionType] = {
     "drag": ActionType.DRAG,
     "wait": ActionType.WAIT,
     "screenshot": ActionType.SCREENSHOT,
+    "take_screenshot": ActionType.SCREENSHOT,
+    "hotkey": ActionType.KEY,
+    "press_key": ActionType.KEY,
+    "key_down": ActionType.KEY,
+    "key_up": ActionType.KEY,
+    "mouse_down": ActionType.CLICK,
+    "mouse_up": ActionType.CLICK,
     "done": ActionType.DONE,
     "error": ActionType.ERROR,
     # Reuse existing enum members (no schema change): zoom returns a region

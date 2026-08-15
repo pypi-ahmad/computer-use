@@ -17,9 +17,18 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
+from importlib.metadata import version
+from io import BytesIO
 from unittest.mock import patch
 
 import pytest
+from PIL import Image
+
+
+def _png_bytes() -> bytes:
+    buffer = BytesIO()
+    Image.new("RGB", (64, 64), (1, 2, 3)).save(buffer, format="PNG")
+    return buffer.getvalue()
 
 # ---------------------------------------------------------------------------
 # Safety threshold env gate
@@ -36,12 +45,12 @@ class TestGeminiInteractions:
         sdk = MagicMock()
         sdk.aio.interactions.create = AsyncMock(return_value={"id": "i1", "steps": []})
         with patch("google.genai.Client", return_value=sdk):
-            client = GeminiCUClient(api_key="k", model="gemini-3.6-flash")
+            client = GeminiCUClient(api_key="k", model="gemini-3.7-flash")
 
         await client._create_interaction([{"type": "text", "text": "go"}])
 
         request = sdk.aio.interactions.create.await_args.kwargs
-        assert request["model"] == "gemini-3.6-flash"
+        assert request["model"] == "gemini-3.7-flash"
         assert request["tools"] == [
             {
                 "type": "computer_use",
@@ -49,6 +58,28 @@ class TestGeminiInteractions:
                 "enable_prompt_injection_detection": True,
             }
         ]
+        assert "generation_config" not in request
+
+    @pytest.mark.asyncio
+    async def test_thinking_level_and_environment_are_sent(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from backend.engine import Environment, GeminiCUClient
+
+        sdk = MagicMock()
+        sdk.aio.interactions.create = AsyncMock(return_value={"id": "i1", "steps": []})
+        with patch("google.genai.Client", return_value=sdk):
+            client = GeminiCUClient(
+                api_key="k",
+                model="gemini-3.7-flash",
+                environment=Environment.BROWSER,
+                thinking_level="low",
+            )
+
+        await client._create_interaction([{"type": "text", "text": "go"}])
+        request = sdk.aio.interactions.create.await_args.kwargs
+        assert request["tools"][0]["environment"] == "browser"
+        assert request["generation_config"] == {"thinking_level": "low"}
 
     def test_requires_exactly_one_login_method(self):
         from backend.engine import GeminiCUClient
@@ -94,7 +125,7 @@ class TestGeminiInteractions:
             screen_height = 900
 
             async def capture_screenshot(self):
-                return b"x" * 512
+                return _png_bytes()
 
             async def execute(self, name, args):
                 assert "safety_decision" not in args
@@ -114,7 +145,76 @@ class TestGeminiInteractions:
         assert second.kwargs["previous_interaction_id"] == "interaction-1"
         result = second.args[0][0]
         assert result["type"] == "function_result"
+        assert result["name"] == "click_at"
+        assert result["call_id"] == "call-1"
         assert '"safety_acknowledgement":true' in result["result"][0]["text"]
+        image = result["result"][1]
+        assert image["type"] == "image"
+        assert image["mime_type"] == "image/png"
+        assert image["data"]
+
+    def test_sdk_pin_meets_official_computer_use_minimum(self):
+        assert tuple(int(part) for part in version("google-genai").split(".")[:2]) >= (2, 7)
+
+    def test_function_result_image_is_png(self):
+        from backend.engine.gemini import GeminiCUClient
+
+        jpeg = BytesIO()
+        Image.new("RGB", (4, 4), (9, 8, 7)).save(jpeg, format="JPEG")
+        payload = GeminiCUClient._image_input(jpeg.getvalue())
+        raw = __import__("base64").standard_b64decode(payload["data"])
+        assert payload["mime_type"] == "image/png"
+        assert raw.startswith(b"\x89PNG")
+
+    @pytest.mark.asyncio
+    async def test_blocked_safety_decision_halts_without_executing(self):
+        from unittest.mock import AsyncMock
+
+        from backend.engine import GeminiCUClient
+
+        with patch("google.genai.Client"):
+            client = GeminiCUClient(api_key="k")
+        client._create_interaction = AsyncMock(
+            return_value={
+                "id": "interaction-1",
+                "steps": [
+                    {
+                        "type": "function_call",
+                        "id": "call-1",
+                        "name": "click",
+                        "arguments": {
+                            "x": 10,
+                            "y": 20,
+                            "safety_decision": {
+                                "decision": "blocked",
+                                "explanation": "Blocked",
+                            },
+                        },
+                    }
+                ],
+            }
+        )
+
+        executed: list[str] = []
+
+        class Executor:
+            screen_width = 1440
+            screen_height = 900
+
+            async def capture_screenshot(self):
+                return _png_bytes()
+
+            async def execute(self, name, args):
+                executed.append(name)
+                raise AssertionError("blocked actions must not execute")
+
+            def get_current_url(self):
+                return ""
+
+        final = await client.run_loop("click", Executor())
+        assert final == "Agent terminated: safety decision blocked the action."
+        assert executed == []
+        assert client._create_interaction.await_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +295,7 @@ class TestGeminiHistoryPruning:
         with patch("google.genai.Client"):
             client = GeminiCUClient(
                 api_key="k",
-                model="gemini-3.6-flash",
+                model="gemini-3.7-flash",
                 environment=Environment.BROWSER,
             )
 
@@ -214,7 +314,7 @@ class TestGeminiHistoryPruning:
         with patch("google.genai.Client"):
             client = GeminiCUClient(
                 api_key="k",
-                model="gemini-3.6-flash",
+                model="gemini-3.7-flash",
                 environment=Environment.BROWSER,
                 max_history_turns=3,
             )
@@ -382,3 +482,6 @@ class TestGeminiSingleTabPrompt:
         assert "single-tab" in prompt or "single tab" in prompt
         # And the prompt names the reference so the operator can audit.
         assert "new tab" in prompt
+        assert "click" in prompt
+        assert "type" in prompt
+        assert "hotkey" in prompt

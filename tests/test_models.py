@@ -54,9 +54,28 @@ class TestActionType:
         for a in canonical:
             assert ActionType(a) is not None
 
+    def test_gemini_desktop_actions_exist(self):
+        desktop = [
+            "move",
+            "hotkey",
+            "press_key",
+            "key_down",
+            "key_up",
+            "mouse_down",
+            "mouse_up",
+            "take_screenshot",
+        ]
+        for a in desktop:
+            assert ActionType(a) is not None
+
     def test_terminal_actions(self):
         assert ActionType.DONE.value == "done"
         assert ActionType.ERROR.value == "error"
+
+    def test_engine_capabilities_are_in_action_type(self):
+        from backend.models.validation import validate_tool_parity
+
+        assert validate_tool_parity() is True
 
 
 class TestStartTaskRequest:
@@ -65,7 +84,7 @@ class TestStartTaskRequest:
     def test_valid_request(self):
         req = StartTaskRequest(
             task="Search for something",
-            model="gemini-3.6-flash",
+            model="gemini-3.7-flash",
             mode="browser",
             provider="google",
         )
@@ -76,7 +95,7 @@ class TestStartTaskRequest:
         with pytest.raises(ValidationError):
             StartTaskRequest(
                 task="x" * 10_001,
-                model="gemini-3.6-flash",
+                model="gemini-3.7-flash",
                 mode="browser",
                 provider="google",
             )
@@ -85,7 +104,7 @@ class TestStartTaskRequest:
         with pytest.raises(ValidationError):
             StartTaskRequest(
                 task="test",
-                model="gemini-3.6-flash",
+                model="gemini-3.7-flash",
                 mode="browser",
                 provider="google",
                 max_steps=0,
@@ -93,7 +112,7 @@ class TestStartTaskRequest:
         with pytest.raises(ValidationError):
             StartTaskRequest(
                 task="test",
-                model="gemini-3.6-flash",
+                model="gemini-3.7-flash",
                 mode="browser",
                 provider="google",
                 max_steps=201,
@@ -120,7 +139,7 @@ class TestAgentSession:
 
     def test_default_model(self):
         session = AgentSession(session_id="abc", task="test")
-        assert session.model == "gemini-3.6-flash"
+        assert session.model == "gemini-3.7-flash"
 
     def test_default_status(self):
         session = AgentSession(session_id="abc", task="test")
@@ -261,8 +280,10 @@ class TestModelPolicy:
     def test_only_requested_models_are_exposed(self, models):
         assert {model["model_id"] for model in models} == {
             "claude-sonnet-5",
-            "gemini-3.6-flash",
+            "gemini-3.5-flash-lite",
+            "gemini-3.7-flash",
             "gpt-5.6-luna",
+            "gpt-5.6-terra",
         }
 
     """Business rules for model allowlist."""
@@ -275,10 +296,12 @@ class TestModelPolicy:
                 assert "cu_betas" in m, f"{m['model_id']} missing cu_betas"
                 assert isinstance(m["cu_betas"], list) and len(m["cu_betas"]) > 0
 
-    def test_gemini_3_flash_is_cu_capable(self, models):
-        for m in models:
-            if m["model_id"] == "gemini-3.6-flash":
-                assert m["supports_computer_use"] is True
+    def test_gemini_models_are_cu_capable(self, models):
+        gemini_ids = {"gemini-3.7-flash", "gemini-3.5-flash-lite"}
+        listed = {m["model_id"]: m for m in models if m["provider"] == "google"}
+        assert set(listed) == gemini_ids
+        for model in listed.values():
+            assert model["supports_computer_use"] is True
 
     def test_claude_sonnet_46_is_cu_capable(self, models):
         for m in models:
@@ -292,17 +315,12 @@ class TestModelPolicy:
                 assert m["supports_computer_use"] is True
                 assert m["cu_tool_version"] == "computer_20251124"
 
-    def test_gpt_54_is_cu_capable(self, models):
-        for m in models:
-            if m["model_id"] == "gpt-5.6-luna":
-                assert m["provider"] == "openai"
-                assert m["supports_computer_use"] is True
-
-    def test_gpt_55_is_cu_capable(self, models):
-        for m in models:
-            if m["model_id"] == "gpt-5.6-luna":
-                assert m["provider"] == "openai"
-                assert m["supports_computer_use"] is True
+    def test_openai_models_are_cu_capable(self, models):
+        openai_ids = {"gpt-5.6-luna", "gpt-5.6-terra"}
+        listed = {m["model_id"]: m for m in models if m["provider"] == "openai"}
+        assert set(listed) == openai_ids
+        for model in listed.values():
+            assert model["supports_computer_use"] is True
 
     def test_removed_gpt_55_pro_slug_is_not_listed(self, models):
         removed_model = "gpt-5.6-luna" + "-pro"

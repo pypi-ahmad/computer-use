@@ -95,3 +95,86 @@ def test_p1_include_screenshot_is_sent_and_bundled_frame_surfaces():
         "include_screenshot" not in result.extra or result.extra.get("screenshot") == "BUNDLED_B64"
     )
     assert result.extra.get("screenshot") == "BUNDLED_B64"
+
+
+def test_gemini_3x_desktop_names_alias_to_existing_handlers():
+    from backend.executor import normalize_desktop_action
+
+    assert normalize_desktop_action("click", {"x": 10, "y": 20, "intent": "tap"}) == (
+        "click_at",
+        {"x": 10, "y": 20},
+    )
+    assert normalize_desktop_action("type", {"text": "hi"})[0] == "type_at_cursor"
+    assert normalize_desktop_action("type", {"x": 1, "y": 2, "text": "hi"})[0] == "type_text_at"
+    assert normalize_desktop_action("hotkey", {"keys": ["Control", "c"]}) == (
+        "key_combination",
+        {"keys": "Control+c"},
+    )
+    assert normalize_desktop_action("press_key", {"key": "Enter"}) == (
+        "key_combination",
+        {"keys": "Enter"},
+    )
+    assert normalize_desktop_action(
+        "scroll", {"x": 1, "y": 2, "direction": "down", "magnitude_in_pixels": 200}
+    ) == ("scroll_at", {"x": 1, "y": 2, "direction": "down", "magnitude": 200})
+    assert normalize_desktop_action(
+        "drag_and_drop",
+        {"start_x": 1, "start_y": 2, "end_x": 8, "end_y": 9},
+    ) == ("drag_and_drop", {"x": 1, "y": 2, "destination_x": 8, "destination_y": 9})
+    name, args = normalize_desktop_action("click_at", {"x": 3, "y": 4})
+    assert name == "click_at"
+    assert args == {"x": 3, "y": 4}
+
+
+def test_gemini_3x_click_and_drag_execute_legacy_handlers():
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    from backend.executor import DesktopExecutor
+
+    captured: list[dict] = []
+
+    class _Resp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"success": True}
+
+    class _Client:
+        async def post(self, _url, *, json, headers):
+            captured.append(dict(json))
+            return _Resp()
+
+    async def _run() -> None:
+        ex = DesktopExecutor(screen_width=1000, screen_height=1000, normalize_coords=True)
+        ex._get_client = AsyncMock(return_value=_Client())
+        click = await ex.execute("click", {"x": 500, "y": 500, "intent": "open"})
+        assert click.success
+        assert click.name == "click"
+        assert captured[0]["action"] == "click"
+        drag = await ex.execute(
+            "drag_and_drop",
+            {"start_x": 0, "start_y": 0, "end_x": 999, "end_y": 999},
+        )
+        assert drag.success
+        assert captured[-1]["action"] == "drag"
+        wait = await ex.execute("wait", {"seconds": 0})
+        assert wait.success
+        shot = await ex.execute("take_screenshot", {})
+        assert shot.success
+
+    asyncio.run(_run())
+
+
+def test_nav_host_allowlist_blocks_unknown_hosts(monkeypatch):
+    import pytest
+
+    from backend.executor import _validated_http_url
+
+    monkeypatch.delenv("CUA_ALLOWED_NAV_HOSTS", raising=False)
+    assert _validated_http_url("https://example.com/x").startswith("https://example.com")
+    monkeypatch.setenv("CUA_ALLOWED_NAV_HOSTS", "docs.openai.com")
+    assert _validated_http_url("https://docs.openai.com/api")
+    with pytest.raises(ValueError, match="CUA_ALLOWED_NAV_HOSTS"):
+        _validated_http_url("https://example.com")

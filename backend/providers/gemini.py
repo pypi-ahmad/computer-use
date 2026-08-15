@@ -51,12 +51,13 @@ async def run(
             raise ValueError("Gemini provider run requires api_key when no client is supplied.")
         client = GeminiCUClient(
             api_key=api_key,
-            model=options.get("model") or "gemini-3.6-flash",
+            model=options.get("model") or "gemini-3.7-flash",
             environment=options.get("environment") or Environment.DESKTOP,
             excluded_actions=options.get("excluded_actions"),
             system_instruction=options.get("system_prompt"),
             use_builtin_search=False,
             attached_file_ids=file_ids,
+            thinking_level=options.get("thinking_level") or options.get("reasoning_effort"),
         )
         client._planner_use_builtin_search = provider_tools.web_search
 

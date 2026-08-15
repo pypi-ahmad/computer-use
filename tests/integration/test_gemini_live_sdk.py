@@ -58,7 +58,7 @@ def test_gemini_computer_use_config_is_accepted_by_live_sdk() -> None:
     with httpx.Client(transport=transport) as httpx_client:
         adapter = GeminiCUClient(
             api_key="test-key",
-            model="gemini-3.6-flash",
+            model="gemini-3.7-flash",
             environment=Environment.DESKTOP,
             use_builtin_search=True,
         )

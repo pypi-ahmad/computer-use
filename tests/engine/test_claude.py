@@ -71,6 +71,26 @@ class TestClaudeActionDispatch:
         assert executor.calls == [("click_at", {"x": 100, "y": 200})]
 
     @pytest.mark.asyncio
+    async def test_left_click_aliases_official_name(self, client, executor):
+        result = await client._execute_claude_action(
+            {"action": "left_click", "coordinate": [100, 200]},
+            executor,
+        )
+        assert result.success
+        assert executor.calls == [("click_at", {"x": 100, "y": 200})]
+
+    @pytest.mark.asyncio
+    async def test_left_click_holds_modifier_key(self, client, executor):
+        result = await client._execute_claude_action(
+            {"action": "left_click", "coordinate": [10, 20], "key": "shift"},
+            executor,
+        )
+        assert result.success
+        assert executor.calls[0] == ("key_down", {"key": "shift"})
+        assert executor.calls[1] == ("click_at", {"x": 10, "y": 20})
+        assert executor.calls[2] == ("key_up", {"key": "shift"})
+
+    @pytest.mark.asyncio
     async def test_double_click(self, client, executor):
         result = await client._execute_claude_action(
             {"action": "double_click", "coordinate": [100, 200]},
@@ -134,6 +154,26 @@ class TestClaudeActionDispatch:
         assert executor.calls == [
             ("scroll_at", {"x": 500, "y": 500, "direction": "down", "magnitude": 600})
         ]
+
+    @pytest.mark.asyncio
+    async def test_scroll_accepts_official_field_names_and_modifier(self, client, executor):
+        result = await client._execute_claude_action(
+            {
+                "action": "scroll",
+                "coordinate": [1, 2],
+                "scroll_direction": "up",
+                "scroll_amount": 2,
+                "text": "ctrl",
+            },
+            executor,
+        )
+        assert result.success
+        assert executor.calls[0] == ("key_down", {"key": "ctrl"})
+        assert executor.calls[1] == (
+            "scroll_at",
+            {"x": 1, "y": 2, "direction": "up", "magnitude": 400},
+        )
+        assert executor.calls[2] == ("key_up", {"key": "ctrl"})
 
     @pytest.mark.asyncio
     async def test_mouse_move(self, client, executor):
@@ -260,6 +300,13 @@ class TestClaudeToolConfig:
         assert tools[0]["enable_zoom"] is True
         assert tools[0]["display_width_px"] == 1200
         assert tools[0]["display_height_px"] == 800
+
+    def test_build_tools_sets_x11_display_number(self, monkeypatch):
+        monkeypatch.setenv("DISPLAY", ":99")
+        with patch("anthropic.AsyncAnthropic"):
+            client = ClaudeCUClient(api_key="test", model="claude-sonnet-5")
+        tools = client._build_tools(1440, 900)
+        assert tools[0]["display_number"] == 99
 
 
 # === merged from tests/test_opus_47_followup.py ===
