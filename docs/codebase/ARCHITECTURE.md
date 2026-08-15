@@ -21,7 +21,8 @@ React dashboard -> FastAPI v2 contract -> SQLite session/coordinator -> AgentLoo
 3. The coordinator resolves process-local/environment credentials, including Google OAuth when selected, and dispatches through the v2 orchestrator into `AgentLoop` after sandbox readiness succeeds.
 4. `ComputerUseEngine` selects the native OpenAI/Anthropic/Google client; its provider loop alternates inference with canonical actions sent by `DesktopExecutor` to the token-protected sandbox service. Safety prompts pause on an in-memory nonce handshake and the dashboard can approve or deny them.
 5. v2 persists actions, metrics, events, audit frames, and terminal state; uncertain post-action failures are not replayed or failed over.
-6. The API returns/query exposes durable audit state. The dashboard opens `/api/v2/ws/desktop` immediately for the sandbox preview, then `/api/v2/ws/{session_id}` during a run. Both send newest-only binary CUAF frames; the session socket also carries JSON control events. Capture failures retry without closing the socket.
+6. The API returns/query exposes durable audit state. The Live tab embeds noVNC at `/vnc/vnc.html` with `path=vnc/websockify` (Vite/backend proxy to container websockify). It also opens `/api/v2/ws/desktop` immediately, then `/api/v2/ws/{session_id}` during a run. Those sockets send newest-only binary CUAF frames; the session socket also carries JSON control events. Capture failures retry without closing the socket.
+7. The Session cost tab (`/cost`) estimates USD from SQLite `metrics` token totals (`GET /api/v2/analytics?sessionId=`) and the list rates in `frontend/src/pricing.ts`. It is not a provider invoice.
 
 ## 3) Layer/Module Responsibilities
 
@@ -51,7 +52,7 @@ React dashboard -> FastAPI v2 contract -> SQLite session/coordinator -> AgentLoo
 ### Startup, shutdown, and scaling constraints
 
 - Startup validates tool parity; failure is logged as a warning rather than aborting the process.
-- Local development waits for `GET /api/health` before starting Vite. Vite binds `127.0.0.1`; on Windows it is spawned through Node rather than `npm.cmd`.
+- Local development runs `docker compose up --wait` (agent `/health` and noVNC `vnc.html`), then waits for `GET /api/health` before starting Vite. Vite binds `127.0.0.1`; on Windows it is spawned through Node rather than `npm.cmd`.
 - Shutdown cancels and awaits in-flight agent/broadcast/screenshot tasks, clears registries, and closes shared clients.
 - Exactly one backend worker is required because credentials, active tasks, WebSocket clients, safety state, traces, and circuit state are process-local.
 - The Docker desktop is a shared named container. The application is designed for a trusted workstation, not multi-tenant isolation.
@@ -65,7 +66,7 @@ React dashboard -> FastAPI v2 contract -> SQLite session/coordinator -> AgentLoo
 
 ## 6) Evidence
 
-- `README.md` sections “Quick start”, “Architecture”, and “Verification status”.
+- `README.md` sections “Open source”, “Installation and setup”, “How it works”, and “Community”.
 - `TECHNICAL.md` - stated runtime, request, frame, persistence, credential, and public-contract architecture.
 - `backend/v2/api.py:195-285` - session validation, dispatch, fallback, and post-run persistence.
 - `backend/server/__init__.py:79-145,1264-1300` - lifecycle and bridge into `AgentLoop`.

@@ -29,6 +29,10 @@
 - Provider screenshots and attached documents leave the host when sent to the
   selected provider; “local” describes orchestration and storage defaults, not
   model inference.
+- Session cost (`/cost`) multiplies recorded token totals by list rates in
+  `frontend/src/pricing.ts`. It is an estimate, not a provider invoice.
+  Batch, cache, and long-context multipliers are not applied because those
+  meters are not stored.
 - API-key and Google OAuth credential sessions are process-local and
   non-recoverable by design. Do not add them to SQLite, logs, action payloads,
   or checkpoints.
@@ -51,6 +55,7 @@
   workbench-token enforcement.
 - `backend/v2/api.py`, `credentials.py`, `orchestrator.py`, and `retention.py`
   - v2 authentication, safety, persistence, and frame retention.
-- `frontend/src/App.tsx` and `frontend/src/api.ts` - provider, safety, and
-  workbench-token user flows.
+- `frontend/src/App.tsx`, `frontend/src/api.ts`, and
+  `frontend/src/pricing.ts` - provider, safety, workbench-token, and
+  cost-estimate user flows.
 - `TECHNICAL.md` and `docs/deployment.md` - supported deployment boundary.

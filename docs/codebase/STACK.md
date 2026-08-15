@@ -34,9 +34,9 @@ Bash and Windows batch wrappers support setup/development. The package is `compu
 
 ### Frontend
 
-- React 19, React DOM 19, and React Router 7 implement the five-tab single-page dashboard.
+- React 19, React DOM 19, and React Router 7 implement the six-tab single-page dashboard (Live session, Audit trail, Session cost, Workflow library, Providers, Analytics).
 - Vite 6 builds and serves the application; TypeScript 5.7 and ESLint 10 provide static checks.
-- Vitest 3, jsdom, and Testing Library provide frontend tests. Lucide React supplies icons.
+- Vitest 3, jsdom, and Testing Library provide frontend tests. Lucide React supplies icons. Session cost estimates live in `frontend/src/pricing.ts` and use published list rates against SQLite `EXECUTION` token totals.
 
 ### Sandbox and infrastructure
 
@@ -68,7 +68,7 @@ uv sync --frozen
 npm --prefix frontend ci
 uv run --frozen python -m backend.main
 uv run --frozen python dev.py
-docker compose up -d --build
+docker compose up -d --wait --wait-timeout 90 --build
 uv run pytest -p no:warnings --tb=short
 uv run ruff check .
 uv run ruff format --check .
@@ -81,7 +81,7 @@ npm --prefix frontend run build
 
 ## 5) Environment and Config
 
-- Provider credentials: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `GOOGLE_API_KEY`/`GEMINI_API_KEY`.
+- Provider credentials: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and process-level `GOOGLE_API_KEY` (preferred) or `GEMINI_API_KEY`. `load_dotenv(..., override=False)` does not overwrite an already-set user environment variable.
 - Backend/state: `HOST`, `PORT`, `CUA_V2_DB_PATH`, `CUA_V2_FRAME_PATH`, and optional `CUA_FRONTEND_DIST`.
 - Sandbox: `AGENT_SERVICE_TOKEN`, `VNC_PASSWORD`, `CONTAINER_NAME`, agent-service host/port, screen geometry, step count, and timeout.
 - Google OAuth uses `GOOGLE_OAUTH_CLIENT_ID` plus `GOOGLE_OAUTH_CLIENT_SECRET` (or `GOOGLE_OAUTH_CLIENT_SECRET_FILE`), with optional project and redirect settings.
@@ -94,6 +94,6 @@ npm --prefix frontend run build
 - `frontend/package.json:1-36` - frontend runtime, scripts, and dependency stack.
 - `frontend/tsconfig.json:1-10` and `frontend/eslint.config.js:1-27` - strict TypeScript and lint configuration.
 - `docker/Dockerfile:1-27,213,237-252` - Ubuntu base, non-root runtime, ports, health check, and entrypoint.
-- `docker-compose.yml:1-73` - sandbox networking and resource/security constraints.
+- `docker-compose.yml` - sandbox networking, healthcheck (`9222/health` and `6080/vnc.html`), and resource/security constraints.
 - `.github/workflows/ci.yml:1-91` and `.github/workflows/release.yml:1-45` - CI and release toolchain.
 - `.env.example:1-45` and `docs/deployment.md:1-61` - supported configuration and deployment prerequisites.

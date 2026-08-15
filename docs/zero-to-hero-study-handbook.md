@@ -11,7 +11,7 @@ The current release is **v3.1.0**. This repo currently ships **two API generatio
   (`/api/agent/start`, `/ws`). Still fully implemented and running in
   `backend/server/__init__.py`, `backend/loop.py`, `backend/engine/*`.
 - **v2** — a newer, typed, audited surface under `/api/v2` (`backend/v2/*`),
-  with a five-tab TypeScript dashboard, deterministic route fallback,
+  with a six-tab TypeScript dashboard, deterministic route fallback,
   SQLite-backed session history, and a binary frame-streaming protocol.
 
 v2 does not replace v1 in this snapshot — it *bridges into* the same v1
@@ -294,7 +294,7 @@ Realtime back-channel:
 - **Safety and files:** nonce confirmations and provider-aware attachment handling in `backend/safety.py`, `backend/files.py`, and `backend/infra/storage.py`.
 - **v2 services:** ordered fallback, API-key/OAuth vault, SQLite audit, frame retention, and CUAF streaming in `backend/v2/routing.py`, `credentials.py`, `persistence.py`, `retention.py`, and `frames.py`.
 - **Sandbox:** isolated desktop, allowlisted input, and token-protected action service in `docker/agent_service.py`, `docker/entrypoint.sh`, and `docker-compose.yml`.
-- **Frontend:** five-tab v2 workbench, token-aware API/WS clients, and preview decoding in `frontend/src/App.tsx`, `api.ts`, `useLiveStream.ts`, and `protocol.ts`.
+- **Frontend:** six-tab v2 workbench, token-aware API/WS clients, preview decoding, and session-cost list rates in `frontend/src/App.tsx`, `api.ts`, `useLiveStream.ts`, `protocol.ts`, and `pricing.ts`.
 - **Tooling:** local configuration, development orchestration, and release/documentation builds in `.env.example`, `run.cmd`, `dev.py`, `setup.*`, and `scripts/`.
 
 ---
@@ -312,7 +312,7 @@ Realtime back-channel:
    - `max_steps` hard cap (200)
    - attachments via `backend/files.py::validate_attached_files()`
    - reasoning/search config via `validate_builtin_search_config()`
-   - API key via `resolve_api_key()` (UI input → `.env` → system env)
+   - API key via `resolve_api_key()` (UI input → process env, including `GOOGLE_API_KEY` → `.env` loaded with `override=False`)
 3. Backend starts/checks the sandbox via
    `backend/infra/docker.py::start_container()`. A `409` here means the
    container process exists but the in-container agent service isn't

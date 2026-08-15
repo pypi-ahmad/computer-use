@@ -9,7 +9,7 @@
 | Google Gen AI API | HTTPS API/SDK | Interactions Computer Use and optional planning | API key or browser OAuth | high | `backend/engine/gemini.py`; `backend/providers/gemini.py` |
 | Docker Engine | local process/API | build/start/stop sandbox | host Docker access | high | `backend/infra/docker.py`; Compose |
 | Sandbox action service | loopback HTTP | screenshots and OS actions | `X-Agent-Token` shared secret | critical | `backend/executor.py`; `docker/agent_service.py:72-97` |
-| VNC/noVNC | TCP/WebSocket | human desktop observation/control | VNC password + optional WS token | high | `docker-compose.yml`; `USAGE.md:75-86` |
+| VNC/noVNC | TCP/WebSocket | human desktop observation/control | VNC password + optional WS token | high | Dashboard uses `/vnc/vnc.html?path=vnc/websockify`; `docker-compose.yml`; `frontend/src/pricing.ts` is local list-rate math, not a billing API |
 | GitHub Actions | hosted automation | CI, audits, image scan, releases | repository permissions | medium | `.github/workflows/` |
 
 ## 2) Data Stores
@@ -23,7 +23,7 @@
 
 ## 3) Secrets and Credentials Handling
 
-- Direct provider keys come from environment variables or an ephemeral v2 credential session. Credential responses expose readiness/expiry metadata, never the secret.
+- Direct provider keys come from the process environment or an ephemeral v2 credential session. Google uses `GOOGLE_API_KEY` first, then `GEMINI_API_KEY`. `load_dotenv(..., override=False)` keeps a user/system `GOOGLE_API_KEY` already set. Credential responses expose readiness/expiry metadata, never the secret.
 - Ephemeral credential sessions expire within eight hours, can be deleted early, and are not written to SQLite.
 - The backend sends provider credentials only to the selected provider SDK/API.
 - `AGENT_SERVICE_TOKEN` protects the in-container action service and is required by Compose. `VNC_PASSWORD` is also required unless an explicit insecure development escape hatch is used.

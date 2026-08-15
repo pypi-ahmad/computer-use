@@ -215,7 +215,7 @@ dialog::backdrop { background: rgb(5 12 17 / 70%); backdrop-filter: blur(4px); }
       <button type="button" data-track="business" aria-pressed="false">Business</button>
     </div>
     <section class="nav-group"><h2>Start here</h2><a class="nav-link" href="#doc-overview" data-audiences="all"><span>Repository overview</span><small>Purpose, supported routes, quick start, and verification status.</small></a><a class="nav-link" href="#doc-business" data-audiences="business"><span>Business guide</span><small>Capabilities, pilot design, controls, measures, and go/no-go questions.</small></a></section><section class="nav-group"><h2>Operate</h2><a class="nav-link" href="#doc-user-manual" data-audiences="user technical"><span>Complete user manual</span><small>Installation, dashboard operation, credentials, safety, APIs, and troubleshooting.</small></a><a class="nav-link" href="#doc-prompt-guide" data-audiences="user technical"><span>Prompt-writing guide</span><small>Write tasks that are bounded, observable, and easier to verify.</small></a><a class="nav-link" href="#doc-deployment" data-audiences="user technical business"><span>Deployment guide</span><small>Local operation, public binding, persistence, backup, and rollback preparation.</small></a></section><section class="nav-group"><h2>Understand</h2><a class="nav-link" href="#doc-handbook" data-audiences="technical user"><span>Zero to Hero technical handbook</span><small>Computer Use theory, architecture, execution flows, and study exercises.</small></a><a class="nav-link" href="#doc-technical" data-audiences="technical"><span>Technical architecture</span><small>Current runtime boundaries, public contracts, authentication, and quality gates.</small></a><a class="nav-link" href="#doc-architecture" data-audiences="technical business"><span>Architecture map</span><small>Verified layers, runtime flow, patterns, and architectural risks.</small></a><a class="nav-link" href="#doc-structure" data-audiences="technical"><span>Repository structure</span><small>Entry points, module boundaries, directories, and naming organization.</small></a><a class="nav-link" href="#doc-stack" data-audiences="technical business"><span>Technology stack</span><small>Runtime, dependencies, infrastructure, toolchain, and configuration.</small></a><a class="nav-link" href="#doc-integrations" data-audiences="technical business"><span>Integrations</span><small>Provider APIs, local stores, credentials, reliability, and observability.</small></a><a class="nav-link" href="#doc-conventions" data-audiences="technical"><span>Engineering conventions</span><small>Naming, formatting, contracts, errors, logging, and testing discipline.</small></a></section><section class="nav-group"><h2>Trust and verify</h2><a class="nav-link" href="#doc-security" data-audiences="all"><span>Security policy</span><small>Supported versions and responsible vulnerability reporting.</small></a><a class="nav-link" href="#doc-testing" data-audiences="technical business"><span>Testing and quality</span><small>Test layers, commands, isolation strategy, and known coverage gaps.</small></a><a class="nav-link" href="#doc-concerns" data-audiences="technical business"><span>Known concerns</span><small>Prioritized risks, privacy watchpoints, and change discipline.</small></a></section><section class="nav-group"><h2>Evidence and history</h2><a class="nav-link" href="#doc-migration" data-audiences="technical"><span>v2 migration</span><small>Contract and operational migration guidance.</small></a><a class="nav-link" href="#doc-rollback" data-audiences="technical business"><span>v2 rollback</span><small>Rollback triggers, procedure, and verification.</small></a><a class="nav-link" href="#doc-release" data-audiences="all"><span>v3.1.0 release notes</span><small>Current patch scope, dependency audit, and remaining CI gates.</small></a><a class="nav-link" href="#doc-release-v302" data-audiences="all"><span>v3.0.2 release notes</span><small>Historical v3.0.2 CI and sandbox notes.</small></a><a class="nav-link" href="#doc-release-v301" data-audiences="all"><span>v3.0.1 release notes</span><small>Historical v3.0.1 Windows launcher fixes.</small></a><a class="nav-link" href="#doc-release-v3" data-audiences="all"><span>v3.0.0 release notes</span><small>Historical v3.0.0 release scope.</small></a><a class="nav-link" href="#doc-release-v2" data-audiences="all"><span>v2.0.0 release notes</span><small>Historical v2 release scope.</small></a><a class="nav-link" href="#doc-research" data-audiences="technical business"><span>Provider research audit</span><small>Dated evidence behind the supported provider catalog.</small></a><a class="nav-link" href="#doc-gemini-evaluation" data-audiences="technical business"><span>Gemini successor checklist</span><small>Acceptance criteria for future Gemini route changes.</small></a></section>
-    <p class="build-note">Offline build · source fingerprint 06aaa4e186bf</p>
+    <p class="build-note">Offline build · source fingerprint d6d08e710cc9</p>
   </nav>
   <main class="content" id="main-content">
     <section class="hero" aria-labelledby="hero-title">
@@ -232,67 +232,561 @@ dialog::backdrop { background: rgb(5 12 17 / 70%); backdrop-filter: blur(4px); }
     <article class="manual-entry" id="doc-overview" data-audiences="all"><p class="source-label">Start here · Source: README.md</p><section id="overview-computer-use-workbench" class="level1">
 <h1>Computer Use Workbench</h1>
 <p>A local, single-user workbench for provider-native Computer Use
-agents. The current release is <strong>v3.1.0</strong>. The operator
-surface is the typed <code>/api/v2</code> contract, deterministic route
-fallback, SQLite audit history, binary frame streaming, declarative
-workflows, and a five-tab React dashboard.</p>
+agents.</p>
+<p>The current release is <strong>v3.1.0</strong>. You run a FastAPI
+backend, a React dashboard, and an isolated Ubuntu/XFCE Docker sandbox
+on your own machine. A model from OpenAI, Anthropic, or Google drives
+that desktop through each vendor’s Computer Use protocol.</p>
 <blockquote>
-<p>Computer Use can execute destructive actions. Run the sandbox with
-test accounts and non-sensitive data. This project is not a multi-tenant
-service and does not make model actions safe by itself.</p>
+<p>Computer Use can execute destructive actions. Use test accounts and
+non-sensitive data. This project is not a multi-tenant service and does
+not make model actions safe by itself.</p>
 </blockquote>
-<section id="overview-supported-execution-routes" class="level2">
-<h2>Supported execution routes</h2>
-<p>The workbench exposes exactly three direct provider-native routes:
-GPT-5.6 Luna or GPT-5.6 Terra through OpenAI Responses, Claude Sonnet 5
-through Anthropic Messages, and Gemini 3.7 Flash or Gemini 3.5
-Flash-Lite through Google Interactions. All three accept API keys;
-Gemini also supports browser OAuth through the v2 Provider Manager.</p>
-<p>The dated model and deprecation evidence is in <a
-href="#doc-research">the July 23 research
-audit</a>.</p>
+<section id="overview-open-source" class="level2">
+<h2>Open source</h2>
+<p>This repository is <strong>MIT-licensed</strong> (<a
+href="../LICENSE">LICENSE</a>). Clones, forks, and local use are
+welcome.</p>
+<ul>
+<li>Run it <strong>on your own machine</strong>. There is no hosted
+service.</li>
+<li>Use <strong>your own provider API keys</strong>
+(<code>GOOGLE_API_KEY</code> / <code>GEMINI_API_KEY</code>,
+<code>OPENAI_API_KEY</code>, <code>ANTHROPIC_API_KEY</code>) or a
+Providers-tab credential session. Keys stay process-local and are never
+written to SQLite.</li>
+<li><strong>You are solely responsible</strong> for every file and
+payload you put into the app: PDFs, <code>.txt</code>, <code>.md</code>,
+<code>.docx</code> uploads, sandbox desktop files, browser sessions,
+screenshots, and task text. See <a href="../DATA.md">DATA.md</a>.</li>
+<li>Contributions are welcome. Read <a
+href="../CONTRIBUTING.md">CONTRIBUTING.md</a> and open a pull request
+against <code>main</code>.</li>
+</ul>
+<p><a
+href="https://github.com/pypi-ahmad/computer-use/releases/latest">Latest
+release</a> · <a href="../LICENSE">MIT License</a> · Python 3.12–3.14 · <a
+href="https://github.com/pypi-ahmad/computer-use/actions/workflows/ci.yml">CI</a></p>
 </section>
-<section id="overview-quick-start" class="level2">
-<h2>Quick start</h2>
-<p>On Windows 11, double-click <code>run.cmd</code>. That single file
-installs anything that is missing (Docker Desktop, Node.js LTS, <a
-href="https://docs.astral.sh/uv/">uv</a>, Python 3.12, locked
-Python/frontend dependencies, and the sandbox image), then starts the
-stack, waits for <code>GET /api/health</code>, and opens
-<code>http://127.0.0.1:8505</code>. Already-present tools,
-<code>cua-ubuntu:latest</code>, and a working Vite install are skipped.
-<code>START.bat</code> still exists and always runs the full
-<code>setup.bat</code> bootstrap first. Vite listens on IPv4 loopback so
-that address matches the URL the launcher opens. Normal Windows
-installer or UAC prompts may appear; if Docker requests a restart,
-restart and run <code>run.cmd</code> again.</p>
-<div class="sourceCode" id="overview-cb1"><pre
-class="sourceCode powershell"><code class="sourceCode powershell"><span id="overview-cb1-1"><a href="#overview-cb1-1" aria-hidden="true" tabindex="-1"></a><span class="op">.</span>\run<span class="op">.</span><span class="fu">cmd</span></span></code></pre></div>
-<p>The Live session tab shows the sandbox desktop as soon as the
-container is ready. You do not start a run to see the screen. The
-dashboard opens <code>/api/v2/ws/desktop</code> immediately; a run
-switches to <code>/api/v2/ws/{session_id}</code>. If an old tab still
-says "No session on the wire", hard-refresh (<code>Ctrl+Shift+R</code>).
-Blank after that usually means <code>AGENT_SERVICE_TOKEN</code> in the
-repo-root <code>.env</code> does not match the container — restart the
-backend after fixing it. The production bundle at
-<code>http://127.0.0.1:8100</code> is a valid WebSocket origin.</p>
-<p>For manual or non-Windows setup, install Docker, Node.js 22+, and uv,
-then use the commands in <a href="#doc-user-manual">USAGE.md</a>. Provider API
-keys or Google OAuth can be configured in the v2 Provider Manager.
-Provider credentials remain process-local and expire after at most eight
-hours.</p>
-<p>Open <code>http://127.0.0.1:8505</code> for development. A
-non-loopback deployment must set both
-<code>CUA_ALLOW_PUBLIC_BIND=1</code> and <code>CUA_API_TOKEN</code>. For
-a production-style single-process build, see <a
-href="#doc-deployment">Deployment</a>.</p>
-<p>For the full operator guide — every dashboard tab,
-provider/credential setup, prompt-writing tips, and scripting via REST —
-see <a href="#doc-user-manual">USAGE.md</a>.</p>
+<section id="overview-features" class="level2">
+<h2>Features</h2>
+<ul>
+<li><strong>Three direct Computer Use routes</strong>
+<ul>
+<li><code>openai-direct</code> — GPT-5.6 Luna (default) or GPT-5.6 Terra
+via the OpenAI Responses API</li>
+<li><code>anthropic-direct</code> — Claude Sonnet 5 via Anthropic
+Messages (<code>computer_20251124</code>)</li>
+<li><code>gemini-direct</code> — Gemini 3.7 Flash (default) or Gemini
+3.5 Flash-Lite via Google Interactions</li>
+</ul></li>
+<li><strong>Six-tab React dashboard</strong> — Live session, Audit
+trail, Session cost, Workflow library, Providers, Analytics
+(<code>frontend/src/App.tsx</code>)</li>
+<li><strong>Live sandbox viewport</strong> — noVNC of XFCE as soon as
+the container is ready (<code>/vnc/vnc.html</code> →
+<code>/vnc/websockify</code>); you do not start a run to see the
+screen</li>
+<li><strong>Idle desktop stream</strong> — dashboard opens
+<code>/api/v2/ws/desktop</code>; a run switches to
+<code>/api/v2/ws/{session_id}</code></li>
+<li><strong>Typed <code>/api/v2</code> contract</strong> — sessions,
+safety decisions, workflows, analytics, export, retention,
+diagnostics</li>
+<li><strong>Deterministic route fallback</strong> — primary route plus
+optional fallback model/route pairs</li>
+<li><strong>Safety policies</strong> — <code>provider_default</code>,
+<code>confirm_mutating</code>, <code>read_only</code></li>
+<li><strong>Process-local credentials</strong> — API keys and Google
+OAuth tokens stay in memory and expire within eight hours; they are not
+written to SQLite</li>
+<li><strong>SQLite WAL audit store</strong> — sessions, actions, events,
+metrics, workflow versions
+(<code>data/computer-use-v2.sqlite3</code>)</li>
+<li><strong>Audit frame store</strong> — screenshots under
+<code>data/audit-frames</code> with 7-day or 1 GiB eviction</li>
+<li><strong>Declarative workflows</strong> — named step lists that
+compile to a Live-session task</li>
+<li><strong>Windows one-file launcher</strong> — <code>run.cmd</code>
+installs missing host tools, then starts the stack</li>
+</ul>
+<p>Model and deprecation evidence: <a
+href="#doc-research">docs/research-audit-2026-07-23.md</a>.</p>
 </section>
-<section id="overview-commands" class="level2">
-<h2>Commands</h2>
+<section id="overview-demo" class="level2">
+<h2>Demo</h2>
+<p>After <code>run.cmd</code> (or <code>dev.py --open-browser</code>),
+open <a
+href="http://127.0.0.1:8505"><span>http://127.0.0.1:8505</span></a>. The
+Live session viewport embeds the sandbox desktop.</p>
+<p><img src="assets/screenshot.png" alt="Sandbox XFCE desktop" /></p>
+<p><em>Isolated XFCE desktop streamed into the workbench. The screenshot
+is from an earlier UI revision; the current operator surface is the
+six-tab v3 dashboard described below.</em></p>
+<p>A local smoke task (no web search, no attachments):</p>
+<blockquote>
+<p>Open the file manager. Stop when the file manager window is
+visible.</p>
+</blockquote>
+<p>If the file manager appears and the session badge reaches
+<code>COMPLETED</code>, the install works. Full steps: <a
+href="../TESTING.md">TESTING.md</a>.</p>
+</section>
+<section id="overview-tech-stack" class="level2">
+<h2>Tech stack</h2>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>What this repo uses</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Backend</td>
+<td>Python 3.12–3.14, FastAPI, Uvicorn, Pydantic, httpx, Pillow</td>
+</tr>
+<tr>
+<td>Providers</td>
+<td><code>openai</code>, <code>anthropic</code>,
+<code>google-genai</code>, <code>google-auth</code></td>
+</tr>
+<tr>
+<td>Frontend</td>
+<td>React 19, React Router 7, Vite 6, TypeScript, Lucide</td>
+</tr>
+<tr>
+<td>Sandbox</td>
+<td>Docker Compose, <code>cua-ubuntu:latest</code>, Xvfb, XFCE, x11vnc,
+noVNC, <code>docker/agent_service.py</code></td>
+</tr>
+<tr>
+<td>Persistence</td>
+<td>SQLite WAL + on-disk audit frames</td>
+</tr>
+<tr>
+<td>Tooling</td>
+<td>uv (<code>uv.lock</code>), Ruff, mypy, pytest, Vitest, GitHub
+Actions</td>
+</tr>
+</tbody>
+</table>
+<p>Package name in <code>pyproject.toml</code>:
+<code>computer-use-workbench</code>.</p>
+</section>
+<section id="overview-project-structure" class="level2">
+<h2>Project structure</h2>
+<pre class="text"><code>computer-use/
+├── backend/                  # FastAPI app
+│   ├── main.py               # Uvicorn entry; public-bind guardrail
+│   ├── server/               # HTTP/WS, noVNC proxy, app lifespan
+│   ├── v2/                   # /api/v2 REST, credentials, SQLite, frames
+│   ├── engine/               # OpenAI / Anthropic / Gemini Computer Use clients
+│   ├── providers/            # Provider-neutral run adapters
+│   ├── executor.py           # Desktop actions → agent_service
+│   ├── loop.py               # Session / step orchestration
+│   ├── infra/                # Config, Docker lifecycle, logging
+│   └── models/               # allowed_models.json, v2 catalog, schemas
+├── frontend/                 # React + Vite dashboard
+│   └── src/App.tsx           # Six tabs and routing
+├── docker/                   # Sandbox image, entrypoint, agent_service
+├── docker-compose.yml        # cua-environment (5900, 6080, 9222)
+├── tests/                    # Offline pytest (excludes integration by default)
+├── evals/                    # Offline HTTP/runtime evals
+├── scripts/                  # Handbook site, release zip, changelog watchdog
+├── docs/                     # Operator, architecture, and release notes
+├── run.cmd                   # Windows setup-if-needed + launch
+├── setup.bat / setup.sh      # Bootstrap
+├── START.bat                 # Always run setup, then launch
+├── dev.py / dev.bat / dev.sh # Restart sandbox, backend, Vite
+└── .env.example              # Environment template</code></pre>
+</section>
+<section id="overview-installation-and-setup" class="level2">
+<h2>Installation and setup</h2>
+<section id="overview-requirements" class="level3">
+<h3>Requirements</h3>
+<ul>
+<li>Docker Desktop (engine running)</li>
+<li>Node.js 22+</li>
+<li><a href="https://docs.astral.sh/uv/">uv</a> and Python 3.12 (3.13
+and 3.14 are also tested in CI)</li>
+<li>Windows 11 for <code>run.cmd</code> / <code>START.bat</code>;
+Linux/macOS use <code>setup.sh</code> and <code>dev.sh</code></li>
+</ul>
+</section>
+<section id="overview-windows-recommended" class="level3">
+<h3>Windows (recommended)</h3>
+<div class="sourceCode" id="overview-cb2"><pre
+class="sourceCode powershell"><code class="sourceCode powershell"><span id="overview-cb2-1"><a href="#overview-cb2-1" aria-hidden="true" tabindex="-1"></a><span class="op">.</span>\run<span class="op">.</span><span class="fu">cmd</span></span></code></pre></div>
+<p><code>run.cmd</code> installs missing host tools (uv, Python 3.12,
+Node.js LTS, Docker Desktop) via winget, copies
+<code>.env.example</code> to <code>.env</code> if needed, fills empty
+<code>AGENT_SERVICE_TOKEN</code> and <code>VNC_PASSWORD</code>, runs
+<code>uv sync --frozen</code>, installs frontend deps when Vite is
+missing, builds <code>cua-ubuntu:latest</code> only if the image is
+absent, then starts <code>dev.py --open-browser</code>.</p>
+<p><code>START.bat</code> always runs
+<code>setup.bat --bootstrap-only</code> first, then launches.</p>
+<p>If Docker asks for a reboot or WSL setup, finish that and run
+<code>run.cmd</code> again.</p>
+</section>
+<section id="overview-manual-windows-linux-macos" class="level3">
+<h3>Manual (Windows, Linux, macOS)</h3>
+<div class="sourceCode" id="overview-cb3"><pre
+class="sourceCode powershell"><code class="sourceCode powershell"><span id="overview-cb3-1"><a href="#overview-cb3-1" aria-hidden="true" tabindex="-1"></a>git clone https<span class="op">://</span>github<span class="op">.</span><span class="fu">com</span><span class="op">/</span>pypi-ahmad<span class="op">/</span>computer-use<span class="op">.</span><span class="fu">git</span></span>
+<span id="overview-cb3-2"><a href="#overview-cb3-2" aria-hidden="true" tabindex="-1"></a><span class="fu">cd</span> computer-use</span>
+<span id="overview-cb3-3"><a href="#overview-cb3-3" aria-hidden="true" tabindex="-1"></a><span class="fu">Copy-Item</span> <span class="op">.</span><span class="fu">env</span><span class="op">.</span><span class="fu">example</span> <span class="op">.</span><span class="fu">env</span>   <span class="co"># then set AGENT_SERVICE_TOKEN and VNC_PASSWORD</span></span>
+<span id="overview-cb3-4"><a href="#overview-cb3-4" aria-hidden="true" tabindex="-1"></a>uv sync <span class="op">--</span>frozen</span>
+<span id="overview-cb3-5"><a href="#overview-cb3-5" aria-hidden="true" tabindex="-1"></a>npm <span class="op">--</span>prefix frontend ci</span>
+<span id="overview-cb3-6"><a href="#overview-cb3-6" aria-hidden="true" tabindex="-1"></a>docker compose build          <span class="co"># first time, or after Dockerfile changes</span></span>
+<span id="overview-cb3-7"><a href="#overview-cb3-7" aria-hidden="true" tabindex="-1"></a>uv run python dev<span class="op">.</span><span class="fu">py</span> <span class="op">--</span>open-browser</span></code></pre></div>
+<p>On Linux/macOS:</p>
+<div class="sourceCode" id="overview-cb4"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="overview-cb4-1"><a href="#overview-cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cp</span> .env.example .env</span>
+<span id="overview-cb4-2"><a href="#overview-cb4-2" aria-hidden="true" tabindex="-1"></a><span class="co"># set AGENT_SERVICE_TOKEN and VNC_PASSWORD</span></span>
+<span id="overview-cb4-3"><a href="#overview-cb4-3" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> setup.sh                 <span class="co"># optional bootstrap</span></span>
+<span id="overview-cb4-4"><a href="#overview-cb4-4" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> dev.sh</span></code></pre></div>
+</section>
+<section id="overview-urls" class="level3">
+<h3>URLs</h3>
+<table>
+<thead>
+<tr>
+<th>URL</th>
+<th>What listens</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="http://127.0.0.1:8505">http://127.0.0.1:8505</a></td>
+<td>Vite dashboard (dev). Proxies <code>/api</code>,
+<code>/api/v2/ws</code>, and <code>/vnc</code> to the backend.</td>
+</tr>
+<tr>
+<td><a href="http://127.0.0.1:8100">http://127.0.0.1:8100</a></td>
+<td>FastAPI. Production UI is <code>frontend/dist</code> when that build
+exists.</td>
+</tr>
+<tr>
+<td><a
+href="http://127.0.0.1:9222/health">http://127.0.0.1:9222/health</a></td>
+<td>In-container agent service (loopback only)</td>
+</tr>
+<tr>
+<td><a href="http://127.0.0.1:6080">http://127.0.0.1:6080</a></td>
+<td>noVNC inside the container (prefer the dashboard <code>/vnc</code>
+proxy)</td>
+</tr>
+</tbody>
+</table>
+<p>The backend loads <strong>repository-root</strong> <code>.env</code>
+(next to <code>docker-compose.yml</code>), not
+<code>backend/.env</code>.</p>
+<p>A non-loopback <code>HOST</code> requires both
+<code>CUA_ALLOW_PUBLIC_BIND=1</code> and <code>CUA_API_TOKEN</code>.
+Otherwise <code>backend/main.py</code> exits with code 2.</p>
+</section>
+</section>
+<section id="overview-environment-variables" class="level2">
+<h2>Environment variables</h2>
+<p>Copy <code>.env.example</code> to <code>.env</code>. Never commit the
+populated file.</p>
+<section id="overview-required-for-the-sandbox" class="level3">
+<h3>Required for the sandbox</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Default</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AGENT_SERVICE_TOKEN</code></td>
+<td>generated by <code>run.cmd</code> if empty</td>
+<td>Shared secret between the backend and
+<code>docker/agent_service.py</code></td>
+</tr>
+<tr>
+<td><code>VNC_PASSWORD</code></td>
+<td>generated by <code>run.cmd</code> if empty</td>
+<td>x11vnc password; also passed into the noVNC viewer URL</td>
+</tr>
+</tbody>
+</table>
+<p>If the token in <code>.env</code> does not match the container,
+screenshots return <code>401</code> and the viewport stays blank.
+Restart the backend after fixing it. Confirm with
+<code>docker exec cua-environment printenv AGENT_SERVICE_TOKEN</code>.</p>
+</section>
+<section id="overview-provider-credentials-at-least-one-route"
+class="level3">
+<h3>Provider credentials (at least one route)</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>OPENAI_API_KEY</code></td>
+<td><code>openai-direct</code></td>
+</tr>
+<tr>
+<td><code>ANTHROPIC_API_KEY</code></td>
+<td><code>anthropic-direct</code></td>
+</tr>
+<tr>
+<td><code>GOOGLE_API_KEY</code> or <code>GEMINI_API_KEY</code></td>
+<td><code>gemini-direct</code> (alias)</td>
+</tr>
+</tbody>
+</table>
+<p>You can also create an ephemeral credential session in the Providers
+tab instead of putting keys in <code>.env</code>. Google OAuth needs
+<code>GOOGLE_OAUTH_CLIENT_ID</code> and
+<code>GOOGLE_OAUTH_CLIENT_SECRET</code> (optional
+<code>GOOGLE_CLOUD_PROJECT</code>,
+<code>CUA_GOOGLE_OAUTH_REDIRECT_URI</code>).</p>
+</section>
+<section id="overview-networking-and-workbench-auth" class="level3">
+<h3>Networking and workbench auth</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Default</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>HOST</code></td>
+<td><code>127.0.0.1</code></td>
+<td>Backend bind</td>
+</tr>
+<tr>
+<td><code>PORT</code></td>
+<td><code>8100</code></td>
+<td>Backend port</td>
+</tr>
+<tr>
+<td><code>CUA_ALLOW_PUBLIC_BIND</code></td>
+<td>unset</td>
+<td>Required for non-loopback <code>HOST</code></td>
+</tr>
+<tr>
+<td><code>CUA_API_TOKEN</code></td>
+<td>unset</td>
+<td>Optional shared secret for mutating REST, WebSockets, and
+<code>/vnc/*</code>. Default-open on loopback when unset.</td>
+</tr>
+<tr>
+<td><code>CUA_WS_TOKEN</code></td>
+<td>unset</td>
+<td>Deprecated fallback for <code>CUA_API_TOKEN</code></td>
+</tr>
+<tr>
+<td><code>CORS_ORIGINS</code></td>
+<td>8505 / 8100 / 5173 / 3000 on localhost and 127.0.0.1</td>
+<td>Comma-separated Origin allowlist</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="overview-sandbox-and-agent" class="level3">
+<h3>Sandbox and agent</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Default</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CONTAINER_NAME</code></td>
+<td><code>cua-environment</code></td>
+<td>Docker container name</td>
+</tr>
+<tr>
+<td><code>AGENT_SERVICE_HOST</code> /
+<code>AGENT_SERVICE_PORT</code></td>
+<td><code>127.0.0.1</code> / <code>9222</code></td>
+<td>Action service</td>
+</tr>
+<tr>
+<td><code>SCREEN_WIDTH</code> / <code>SCREEN_HEIGHT</code></td>
+<td><code>1440</code> / <code>900</code></td>
+<td>Virtual display (restart backend after change)</td>
+</tr>
+<tr>
+<td><code>MAX_STEPS</code></td>
+<td><code>50</code></td>
+<td>Default step budget (hard cap 200)</td>
+</tr>
+<tr>
+<td><code>STEP_TIMEOUT</code></td>
+<td><code>30.0</code></td>
+<td>Seconds before one action is treated as hung</td>
+</tr>
+<tr>
+<td><code>CUA_ENABLE_LEGACY_ACTIONS</code></td>
+<td><code>0</code></td>
+<td>Re-enables shell/clipboard/window-management actions in the sandbox.
+Do not enable off loopback.</td>
+</tr>
+<tr>
+<td><code>CUA_ALLOWED_NAV_HOSTS</code></td>
+<td>unset</td>
+<td>Optional comma-separated host allowlist for navigation</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="overview-persistence-and-logging" class="level3">
+<h3>Persistence and logging</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Default</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CUA_V2_DB_PATH</code></td>
+<td><code>data/computer-use-v2.sqlite3</code></td>
+<td>SQLite WAL store</td>
+</tr>
+<tr>
+<td><code>CUA_V2_FRAME_PATH</code></td>
+<td><code>data/audit-frames</code></td>
+<td>Audit screenshots</td>
+</tr>
+<tr>
+<td><code>CUA_FRONTEND_DIST</code></td>
+<td><code>frontend/dist</code></td>
+<td>Optional path to the production UI bundle</td>
+</tr>
+<tr>
+<td><code>LOG_FORMAT</code></td>
+<td><code>console</code></td>
+<td>Set <code>json</code> for one JSON object per line</td>
+</tr>
+<tr>
+<td><code>LOG_LEVEL</code></td>
+<td><code>INFO</code></td>
+<td>Python log level</td>
+</tr>
+<tr>
+<td><code>DEBUG</code></td>
+<td><code>0</code></td>
+<td>Debug verbosity (<code>1</code> / <code>true</code> /
+<code>yes</code>)</td>
+</tr>
+<tr>
+<td><code>CUA_RELOAD</code></td>
+<td>unset</td>
+<td>Uvicorn <code>--reload</code> (explicit; <code>DEBUG</code> does not
+turn this on)</td>
+</tr>
+</tbody>
+</table>
+<p>Frontend Vite (dev server only): <code>VITE_API_PORT</code> (default
+<code>8100</code>), <code>VITE_WS_TOKEN</code>, <code>VITE_PORT</code>
+(default <code>8505</code>).</p>
+<p>The full template is <a href="../.env.example">.env.example</a>.
+Operator notes: <a href="#user-manual-configuration-reference">USAGE.md</a>.
+What is stored where: <a href="../DATA.md">DATA.md</a>.</p>
+</section>
+</section>
+<section id="overview-usage" class="level2">
+<h2>Usage</h2>
+<section id="overview-dashboard" class="level3">
+<h3>Dashboard</h3>
+<ol type="1">
+<li>Start the stack (<code>run.cmd</code> or
+<code>dev.py --open-browser</code>).</li>
+<li>Open <code>http://127.0.0.1:8505</code>.</li>
+<li><strong>Providers</strong> — create a credential session (API key or
+Google OAuth) if you did not set provider keys in
+<code>.env</code>.</li>
+<li><strong>Live session</strong> — choose model and primary route,
+optional fallback (<code>model@route</code>), safety policy, optional
+provider web-search planning, then <strong>Start run</strong>.</li>
+<li>Approve or deny amber <strong>Approval required</strong> banners
+when the policy and provider ask.</li>
+<li><strong>Stop run</strong> or the sidebar <strong>Stop app</strong>
+button (the latter also stops backend, frontend, and the sandbox).
+<code>Ctrl+C</code> in the launcher does the same process teardown.</li>
+</ol>
+<p>Tabs:</p>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Tab</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/</code></td>
+<td>Live session</td>
+<td>Task, routing, noVNC viewport, pipeline stages</td>
+</tr>
+<tr>
+<td><code>/audit</code></td>
+<td>Audit trail</td>
+<td>SQLite action journal, events, ZIP export</td>
+</tr>
+<tr>
+<td><code>/workflows</code></td>
+<td>Workflow library</td>
+<td>Named step lists; compile into a Live task</td>
+</tr>
+<tr>
+<td><code>/providers</code></td>
+<td>Providers</td>
+<td>Route readiness and ephemeral credentials</td>
+</tr>
+<tr>
+<td><code>/analytics</code></td>
+<td>Analytics</td>
+<td>Latency/token samples, diagnostics, retention prune</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="overview-example-start-a-session-over-http" class="level3">
+<h3>Example: start a session over HTTP</h3>
+<p>Dev UI calls <code>/api/v2</code>. Example shape from
+<code>frontend/src/api.ts</code>:</p>
+<pre class="http"><code>POST /api/v2/sessions
+Content-Type: application/json
+
+{
+  &quot;task&quot;: &quot;Open the file manager. Stop when the file manager window is visible.&quot;,
+  &quot;model&quot;: &quot;gemini-3.7-flash&quot;,
+  &quot;primaryRoute&quot;: &quot;gemini-direct&quot;,
+  &quot;fallbackRoutes&quot;: [],
+  &quot;maxSteps&quot;: 50,
+  &quot;safetyPolicy&quot;: &quot;provider_default&quot;,
+  &quot;useBuiltinSearch&quot;: false,
+  &quot;attachedFiles&quot;: [],
+  &quot;retainAuditFrames&quot;: true
+}</code></pre>
+<p>If <code>CUA_API_TOKEN</code> is set, send <code>X-CUA-Token</code>
+(or <code>?token=</code>).</p>
+</section>
+<section id="overview-commands" class="level3">
+<h3>Commands</h3>
 <table>
 <thead>
 <tr>
@@ -303,98 +797,234 @@ see <a href="#doc-user-manual">USAGE.md</a>.</p>
 <tbody>
 <tr>
 <td><code>run.cmd</code></td>
-<td>One-file Windows setup-if-needed, then launch the app</td>
+<td>Windows: setup if needed, then launch</td>
 </tr>
 <tr>
 <td><code>START.bat</code></td>
-<td>Always bootstrap through <code>setup.bat</code>, then launch</td>
-</tr>
-<tr>
-<td><code>uv sync --frozen</code></td>
-<td>Install the exact Python environment</td>
+<td>Always bootstrap via <code>setup.bat</code>, then launch</td>
 </tr>
 <tr>
 <td><code>uv run python dev.py --open-browser</code></td>
-<td>Start backend, frontend, and sandbox; open the dashboard after
-backend health succeeds</td>
+<td>Sandbox + backend + Vite; open the dashboard after
+<code>/api/health</code></td>
+</tr>
+<tr>
+<td><code>uv run python -m backend.main</code></td>
+<td>Backend only (Uvicorn on <code>HOST</code>/<code>PORT</code>)</td>
 </tr>
 <tr>
 <td><code>uv run pytest</code></td>
-<td>Run offline backend tests</td>
+<td>Offline backend tests (<code>not integration</code>)</td>
 </tr>
 <tr>
 <td><code>uv run pytest -o addopts='' evals/</code></td>
-<td>Run offline evals</td>
+<td>Offline evals</td>
 </tr>
 <tr>
-<td><code>uv run ruff check .</code></td>
-<td>Lint Python</td>
-</tr>
-<tr>
-<td><code>uv run mypy</code></td>
-<td>Type-check Python</td>
-</tr>
-<tr>
-<td><code>npm --prefix frontend run typecheck</code></td>
-<td>Type-check React</td>
+<td><code>uv run ruff check .</code> / <code>uv run mypy</code></td>
+<td>Lint / type-check Python</td>
 </tr>
 <tr>
 <td><code>npm --prefix frontend run test:run</code></td>
-<td>Run frontend tests</td>
+<td>Frontend unit tests</td>
 </tr>
 <tr>
 <td><code>npm --prefix frontend run build</code></td>
-<td>Build the production UI</td>
+<td>Production bundle at <code>frontend/dist</code></td>
 </tr>
 <tr>
 <td><code>uv run python scripts/build_handbook_site.py</code></td>
-<td>Regenerate the standalone handbook website</td>
+<td>Rebuild <code>docs/zero-to-hero-study-handbook.html</code></td>
 </tr>
 <tr>
 <td><code>uv run python scripts/build_release.py</code></td>
-<td>Build release archive and checksums</td>
+<td>Release zip and checksums</td>
+</tr>
+</tbody>
+</table>
+<p>CI-equivalent checks: <a href="../TESTING.md">TESTING.md</a>. Operator
+detail: <a href="#doc-user-manual">USAGE.md</a>.</p>
+</section>
+</section>
+<section id="overview-how-it-works" class="level2">
+<h2>How it works</h2>
+<pre class="text"><code>Browser (127.0.0.1:8505)
+    │  REST /api/v2/*
+    │  WS   /api/v2/ws/desktop  or  /api/v2/ws/{session_id}
+    │  HTTP+WS /vnc/*  (noVNC assets + websockify)
+    ▼
+FastAPI (127.0.0.1:8100)     backend/server, backend/v2
+    │  orchestrates AgentLoop, safety, SQLite, CUAF frames
+    ▼
+Provider SDK                 backend/engine, backend/providers
+    OpenAI Responses  |  Anthropic Messages  |  Gemini Interactions
+    │  Computer Use actions
+    ▼
+DesktopExecutor              backend/executor.py
+    │  HTTP + AGENT_SERVICE_TOKEN
+    ▼
+cua-environment              docker/agent_service.py
+    Xvfb :99 1440×900 → XFCE → x11vnc :5900 → websockify :6080</code></pre>
+<ol type="1">
+<li><code>dev.py</code> runs <code>docker compose up -d --wait</code> so
+agent <code>/health</code> and noVNC <code>vnc.html</code> are up before
+the dashboard is treated as ready.</li>
+<li>The Live tab loads <code>/api/v2/desktop</code> (viewer URL with
+<code>path=vnc/websockify</code> and <code>VNC_PASSWORD</code>) and
+waits until <code>/vnc/vnc.html</code> returns 200.</li>
+<li>Starting a session stores the run in SQLite, calls the selected
+engine, and maps official desktop actions (<code>click</code>,
+<code>type</code>, <code>hotkey</code>, …) onto the sandbox.</li>
+<li>Fallback routes run only if the primary route fails and you
+configured them.</li>
+<li>Preview frames on the session WebSocket use the CUAF binary protocol
+(<code>frontend/src/protocol.ts</code>). The interactive desktop is
+noVNC, not those preview frames.</li>
+</ol>
+<p>Architecture notes: <a href="#doc-technical">TECHNICAL.md</a>, <a
+href="#doc-architecture">docs/codebase/ARCHITECTURE.md</a>.</p>
+</section>
+<section id="overview-configuration-options" class="level2">
+<h2>Configuration options</h2>
+<p>Safety policies on Live session /
+<code>POST /api/v2/sessions</code>:</p>
+<table>
+<thead>
+<tr>
+<th><code>safetyPolicy</code></th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>provider_default</code></td>
+<td>Provider’s own confirmation rules</td>
+</tr>
+<tr>
+<td><code>confirm_mutating</code></td>
+<td>Extra operator confirm for mutating actions</td>
+</tr>
+<tr>
+<td><code>read_only</code></td>
+<td>Reject mutating actions</td>
+</tr>
+</tbody>
+</table>
+<p>Optional <code>useBuiltinSearch</code> runs a provider-native
+planning/search pass before the computer-only loop (OpenAI
+<code>web_search</code>, Anthropic <code>web_search_20250305</code>).
+Gemini File Search cannot be combined with Computer Use; attaching files
+with a Gemini model fails at session start.</p>
+<p>Non-Gemini routes accept <code>.md</code>, <code>.txt</code>,
+<code>.pdf</code>, <code>.docx</code> uploads as reference files.</p>
+<p>Production-style single-process serving: build the frontend, then run
+the backend so it can serve <code>frontend/dist</code>. See <a
+href="#doc-deployment">docs/deployment.md</a>.</p>
+</section>
+<section id="overview-documentation" class="level2">
+<h2>Documentation</h2>
+<table>
+<thead>
+<tr>
+<th>Document</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="#doc-user-manual">USAGE.md</a></td>
+<td>Operator guide: tabs, credentials, REST, troubleshooting</td>
+</tr>
+<tr>
+<td><a href="../TESTING.md">TESTING.md</a></td>
+<td>Manual smoke test and CI-equivalent commands</td>
+</tr>
+<tr>
+<td><a href="../DATA.md">DATA.md</a></td>
+<td>What is stored locally and operator responsibility</td>
+</tr>
+<tr>
+<td><a href="../SUPPORT.md">SUPPORT.md</a></td>
+<td>How to get help; what this repo will not debug</td>
+</tr>
+<tr>
+<td><a href="../CONTRIBUTING.md">CONTRIBUTING.md</a></td>
+<td>Branch, test, and PR rules</td>
+</tr>
+<tr>
+<td><a href="#doc-security">SECURITY.md</a></td>
+<td>Vulnerability reports (<code>pypi.ahmad@gmail.com</code>)</td>
+</tr>
+<tr>
+<td><a href="#doc-technical">TECHNICAL.md</a></td>
+<td>Runtime contracts</td>
+</tr>
+<tr>
+<td><a href="#doc-migration">docs/migration-v2.md</a> / <a
+href="#doc-rollback">docs/rollback-v2.md</a></td>
+<td>v2 migration and rollback</td>
+</tr>
+<tr>
+<td><a
+href="#doc-release">docs/release-notes-v3.1.0.md</a></td>
+<td>Current release notes</td>
+</tr>
+<tr>
+<td><a
+href="zero-to-hero-study-handbook.html">docs/zero-to-hero-study-handbook.html</a></td>
+<td>Guided handbook</td>
 </tr>
 </tbody>
 </table>
 </section>
-<section id="overview-architecture" class="level2">
-<h2>Architecture</h2>
-<ul>
-<li>FastAPI owns authenticated REST/WebSocket access, orchestration, and
-production static serving.</li>
-<li>Sessions use explicit primary and fallback routes, with
-provider-default, confirm-mutating, and read-only safety policies.</li>
-<li>SQLite WAL persists sessions, actions, events, metrics, and workflow
-versions; a bounded filesystem store retains audit frames for seven days
-or one GiB by default.</li>
-<li>The sandbox is an isolated Ubuntu/XFCE container exposing
-authenticated screenshot and input endpoints.</li>
-<li>React consumes camelCase contracts and the <code>CUAF</code>
-binary-frame protocol. The Live tab streams the sandbox desktop
-immediately on <code>/api/v2/ws/desktop</code>, then switches to
-<code>/api/v2/ws/{session_id}</code> for an active run.</li>
-</ul>
-<p>See <a href="#doc-technical">TECHNICAL.md</a>, <a
-href="#doc-release">v3.1.0 release notes</a>, <a
-href="#doc-migration">Migration</a>, <a
-href="#doc-rollback">Rollback</a>, and <a
-href="#doc-security">Security</a>.</p>
-<p>New to this codebase? Open the <a
-href="zero-to-hero-study-handbook.html">interactive Zero to Hero
-handbook</a> for guided GitHub-user, technical, and business tracks. Its
-<a href="#doc-handbook">Markdown source</a>
-remains available for plain-text reading and PDF generation.</p>
+<section id="overview-community" class="level2">
+<h2>Community</h2>
+<table>
+<thead>
+<tr>
+<th>Need</th>
+<th>Where</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Bug report</td>
+<td><a
+href="https://github.com/pypi-ahmad/computer-use/issues/new/choose">GitHub
+Issues</a></td>
+</tr>
+<tr>
+<td>Support limits</td>
+<td><a href="../SUPPORT.md">SUPPORT.md</a></td>
+</tr>
+<tr>
+<td>Security</td>
+<td><a href="#doc-security">SECURITY.md</a> — do not file public issues
+with tokens or exploits</td>
+</tr>
+<tr>
+<td>Conduct</td>
+<td><a href="../CODE_OF_CONDUCT.md">CODE_OF_CONDUCT.md</a></td>
+</tr>
+</tbody>
+</table>
+<p>There is no automated end-to-end UI plus live-provider suite. CI
+(<code>.github/workflows/ci.yml</code>) runs Ruff, format, mypy, pytest
+on Python 3.12–3.14, evals, frontend lint/typecheck/tests/build,
+<code>pip-audit</code>, <code>npm audit</code>, sandbox image build, and
+a blocking HIGH/CRITICAL image scan. Live provider tests are opt-in;
+missing credentials are disclosed, never treated as a pass.</p>
 </section>
-<section id="overview-verification-status" class="level2">
-<h2>Verification status</h2>
-<p>Release publication is gated by
-<code>.github/workflows/ci.yml</code>: Ruff, formatting, mypy, Python
-3.12–3.14 tests, evals, frontend lint/typecheck/tests/build, dependency
-audits, sandbox image build, and a blocking high/critical image scan.
-Live provider smoke tests are conditional and must be recorded in the
-release verification matrix; missing credentials are disclosed, never
-treated as a pass.</p>
-<p>Licensed under MIT.</p>
+<section id="overview-license" class="level2">
+<h2>License</h2>
+<p><a href="../LICENSE">MIT</a>. Copyright (c) 2026 Ahmad.</p>
+<p>You may clone, use, modify, and contribute. Run the workbench on your
+own machine with your own API keys. The software is provided as-is.
+<strong>All data you use in the app — including PDFs and other files —
+is your responsibility only.</strong> See <a
+href="../DATA.md">DATA.md</a>.</p>
+<p align="center">Made with ❤️ by Ahmad Mujtaba</p>
+
 </section>
 </section>
 <footer class="lesson-nav"><button type="button" data-previous>Previous</button><button type="button" data-next>Next</button></footer></article><article class="manual-entry" id="doc-business" data-audiences="business"><p class="source-label">Start here · Source: docs/business-guide.md</p><section id="business-business-guide-evaluating-computer-use-workbench"
@@ -480,6 +1110,16 @@ eight hours.</td>
 <td>Audit history</td>
 <td>Sessions, actions, events, metrics, workflow versions, and optional
 frames are retained locally.</td>
+</tr>
+<tr>
+<td>Session cost estimate</td>
+<td>Operators can view list-rate USD for a session from recorded
+input/output tokens. This is not a provider invoice.</td>
+</tr>
+<tr>
+<td>Operator-owned data</td>
+<td>PDFs and other files, sandbox contents, keys, and audit records stay
+on the operator machine. See <code>DATA.md</code>.</td>
 </tr>
 <tr>
 <td>Session export</td>
@@ -771,8 +1411,8 @@ opted in to exposing it.</p>
 <p><strong>Two ways to use it</strong>, both fully working today:</p>
 <ol type="1">
 <li><strong>The dashboard</strong> (<code>http://127.0.0.1:8505</code>)
-— a five-tab web UI. This is what most people mean by "using the app."
-It talks to the newer, typed <code>/api/v2</code> backend surface. Use
+— a six-tab web UI. This is what most people mean by "using the app." It
+talks to the newer, typed <code>/api/v2</code> backend surface. Use
 <code>127.0.0.1</code>, not <code>localhost</code>: the Vite dev server
 binds IPv4 loopback only.</li>
 <li><strong>Direct API calls</strong> (curl, scripts,
@@ -790,8 +1430,8 @@ Availability</a>.</li>
 <li><a href="#user-manual-installation">Installation</a></li>
 <li><a href="#user-manual-first-run">First Run</a></li>
 <li><a href="#user-manual-daily-operation">Daily Operation</a></li>
-<li><a href="#user-manual-the-dashboard--five-tabs-in-depth">The
-Dashboard — Five Tabs In Depth</a></li>
+<li><a href="#user-manual-the-dashboard--six-tabs-in-depth">The
+Dashboard — Six Tabs In Depth</a></li>
 <li><a href="#user-manual-provider-model-and-routing">Provider, Model,
 and Routing</a></li>
 <li><a
@@ -989,13 +1629,14 @@ class="sourceCode powershell"><code class="sourceCode powershell"><span id="user
 <div class="sourceCode" id="user-manual-cb7"><pre
 class="sourceCode bash"><code class="sourceCode bash"><span id="user-manual-cb7-1"><a href="#user-manual-cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> dev.sh           <span class="co"># Linux/macOS</span></span></code></pre></div>
 <p>then use <code>http://127.0.0.1:8505</code>. Vite listens on IPv4
-loopback and proxies <code>/api</code> and <code>/api/v2/ws</code> to
-the backend, so you don't deal with CORS during normal use.</p>
+loopback and proxies <code>/api</code>, <code>/api/v2/ws</code>, and
+<code>/vnc</code> to the backend, so you don't deal with CORS during
+normal use.</p>
 </section>
-<section id="user-manual-the-dashboard--five-tabs-in-depth"
+<section id="user-manual-the-dashboard--six-tabs-in-depth"
 class="level2">
-<h2>The Dashboard — Five Tabs In Depth</h2>
-<p>The left sidebar has five workspaces. Each is a separate page;
+<h2>The Dashboard — Six Tabs In Depth</h2>
+<p>The left sidebar has six workspaces. Each is a separate page;
 switching tabs doesn't lose the state of the others.</p>
 <section id="user-manual-1-live-session" class="level3">
 <h3>1. Live session</h3>
@@ -1045,8 +1686,56 @@ that session (e.g. <code>SESSION_STARTED</code>,
 what an agent did and in what order — useful for compliance review or
 for debugging a run that didn't go as expected.</p>
 </section>
-<section id="user-manual-3-workflow-library" class="level3">
-<h3>3. Workflow library</h3>
+<section id="user-manual-3-session-cost" class="level3">
+<h3>3. Session cost</h3>
+<p>Estimates USD for a selected session from recorded
+<code>EXECUTION</code> token totals
+(<code>GET /api/v2/analytics?sessionId=</code>) and list rates in
+<code>frontend/src/pricing.ts</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Catalog model</th>
+<th style="text-align: right;">Input / 1M</th>
+<th style="text-align: right;">Output / 1M</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>claude-sonnet-5</code></td>
+<td style="text-align: right;">$2.00</td>
+<td style="text-align: right;">$10.00</td>
+</tr>
+<tr>
+<td><code>gemini-3.7-flash</code></td>
+<td style="text-align: right;">$0.75</td>
+<td style="text-align: right;">$3.75</td>
+</tr>
+<tr>
+<td><code>gemini-3.5-flash-lite</code></td>
+<td style="text-align: right;">$0.30</td>
+<td style="text-align: right;">$2.50</td>
+</tr>
+<tr>
+<td><code>gpt-5.6-luna</code></td>
+<td style="text-align: right;">$0.20</td>
+<td style="text-align: right;">$1.20</td>
+</tr>
+<tr>
+<td><code>gpt-5.6-terra</code></td>
+<td style="text-align: right;">$2.00</td>
+<td style="text-align: right;">$12.00</td>
+</tr>
+</tbody>
+</table>
+<p>Formula: <code>tokens / 1,000,000 × list rate</code>. Batch,
+prompt-cache, and Terra long-context doubling are <strong>not</strong>
+applied — those meters are not stored. Totals appear after the session
+writes an EXECUTION metric. This is an estimate, not a provider
+invoice.</p>
+</section>
+<section id="user-manual-4-workflow-library" class="level3">
+<h3>4. Workflow library</h3>
 <p>A <strong>workflow</strong> here is a saved, reusable, named sequence
 of plain-English instructions (e.g. "Weekly access review": <em>Open the
 admin portal → Export active accounts → Save the report</em>) — not a
@@ -1055,16 +1744,12 @@ and reuse. Existing workflows are shown as cards with their name and
 version number; the form on the right creates a new one. Each edit to a
 workflow's steps creates a new version rather than overwriting the old
 one, so you can always see what a previous run actually used.</p>
-<p><em>(Compiling a workflow — substituting variables like
-<code>${account_name}</code> into its steps and handing the result to a
-Live session run — exists as a backend endpoint,
-<code>POST /api/v2/workflows/{id}/compile</code>, but is not yet wired
-into the dashboard UI. Today it's reachable via <a
-href="#user-manual-scripting-via-rest-and-websocket">direct API
-calls</a>.)</em></p>
+<p><strong>Use in live session</strong> calls
+<code>POST /api/v2/workflows/{id}/compile</code> and pastes the compiled
+instructions into the Live session task box.</p>
 </section>
-<section id="user-manual-4-providers" class="level3">
-<h3>4. Providers</h3>
+<section id="user-manual-5-providers" class="level3">
+<h3>5. Providers</h3>
 <p>This is where you tell the app which AI account to use, without ever
 typing a permanent secret. Pick OpenAI, Anthropic, or Google and create
 an ephemeral API-key session. Google also offers <strong>Google
@@ -1081,8 +1766,8 @@ after repeated failures — see <a
 href="#user-manual-provider-model-and-routing">Provider, Model, and
 Routing</a>).</p>
 </section>
-<section id="user-manual-5-analytics" class="level3">
-<h3>5. Analytics</h3>
+<section id="user-manual-6-analytics" class="level3">
+<h3>6. Analytics</h3>
 <p>Four running totals across every session this process has executed:
 session count, action count, number of latency samples recorded, and
 average latency per recorded stage. Below the tiles, the same numbers
@@ -1224,7 +1909,7 @@ Confirm you saved the file by quoting the file path.</code></pre>
 <section id="user-manual-feature-availability-dashboard-vs-rest-api"
 class="level2">
 <h2>Feature Availability: Dashboard vs. REST API</h2>
-<p>The five-tab dashboard and the original REST/WebSocket surface aren't
+<p>The six-tab dashboard and the original REST/WebSocket surface aren't
 feature-identical yet. Use this table to decide which surface a task
 needs:</p>
 <table>
@@ -1587,10 +2272,10 @@ class="sourceCode powershell"><code class="sourceCode powershell"><span id="user
 <p>If this fails, the in-container agent service didn't boot. Check
 <code>docker logs cua-environment</code> for startup errors. Common
 causes: a stale X server lock from a previous container
-(<code>docker compose down &amp;&amp; docker compose up -d</code> clears
-it), or a custom <code>SCREEN_WIDTH</code>/<code>SCREEN_HEIGHT</code>
-that doesn't match the Dockerfile's expectations — reset to
-<code>1440x900</code>.</p>
+(<code>docker compose down &amp;&amp; docker compose up -d --wait</code>
+clears it), or a custom
+<code>SCREEN_WIDTH</code>/<code>SCREEN_HEIGHT</code> that doesn't match
+the Dockerfile's expectations — reset to <code>1440x900</code>.</p>
 </section>
 <section id="user-manual-backend-will-not-start" class="level3">
 <h3>Backend will not start</h3>
@@ -2136,8 +2821,9 @@ class="level2">
 <ol type="1">
 <li>Install Docker Desktop, Node.js 22, and uv.</li>
 <li>Copy <code>.env.example</code> to <code>.env</code>; set an OpenAI,
-Anthropic, or Google API key, or configure Google OAuth with
-<code>GOOGLE_OAUTH_CLIENT_ID</code> and
+Anthropic, or Google API key (process <code>GOOGLE_API_KEY</code> is
+enough for Gemini; dotenv does not override it), or configure Google
+OAuth with <code>GOOGLE_OAUTH_CLIENT_ID</code> and
 <code>GOOGLE_OAUTH_CLIENT_SECRET</code>. Set strong
 <code>AGENT_SERVICE_TOKEN</code> and <code>VNC_PASSWORD</code>
 values.</li>
@@ -2145,7 +2831,10 @@ values.</li>
 <code>npm --prefix frontend ci</code>.</li>
 <li>Build the dashboard:
 <code>npm --prefix frontend run build</code>.</li>
-<li>Start the sandbox: <code>docker compose up -d --build</code>.</li>
+<li>Start the sandbox:
+<code>docker compose up -d --wait --wait-timeout 90 --build</code>
+(healthcheck requires agent <code>/health</code> and noVNC
+<code>vnc.html</code>).</li>
 <li>Start FastAPI:
 <code>uv run --frozen python -m backend.main</code>.</li>
 <li>Open <code>http://127.0.0.1:8100</code>. FastAPI serves
@@ -2220,7 +2909,7 @@ surface (<code>/api/agent/start</code>, <code>/ws</code>). Still fully
 implemented and running in <code>backend/server/__init__.py</code>,
 <code>backend/loop.py</code>, <code>backend/engine/*</code>.</li>
 <li><strong>v2</strong> — a newer, typed, audited surface under
-<code>/api/v2</code> (<code>backend/v2/*</code>), with a five-tab
+<code>/api/v2</code> (<code>backend/v2/*</code>), with a six-tab
 TypeScript dashboard, deterministic route fallback, SQLite-backed
 session history, and a binary frame-streaming protocol.</li>
 </ul>
@@ -2653,10 +3342,11 @@ SQLite audit, frame retention, and CUAF streaming in
 token-protected action service in <code>docker/agent_service.py</code>,
 <code>docker/entrypoint.sh</code>, and
 <code>docker-compose.yml</code>.</li>
-<li><strong>Frontend:</strong> five-tab v2 workbench, token-aware API/WS
-clients, and preview decoding in <code>frontend/src/App.tsx</code>,
-<code>api.ts</code>, <code>useLiveStream.ts</code>, and
-<code>protocol.ts</code>.</li>
+<li><strong>Frontend:</strong> six-tab v2 workbench, token-aware API/WS
+clients, preview decoding, and session-cost list rates in
+<code>frontend/src/App.tsx</code>, <code>api.ts</code>,
+<code>useLiveStream.ts</code>, <code>protocol.ts</code>, and
+<code>pricing.ts</code>.</li>
 <li><strong>Tooling:</strong> local configuration, development
 orchestration, and release/documentation builds in
 <code>.env.example</code>, <code>run.cmd</code>, <code>dev.py</code>,
@@ -2687,8 +3377,9 @@ validates:
 <code>backend/files.py::validate_attached_files()</code></li>
 <li>reasoning/search config via
 <code>validate_builtin_search_config()</code></li>
-<li>API key via <code>resolve_api_key()</code> (UI input →
-<code>.env</code> → system env)</li>
+<li>API key via <code>resolve_api_key()</code> (UI input → process env,
+including <code>GOOGLE_API_KEY</code> → <code>.env</code> loaded with
+<code>override=False</code>)</li>
 </ul></li>
 <li>Backend starts/checks the sandbox via
 <code>backend/infra/docker.py::start_container()</code>. A
@@ -3195,15 +3886,18 @@ installs missing host tools and project dependencies, skips steps that
 are already done, then starts <code>dev.py --open-browser</code>.
 <code>START.bat</code> remains the always-bootstrap path
 (<code>setup.bat --bootstrap-only</code>, then
-<code>dev.bat --open-browser</code>). <code>dev.py</code> starts the
-backend first and waits for <code>GET /api/health</code> before
-launching Vite. On Windows it starts Vite through
-<code>node .../vite/bin/vite.js</code> rather than <code>npm.cmd</code>.
-Vite binds <code>127.0.0.1</code> on port <code>8505</code> by default.
-The dashboard opener probes backend health, then opens
-<code>http://127.0.0.1:8505</code>. Shutdown is forwarded to both
-children. The normal production path builds <code>frontend/dist</code>
-and serves it from FastAPI on port <code>8100</code>.</p>
+<code>dev.bat --open-browser</code>). <code>dev.py</code> runs
+<code>docker compose up -d --wait</code> (agent <code>/health</code> and
+noVNC <code>vnc.html</code>), then starts the backend and waits for
+<code>GET /api/health</code> before launching Vite. On Windows it starts
+Vite through <code>node .../vite/bin/vite.js</code> rather than
+<code>npm.cmd</code>. Vite binds <code>127.0.0.1</code> on port
+<code>8505</code> by default. The dashboard opener waits until that
+frontend URL responds, then opens it. The Live tab embeds noVNC at
+<code>/vnc/vnc.html</code> with <code>path=vnc/websockify</code>.
+Shutdown is forwarded to both children. The normal production path
+builds <code>frontend/dist</code> and serves it from FastAPI on port
+<code>8100</code>.</p>
 <p><code>backend/infra/config.py</code> loads the repository-root
 <code>.env</code> (not <code>backend/.env</code>) so
 <code>AGENT_SERVICE_TOKEN</code> matches the value Compose injects into
@@ -3299,16 +3993,21 @@ default. Sessions may opt out of frame retention, and deleting a session
 purges its retained frames.</p>
 <p>The v2 API exposes per-session actions, events, and metrics;
 aggregate analytics and diagnostics; a ZIP session export with optional
-frames; and retention preview/prune endpoints. Versioned workflows can
-be created, compiled with variables, and used to prefill a live
-session.</p>
+frames; and retention preview/prune endpoints. The Session cost tab
+estimates USD from those metrics and list rates in
+<code>frontend/src/pricing.ts</code> (not a provider invoice). Versioned
+workflows can be created, compiled with variables, and used to prefill a
+live session.</p>
 </section>
 <section id="technical-credentials-and-workbench-authentication"
 class="level2">
 <h2>Credentials and workbench authentication</h2>
 <p>OpenAI, Anthropic, and Google support API keys from environment
-variables or an ephemeral credential session. Credential-session
-responses contain only readiness metadata; secrets are never returned or
+variables or an ephemeral credential session. Google prefers
+<code>GOOGLE_API_KEY</code> over <code>GEMINI_API_KEY</code>. Repo-root
+<code>.env</code> is loaded with <code>override=False</code>, so an
+already-set user environment key is kept. Credential-session responses
+contain only readiness metadata; secrets are never returned or
 persisted. Sessions are process-local and expire after at most eight
 hours.</p>
 <p>Google additionally supports OAuth: the v2 API starts a state- and
@@ -3399,12 +4098,18 @@ nonce handshake and the dashboard can approve or deny them.</li>
 <li>v2 persists actions, metrics, events, audit frames, and terminal
 state; uncertain post-action failures are not replayed or failed
 over.</li>
-<li>The API returns/query exposes durable audit state. The dashboard
-opens <code>/api/v2/ws/desktop</code> immediately for the sandbox
-preview, then <code>/api/v2/ws/{session_id}</code> during a run. Both
+<li>The API returns/query exposes durable audit state. The Live tab
+embeds noVNC at <code>/vnc/vnc.html</code> with
+<code>path=vnc/websockify</code> (Vite/backend proxy to container
+websockify). It also opens <code>/api/v2/ws/desktop</code> immediately,
+then <code>/api/v2/ws/{session_id}</code> during a run. Those sockets
 send newest-only binary CUAF frames; the session socket also carries
 JSON control events. Capture failures retry without closing the
 socket.</li>
+<li>The Session cost tab (<code>/cost</code>) estimates USD from SQLite
+<code>metrics</code> token totals
+(<code>GET /api/v2/analytics?sessionId=</code>) and the list rates in
+<code>frontend/src/pricing.ts</code>. It is not a provider invoice.</li>
 </ol>
 </section>
 <section id="architecture-3-layermodule-responsibilities"
@@ -3525,9 +4230,11 @@ class="level3">
 <ul>
 <li>Startup validates tool parity; failure is logged as a warning rather
 than aborting the process.</li>
-<li>Local development waits for <code>GET /api/health</code> before
-starting Vite. Vite binds <code>127.0.0.1</code>; on Windows it is
-spawned through Node rather than <code>npm.cmd</code>.</li>
+<li>Local development runs <code>docker compose up --wait</code> (agent
+<code>/health</code> and noVNC <code>vnc.html</code>), then waits for
+<code>GET /api/health</code> before starting Vite. Vite binds
+<code>127.0.0.1</code>; on Windows it is spawned through Node rather
+than <code>npm.cmd</code>.</li>
 <li>Shutdown cancels and awaits in-flight agent/broadcast/screenshot
 tasks, clears registries, and closes shared clients.</li>
 <li>Exactly one backend worker is required because credentials, active
@@ -3556,8 +4263,8 @@ lost on restart.</li>
 <section id="architecture-6-evidence" class="level2">
 <h2>6) Evidence</h2>
 <ul>
-<li><code>README.md</code> sections “Quick start”, “Architecture”, and
-“Verification status”.</li>
+<li><code>README.md</code> sections “Open source”, “Installation and
+setup”, “How it works”, and “Community”.</li>
 <li><code>TECHNICAL.md</code> - stated runtime, request, frame,
 persistence, credential, and public-contract architecture.</li>
 <li><code>backend/v2/api.py:195-285</code> - session validation,
@@ -3671,11 +4378,16 @@ always-bootstrap path. After a fresh <code>npm ci</code>, setup rebuilds
 esbuild.</li>
 <li><code>dev.py</code>, <code>dev.bat</code>, and <code>dev.sh</code>
 coordinate the local Docker sandbox, backend, and Vite development
-server. On Windows, <code>dev.py</code> waits for
+server. <code>dev.py</code> runs
+<code>docker compose up -d --wait</code>, waits for
 <code>GET /api/health</code>, then starts Vite through Node on
-<code>127.0.0.1</code>.</li>
+<code>127.0.0.1</code> (Windows) or <code>npm run dev</code> elsewhere.
+The dashboard opener waits for Vite on port 8505.</li>
 <li><code>frontend/src/main.tsx</code> mounts the React application;
-<code>frontend/src/App.tsx</code> owns the five routes/views.</li>
+<code>frontend/src/App.tsx</code> owns the six routes/views
+(<code>/</code>, <code>/audit</code>, <code>/cost</code>,
+<code>/workflows</code>, <code>/providers</code>,
+<code>/analytics</code>).</li>
 <li><code>docker/entrypoint.sh</code> starts the virtual desktop
 services and <code>docker/agent_service.py</code> inside the
 sandbox.</li>
@@ -3773,7 +4485,8 @@ preview-frame protocol.</li>
 <li><code>frontend/src/types.ts</code> describes API-facing frontend
 data.</li>
 <li><code>frontend/src/App.tsx</code> currently contains routing and all
-five page components; visual styling is in
+six page components; <code>frontend/src/pricing.ts</code> maps catalog
+model IDs to list rates for the Session cost tab; visual styling is in
 <code>frontend/src/index.css</code> and
 <code>frontend/src/pages/Workbench.css</code>.</li>
 </ul>
@@ -3968,12 +4681,15 @@ uploaded documents.</li>
 <section id="stack-frontend" class="level3">
 <h3>Frontend</h3>
 <ul>
-<li>React 19, React DOM 19, and React Router 7 implement the five-tab
-single-page dashboard.</li>
+<li>React 19, React DOM 19, and React Router 7 implement the six-tab
+single-page dashboard (Live session, Audit trail, Session cost, Workflow
+library, Providers, Analytics).</li>
 <li>Vite 6 builds and serves the application; TypeScript 5.7 and ESLint
 10 provide static checks.</li>
 <li>Vitest 3, jsdom, and Testing Library provide frontend tests. Lucide
-React supplies icons.</li>
+React supplies icons. Session cost estimates live in
+<code>frontend/src/pricing.ts</code> and use published list rates
+against SQLite <code>EXECUTION</code> token totals.</li>
 </ul>
 </section>
 <section id="stack-sandbox-and-infrastructure" class="level3">
@@ -4060,7 +4776,7 @@ class="sourceCode powershell"><code class="sourceCode powershell"><span id="stac
 <span id="stack-cb1-2"><a href="#stack-cb1-2" aria-hidden="true" tabindex="-1"></a>npm <span class="op">--</span>prefix frontend ci</span>
 <span id="stack-cb1-3"><a href="#stack-cb1-3" aria-hidden="true" tabindex="-1"></a>uv run <span class="op">--</span>frozen python <span class="op">-</span>m backend<span class="op">.</span><span class="fu">main</span></span>
 <span id="stack-cb1-4"><a href="#stack-cb1-4" aria-hidden="true" tabindex="-1"></a>uv run <span class="op">--</span>frozen python dev<span class="op">.</span><span class="fu">py</span></span>
-<span id="stack-cb1-5"><a href="#stack-cb1-5" aria-hidden="true" tabindex="-1"></a>docker compose up <span class="op">-</span>d <span class="op">--</span>build</span>
+<span id="stack-cb1-5"><a href="#stack-cb1-5" aria-hidden="true" tabindex="-1"></a>docker compose up <span class="op">-</span>d <span class="op">--</span>wait <span class="op">--</span>wait-timeout <span class="dv">90</span> <span class="op">--</span>build</span>
 <span id="stack-cb1-6"><a href="#stack-cb1-6" aria-hidden="true" tabindex="-1"></a>uv run pytest <span class="op">-</span>p no<span class="op">:</span>warnings <span class="op">--</span>tb<span class="op">=</span>short</span>
 <span id="stack-cb1-7"><a href="#stack-cb1-7" aria-hidden="true" tabindex="-1"></a>uv run ruff check <span class="op">.</span></span>
 <span id="stack-cb1-8"><a href="#stack-cb1-8" aria-hidden="true" tabindex="-1"></a>uv run ruff format <span class="op">--</span>check <span class="op">.</span></span>
@@ -4074,8 +4790,10 @@ class="sourceCode powershell"><code class="sourceCode powershell"><span id="stac
 <h2>5) Environment and Config</h2>
 <ul>
 <li>Provider credentials: <code>OPENAI_API_KEY</code>,
-<code>ANTHROPIC_API_KEY</code>, and
-<code>GOOGLE_API_KEY</code>/<code>GEMINI_API_KEY</code>.</li>
+<code>ANTHROPIC_API_KEY</code>, and process-level
+<code>GOOGLE_API_KEY</code> (preferred) or <code>GEMINI_API_KEY</code>.
+<code>load_dotenv(..., override=False)</code> does not overwrite an
+already-set user environment variable.</li>
 <li>Backend/state: <code>HOST</code>, <code>PORT</code>,
 <code>CUA_V2_DB_PATH</code>, <code>CUA_V2_FRAME_PATH</code>, and
 optional <code>CUA_FRONTEND_DIST</code>.</li>
@@ -4107,7 +4825,8 @@ and dependency stack.</li>
 configuration.</li>
 <li><code>docker/Dockerfile:1-27,213,237-252</code> - Ubuntu base,
 non-root runtime, ports, health check, and entrypoint.</li>
-<li><code>docker-compose.yml:1-73</code> - sandbox networking and
+<li><code>docker-compose.yml</code> - sandbox networking, healthcheck
+(<code>9222/health</code> and <code>6080/vnc.html</code>), and
 resource/security constraints.</li>
 <li><code>.github/workflows/ci.yml:1-91</code> and
 <code>.github/workflows/release.yml:1-45</code> - CI and release
@@ -4184,7 +4903,9 @@ deployment prerequisites.</li>
 <td>human desktop observation/control</td>
 <td>VNC password + optional WS token</td>
 <td>high</td>
-<td><code>docker-compose.yml</code>; <code>USAGE.md:75-86</code></td>
+<td>Dashboard uses <code>/vnc/vnc.html?path=vnc/websockify</code>;
+<code>docker-compose.yml</code>; <code>frontend/src/pricing.ts</code> is
+local list-rate math, not a billing API</td>
 </tr>
 <tr>
 <td>GitHub Actions</td>
@@ -4246,9 +4967,12 @@ deployment prerequisites.</li>
 class="level2">
 <h2>3) Secrets and Credentials Handling</h2>
 <ul>
-<li>Direct provider keys come from environment variables or an ephemeral
-v2 credential session. Credential responses expose readiness/expiry
-metadata, never the secret.</li>
+<li>Direct provider keys come from the process environment or an
+ephemeral v2 credential session. Google uses <code>GOOGLE_API_KEY</code>
+first, then <code>GEMINI_API_KEY</code>.
+<code>load_dotenv(..., override=False)</code> keeps a user/system
+<code>GOOGLE_API_KEY</code> already set. Credential responses expose
+readiness/expiry metadata, never the secret.</li>
 <li>Ephemeral credential sessions expire within eight hours, can be
 deleted early, and are not written to SQLite.</li>
 <li>The backend sends provider credentials only to the selected provider
@@ -4446,8 +5170,8 @@ imports; <code>backend</code> is the configured first-party root.</li>
 Provider clients are re-exported from <code>backend.engine</code> where
 compatibility requires a public facade.</li>
 <li>Frontend source uses relative local imports (<code>./api</code>,
-<code>./types</code>, <code>./useLiveStream</code>) and package imports
-for React/router/icons.</li>
+<code>./types</code>, <code>./useLiveStream</code>,
+<code>./pricing</code>) and package imports for React/router/icons.</li>
 <li>Model/capability data belongs in JSON registries and external
 schemas belong in Pydantic/type modules rather than route-local
 duplicate constants.</li>
@@ -4677,9 +5401,14 @@ degraded startup scenario offline with Docker/provider boundaries
 mocked.</li>
 <li><code>frontend/src/api.test.ts</code>,
 <code>frontend/src/App.test.tsx</code>,
-<code>frontend/src/protocol.test.ts</code>, and
-<code>frontend/src/useLiveStream.test.ts</code> cover HTTP behavior, the
-idle desktop stream, CUAF decoding, and dashboard empty-state copy.</li>
+<code>frontend/src/protocol.test.ts</code>,
+<code>frontend/src/useLiveStream.test.ts</code>, and
+<code>frontend/src/pricing.test.ts</code> cover HTTP behavior, the
+six-tab dashboard, idle desktop stream, CUAF decoding, and session-cost
+list rates.</li>
+<li><code>tests/test_v2_platform.py</code> also asserts Gemini 3.7 Flash
+/ 3.5 Flash-Lite catalog entries and that <code>GOOGLE_API_KEY</code> in
+the process environment marks the Google route configured.</li>
 </ul>
 <p>Setup is centralized in <code>tests/conftest.py</code>,
 <code>evals/conftest.py</code>, and
@@ -4719,7 +5448,8 @@ idle desktop stream, CUAF decoding, and dashboard empty-state copy.</li>
 <td>End-to-end UI + real sandbox/provider</td>
 <td>[TODO] no automated suite identified</td>
 <td>complete operator flow</td>
-<td>manual smoke test documented in <code>USAGE.md</code></td>
+<td>manual smoke test documented in <code>USAGE.md</code> and
+<code>TESTING.md</code></td>
 </tr>
 </tbody>
 </table>
@@ -4893,6 +5623,10 @@ capabilities, non-root execution, and action allowlists.</li>
 <li>Provider screenshots and attached documents leave the host when sent
 to the selected provider; “local” describes orchestration and storage
 defaults, not model inference.</li>
+<li>Session cost (<code>/cost</code>) multiplies recorded token totals
+by list rates in <code>frontend/src/pricing.ts</code>. It is an
+estimate, not a provider invoice. Batch, cache, and long-context
+multipliers are not applied because those meters are not stored.</li>
 <li>API-key and Google OAuth credential sessions are process-local and
 non-recoverable by design. Do not add them to SQLite, logs, action
 payloads, or checkpoints.</li>
@@ -4926,9 +5660,9 @@ workbench-token enforcement.</li>
 <ul>
 <li>v2 authentication, safety, persistence, and frame retention.</li>
 </ul></li>
-<li><code>frontend/src/App.tsx</code> and
-<code>frontend/src/api.ts</code> - provider, safety, and workbench-token
-user flows.</li>
+<li><code>frontend/src/App.tsx</code>, <code>frontend/src/api.ts</code>,
+and <code>frontend/src/pricing.ts</code> - provider, safety,
+workbench-token, and cost-estimate user flows.</li>
 <li><code>TECHNICAL.md</code> and <code>docs/deployment.md</code> -
 supported deployment boundary.</li>
 </ul>
@@ -5135,18 +5869,28 @@ class="level1">
 <p>Verified July 23, 2026 against official vendor documentation. The
 catalog records eligibility, not account entitlement or regional
 availability.</p>
-<section id="research-current-implementation-status-2026-08-12"
+<section id="research-current-implementation-status-2026-08-16"
 class="level2">
-<h2>Current implementation status (2026-08-12)</h2>
-<p>This audit remains a historical research record. The active
-application catalog has since been intentionally narrowed to three
-executable provider-native routes: <code>gpt-5.6-luna</code> through
-OpenAI Responses, <code>claude-sonnet-5</code> through Anthropic
-Messages, and <code>gemini-3.6-flash</code> through Google Interactions.
-API keys are supported for all three providers; Gemini also supports
-process-local browser OAuth. The canonical current definitions are
+<h2>Current implementation status (2026-08-16)</h2>
+<p>This audit remains a historical research record. The
+<strong>active</strong> application catalog is five Computer Use models
+on three executable routes, defined in
 <code>backend/models/allowed_models.json</code> and
-<code>backend/models/computer_use_models.v2.json</code>.</p>
+<code>backend/models/computer_use_models.v2.json</code>:</p>
+<ul>
+<li><code>gpt-5.6-luna</code> and <code>gpt-5.6-terra</code> through
+OpenAI Responses (<code>openai-direct</code>)</li>
+<li><code>claude-sonnet-5</code> through Anthropic Messages
+(<code>anthropic-direct</code>)</li>
+<li><code>gemini-3.7-flash</code> and <code>gemini-3.5-flash-lite</code>
+through Google Interactions (<code>gemini-direct</code>)</li>
+</ul>
+<p>API keys are supported for all three providers
+(<code>GOOGLE_API_KEY</code> is preferred over
+<code>GEMINI_API_KEY</code> and a process env var is not overwritten by
+<code>.env</code>). Gemini also supports process-local browser OAuth.
+The dated tables below describe the July 23, 2026 research snapshot, not
+the live allowlist.</p>
 </section>
 <section id="research-eligible-catalog" class="level2">
 <h2>Eligible catalog</h2>

@@ -31,6 +31,8 @@ The practical value is not “AI that can do everything.” The useful capabilit
 | Provider choice | A task can use one of three direct model routes and explicitly configured fallbacks. |
 | Credential sessions | Provider credentials remain process-local and expire after at most eight hours. |
 | Audit history | Sessions, actions, events, metrics, workflow versions, and optional frames are retained locally. |
+| Session cost estimate | Operators can view list-rate USD for a session from recorded input/output tokens. This is not a provider invoice. |
+| Operator-owned data | PDFs and other files, sandbox contents, keys, and audit records stay on the operator machine. See `DATA.md`. |
 | Session export | An operator can export an audit package for review or evidence. |
 | Reusable workflows | Teams can version task instructions and compile them with controlled variables. |
 
