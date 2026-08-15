@@ -457,6 +457,7 @@ def test_production_frontend_mount_serves_assets_and_spa_routes(tmp_path):
     mounted = TestClient(application)
     assert mounted.get("/").text == "<main>CUA v2</main>"
     assert mounted.get("/audit/session-1").text == "<main>CUA v2</main>"
+    assert mounted.get("/cost").text == "<main>CUA v2</main>"
     assert mounted.get("/asset.js").text == "export {}"
     assert mounted.get("/api/missing").status_code == 404
 

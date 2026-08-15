@@ -10,9 +10,9 @@ vi.stubGlobal('fetch', vi.fn((input: RequestInfo) => {
   return Promise.resolve(new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } }))
 }))
 
-it('provides all five operational workspaces', async () => {
+it('provides all six operational workspaces', async () => {
   render(<MemoryRouter><App /></MemoryRouter>)
-  for (const label of ['Live session', 'Audit trail', 'Workflow library', 'Providers', 'Analytics']) {
+  for (const label of ['Live session', 'Audit trail', 'Session cost', 'Workflow library', 'Providers', 'Analytics']) {
     expect(screen.getByRole('link', { name: new RegExp(label, 'i') })).toBeInTheDocument()
   }
   expect(await screen.findByTitle('Sandbox desktop')).toHaveAttribute('src', '/vnc/vnc.html?autoconnect=1&path=vnc%2Fwebsockify')
@@ -20,6 +20,18 @@ it('provides all five operational workspaces', async () => {
   await userEvent.click(screen.getByRole('link', { name: /providers/i }))
   expect(await screen.findByRole('heading', { name: /provider access/i })).toBeInTheDocument()
   expect(screen.getByLabelText(/API key/i)).toHaveAttribute('type', 'password')
+})
+
+it('toggles provider web search planning without submitting the form', async () => {
+  render(<MemoryRouter><App /></MemoryRouter>)
+  const toggle = await screen.findByRole('switch', { name: /provider web search planning/i })
+  expect(toggle).toHaveAttribute('aria-checked', 'false')
+  await userEvent.click(toggle)
+  expect(toggle).toHaveAttribute('aria-checked', 'true')
+  expect(toggle).toHaveTextContent(/on/i)
+  await userEvent.click(toggle)
+  expect(toggle).toHaveAttribute('aria-checked', 'false')
+  expect(fetch).not.toHaveBeenCalledWith('/api/v2/sessions', expect.anything())
 })
 
 it('confirms before requesting a full application shutdown', async () => {
