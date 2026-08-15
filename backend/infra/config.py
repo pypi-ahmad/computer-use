@@ -351,7 +351,10 @@ def _detect_key_source(env_var: str) -> tuple[str | None, str]:
 def resolve_api_key(provider: str, ui_key: str | None = None) -> tuple[str | None, str]:
     """Resolve the API key for *provider* using the priority chain.
 
-    Priority: UI input > .env file > system environment variable.
+    Priority: UI input > process environment (GOOGLE_API_KEY, then
+    GEMINI_API_KEY) > values loaded from the repo-root .env file.
+    ``load_dotenv(..., override=False)`` keeps an already-set user env
+    var; do not put the key in .env if it already lives in the environment.
 
     Returns ``(key, source)`` where *source* is one of
     ``"ui"``, ``"dotenv"``, ``"env"``, or ``"none"``.
