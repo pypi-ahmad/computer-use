@@ -13,7 +13,7 @@ import logging
 import os
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any, ClassVar
 
 from backend.engine import (
@@ -82,7 +82,17 @@ def _prune_openai_context(conversation_input: list[dict], keep_recent: int) -> N
 
 _OPENAI_ORIGINAL_MAX_PIXELS = 10_240_000
 _OPENAI_ORIGINAL_MAX_DIMENSION = 6000
-_OPENAI_GA_COMPUTER_MODEL_PREFIXES = ("gpt-5.6-luna",)
+_OPENAI_HOLD_KEYS = {
+    "control": "ctrl",
+    "ctrl": "ctrl",
+    "shift": "shift",
+    "alt": "alt",
+    "option": "alt",
+    "meta": "super",
+    "cmd": "super",
+    "command": "super",
+}
+_OPENAI_GA_COMPUTER_MODEL_PREFIXES = ("gpt-5.6-luna", "gpt-5.6-terra")
 _OPENAI_REGISTRY_GATED_MODEL_PREFIXES = _OPENAI_GA_COMPUTER_MODEL_PREFIXES
 _OPENAI_CU_REGISTRY_MODELS = frozenset(
     str(model.get("model_id"))
@@ -266,7 +276,7 @@ def _extract_openai_sources(output_items: list[Any]) -> list[tuple[str, str]]:
 class OpenAICUClient:
     """OpenAI Responses API computer-use client.
 
-    Uses the built-in ``computer`` tool with ``gpt-5.6-luna``. The harness executes all
+    Uses the built-in ``computer`` tool with ``gpt-5.6-luna`` or ``gpt-5.6-terra``. The harness executes all
     returned actions and returns screenshots through
     ``computer_call_output`` items.
     """
@@ -552,7 +562,6 @@ class OpenAICUClient:
                 "include": include_fields,
                 "reasoning": {"effort": self._reasoning_effort},
                 "store": False,
-                "truncation": "auto",
             }
             instructions = self._build_instructions()
             if instructions:
@@ -812,10 +821,14 @@ class OpenAICUClient:
                     name="click", success=False, error="Click action missing coordinates"
                 )
             if button == "right":
-                return await executor.execute("right_click", {"x": x, "y": y})
-            if button in {"middle", "wheel"}:
-                return await executor.execute("middle_click", {"x": x, "y": y})
-            return await executor.execute("click_at", {"x": x, "y": y})
+                name, args = "right_click", {"x": x, "y": y}
+            elif button in {"middle", "wheel"}:
+                name, args = "middle_click", {"x": x, "y": y}
+            else:
+                name, args = "click_at", {"x": x, "y": y}
+            return await self._with_modifiers(
+                payload.get("keys"), executor, lambda: executor.execute(name, args)
+            )
 
         if action_type == "double_click":
             x, y = _coords("x", "y")
@@ -825,7 +838,11 @@ class OpenAICUClient:
                     success=False,
                     error="Double-click action missing coordinates",
                 )
-            return await executor.execute("double_click", {"x": x, "y": y})
+            return await self._with_modifiers(
+                payload.get("keys"),
+                executor,
+                lambda: executor.execute("double_click", {"x": x, "y": y}),
+            )
 
         if action_type == "move":
             x, y = _coords("x", "y")
@@ -833,7 +850,11 @@ class OpenAICUClient:
                 return CUActionResult(
                     name="move", success=False, error="Move action missing coordinates"
                 )
-            return await executor.execute("move", {"x": x, "y": y})
+            return await self._with_modifiers(
+                payload.get("keys"),
+                executor,
+                lambda: executor.execute("move", {"x": x, "y": y}),
+            )
 
         if action_type == "type":
             return await executor.execute(
@@ -866,37 +887,27 @@ class OpenAICUClient:
             return CUActionResult(name="wait", extra={"duration_ms": int(duration_ms)})
 
         if action_type == "scroll":
-            return await self._execute_openai_scroll(payload, executor, action_id=action_id)
+            return await self._with_modifiers(
+                payload.get("keys"),
+                executor,
+                lambda: self._execute_openai_scroll(payload, executor, action_id=action_id),
+            )
 
         if action_type == "drag":
-            path = payload.get("path")
-            start_x: int | None = None
-            start_y: int | None = None
-            end_x: int | None = None
-            end_y: int | None = None
-            if isinstance(path, list) and len(path) >= 2:
-                first = _to_plain_dict(path[0])
-                last = _to_plain_dict(path[-1])
-                start_x = _upscale_coord(first.get("x"))
-                start_y = _upscale_coord(first.get("y"))
-                end_x = _upscale_coord(last.get("x"))
-                end_y = _upscale_coord(last.get("y"))
-            if start_x is None or start_y is None:
+            path = self._normalize_drag_path(payload.get("path"), _upscale_coord)
+            if path is None or len(path) < 2:
                 start_x, start_y = _coords("x", "y")
-            if end_x is None or end_y is None:
                 end_x, end_y = _coords("destination_x", "destination_y")
-            if None in {start_x, start_y, end_x, end_y}:
+                if None not in {start_x, start_y, end_x, end_y}:
+                    path = [(start_x, start_y), (end_x, end_y)]
+            if path is None or len(path) < 2:
                 return CUActionResult(
                     name="drag", success=False, error="Drag action missing path coordinates"
                 )
-            return await executor.execute(
-                "drag_and_drop",
-                {
-                    "x": start_x,
-                    "y": start_y,
-                    "destination_x": end_x,
-                    "destination_y": end_y,
-                },
+            return await self._with_modifiers(
+                payload.get("keys"),
+                executor,
+                lambda: self._execute_openai_drag(path, executor),
             )
 
         return CUActionResult(
@@ -954,6 +965,81 @@ class OpenAICUClient:
         if action_id:
             args["action_id"] = action_id
         return await executor.execute("scroll_at", args)
+
+    async def _execute_openai_drag(
+        self,
+        path: list[tuple[int, int]],
+        executor: ActionExecutor,
+    ) -> CUActionResult:
+        """Walk an official drag path: move, mouse_down, intermediate moves, mouse_up."""
+        start_x, start_y = path[0]
+        end_x, end_y = path[-1]
+        downed = False
+        try:
+            moved = await executor.execute("move", {"x": start_x, "y": start_y})
+            if not moved.success:
+                return moved
+            pressed = await executor.execute("mouse_down", {"x": start_x, "y": start_y})
+            if not pressed.success:
+                return pressed
+            downed = True
+            for point_x, point_y in path[1:]:
+                stepped = await executor.execute("move", {"x": point_x, "y": point_y})
+                if not stepped.success:
+                    return stepped
+            released = await executor.execute("mouse_up", {"x": end_x, "y": end_y})
+            downed = False
+            return released
+        finally:
+            if downed:
+                await executor.execute("mouse_up", {"x": end_x, "y": end_y})
+
+    async def _with_modifiers(
+        self,
+        keys: Any,
+        executor: ActionExecutor,
+        action: Callable[[], Awaitable[CUActionResult]],
+    ) -> CUActionResult:
+        """Hold official mouse-action ``keys`` for the duration of *action*."""
+        raw_keys = keys if isinstance(keys, list) else []
+        hold = [self._desktop_hold_key(token) for token in self._normalize_openai_keys(raw_keys)]
+        hold = [token for token in hold if token]
+        pressed: list[str] = []
+        try:
+            for key in hold:
+                held = await executor.execute("key_down", {"key": key})
+                if not held.success:
+                    return held
+                pressed.append(key)
+            return await action()
+        finally:
+            for key in reversed(pressed):
+                await executor.execute("key_up", {"key": key})
+
+    @staticmethod
+    def _desktop_hold_key(token: str) -> str:
+        return _OPENAI_HOLD_KEYS.get(token.lower(), token)
+
+    @staticmethod
+    def _normalize_drag_path(
+        path: Any, upscale: Callable[[Any], int | None]
+    ) -> list[tuple[int, int]] | None:
+        """Accept official drag paths as ``{x,y}`` objects or ``[x,y]`` pairs."""
+        if not isinstance(path, list):
+            return None
+        points: list[tuple[int, int]] = []
+        for point in path:
+            if isinstance(point, (list, tuple)) and len(point) >= 2:
+                x, y = upscale(point[0]), upscale(point[1])
+            else:
+                item = point if isinstance(point, dict) else _to_plain_dict(point)
+                if not isinstance(item, dict):
+                    return None
+                x, y = upscale(item.get("x")), upscale(item.get("y"))
+            if x is None or y is None:
+                return None
+            points.append((x, y))
+        return points
 
     @staticmethod
     def _normalize_openai_keys(keys: list[Any]) -> list[str]:

@@ -52,6 +52,16 @@ class ActionType(str, enum.Enum):
     GO_FORWARD = "go_forward"
     WAIT = "wait"
 
+    # ── Gemini 3.x desktop actions (engine_capabilities.json + prompts) ─
+    MOVE = "move"
+    HOTKEY = "hotkey"
+    PRESS_KEY = "press_key"
+    KEY_DOWN = "key_down"
+    KEY_UP = "key_up"
+    MOUSE_DOWN = "mouse_down"
+    MOUSE_UP = "mouse_up"
+    TAKE_SCREENSHOT = "take_screenshot"
+
     # ── Compatibility (used by agent_service.py action dispatch) ─────────
     FILL = "fill"
     EVALUATE_JS = "evaluate_js"
@@ -107,7 +117,7 @@ class AgentSession(BaseModel):
     session_id: str
     task: str = Field(min_length=1, max_length=10_000)
     status: SessionStatus = SessionStatus.IDLE
-    model: str = Field(default="gemini-3.6-flash", max_length=64)
+    model: str = Field(default="gemini-3.7-flash", max_length=64)
     engine: str = Field(default="computer_use", max_length=20)
     steps: list[StepRecord] = Field(default_factory=list)
     max_steps: int = Field(default=50, ge=1, le=200)
@@ -129,7 +139,7 @@ class StartTaskRequest(BaseModel):
 
     task: str = Field(min_length=1, max_length=10_000)
     api_key: str | None = Field(default=None, max_length=256)
-    model: str = Field(default="gemini-3.6-flash", max_length=64)
+    model: str = Field(default="gemini-3.7-flash", max_length=64)
     max_steps: int = Field(default=50, ge=1, le=200)
     # Deprecated: Desktop and Browser are now a single unified surface.
     # The provider's Computer Use tool decides whether to drive a

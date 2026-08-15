@@ -10,7 +10,8 @@ from html.parser import HTMLParser
 from typing import ClassVar
 from urllib.request import Request, urlopen
 
-TARGET_MODEL = "gemini-3.6-flash"
+TARGET_MODEL = "gemini-3.7-flash"
+TARGET_MODELS = (TARGET_MODEL, "gemini-3.5-flash-lite")
 CHANGELOG_URL = "https://ai.google.dev/gemini-api/docs/changelog"
 MODELS_URL = "https://ai.google.dev/gemini-api/docs/models"
 SUCCESSOR_CHECKLIST_PATH = "docs/gemini-successor-evaluation.md"
@@ -237,18 +238,22 @@ def main() -> int:
         )
         return 2
 
-    announcement = find_shutdown_announcement(html_to_lines(raw_html))
-    if announcement is None:
-        print(
-            "Gemini changelog watchdog: no shutdown/deprecation announcement "
-            f"found for {TARGET_MODEL} in {CHANGELOG_URL}."
-        )
-        return 0
+    lines = html_to_lines(raw_html)
+    for model in TARGET_MODELS:
+        announcement = find_shutdown_announcement(lines, model)
+        if announcement is None:
+            continue
+        message = build_failure_message(announcement, model)
+        _write_summary(message)
+        print(message, file=sys.stderr)
+        return 1
 
-    message = build_failure_message(announcement)
-    _write_summary(message)
-    print(message, file=sys.stderr)
-    return 1
+    watched = ", ".join(TARGET_MODELS)
+    print(
+        "Gemini changelog watchdog: no shutdown/deprecation announcement "
+        f"found for {watched} in {CHANGELOG_URL}."
+    )
+    return 0
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@
   "engines": {
     "computer_use": {
       "display_name": "Computer Use (Native CU Protocol) \u2605 Recommended",
-      "description": "Unified engine using Gemini 3.6 Flash, Claude Sonnet 5, and GPT-5.6 Luna native Computer Use protocols. Structured function_call / tool_use instead of text-parsed JSON. Runs through a desktop backend powered by xdotool and scrot.",
+      "description": "Unified engine using Gemini 3.7 Flash, Gemini 3.5 Flash-Lite, Claude Sonnet 5, GPT-5.6 Luna, and GPT-5.6 Terra native Computer Use protocols. Structured function_call / tool_use instead of text-parsed JSON. Runs through a desktop backend powered by xdotool and scrot.",
       "fallback_priority": 6,
       "recommended": true,
       "categories": {
@@ -18,20 +18,32 @@
         ],
         "mouse": [
           "click_at",
+          "click",
           "hover_at",
-          "drag_and_drop"
+          "move",
+          "drag_and_drop",
+          "mouse_down",
+          "mouse_up"
         ],
         "keyboard": [
           "type_text_at",
-          "key_combination"
+          "type",
+          "key_combination",
+          "press_key",
+          "hotkey",
+          "key_down",
+          "key_up"
         ],
         "scroll": [
           "scroll_document",
-          "scroll_at"
+          "scroll_at",
+          "scroll"
         ],
         "wait": [
           "screenshot",
-          "wait_5_seconds"
+          "take_screenshot",
+          "wait_5_seconds",
+          "wait"
         ],
         "special": [
           "done",
@@ -45,14 +57,26 @@
         "go_forward",
         "search",
         "click_at",
+        "click",
         "hover_at",
+        "move",
         "drag_and_drop",
+        "mouse_down",
+        "mouse_up",
         "type_text_at",
+        "type",
         "key_combination",
+        "press_key",
+        "hotkey",
+        "key_down",
+        "key_up",
         "scroll_document",
         "scroll_at",
+        "scroll",
         "screenshot",
+        "take_screenshot",
         "wait_5_seconds",
+        "wait",
         "done",
         "error"
       ],

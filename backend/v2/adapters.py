@@ -47,14 +47,22 @@ _NAMES = {
     "keypress": CanonicalActionType.KEY,
     "key": CanonicalActionType.KEY,
     "key_combination": CanonicalActionType.KEY,
+    "press_key": CanonicalActionType.KEY,
+    "hotkey": CanonicalActionType.KEY,
+    "key_down": CanonicalActionType.KEY,
+    "key_up": CanonicalActionType.KEY,
     "scroll": CanonicalActionType.SCROLL,
     "scroll_at": CanonicalActionType.SCROLL,
     "mouse_move": CanonicalActionType.MOVE,
     "hover_at": CanonicalActionType.MOVE,
+    "move": CanonicalActionType.MOVE,
     "drag": CanonicalActionType.DRAG,
     "drag_and_drop": CanonicalActionType.DRAG,
     "screenshot": CanonicalActionType.SCREENSHOT,
+    "take_screenshot": CanonicalActionType.SCREENSHOT,
     "wait": CanonicalActionType.WAIT,
+    "mouse_down": CanonicalActionType.CLICK,
+    "mouse_up": CanonicalActionType.CLICK,
 }
 
 
@@ -63,13 +71,13 @@ def _canonical(name: str, arguments: dict[str, Any]) -> CanonicalAction:
     if action_type is None:
         raise ProtocolActionError(f"Unsupported computer action: {name}")
     coordinates = arguments.get("coordinate") or arguments.get("coordinates")
-    x = arguments.get("x")
-    y = arguments.get("y")
+    x = arguments.get("x", arguments.get("start_x"))
+    y = arguments.get("y", arguments.get("start_y"))
     if isinstance(coordinates, list) and len(coordinates) >= 2:
         x, y = coordinates[:2]
     end = arguments.get("end_coordinate") or arguments.get("endCoordinates")
-    end_x = arguments.get("end_x")
-    end_y = arguments.get("end_y")
+    end_x = arguments.get("end_x", arguments.get("destination_x"))
+    end_y = arguments.get("end_y", arguments.get("destination_y"))
     if isinstance(end, list) and len(end) >= 2:
         end_x, end_y = end[:2]
     keys = arguments.get("keys")

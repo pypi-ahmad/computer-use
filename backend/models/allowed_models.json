@@ -1,14 +1,21 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "version": "2.0",
-  "description": "Canonical allowlist of the three provider-native Computer Use models exposed by this app.",
+  "description": "Canonical allowlist of the provider-native Computer Use models exposed by this app.",
   "models": [
     {
       "provider": "google",
-      "model_id": "gemini-3.6-flash",
-      "display_name": "Gemini 3.6 Flash",
+      "model_id": "gemini-3.7-flash",
+      "display_name": "Gemini 3.7 Flash",
       "supports_computer_use": true,
-      "notes": "Gemini Interactions API Computer Use model; requires google-genai 2.7.0 or newer."
+      "notes": "Default Gemini Interactions API Computer Use model; requires google-genai 2.7.0 or newer."
+    },
+    {
+      "provider": "google",
+      "model_id": "gemini-3.5-flash-lite",
+      "display_name": "Gemini 3.5 Flash-Lite",
+      "supports_computer_use": true,
+      "notes": "Low-latency Gemini Interactions API Computer Use model; requires google-genai 2.7.0 or newer."
     },
     {
       "provider": "anthropic",
@@ -28,7 +35,15 @@
       "display_name": "GPT-5.6 Luna",
       "supports_computer_use": true,
       "reasoning_default": "medium",
-      "notes": "OpenAI Responses API built-in computer tool."
+      "notes": "Default OpenAI Responses API built-in computer tool."
+    },
+    {
+      "provider": "openai",
+      "model_id": "gpt-5.6-terra",
+      "display_name": "GPT-5.6 Terra",
+      "supports_computer_use": true,
+      "reasoning_default": "medium",
+      "notes": "OpenAI Responses API built-in computer tool; mid-tier GPT-5.6 Computer Use model."
     }
   ]
 }
