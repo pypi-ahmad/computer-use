@@ -12,11 +12,14 @@ v2 is an intentional API and WebSocket break. There is no compatibility shim.
    `/api/v2/sessions/{id}/safety-decisions`, and cursor-paginated
    action/event/metric endpoints.
 6. Update WebSocket clients to parse JSON control events and binary `CUAF`
-   preview frames at `/api/v2/ws/{session_id}`. Supply `CUA_API_TOKEN` when
-   workbench authentication is enabled.
+   preview frames. The dashboard opens `/api/v2/ws/desktop` for the idle
+   sandbox view (no audit-frame retention) and `/api/v2/ws/{session_id}`
+   once a run starts. Supply `CUA_API_TOKEN` when workbench authentication
+   is enabled.
 7. Select an explicit primary route and ordered fallbacks. The server will not choose dynamically by price or latency.
-8. Replace all model selections with the three supported logical IDs:
-   `gpt-5.6-luna`, `claude-sonnet-5`, and `gemini-3.6-flash`.
+8. Replace all model selections with the supported logical IDs:
+   `gpt-5.6-luna`, `gpt-5.6-terra`, `claude-sonnet-5`, `gemini-3.7-flash`,
+   and `gemini-3.5-flash-lite`.
 
 Before deleting v1 state, run the v2 contract tests, create and delete a
 disposable session, verify approve/deny safety confirmation, export an audit

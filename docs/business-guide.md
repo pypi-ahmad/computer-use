@@ -8,13 +8,15 @@ This guide explains the repository in business terms. It is written for sponsors
 
 Computer Use Workbench lets a person give an AI model a task, observe it operating an isolated desktop, approve sensitive actions, and review what happened afterward. It supports three direct provider-native routes:
 
-- GPT-5.6 Luna through OpenAI Responses.
+- GPT-5.6 Luna or GPT-5.6 Terra through OpenAI Responses.
 - Claude Sonnet 5 through Anthropic Messages.
-- Gemini 3.6 Flash through Google Interactions.
+- Gemini 3.7 Flash or Gemini 3.5 Flash-Lite through Google Interactions.
 
-The current release is v3.0.3. On Windows 11, `START.bat` installs
-prerequisites, starts the local stack, and opens the dashboard at
-`http://127.0.0.1:8505` after the backend health check succeeds.
+The current release is v3.0.3. On Windows 11, `run.cmd` installs
+anything missing, starts the local stack, and opens the dashboard at
+`http://127.0.0.1:8505` after the backend health check succeeds. The Live
+tab shows the isolated desktop as soon as the sandbox is ready; a run is
+not required to see the screen.
 
 The practical value is not “AI that can do everything.” The useful capability is operating software that lacks a stable API, spans several visual steps, or still requires human judgment at checkpoints. The workbench is best treated as an evaluation environment for discovering which tasks are reliable enough to automate and which still need a person.
 
@@ -23,7 +25,7 @@ The practical value is not “AI that can do everything.” The useful capabilit
 | Capability | Business meaning |
 |---|---|
 | Isolated desktop | Model actions occur in a disposable Docker sandbox instead of directly on the host workstation. |
-| Live session view | An operator can watch the task and stop the session. |
+| Live session view | An operator sees the sandbox desktop immediately and can stop a running task. |
 | Safety policies | Sessions can use provider defaults, require confirmation for mutating actions, or run read-only. |
 | Human approval | A proposed sensitive action pauses until the operator approves or denies it. |
 | Provider choice | A task can use one of three direct model routes and explicitly configured fallbacks. |

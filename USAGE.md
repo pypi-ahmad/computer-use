@@ -92,20 +92,22 @@ Clone the repository, then use the platform launcher.
 ```powershell
 git clone https://github.com/pypi-ahmad/computer-use.git
 cd computer-use
-.\START.bat
+.\run.cmd
 ```
 
-On Windows 11, `START.bat` is both the first-run installer and the daily
+On Windows 11, `run.cmd` is the one-file first-run installer and daily
 launcher. It uses exact winget packages to install missing Docker Desktop,
 Node.js LTS, and uv; creates `.env` when absent; generates the required local
 sandbox secrets without printing or replacing existing values; installs
-locked Python/frontend dependencies; rebuilds esbuild after `npm ci`; builds
-the Docker image with cache; starts `dev.py --open-browser`; waits for
-`GET /api/health`; and then opens `http://127.0.0.1:8505`. On Windows, Vite
-is started through Node (`node .../vite/bin/vite.js`) rather than
-`npm.cmd`, and it listens on `127.0.0.1`. Normal installer/UAC prompts may
-appear. If Docker Desktop requires a restart or initial WSL setup, complete it
-and double-click `START.bat` again.
+locked Python/frontend dependencies only when they are missing; rebuilds
+esbuild after a fresh `npm ci`; builds the Docker image only when
+`cua-ubuntu:latest` is absent; starts `dev.py --open-browser`; waits for
+`GET /api/health`; and then opens `http://127.0.0.1:8505`. `START.bat` still
+exists and always runs `setup.bat --bootstrap-only` first (including a
+cached `docker compose build`). On Windows, Vite is started through Node
+(`node .../vite/bin/vite.js`) rather than `npm.cmd`, and it listens on
+`127.0.0.1`. Normal installer/UAC prompts may appear. If Docker Desktop
+requires a restart or initial WSL setup, complete it and run `run.cmd` again.
 
 Provider credentials are not generated. Enter an OpenAI, Anthropic, or Google
 API key in the Provider Manager, or configure Google OAuth.
@@ -166,28 +168,37 @@ MAX_STEPS=50
 
 `AGENT_SERVICE_TOKEN` and `VNC_PASSWORD` are required sandbox secrets —
 generate real random values, don't leave them blank or copy an example.
+The backend loads this file from the **repository root** (next to
+`docker-compose.yml`), not from `backend/.env`. If the token in `.env`
+does not match the value Compose passed into the container, screenshots
+return `401` and the viewport stays blank.
 If you intend to bind the backend to a non-loopback address, also set
 `CUA_ALLOW_PUBLIC_BIND=1` and `CUA_API_TOKEN=<secret>`; without both, the
 process refuses to start when `HOST != 127.0.0.1`.
 
 ## First Run
 
-`START.bat` opens `http://127.0.0.1:8505` after backend health succeeds.
-If the browser does not open, go there manually. On the **Live session**
-tab, type:
+`run.cmd` (or `START.bat`) opens `http://127.0.0.1:8505` after backend
+health succeeds. If the browser does not open, go there manually. The
+**Live session** viewport should show the sandbox XFCE desktop within a
+few seconds — you do not need to start a run first. The header reads
+**Stream linked** once `/api/v2/ws/desktop` is connected. If the
+viewport stays on **Connecting to sandbox** or never shows a desktop,
+see [Troubleshooting](#troubleshooting).
+
+Then type a local smoke-test task:
 
 > Open the file manager. Stop when the file manager window is visible.
 
 This is purely local — no web search, no files — so it's a clean smoke
 test of screenshot capture, action dispatch, and the live stream end to
 end. If the viewport shows the file manager opening and the session
-status badge reaches `COMPLETED`, the install is working. If the run
-fails before the first frame appears, see [Troubleshooting](#troubleshooting).
+status badge reaches `COMPLETED`, the install is working.
 
 ## Daily Operation
 
 ```powershell
-.\START.bat      # Windows: verify dependencies, launch, and open the UI
+.\run.cmd        # Windows: setup if needed, launch, and open the UI
 ```
 
 ```bash
@@ -212,10 +223,14 @@ This is the one you'll use most. It's split into two halves:
   actually executes the model — see
   [Provider, Model, and Routing](#provider-model-and-routing)). Below
   that, a **Start run** button, or **Stop run** once one is active.
-- **Right (Viewport):** the live screenshot the model itself is seeing,
-  updated in real time over a binary WebSocket stream. Above it, a
-  five-stage pipeline indicator (capture → encode → infer → validate →
-  act) highlights whichever stage the current turn is in.
+- **Right (Viewport):** the live sandbox desktop. The dashboard opens
+  `/api/v2/ws/desktop` as soon as the page loads, so you see XFCE before
+  any run. After **Start run**, the client switches to
+  `/api/v2/ws/{session_id}` and the same viewport shows what the model
+  is seeing. Above it, a five-stage pipeline indicator (capture → encode
+  → infer → validate → act) highlights whichever stage the current turn
+  is in. The header reads **Stream linked** when the WebSocket is up,
+  or **Stream idle** while it is connecting.
 
 If the model raises a safety-sensitive action, an amber "Approval
 required" banner appears above the viewport with the provider's
@@ -288,7 +303,7 @@ another over time.
 
 **Provider** = which company's AI you're using (OpenAI, Anthropic, or Google).
 **Model** = the provider-native Computer Use model. This release exposes only
-GPT-5.6 Luna, Claude Sonnet 5, and Gemini 3.6 Flash. **Route** = the direct
+GPT-5.6 Luna, GPT-5.6 Terra, Claude Sonnet 5, Gemini 3.7 Flash, and Gemini 3.5 Flash-Lite. **Route** = the direct
 technical path used to reach that provider: `openai-direct`,
 `anthropic-direct`, or `gemini-direct`. Cloud-intermediary and older
 preview-model routes are not catalogued or selectable.
@@ -545,7 +560,7 @@ need.
 | `CUA_ALLOW_PUBLIC_BIND` | unset | Explicit opt-in for non-loopback `HOST`. |
 | `CUA_API_TOKEN` | unset | Shared secret gating sensitive/mutating REST operations, `/ws`, `/api/v2/ws/*`, and `/vnc/*`. `CUA_WS_TOKEN` is a deprecated fallback. |
 | `CUA_ALLOWED_HOSTS` | derived from CORS | Extra Host headers to allow. |
-| `CORS_ORIGINS` | `127.0.0.1`/`localhost` on `8505`, `5173`, and `3000` | Comma-separated allowlist. The development dashboard origin is `http://127.0.0.1:8505`. |
+| `CORS_ORIGINS` | `127.0.0.1`/`localhost` on `8505`, `8100`, `5173`, and `3000` | Comma-separated allowlist. Dev UI is `http://127.0.0.1:8505`; the production bundle served by FastAPI is `http://127.0.0.1:8100`. Both origins must be allowed or the live stream gets `403`. |
 
 ### Sandbox and screen
 
@@ -615,9 +630,26 @@ intentional, not a bug. A missing dependency shows as
 
 ### Frontend will not start
 
-On Windows, use `START.bat` or `dev.py`. Those wait for backend health and
+On Windows, use `run.cmd` or `dev.py`. Those wait for backend health and
 start Vite through Node. Do not use `npm run dev` as the daily launcher;
 `npm.cmd` can leave an interactive wrapper that never releases the process.
+
+### Viewport says "Connecting to sandbox" or never shows a desktop
+
+The Live tab streams `/api/v2/ws/desktop` without starting a run. Check,
+in order:
+
+1. The sandbox is up: `docker ps --filter name=cua-environment` should
+   show `healthy`. If not, `docker compose up -d` and wait ~30 seconds.
+2. The agent service answers: `curl http://127.0.0.1:9222/health`.
+3. The backend loaded the root `.env`. A log line
+   `Agent service rejected request (token mismatch)` or repeated
+   `401 Unauthorized` on `/screenshot` means restart the backend after
+   confirming `AGENT_SERVICE_TOKEN` in the repo-root `.env` matches
+   `docker exec cua-environment printenv AGENT_SERVICE_TOKEN`.
+4. You are using `http://127.0.0.1:8505` (dev) or
+   `http://127.0.0.1:8100` (production bundle). A WebSocket `403` means
+   the page origin is not on the CORS allowlist.
 
 If `node_modules` is missing or esbuild is broken after `npm ci`:
 
@@ -786,7 +818,9 @@ one with more budget.
 - **Screenshot resize.** Images beyond 10,240,000 pixels or a 6000px
   long edge are downscaled before upload; returned pixel coordinates are
   remapped back to real screen space automatically.
-- **Reasoning effort defaults.** `gpt-5.6-luna` defaults to `medium`.
+- **Reasoning effort defaults.** `gpt-5.6-luna` and `gpt-5.6-terra` default to `medium`.
+- **Navigation hosts.** Set `CUA_ALLOWED_NAV_HOSTS` (comma-separated) to
+  restrict `navigate` / `open_url` to those hostnames.
 
 ### Anthropic
 
@@ -808,7 +842,7 @@ one with more budget.
   grid; the executor denormalizes to real pixels using the configured
   `SCREEN_WIDTH`/`SCREEN_HEIGHT`. Restart the backend after changing
   those so the executor picks up the new geometry.
-- **Interactions state.** Gemini 3.6 Flash continues turns with
+- **Interactions state.** Gemini 3.7 Flash and Gemini 3.5 Flash-Lite continue turns with
   `previous_interaction_id`; action results include the current screenshot.
 - **Prompt-injection detection.** Computer Use requests enable Google's
   built-in prompt-injection detection and preserve its confirmation handshake.
