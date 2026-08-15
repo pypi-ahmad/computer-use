@@ -169,11 +169,20 @@ SOURCES = (
     ),
     SourceDoc(
         "release",
+        "docs/release-notes-v3.1.1.md",
+        "v3.1.1 release notes",
+        "Evidence and history",
+        ("all",),
+        "Current patch scope: sidebar Mission control, session cost, Google key precedence.",
+    ),
+    SourceDoc(
+        "release-v310",
         "docs/release-notes-v3.1.0.md",
         "v3.1.0 release notes",
         "Evidence and history",
         ("all",),
-        "Current patch scope, dependency audit, and remaining CI gates.",
+        "Historical v3.1.0 Gemini 3.7, run.cmd, and noVNC path notes.",
+        True,
     ),
     SourceDoc(
         "release-v302",

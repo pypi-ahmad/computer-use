@@ -2,7 +2,7 @@
 
 A local, single-user workbench for provider-native Computer Use agents.
 
-The latest tag is **v3.1.0**. This README describes the current tree
+The latest tag is **v3.1.1**. This README describes the current tree
 (including Unreleased work in `CHANGELOG.md`). You run a FastAPI backend, a
 React dashboard, and an isolated Ubuntu/XFCE Docker sandbox on your own
 machine. A model from OpenAI, Anthropic, or Google drives that desktop
@@ -384,7 +384,7 @@ Production-style single-process serving: build the frontend, then run the backen
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Contributor Covenant 3.0 |
 | [TECHNICAL.md](TECHNICAL.md) | Runtime contracts |
 | [docs/migration-v2.md](docs/migration-v2.md) / [docs/rollback-v2.md](docs/rollback-v2.md) | v2 migration and rollback |
-| [docs/release-notes-v3.1.0.md](docs/release-notes-v3.1.0.md) | v3.1.0 release notes |
+| [docs/release-notes-v3.1.1.md](docs/release-notes-v3.1.1.md) | v3.1.1 release notes |
 | [docs/zero-to-hero-study-handbook.html](docs/zero-to-hero-study-handbook.html) | Guided handbook |
 
 ## Community

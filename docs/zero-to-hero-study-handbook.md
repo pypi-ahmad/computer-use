@@ -5,7 +5,7 @@ it, and exactly how the code implements that theory. Written for a reader
 who has never seen a Computer Use agent before and wants to end up able to
 read, run, and extend every layer of this codebase.
 
-The current release is **v3.1.0**. This repo currently ships **two API generations side by side**:
+The current release is **v3.1.1**. This repo currently ships **two API generations side by side**:
 
 - **v1** — the original unversioned REST + WebSocket surface
   (`/api/agent/start`, `/ws`). Still fully implemented and running in

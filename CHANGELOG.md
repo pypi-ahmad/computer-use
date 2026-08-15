@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [3.1.1] - 2026-08-16
+
 ### Added
 
 - Root community docs for testing, support, and operator data
@@ -29,6 +31,13 @@ All notable changes to this project are documented in this file.
 - Operator docs no longer claim the dashboard lacks web search, file
   attachments, fallback routes, reasoning, or safety Approve/Deny —
   those controls shipped in 3.1.0 (`frontend/src/App.tsx`).
+- Mission control sits in the left CONTROL sidebar. The Live main pane
+  is only the noVNC viewport.
+
+### Fixed
+
+- Process-level `GOOGLE_API_KEY` wins over a repo-root `.env` value
+  (`load_dotenv(..., override=False)`).
 
 ## [3.1.0] - 2026-08-16
 
