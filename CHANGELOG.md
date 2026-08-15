@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-08-16
+
 ### Added
 
 - `run.cmd`, a single Windows file that installs missing host tools and
@@ -19,6 +21,12 @@ All notable changes to this project are documented in this file.
 - Default CORS/WebSocket origins include `http://127.0.0.1:8100` so the
   production bundle can open the live stream.
 - A failed screenshot keeps the v2 frame socket open and retries.
+- `docker compose up --wait` now blocks until agent `/health` and
+  noVNC `vnc.html` are up, so the dashboard is not opened mid-boot.
+- noVNC connects through `/vnc/websockify` instead of the unproxied
+  `/websockify` path that showed "Failed to connect to server".
+- Screenshot capture retries agent-service disconnects during sandbox
+  warmup before falling back to `docker exec`.
 
 ### Changed
 
