@@ -1,11 +1,14 @@
 blank_issues_enabled: true
 contact_links:
+  - name: How to test a running install
+    url: https://github.com/pypi-ahmad/computer-use/blob/main/TESTING.md
+    about: Manual smoke steps and offline CI commands. File a bug if something fails.
+  - name: Support and community
+    url: https://github.com/pypi-ahmad/computer-use/blob/main/SUPPORT.md
+    about: How to report bugs, suggest features, and send PRs. No donations or paid support.
   - name: Security vulnerability
     url: https://github.com/pypi-ahmad/computer-use/blob/main/SECURITY.md
     about: Email pypi.ahmad@gmail.com with subject [computer-use security]. Do not file public issues with exploits, tokens, or live screenshots.
-  - name: Support and troubleshooting
-    url: https://github.com/pypi-ahmad/computer-use/blob/main/SUPPORT.md
-    about: Read USAGE.md troubleshooting and TESTING.md before opening an issue.
   - name: Data stored on your machine
     url: https://github.com/pypi-ahmad/computer-use/blob/main/DATA.md
     about: Keys, SQLite audit history, and sandbox data are your responsibility.

@@ -28,6 +28,10 @@ If the viewport stays on **Connecting to sandbox**, follow
 [USAGE.md troubleshooting](USAGE.md#viewport-says-connecting-to-sandbox-or-never-shows-a-desktop).
 Do not treat a missing provider key as a product bug.
 
+Found a defect or a gap? Open a [bug report](.github/ISSUE_TEMPLATE/bug.yml)
+or a [feature idea](.github/ISSUE_TEMPLATE/feature.yml). See
+[SUPPORT.md](SUPPORT.md). Do not send money.
+
 ## Offline automated checks
 
 These match `.github/workflows/ci.yml`. They do not start Docker or
