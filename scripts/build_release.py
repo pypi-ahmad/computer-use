@@ -49,6 +49,7 @@ def main() -> int:
         "deployment.md",
         "migration-v2.md",
         "rollback-v2.md",
+        "release-notes-v3.1.1.md",
         "release-notes-v3.1.0.md",
         "release-notes-v3.0.3.md",
         "release-notes-v3.0.2.md",

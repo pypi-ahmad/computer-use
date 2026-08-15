@@ -53,7 +53,7 @@ offers.
 2. Confirm the problem still happens after USAGE.md troubleshooting.
 3. Open an issue with the matching template (bug or idea).
 
-Include version (`v3.1.0` or the commit SHA), OS, whether you used
+Include version (`v3.1.1` or the commit SHA), OS, whether you used
 `run.cmd` / `dev.py` / `http://127.0.0.1:8100`, and redacted logs.
 
 A missing provider key, an `OPEN` circuit after repeated provider

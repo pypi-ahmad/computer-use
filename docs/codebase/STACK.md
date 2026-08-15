@@ -9,7 +9,7 @@
 | Package managers | uv/`uv.lock`; npm/`frontend/package-lock.json` | `.github/workflows/ci.yml:20-24,61-67` |
 | Module/build systems | Hatchling wheel; Vite SPA; Docker/Compose | `pyproject.toml:1-3,27-28`; `frontend/package.json:7-12`; `docker-compose.yml` |
 
-Bash and Windows batch wrappers support setup/development. The package is `computer-use-workbench` 3.1.0. On Windows, `run.cmd` is the one-file setup-if-needed launcher; `START.bat` always bootstraps through `setup.bat`. `dev.py` waits for backend health, binds Vite to `127.0.0.1`, and starts Vite through Node.
+Bash and Windows batch wrappers support setup/development. The package is `computer-use-workbench` 3.1.1. On Windows, `run.cmd` is the one-file setup-if-needed launcher; `START.bat` always bootstraps through `setup.bat`. `dev.py` waits for backend health, binds Vite to `127.0.0.1`, and starts Vite through Node.
 
 ## 2) Production Frameworks and Dependencies
 

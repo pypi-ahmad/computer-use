@@ -12,7 +12,7 @@ Computer Use Workbench lets a person give an AI model a task, observe it operati
 - Claude Sonnet 5 through Anthropic Messages.
 - Gemini 3.7 Flash or Gemini 3.5 Flash-Lite through Google Interactions.
 
-The current release is v3.1.0. On Windows 11, `run.cmd` installs
+The current release is v3.1.1. On Windows 11, `run.cmd` installs
 anything missing, starts the local stack, and opens the dashboard at
 `http://127.0.0.1:8505` after the backend health check succeeds. The Live
 tab shows the isolated desktop as soon as the sandbox is ready; a run is
