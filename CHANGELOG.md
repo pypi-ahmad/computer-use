@@ -7,10 +7,28 @@ All notable changes to this project are documented in this file.
 ### Added
 
 - Root community docs for testing, support, and operator data
-  responsibility (`TESTING.md`, `SUPPORT.md`, `DATA.md`) plus a GitHub
-  bug-report issue template.
+  responsibility (`TESTING.md`, `SUPPORT.md`, `DATA.md`) plus GitHub
+  issue templates for bugs and feature/improvement ideas. No donations
+  or paid-support path.
 - README open-source notice: clones and local use welcome; operator
   owns all in-app data including PDF and other file uploads.
+- Session cost tab at `/cost`. Estimates USD from recorded `EXECUTION`
+  token totals (`GET /api/v2/analytics?sessionId=`) and list rates in
+  `frontend/src/pricing.ts`. The live session object is lifted to the
+  app shell so Cost can read the current run.
+- FastAPI SPA fallback includes `/cost` (`_SPA_ROUTES` in
+  `backend/server/__init__.py`).
+- USAGE.md, TECHNICAL.md, SECURITY.md, CONTRIBUTING.md, and `docs/`
+  rewritten against the current six-tab dashboard and start path.
+
+### Changed
+
+- Live tab `preferredRoute` defaults to `gemini-direct` (catalog first
+  model is `gemini-3.7-flash`). At 3.1.0 this was an empty string and
+  fell through to the model's first route.
+- Operator docs no longer claim the dashboard lacks web search, file
+  attachments, fallback routes, reasoning, or safety Approve/Deny —
+  those controls shipped in 3.1.0 (`frontend/src/App.tsx`).
 
 ## [3.1.0] - 2026-08-16
 
@@ -19,8 +37,14 @@ All notable changes to this project are documented in this file.
 - `run.cmd`, a single Windows file that installs missing host tools and
   project dependencies, then starts the workbench. Already-present
   tools, `cua-ubuntu:latest`, and a working Vite install are skipped.
-- The Live tab streams the sandbox desktop on `/api/v2/ws/desktop`
-  before any run starts.
+- Live viewport is a noVNC iframe (`/vnc/vnc.html?path=vnc/websockify`)
+  as soon as the sandbox is ready. You do not start a run to see XFCE.
+  `/api/v2/ws/desktop` carries idle pipeline/safety events; it is not
+  the desktop picture.
+- Live session controls for optional fallback `model@route`, catalog
+  reasoning effort, safety policy, provider web-search planning, and
+  non-Gemini reference files, plus Approve/Deny on
+  `POST /api/v2/sessions/{id}/safety-decisions`.
 
 ### Fixed
 
@@ -43,7 +67,8 @@ All notable changes to this project are documented in this file.
 - Added Gemini 3.5 Flash-Lite as a second selectable Gemini Computer Use
   model on the existing `gemini-direct` route.
 - Added GPT-5.6 Terra as a second selectable OpenAI Computer Use model on
-  `openai-direct`. GPT-5.6 Luna remains the default.
+  `openai-direct`. GPT-5.6 Luna remains the default OpenAI model on that
+  route.
 - OpenAI Computer Use now holds click/drag/move/scroll modifier `keys`,
   accepts drag paths as `{x,y}` objects or `[x,y]` pairs, and optionally
   restricts navigation with `CUA_ALLOWED_NAV_HOSTS`.

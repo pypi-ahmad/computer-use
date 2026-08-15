@@ -2,127 +2,245 @@
 
 ## Runtime boundary
 
-The application targets a trusted, single-user workstation. FastAPI runs as
-one process because the credential vault, active execution handles, WebSocket
-subscribers, frame broker, and circuit breaker are process-local. SQLite uses
-WAL for durable v2 records. The Docker sandbox is the only component allowed
+The application is a local, single-operator modular monolith plus one
+Docker sandbox. FastAPI runs as **one process** because the credential
+vault, active execution handles, WebSocket subscribers, frame broker,
+safety nonces, traces, and circuit breaker are process-local. SQLite
+WAL holds durable v2 records. The sandbox is the only component allowed
 to execute OS input.
 
-On Windows, `run.cmd` is the one-file entry point: it installs missing
-host tools and project dependencies, skips steps that are already done,
-then starts `dev.py --open-browser`. `START.bat` remains the always-bootstrap
-path (`setup.bat --bootstrap-only`, then `dev.bat --open-browser`). `dev.py`
-starts the backend first and waits for `GET /api/health` before launching
-Vite. On Windows it starts Vite through `node .../vite/bin/vite.js` rather
-than `npm.cmd`. Vite binds `127.0.0.1` on port `8505` by default. The
-dashboard opener probes backend health, then opens `http://127.0.0.1:8505`.
-Shutdown is forwarded to both children. The normal production path builds
-`frontend/dist` and serves it from FastAPI on port `8100`.
+### How the stack starts
 
-`backend/infra/config.py` loads the repository-root `.env` (not
-`backend/.env`) so `AGENT_SERVICE_TOKEN` matches the value Compose injects
-into the sandbox. Default CORS/WebSocket origins include
-`http://127.0.0.1:8505` and `http://127.0.0.1:8100`.
+On Windows, `run.cmd` is the one-file entry: it installs missing host
+tools (uv, Python 3.12, Node.js LTS, Docker Desktop), copies
+`.env.example` to `.env` if needed, fills empty `AGENT_SERVICE_TOKEN`
+and `VNC_PASSWORD`, runs `uv sync --frozen`, installs frontend deps
+when Vite is missing, builds `cua-ubuntu:latest` only if that image is
+absent, then starts `dev.py --open-browser`. `START.bat` always runs
+`setup.bat --bootstrap-only` first.
+
+`dev.py` (also invoked by `dev.bat` / `dev.sh`):
+
+1. Optionally clears listeners on `PORT` (default 8100) and 8505.
+2. Runs `docker compose down` then
+   `docker compose up -d --wait --wait-timeout 90`. Compose healthcheck
+   requires both `http://127.0.0.1:9222/health` and
+   `http://127.0.0.1:6080/vnc.html`.
+3. Starts `python -m backend.main` and waits for `GET /api/health`.
+4. Starts Vite on `127.0.0.1:8505` (Windows: `node …/vite/bin/vite.js`;
+   elsewhere: `npm run dev`). Vite proxies `/api`, `/api/v2/ws`, and
+   `/vnc` to the backend.
+5. With `--open-browser`, opens `http://127.0.0.1:8505` once that URL
+   responds.
+6. On Ctrl+C, stops frontend, backend, then `docker compose down`.
+
+`backend/main.py` enforces the public-bind guardrail, then runs Uvicorn
+on `HOST`/`PORT` with WebSocket protocol pings disabled
+(`ws_ping_interval=None`). `CUA_RELOAD=1` enables `--reload`; `DEBUG`
+only changes log level.
+
+`backend/infra/config.py` loads the **repository-root** `.env` with
+`override=False`, so a process-level `GOOGLE_API_KEY` (or other already
+set key) is not overwritten. Default CORS/WebSocket origins include
+`http://127.0.0.1:8505`, `http://127.0.0.1:8100`, and the 5173/3000
+localhost variants.
+
+Production-style: build `frontend/dist`, start the sandbox, run
+`uv run python -m backend.main`, open `http://127.0.0.1:8100`.
+
+## Operator surface
+
+`frontend/src/App.tsx` is a six-route SPA:
+
+| Path | Tab |
+|---|---|
+| `/` | Live session — task, routing, noVNC viewport, pipeline stages |
+| `/audit` | Audit trail — SQLite actions and events |
+| `/cost` | Session cost — list-rate USD from recorded tokens |
+| `/workflows` | Workflow library — versioned step lists; **Use in live session** calls `POST /api/v2/workflows/{id}/compile` |
+| `/providers` | Provider routes and ephemeral credentials |
+| `/analytics` | Aggregate token/latency telemetry and retention prune |
+
+The Live tab defaults `preferredRoute` to `gemini-direct`. The viewport
+is an iframe to `/vnc/vnc.html?autoconnect=1&reconnect=1&resize=scale&path=vnc/websockify`
+plus `password` from `VNC_PASSWORD`. `waitForNovnc()` in
+`frontend/src/api.ts` holds the iframe until `/vnc/vnc.html` returns 200.
+A bare `path=websockify` would hit unproxied `ws://127.0.0.1:8505/websockify`
+and fail.
+
+The sidebar **Stop app** button posts `POST /api/v2/system/shutdown`.
 
 ## Model catalog and request path
 
-The catalog exposes five Computer Use models on three executable, provider-native routes:
+Canonical files: `backend/models/allowed_models.json` and
+`backend/models/computer_use_models.v2.json`. Five Computer Use models
+on three executable routes:
 
-| Model | Route | Transport |
-|---|---|---|
-| Gemini 3.7 Flash | `gemini-direct` | Google Interactions Computer Use |
-| Gemini 3.5 Flash-Lite | `gemini-direct` | Google Interactions Computer Use |
-| Claude Sonnet 5 | `anthropic-direct` | Anthropic Messages Computer Use |
-| GPT-5.6 Luna | `openai-direct` | OpenAI Responses Computer Use |
-| GPT-5.6 Terra | `openai-direct` | OpenAI Responses Computer Use |
+| Logical ID | Display | Route | Transport |
+|---|---|---|---|
+| `gemini-3.7-flash` | Gemini 3.7 Flash | `gemini-direct` | `GEMINI_INTERACTIONS` |
+| `gemini-3.5-flash-lite` | Gemini 3.5 Flash-Lite | `gemini-direct` | `GEMINI_INTERACTIONS` |
+| `claude-sonnet-5` | Claude Sonnet 5 | `anthropic-direct` | `ANTHROPIC_MESSAGES` (`computer_20251124`) |
+| `gpt-5.6-luna` | GPT-5.6 Luna | `openai-direct` | `OPENAI_RESPONSES` |
+| `gpt-5.6-terra` | GPT-5.6 Terra | `openai-direct` | `OPENAI_RESPONSES` |
 
-1. `POST /api/v2/sessions` validates the selected model, compatible primary
-   route, ordered explicit fallbacks, attached files, and runtime options.
-2. The coordinator executes the primary route followed only by the supplied
-   fallbacks; it never makes cost- or latency-based routing decisions.
-3. Transport adapters validate provider output and convert it to canonical
-   actions. Gemini continues with `previous_interaction_id`; Claude and OpenAI
-   use their provider-native computer tools.
-4. `provider_default`, `confirm_mutating`, and `read_only` safety policies
-   govern execution. Pending decisions are delivered with a nonce and answered
-   through `POST /api/v2/sessions/{id}/safety-decisions`.
-5. Confirmed actions, events, and metrics are journalled. The sandbox executes
-   idempotent action IDs; ambiguous execution is never replayed automatically.
+1. `POST /api/v2/sessions` validates the model, compatible primary
+   route, ordered explicit fallbacks, attached files, and runtime
+   options (`maxSteps`, `safetyPolicy`, `useBuiltinSearch`,
+   `reasoningEffort`, `credentialSessionId`, `retainAuditFrames`).
+2. The coordinator runs the primary route, then only the supplied
+   fallbacks. It does not pick routes by cost or latency.
+   `backend/v2/routing.py` applies a circuit breaker and one attempt
+   per route.
+3. `backend/engine/` talks to each vendor’s Computer Use protocol.
+   Gemini continues with `previous_interaction_id`. Claude and OpenAI
+   use their native computer tools. `backend/executor.py`
+   `normalize_desktop_action()` maps Gemini 3.x names (`click`, `type`,
+   `hotkey`, `press_key`, …) onto existing handlers.
+4. Safety policies `provider_default`, `confirm_mutating`, and
+   `read_only` govern execution. Pending decisions carry a nonce and
+   are answered at `POST /api/v2/sessions/{id}/safety-decisions`.
+5. After the run, v2 writes an `EXECUTION` metric with
+   `input_tokens` / `output_tokens` (`backend/v2/api.py`). Confirmed
+   actions are journalled during the run when the event stream emits
+   them. Ambiguous post-action failure is not replayed or failed over.
+6. Optional `CUA_ALLOWED_NAV_HOSTS` restricts `navigate` / `open_url`
+   hosts in `backend/executor.py`.
 
-Built-in search is opt-in. File attachments are validated for every selected
-route before a session starts; Gemini Computer Use sessions reject attachments.
+Built-in search is opt-in (`useBuiltinSearch`). File attachments
+(`.md`, `.txt`, `.pdf`, `.docx` via `backend/files.py`) are validated
+for every selected route before start. Gemini Computer Use sessions
+reject attachments (File Search cannot combine with Computer Use here).
 
-## Frames and WebSockets
+## Frames, WebSockets, and noVNC
 
-One frame broker coalesces screenshot demand. The canonical full frame remains
-the model input; browser previews are compressed WebP/JPEG and sent as binary
-`CUAF` frames with version, codec, sequence, dimensions, and timestamp. The
-Live tab opens `/api/v2/ws/desktop` as soon as the dashboard loads so the
-sandbox is visible without starting a run. That preview id is not retained
-as audit frames. When a session starts, the client switches to
-`/api/v2/ws/{session_id}`, which also sends JSON lifecycle, safety, routing,
-metric, and log events. A failed screenshot keeps the socket open and retries
-instead of closing the stream. Slow clients keep only the latest pending
-frame.
+One `FrameBroker` coalesces screenshot demand. The canonical PNG remains
+the model input. Browser previews are WebP/JPEG `CUAF` frames (magic,
+version, codec, sequence, width, height, timestamp) decoded in
+`frontend/src/protocol.ts`.
 
-## Persistence, audit, and retention
+- Idle desktop: WebSocket `/api/v2/ws/desktop` (`DESKTOP_STREAM_ID`). Not
+  retained as audit frames.
+- Active run: WebSocket `/api/v2/ws/{session_id}` plus JSON lifecycle,
+  safety, routing, and log events (`frontend/src/useLiveStream.ts`).
+- Screenshot transport errors retry in `backend/executor.py` before
+  `docker exec` fallback. A failed capture keeps the socket open.
+- Slow clients keep only the latest pending preview.
 
-`CUA_V2_DB_PATH` defaults to `data/computer-use-v2.sqlite3`. Audit image bytes
-are stored outside SQLite under `CUA_V2_FRAME_PATH`, which defaults to
-`data/audit-frames`; they are referenced by hash and metadata. Retained frames
-are bounded to seven days or one GiB by default. Sessions may opt out of frame
-retention, and deleting a session purges its retained frames.
+noVNC HTTP is proxied at `GET /vnc/{path}` with allowlisted prefixes
+and connect retries. WebSocket `/vnc/websockify` proxies RFB to
+`ws://127.0.0.1:6080/websockify`, gated by the same Origin and
+optional `token` checks as `/ws`.
 
-The v2 API exposes per-session actions, events, and metrics; aggregate
-analytics and diagnostics; a ZIP session export with optional frames; and
-retention preview/prune endpoints. Versioned workflows can be created,
-compiled with variables, and used to prefill a live session.
+## Persistence, audit, cost, and retention
+
+`CUA_V2_DB_PATH` defaults to `data/computer-use-v2.sqlite3`. Tables:
+sessions, actions, events, metrics, workflow_versions. SQLite history
+has **no automatic eviction**.
+
+Audit image bytes live under `CUA_V2_FRAME_PATH` (default
+`data/audit-frames`), referenced by hash. Default eviction: seven days
+or one GiB. Sessions may set `retainAuditFrames: false`. Deleting a
+session purges its frames.
+
+v2 HTTP: per-session actions/events/metrics, `GET /api/v2/analytics`
+(optional `sessionId` / `model` / `route`), diagnostics, ZIP export,
+retention preview/prune.
+
+The Session cost tab estimates USD as
+`tokens / 1_000_000 × list rate` using `frontend/src/pricing.ts`:
+
+| Logical ID | Input / 1M USD | Output / 1M USD |
+|---|---:|---:|
+| `claude-sonnet-5` | 2.00 | 10.00 |
+| `gemini-3.7-flash` | 0.75 | 3.75 |
+| `gemini-3.5-flash-lite` | 0.30 | 2.50 |
+| `gpt-5.6-luna` | 0.20 | 1.20 |
+| `gpt-5.6-terra` | 2.00 | 12.00 |
+
+Batch, prompt-cache, and Terra long-context doubling are **not**
+applied; those meters are not stored. Cost is an estimate, not an
+invoice. Totals appear after the `EXECUTION` metric is written.
+
+Workflows are versioned step lists. Compile substitutes `${var}` and
+returns instructions the dashboard pastes into the Live task box.
 
 ## Credentials and workbench authentication
 
-OpenAI, Anthropic, and Google support API keys from environment variables or
-an ephemeral credential session. Credential-session responses contain only
-readiness metadata; secrets are never returned or persisted. Sessions are
-process-local and expire after at most eight hours.
+Resolution for a v2 run (`backend/v2/api.py`): credential-session
+secret if `credentialSessionId` is set; else process env
+`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `GOOGLE_API_KEY` then
+`GEMINI_API_KEY`. `resolve_api_key()` in `backend/infra/config.py`
+prefers UI key, then those env names. Responses never include secrets.
+Vault entries are process-local and expire within eight hours
+(28_800 s).
 
-Google additionally supports OAuth: the v2 API starts a state- and PKCE-bound
-authorization flow, exchanges the callback code, and retains refreshable
-credentials only in the process-local vault. Configure
-`GOOGLE_OAUTH_CLIENT_ID` plus `GOOGLE_OAUTH_CLIENT_SECRET` (or
-`GOOGLE_OAUTH_CLIENT_SECRET_FILE`); `GOOGLE_CLOUD_PROJECT` and
-`CUA_GOOGLE_OAUTH_REDIRECT_URI` are optional.
+Google OAuth: `POST /api/v2/credential-sessions/google/oauth/start`
+issues state + PKCE; the callback exchanges the code and stores
+refreshable credentials in the same vault. Needs
+`GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` (or
+`GOOGLE_OAUTH_CLIENT_SECRET_FILE`). Optional: `GOOGLE_CLOUD_PROJECT`,
+`CUA_GOOGLE_OAUTH_REDIRECT_URI`.
 
-When `CUA_API_TOKEN` is set, it protects sensitive and state-changing REST API
-requests, both WebSocket surfaces, and noVNC. HTTP clients send
-`X-CUA-Token`; browser WebSocket and noVNC clients use a `token` query
-parameter. `CUA_WS_TOKEN` remains a deprecated fallback. The Google OAuth
-callback is the sole mutating API authentication exception because it is bound
-to short-lived OAuth state and PKCE verification. Read-only discovery and
-health surfaces are not a substitute for a network access-control boundary.
+When `CUA_API_TOKEN` is set it gates mutating REST, both WebSocket
+surfaces, and noVNC. HTTP: `X-CUA-Token` or `?token=`. Browser WS and
+noVNC: `token` query. `CUA_WS_TOKEN` is a deprecated fallback.
+Loopback with no token is default-open. The Google OAuth callback is
+the mutating-auth exception (bound to short-lived state + PKCE).
+
+Non-loopback `HOST` requires `CUA_ALLOW_PUBLIC_BIND=1` **and**
+`CUA_API_TOKEN` (or `CUA_WS_TOKEN`); otherwise `backend/main.py`
+exits 2.
+
+`AGENT_SERVICE_TOKEN` is required between the backend and
+`docker/agent_service.py` (`X-Agent-Token`). `VNC_PASSWORD` is required
+unless `CUA_ALLOW_NOPW=1`.
+
+## Sandbox
+
+Compose service `cua-environment` (`cua-ubuntu:latest`):
+
+- Loopback publishes `5900` (x11vnc), `6080` (websockify/noVNC),
+  `9222` (agent service).
+- `cap_drop: ALL`, `no-new-privileges`, pids 256, memory 4g, 2 CPUs,
+  tmpfs `/tmp` and `/var/run`.
+- `docker/entrypoint.sh` starts DBus, Xvfb `:99`, XFCE, x11vnc,
+  websockify, then `exec`s `docker/agent_service.py`.
+- Default geometry 1440×900 (`SCREEN_WIDTH` / `SCREEN_HEIGHT`).
+
+`GET /api/health` is process liveness only. `GET /api/ready` checks
+Docker, at least one provider env key, and sandbox startability
+(HTTP 503 + `reasons` on failure). Compose healthcheck is **not**
+`/api/ready`; it is in-container agent + noVNC as above.
 
 ## Production frontend
 
-After `frontend/dist/index.html` exists, FastAPI mounts the bundle last so API
-and WebSocket routes retain precedence. The dashboard routes (`/audit`,
-`/workflows`, `/providers`, and `/analytics`) fall back to `index.html`; unknown
-paths and API/VNC paths remain 404. A missing bundle is non-fatal during
-development. Override the bundle location with `CUA_FRONTEND_DIST`.
+If `frontend/dist/index.html` exists, FastAPI mounts the bundle last
+so API and WebSocket routes keep precedence. SPA fallback to
+`index.html` is only for `GET`/`HEAD` of `/audit`, `/cost`,
+`/workflows`, `/providers`, and `/analytics` (and those paths with a
+trailing segment). Unknown paths, `/api/*`, `/vnc/*`, and `/ws` stay
+404. A missing bundle is non-fatal in development.
+`CUA_FRONTEND_DIST` overrides the directory.
 
 ## Public contracts
 
-The typed v2 surface lives under `/api/v2`. Existing v1 REST and WebSocket
-endpoints remain available for compatibility and for features that the v2
-dashboard does not yet expose, but new integrations should target v2. JSON uses
-camelCase and upper-snake event enums. Errors contain `code`, `message`,
-`details`, `isRetryable`, and `requestId`; list endpoints use cursor
-pagination. The model and provider-route endpoints expose the supported
-catalog, readiness, auth mode, and circuit state. See the live OpenAPI document
-at `/docs` and `USAGE.md` for operator examples.
+Prefer `/api/v2`. v1 REST (`/api/agent/start`, `/api/screenshot`, …)
+and `/ws` remain for compatibility. JSON is camelCase with upper-snake
+event enums. Errors: `code`, `message`, `details`, `isRetryable`,
+`requestId`. Lists use cursor pagination. `/api/v2/models` and
+`/api/v2/provider-routes` expose catalog, readiness, auth mode, and
+circuit state. Live OpenAPI: `/docs`. Operator examples: `USAGE.md`.
 
 ## Quality gates
 
-The lockfile is authoritative. CI installs with `uv sync --frozen` and
-`npm ci`, then blocks on static analysis, tests, evals, builds, dependency
-audits, and image scanning. Live SDK tests are opt-in because CI must not
-receive production provider credentials. The exact contributor commands and
-pull-request checklist live in `CONTRIBUTING.md`.
+`uv.lock` and `frontend/package-lock.json` are authoritative. CI
+(`.github/workflows/ci.yml`) runs `uv sync --frozen` and `npm ci`,
+then Ruff, format, mypy, pytest on Python 3.12–3.14 with 60% backend
+coverage, offline evals, frontend lint/typecheck/tests/build,
+`pip-audit`, `npm audit --audit-level=high`, sandbox image build, and
+a blocking HIGH/CRITICAL Trivy scan. Live SDK tests are opt-in
+(`pytest -m integration`); missing credentials are not a pass.
+
+Contributor commands: `CONTRIBUTING.md`. Operator data ownership:
+`DATA.md`.

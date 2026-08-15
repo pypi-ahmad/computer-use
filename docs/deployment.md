@@ -18,12 +18,14 @@ matches the sandbox.
 
 1. Install Docker Desktop, Node.js 22, and uv.
 2. Copy `.env.example` to `.env`; set an OpenAI, Anthropic, or Google API
-   key, or configure Google OAuth with `GOOGLE_OAUTH_CLIENT_ID` and
+   key (process `GOOGLE_API_KEY` is enough for Gemini; dotenv does not
+   override it), or configure Google OAuth with `GOOGLE_OAUTH_CLIENT_ID` and
    `GOOGLE_OAUTH_CLIENT_SECRET`. Set strong `AGENT_SERVICE_TOKEN` and
    `VNC_PASSWORD` values.
 3. Install locked dependencies: `uv sync --frozen` and `npm --prefix frontend ci`.
 4. Build the dashboard: `npm --prefix frontend run build`.
-5. Start the sandbox: `docker compose up -d --build`.
+5. Start the sandbox: `docker compose up -d --wait --wait-timeout 90 --build`
+   (healthcheck requires agent `/health` and noVNC `vnc.html`).
 6. Start FastAPI: `uv run --frozen python -m backend.main`.
 7. Open `http://127.0.0.1:8100`. FastAPI serves `frontend/dist`; `/docs` exposes OpenAPI.
 

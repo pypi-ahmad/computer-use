@@ -2,17 +2,75 @@
 
 ## Supported Versions
 
-Security fixes are developed for the current default branch and the active 3.x
-release line.
+Security fixes are developed for the current default branch and the
+active 3.x release line (`pyproject.toml` version **3.1.0**).
 
 | Version | Supported |
 |---|---|
 | `main` / latest 3.x | Yes |
 | 2.x and earlier | No |
 
-The application is a local, single-user workbench. It is not a hardened
-multi-tenant service; follow the deployment and network boundaries in
-[USAGE.md](USAGE.md) and [TECHNICAL.md](TECHNICAL.md).
+This application is a **local, single-user workbench**. It is not a
+hardened multi-tenant service. Follow the bind and network rules in
+[USAGE.md](USAGE.md) and [TECHNICAL.md](TECHNICAL.md). Operator-owned
+data (uploads, sandbox files, SQLite, keys) is described in
+[DATA.md](DATA.md). In-container action surface:
+[docker/SECURITY_NOTES.md](docker/SECURITY_NOTES.md).
+
+## Workbench security model
+
+Facts from the current tree. Do not treat this list as a guarantee that
+the model cannot do harm inside the sandbox.
+
+**Bind and workbench token**
+
+- Default `HOST` is `127.0.0.1`. `backend/main.py` exits **2** when
+  `HOST` is not loopback unless both `CUA_ALLOW_PUBLIC_BIND=1` and
+  `CUA_API_TOKEN` (or deprecated `CUA_WS_TOKEN`) are set.
+- When `CUA_API_TOKEN` is set, `hmac.compare_digest` gates `/api/*`
+  (reads and writes) except the Google OAuth callback, plus `/ws`,
+  `/api/v2/ws/*`, and `/vnc/websockify`. HTTP: `X-CUA-Token` or
+  `?token=`. Browser WebSockets and noVNC: `token` query.
+- Loopback with no token is **default-open**.
+- Query tokens can appear in proxy logs and browser history. Do not
+  expose `8100`, `6080`, `9222`, or `5900` on a network you do not
+  trust. For non-loopback use, [docs/deployment.md](docs/deployment.md)
+  also requires an independently authenticated TLS reverse proxy.
+
+**Sandbox**
+
+- `AGENT_SERVICE_TOKEN` is required between the backend and
+  `docker/agent_service.py` (`X-Agent-Token`, `hmac.compare_digest`).
+  A mismatch yields screenshot `401`.
+- `VNC_PASSWORD` is required unless `CUA_ALLOW_NOPW=1`.
+- Default action set is the executor mapping. `CUA_ENABLE_LEGACY_ACTIONS=1`
+  re-enables shell/clipboard/window handlers. Do not enable that off
+  loopback.
+- Optional `CUA_ALLOWED_NAV_HOSTS` restricts `navigate` / `open_url`.
+- The container can still open outbound connections from inside XFCE.
+  Isolation is not a review of model actions.
+
+**Secrets and audit**
+
+- Repo-root `.env` is loaded with `load_dotenv(..., override=False)`.
+  A process-level `GOOGLE_API_KEY` (then `GEMINI_API_KEY`),
+  `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY` is not overwritten.
+- Providers-tab keys and Google OAuth tokens live only in process
+  memory and expire within **8 hours** (28 800 s). They are not written
+  to SQLite.
+- Safety prompts carry a nonce; decisions use
+  `POST /api/v2/sessions/{id}/safety-decisions` (dashboard) or
+  `POST /api/agent/safety-confirm` (v1). Comparison is
+  `hmac.compare_digest`. Unanswered prompts auto-deny after **60 s**.
+- Ambiguous OS actions are not replayed or failed over.
+
+**Out of scope for this policy**
+
+- Provider-side quota, billing, or API bugs (report those to OpenAI,
+  Anthropic, or Google unless this repo's integration is at fault).
+- Recovering data the operator deleted from `data/`.
+- Making Computer Use “safe” for production credentials. README
+  requires test accounts and non-sensitive data.
 
 ## Reporting a Vulnerability
 
@@ -28,22 +86,26 @@ Include, when available:
 - relevant logs with secrets and personal information removed; and
 - any suggested remediation or disclosure constraints.
 
-Reports about upstream provider services should be sent to that provider unless
-the issue is caused by this repository's integration. Ordinary bugs and feature
-requests belong in GitHub Issues.
+Reports about upstream provider services should be sent to that provider
+unless the issue is caused by this repository's integration. Ordinary
+bugs and feature requests belong in GitHub Issues
+([.github/ISSUE_TEMPLATE/bug.yml](.github/ISSUE_TEMPLATE/bug.yml)).
 
 ## Research and Disclosure Expectations
 
 - Test only systems and accounts you own or are authorized to assess.
 - Minimize access to data and stop once the issue is demonstrated.
-- Do not disrupt services, retain private data, or attempt social engineering.
-- Allow time to validate and remediate the issue before public disclosure.
+- Do not disrupt services, retain private data, or attempt social
+  engineering.
+- Allow time to validate and remediate the issue before public
+  disclosure.
 - Coordinate publication timing and credit with the maintainer.
 
 ## Response Process
 
-The maintainer will acknowledge the report as capacity allows, validate its
-scope and severity, request missing information when necessary, and coordinate
-a fix and verification. Confirmed issues will be disclosed through release
-notes, `CHANGELOG.md`, or a GitHub security advisory when remediation is ready.
-No fixed response or remediation deadline is promised.
+The maintainer will acknowledge the report as capacity allows, validate
+its scope and severity, request missing information when necessary, and
+coordinate a fix and verification. Confirmed issues will be disclosed
+through release notes, `CHANGELOG.md`, or a GitHub security advisory
+when remediation is ready. No fixed response or remediation deadline is
+promised. There is no paid bug bounty.

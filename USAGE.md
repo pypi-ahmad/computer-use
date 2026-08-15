@@ -24,8 +24,10 @@ whatever the model does stays contained. You watch it work in real time
 through a browser dashboard.
 
 **Who this is for:** anyone who wants to prototype or evaluate
-AI-driven desktop automation locally — no cloud account, no
-multi-user setup, single operator on a single machine.
+AI-driven desktop automation locally — no workbench signup, no
+multi-user setup, single operator on a single machine. You still need
+an OpenAI, Anthropic, or Google API key (or Google OAuth) so a model
+can decide what to click.
 
 **What it is not:** a production, multi-tenant, internet-facing service.
 There is no user/account system. An optional shared `CUA_API_TOKEN` protects
@@ -35,14 +37,14 @@ workbench into a multi-user service. Keep it on `127.0.0.1` unless you've read
 
 **Two ways to use it**, both fully working today:
 
-1. **The dashboard** (`http://127.0.0.1:8505`) — a five-tab web UI. This
+1. **The dashboard** (`http://127.0.0.1:8505`) — a six-tab web UI. This
    is what most people mean by "using the app." It talks to the newer,
    typed `/api/v2` backend surface. Use `127.0.0.1`, not `localhost`: the
    Vite dev server binds IPv4 loopback only.
 2. **Direct API calls** (curl, scripts, `wscat`) — the original REST +
-   WebSocket surface, still fully implemented, with a couple of features
-   (Web Search, file attachments) that the dashboard doesn't expose yet.
-   See [Feature Availability](#feature-availability-dashboard-vs-rest-api).
+   WebSocket surface (`/api/agent/*`) plus the same `/api/v2` contract
+   the dashboard uses. See
+   [Feature Availability](#feature-availability-dashboard-vs-rest-api).
 
 ## Table of Contents
 
@@ -50,7 +52,7 @@ workbench into a multi-user service. Keep it on `127.0.0.1` unless you've read
 2. [Installation](#installation)
 3. [First Run](#first-run)
 4. [Daily Operation](#daily-operation)
-5. [The Dashboard — Five Tabs In Depth](#the-dashboard--five-tabs-in-depth)
+5. [The Dashboard — Six Tabs In Depth](#the-dashboard--six-tabs-in-depth)
 6. [Provider, Model, and Routing](#provider-model-and-routing)
 7. [Provider Login (API Keys and Google OAuth)](#provider-login-api-keys-and-google-oauth)
 8. [Safety Confirmations](#safety-confirmations)
@@ -101,8 +103,11 @@ Node.js LTS, and uv; creates `.env` when absent; generates the required local
 sandbox secrets without printing or replacing existing values; installs
 locked Python/frontend dependencies only when they are missing; rebuilds
 esbuild after a fresh `npm ci`; builds the Docker image only when
-`cua-ubuntu:latest` is absent; starts `dev.py --open-browser`; waits for
-`GET /api/health`; and then opens `http://127.0.0.1:8505`. `START.bat` still
+`cua-ubuntu:latest` is absent; then starts `dev.py --open-browser`.
+`dev.py` brings the sandbox up with `docker compose up -d --wait
+--wait-timeout 90` (healthy only after both `9222/health` and
+`6080/vnc.html` answer), waits for `GET /api/health`, starts Vite on
+`127.0.0.1:8505`, and opens that URL once Vite responds. `START.bat` still
 exists and always runs `setup.bat --bootstrap-only` first (including a
 cached `docker compose build`). On Windows, Vite is started through Node
 (`node .../vite/bin/vite.js`) rather than `npm.cmd`, and it listens on
@@ -137,17 +142,18 @@ For a manual day-to-day start after setup:
 bash dev.sh           # Linux/macOS
 ```
 
-`dev.py` (invoked by either wrapper) does four things every time you run
-it: frees ports `8100`/`8505` if a previous crashed run left them held;
-makes sure the `cua-environment` container is running and healthy
-(starting it via `docker compose up -d` if not); launches the FastAPI
-backend and waits for `GET /api/health`; then starts the Vite dev server
-on `127.0.0.1` (through Node on Windows, through `npm run dev` elsewhere)
-and streams both logs to your terminal. With `--open-browser`, it opens
-`http://127.0.0.1:8505` only after that health check succeeds. `Ctrl+C` or
-the sidebar **Stop app** button stops active sessions, the backend and
-frontend processes, and the Docker sandbox. The browser tab remains open
-so it can show the final stopped state.
+`dev.py` (invoked by either wrapper) does this every time you run it:
+frees ports `8100`/`8505` if a previous crashed run left them held;
+runs `docker compose down` then `docker compose up -d --wait
+--wait-timeout 90` so the sandbox is healthy before anything else
+starts; launches the FastAPI backend and waits for `GET /api/health`;
+then starts the Vite dev server on `127.0.0.1` (through Node on Windows,
+through `npm run dev` elsewhere). With `--open-browser`, it opens
+`http://127.0.0.1:8505` only after Vite itself responds. `Ctrl+C` stops
+the frontend, then the backend, then `docker compose down`. The sidebar
+**Stop app** button posts `POST /api/v2/system/shutdown` (active
+sessions and host processes). The browser tab remains open so it can
+show the final stopped state.
 
 ### Environment file
 
@@ -156,7 +162,7 @@ The settings you'll actually touch:
 ```dotenv
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
-GOOGLE_API_KEY=AIza...
+GOOGLE_API_KEY=AIza...       # process env wins; .env does not override it
 # GEMINI_API_KEY=            # accepted as an alias for GOOGLE_API_KEY
 
 AGENT_SERVICE_TOKEN=...      # generate a unique random value
@@ -169,22 +175,26 @@ MAX_STEPS=50
 `AGENT_SERVICE_TOKEN` and `VNC_PASSWORD` are required sandbox secrets —
 generate real random values, don't leave them blank or copy an example.
 The backend loads this file from the **repository root** (next to
-`docker-compose.yml`), not from `backend/.env`. If the token in `.env`
-does not match the value Compose passed into the container, screenshots
-return `401` and the viewport stays blank.
+`docker-compose.yml`), not from `backend/.env`, with
+`load_dotenv(..., override=False)`. A process-level `GOOGLE_API_KEY`
+(or other already-set provider key) is not overwritten by `.env`. If
+the token in `.env` does not match the value Compose passed into the
+container, screenshots return `401` and the viewport stays blank.
 If you intend to bind the backend to a non-loopback address, also set
 `CUA_ALLOW_PUBLIC_BIND=1` and `CUA_API_TOKEN=<secret>`; without both, the
 process refuses to start when `HOST != 127.0.0.1`.
 
 ## First Run
 
-`run.cmd` (or `START.bat`) opens `http://127.0.0.1:8505` after backend
-health succeeds. If the browser does not open, go there manually. The
-**Live session** viewport should show the sandbox XFCE desktop within a
-few seconds — you do not need to start a run first. The header reads
-**Stream linked** once `/api/v2/ws/desktop` is connected. If the
-viewport stays on **Connecting to sandbox** or never shows a desktop,
-see [Troubleshooting](#troubleshooting).
+`run.cmd` (or `START.bat`) opens `http://127.0.0.1:8505` after Vite
+responds. If the browser does not open, go there manually. The
+**Live session** viewport is a noVNC iframe (`GET /api/v2/desktop` →
+`/vnc/vnc.html?path=vnc/websockify`). It should show the sandbox XFCE
+desktop within a few seconds — you do not need to start a run first.
+The header reads **Stream linked** once `/api/v2/ws/desktop` is
+connected (pipeline and safety events; that socket is not the desktop
+picture). If the viewport stays on **Connecting to sandbox** or never
+shows a desktop, see [Troubleshooting](#troubleshooting).
 
 Then type a local smoke-test task:
 
@@ -206,45 +216,53 @@ bash dev.sh           # Linux/macOS
 ```
 
 then use `http://127.0.0.1:8505`. Vite listens on IPv4 loopback and
-proxies `/api` and `/api/v2/ws` to the backend, so you don't deal with
-CORS during normal use.
+proxies `/api`, `/api/v2/ws`, and `/vnc` to the backend, so you don't deal with
+CORS during normal use. After `npm run build`, FastAPI also serves
+`frontend/dist` at `http://127.0.0.1:8100` and falls back the SPA
+routes `/`, `/audit`, `/cost`, `/workflows`, `/providers`, `/analytics`.
 
-## The Dashboard — Five Tabs In Depth
+## The Dashboard — Six Tabs In Depth
 
-The left sidebar has five workspaces. Each is a separate page; switching
-tabs doesn't lose the state of the others.
+The left sidebar has six workspaces plus **Stop app** and a workbench
+token field. The active Live session object and credential-session id
+live in the app shell, so leaving the Live tab does not stop a run.
+Form fields on a tab remount when you leave and return.
 
 ### 1. Live session
 
 This is the one you'll use most. It's split into two halves:
 
-- **Left (Mission control):** a task text box, a Computer Use model
-  dropdown, and a primary route dropdown (which provider/transport
-  actually executes the model — see
-  [Provider, Model, and Routing](#provider-model-and-routing)). Below
-  that, a **Start run** button, or **Stop run** once one is active.
-- **Right (Viewport):** the live sandbox desktop. The dashboard opens
-  `/api/v2/ws/desktop` as soon as the page loads, so you see XFCE before
-  any run. After **Start run**, the client switches to
-  `/api/v2/ws/{session_id}` and the same viewport shows what the model
-  is seeing. Above it, a five-stage pipeline indicator (capture → encode
-  → infer → validate → act) highlights whichever stage the current turn
-  is in. The header reads **Stream linked** when the WebSocket is up,
-  or **Stream idle** while it is connecting.
+- **Left (Mission control):** task box; Computer Use model; primary
+  route; optional **Fallback model** (`model@route`); **Reasoning**
+  when the catalog lists `reasoningEfforts` (hidden for Claude Sonnet 5);
+  **Safety policy** (`provider_default` / `confirm_mutating` /
+  `read_only`); **Provider web search planning** toggle; **Reference
+  files** (`.md`/`.txt`/`.pdf`/`.docx`) when the selected model is not
+  Gemini. **Start run** posts `POST /api/v2/sessions` with
+  `maxSteps: 50`. **Stop run** patches the session to `STOPPING`.
+  Default model is the first catalog entry (`gemini-3.7-flash`);
+  default route prefers `gemini-direct`.
+- **Right (Viewport):** a noVNC iframe. On load the client calls
+  `GET /api/v2/desktop`, rewrites `path` to `vnc/websockify`, waits
+  until `/vnc/vnc.html` returns 200, then shows XFCE. You do not start
+  a run to see the desktop. The iframe stays noVNC for the whole
+  session — it is not swapped for the CUAF WebSocket preview. After
+  **Start run**, `/api/v2/ws/{session_id}` carries pipeline stages,
+  safety prompts, and terminal events. The header reads **Stream
+  linked** when that socket is up, or **Stream idle** while connecting.
 
-If the model raises a safety-sensitive action, an amber "Approval
-required" banner appears above the viewport with the provider's
-explanation text (see [Safety Confirmations](#safety-confirmations) for
-what this can and can't do right now).
+If the model raises a safety-sensitive action, an amber **Approval
+required** banner appears with **Approve** / **Deny** (see
+[Safety Confirmations](#safety-confirmations)).
 
-A small status badge next to the viewport tracks the session through its
-lifecycle: `PENDING` → `RUNNING` → `COMPLETED` / `STOPPED` / `ERROR`.
+A small status badge next to the viewport tracks the session:
+`PENDING` → `RUNNING` → `COMPLETED` / `STOPPED` / `ERROR`.
 
 ### 2. Audit trail
 
-Every session you've ever run (this process's lifetime — see the
-[Configuration](#configuration-reference) note on `CUA_V2_DB_PATH`) is
-listed in a dropdown at the top of this tab. Pick one to see:
+Every persisted session in `CUA_V2_DB_PATH` (survives backend restarts
+until you delete that SQLite file) is listed in a dropdown at the top
+of this tab. Pick one to see:
 
 - **Confirmed action journal** — every action the model actually took,
   in order, with its type and raw payload. This is a durable record
@@ -253,29 +271,47 @@ listed in a dropdown at the top of this tab. Pick one to see:
 - **Recent events** — the last few lifecycle events for that session
   (e.g. `SESSION_STARTED`, `ROUTE_ATTEMPTED`, `ROUTE_SUCCEEDED`,
   `SESSION_FAILED`), each with a timestamp.
+- **Export ZIP** — `GET /api/v2/sessions/{id}/export?include_frames=true`.
 
 This is the tab to use when you want to know, after the fact, exactly
 what an agent did and in what order — useful for compliance review or
 for debugging a run that didn't go as expected.
 
-### 3. Workflow library
+### 3. Session cost
+
+Estimates USD for a selected session from recorded `EXECUTION` token
+totals (`GET /api/v2/analytics?sessionId=`) and list rates in
+`frontend/src/pricing.ts`:
+
+| Catalog model | Input / 1M | Output / 1M |
+|---|---:|---:|
+| `claude-sonnet-5` | $2.00 | $10.00 |
+| `gemini-3.7-flash` | $0.75 | $3.75 |
+| `gemini-3.5-flash-lite` | $0.30 | $2.50 |
+| `gpt-5.6-luna` | $0.20 | $1.20 |
+| `gpt-5.6-terra` | $2.00 | $12.00 |
+
+Formula: `tokens / 1,000,000 × list rate`. Batch, prompt-cache, and
+Terra long-context doubling are **not** applied — those meters are not
+stored. Totals appear after the session writes an `EXECUTION` metric.
+While a selected session is `RUNNING`, the tab polls analytics every
+2 seconds. Unknown catalog ids show **Unknown model**. This is an
+estimate, not a provider invoice.
+
+### 4. Workflow library
 
 A **workflow** here is a saved, reusable, named sequence of plain-English
 instructions (e.g. "Weekly access review": *Open the admin portal → Export
 active accounts → Save the report*) — not a low-code visual builder, just
 an ordered list of steps you write once and reuse. Existing workflows are
-shown as cards with their name and version number; the form on the right
-creates a new one. Each edit to a workflow's steps creates a new version
-rather than overwriting the old one, so you can always see what a
-previous run actually used.
+shown as cards with their name and current version number; the form on
+the right creates a new workflow (version 1). Adding a later version is
+`POST /api/v2/workflows/{id}/versions` — the dashboard has no edit UI.
 
-*(Compiling a workflow — substituting variables like `${account_name}`
-into its steps and handing the result to a Live session run — exists as
-a backend endpoint, `POST /api/v2/workflows/{id}/compile`, but is not yet
-wired into the dashboard UI. Today it's reachable via
-[direct API calls](#scripting-via-rest-and-websocket).)*
+**Use in live session** calls `POST /api/v2/workflows/{id}/compile` and
+pastes the compiled instructions into the Live session task box.
 
-### 4. Providers
+### 5. Providers
 
 This is where you tell the app which AI account to use, without ever
 typing a permanent secret. Pick OpenAI, Anthropic, or Google and create an
@@ -290,14 +326,14 @@ configured and its current circuit state (`CLOSED` = healthy, `OPEN` =
 temporarily skipped after repeated failures — see
 [Provider, Model, and Routing](#provider-model-and-routing)).
 
-### 5. Analytics
+### 6. Analytics
 
-Four running totals across every session this process has executed:
-session count, action count, number of latency samples recorded, and
-average latency per recorded stage. Below the tiles, the same numbers
-appear as a raw JSON object — useful if you're eyeballing whether a
-particular provider/route combination is meaningfully slower than
-another over time.
+Four tiles from `GET /api/v2/analytics` (all sessions, no filter):
+latency sample count, summed input tokens, summed output tokens, and
+total recorded duration in milliseconds. Below that, a JSON dump of
+analytics plus `GET /api/v2/diagnostics` and
+`GET /api/v2/retention/preview`. **Prune expired frames** posts
+`POST /api/v2/retention/prune`.
 
 ## Provider, Model, and Routing
 
@@ -308,18 +344,18 @@ technical path used to reach that provider: `openai-direct`,
 `anthropic-direct`, or `gemini-direct`. Cloud-intermediary and older
 preview-model routes are not catalogued or selectable.
 
-When you start a Live session, you pick a **primary route**. If you
-don't pick one, the app defaults to the first route the model exposes.
-There is no automatic "pick the cheapest/fastest" behavior — routing is
-always the operator's explicit choice, which is a deliberate design
-decision so you always know exactly which vendor is handling your task
-and your data.
+When you start a Live session, you pick a **primary route**. The
+dashboard preselects `gemini-direct` when that route exists on the
+chosen model; otherwise it uses the model's first catalog route. An
+optional fallback is one other `model@route` pair. There is no
+automatic "pick the cheapest/fastest" behavior — routing is the
+operator's explicit choice. The coordinator tries the primary, then
+only the supplied fallbacks (`max_attempts=1` per route).
 
-If a route starts failing repeatedly, its **circuit** opens (visible on
-the Providers tab as `OPEN` instead of `CLOSED`) and the app stops trying
-it for a short cooldown window, so a single flaky route can't make every
-subsequent run slow or hang. It recovers to `CLOSED` on its own once the
-cooldown passes and a call succeeds again.
+If a route fails **3** times, its **circuit** opens (Providers tab
+shows `OPEN` instead of `CLOSED`) and the app skips it for **30
+seconds**. After the cooldown, the breaker allows the route again; a
+successful call clears the failure count.
 
 ## Provider Login (API Keys and Google OAuth)
 
@@ -364,15 +400,12 @@ Some actions a model can propose — submitting a form, an irreversible
 delete, a payment — are risky enough that the backend pauses the run
 and asks a human before executing them.
 
-**Honest current state:** the Live session tab *displays* this pause (the
-amber "Approval required" banner with the provider's explanation), so you
-always know when a run is blocked and why — but the dashboard does not
-yet have a button to answer it. Today, resolving a paused confirmation
-and the older provider-scripting confirmation flow both go through the
-[REST API directly](#scripting-via-rest-and-websocket) (`POST
-/api/agent/safety-confirm` for the v1 surface). A confirmation that's
-never answered auto-denies after a timeout, and the run continues from
-there marked as failed for that step — it does not hang forever.
+The Live session tab shows an amber **Approval required** banner with
+the provider's explanation and **Approve** / **Deny**. Those buttons
+post `POST /api/v2/sessions/{id}/safety-decisions` with the event
+`nonce`. v1 scripts still use `POST /api/agent/safety-confirm`. A
+confirmation that is never answered auto-denies after **60 seconds**
+and the step fails — the run does not hang forever.
 
 ## Writing Effective Tasks
 
@@ -410,8 +443,8 @@ Open the calculator app. Type "2 + 2" and press Enter.
 Stop when the display shows "4". Tell me the displayed result.
 ```
 
-**Web research (via the v1 REST surface, which supports web search —
-see the feature-availability note below):**
+**Web research** (dashboard: turn on **Provider web search planning**,
+or v1 `use_builtin_search: true`):
 
 ```text
 Open the browser and go to the official OpenAI docs.
@@ -431,26 +464,28 @@ Confirm you saved the file by quoting the file path.
 
 ## Feature Availability: Dashboard vs. REST API
 
-The five-tab dashboard and the original REST/WebSocket surface aren't
-feature-identical yet. Use this table to decide which surface a task
-needs:
+The six-tab dashboard and the original REST/WebSocket surface share
+most operator features. Use this table to pick a surface:
 
 | Feature | Dashboard (`/api/v2`) | Direct REST API (v1, `/api/agent/*`) |
 |---|---|---|
-| Start/stop a Computer Use run | ✅ Live session tab | ✅ `POST /api/agent/start` / `/stop` |
+| Start/stop a Computer Use run | ✅ Live session tab (`maxSteps` fixed at 50) | ✅ `POST /api/agent/start` / `/stop` |
 | Choose provider/model/route explicitly | ✅ Live session tab | ✅ request body fields |
-| Ordered fallback routes | ✅ (`fallbackRoutes`, currently API-only for customizing beyond the default) | — (no fallback concept in v1) |
+| Ordered fallback routes | ✅ one optional `model@route` in Live | — (no fallback concept in v1) |
+| Reasoning effort | ✅ when the catalog lists efforts | ✅ `reasoning_effort` (OpenAI; unknown values fall back to model default) |
+| Safety policy | ✅ `provider_default` / `confirm_mutating` / `read_only` | — (v1 `StartTaskRequest` has no `safety_policy`; engine default applies) |
 | Persistent, queryable session history | ✅ Audit trail tab (SQLite-backed) | — (in-memory only; lost on restart) |
 | Credential vault (paste-once API keys) | ✅ Providers tab | — (pass `api_key` per request, or rely on `.env`) |
-| **Web Search planning pass** | ❌ not yet wired into the UI or `SessionInput` contract | ✅ `use_builtin_search: true` |
-| **File attachments** (`.pdf`/`.txt`/`.md`/`.docx`) | ❌ not yet wired into the UI or `SessionInput` contract | ✅ `POST /api/files/upload` + `attached_files` |
-| **Answering a safety confirmation** | ❌ display-only (see above) | ✅ `POST /api/agent/safety-confirm` |
+| **Web Search planning pass** | ✅ toggle → `useBuiltinSearch` | ✅ `use_builtin_search: true` |
+| **File attachments** (`.pdf`/`.txt`/`.md`/`.docx`) | ✅ Live file input (hidden for Gemini) via `POST /api/files/upload` | ✅ same upload + `attached_files` |
+| **Answering a safety confirmation** | ✅ Approve/Deny → `POST /api/v2/sessions/{id}/safety-decisions` | ✅ `POST /api/agent/safety-confirm` |
+| Session cost estimate | ✅ Session cost tab | — (read `GET /api/v2/analytics?sessionId=`) |
 | Reusable named workflows | ✅ Workflow library tab | — (no workflow concept in v1) |
 | Aggregate latency/usage analytics | ✅ Analytics tab | — |
 
-If your task needs Web Search, file attachments, or answering a safety
-prompt programmatically, use the REST API directly for now — see the
-next section.
+Gemini Computer Use rejects attachments at session start (File Search
+cannot combine with Computer Use here). The Live tab hides the file
+input when the selected model family is `GEMINI`.
 
 ## Scripting via REST and WebSocket
 
@@ -461,7 +496,7 @@ operator-friendly walkthrough of common patterns for both surfaces.
 ### v1 — quick-start a session with Web Search and files
 
 ```bash
-curl -X POST http://localhost:8100/api/agent/start \
+curl -X POST http://127.0.0.1:8100/api/agent/start \
   -H "Content-Type: application/json" \
   -d '{
     "task": "Open the calculator and compute 2 + 2.",
@@ -478,27 +513,27 @@ curl -X POST http://localhost:8100/api/agent/start \
 The response contains a `session_id`. Poll status, or stop it:
 
 ```bash
-curl http://localhost:8100/api/agent/status/<session_id>
-curl -X POST http://localhost:8100/api/agent/stop/<session_id>
+curl http://127.0.0.1:8100/api/agent/status/<session_id>
+curl -X POST http://127.0.0.1:8100/api/agent/stop/<session_id>
 ```
 
 Upload a file first if you need `attached_files`:
 
 ```bash
-curl -X POST http://localhost:8100/api/files/upload -F file=@./notes.pdf
+curl -X POST http://127.0.0.1:8100/api/files/upload -F file=@./notes.pdf
 ```
 
 Stream events over `/ws` (append `?token=$CUA_API_TOKEN` if that's set):
 
 ```bash
-wscat -c ws://localhost:8100/ws
+wscat -c ws://127.0.0.1:8100/ws
 ```
 
 Answer a safety confirmation (must respond within the timeout window,
 using the `nonce` the `safety_confirmation` event carried):
 
 ```bash
-curl -X POST http://localhost:8100/api/agent/safety-confirm \
+curl -X POST http://127.0.0.1:8100/api/agent/safety-confirm \
   -H "Content-Type: application/json" \
   -d '{"session_id": "<session_id>", "confirm": true, "nonce": "<nonce>"}'
 ```
@@ -507,16 +542,16 @@ curl -X POST http://localhost:8100/api/agent/safety-confirm \
 
 ```bash
 # List available models and routes
-curl http://localhost:8100/api/v2/models
-curl http://localhost:8100/api/v2/provider-routes
+curl http://127.0.0.1:8100/api/v2/models
+curl http://127.0.0.1:8100/api/v2/provider-routes
 
 # Create a credential session (returns an opaque id, never the key)
-curl -X POST http://localhost:8100/api/v2/credential-sessions \
+curl -X POST http://127.0.0.1:8100/api/v2/credential-sessions \
   -H "Content-Type: application/json" \
   -d '{"credentials": {"OPENAI": "sk-..."}, "ttlSeconds": 3600}'
 
 # Start a session using that credential session
-curl -X POST http://localhost:8100/api/v2/sessions \
+curl -X POST http://127.0.0.1:8100/api/v2/sessions \
   -H "Content-Type: application/json" \
   -d '{
     "task": "Open the calculator and compute 2 + 2.",
@@ -525,12 +560,20 @@ curl -X POST http://localhost:8100/api/v2/sessions \
     "fallbackRoutes": [],
     "credentialSessionId": "<id from above>",
     "maxSteps": 30,
+    "safetyPolicy": "provider_default",
+    "useBuiltinSearch": false,
+    "attachedFiles": [],
     "retainAuditFrames": true
   }'
 
+# Answer a safety prompt (v2)
+curl -X POST http://127.0.0.1:8100/api/v2/sessions/<id>/safety-decisions \
+  -H "Content-Type: application/json" \
+  -d '{"nonce": "<nonce>", "confirm": true}'
+
 # List/query, stop
-curl http://localhost:8100/api/v2/sessions
-curl -X PATCH http://localhost:8100/api/v2/sessions/<id> \
+curl http://127.0.0.1:8100/api/v2/sessions
+curl -X PATCH http://127.0.0.1:8100/api/v2/sessions/<id> \
   -H "Content-Type: application/json" -d '{"status": "STOPPING"}'
 ```
 
@@ -615,11 +658,12 @@ docker compose up -d --build
 curl http://127.0.0.1:9222/health
 ```
 
-If this fails, the in-container agent service didn't boot. Check
-`docker logs cua-environment` for startup errors. Common causes: a stale
-X server lock from a previous container (`docker compose down && docker
-compose up -d` clears it), or a custom `SCREEN_WIDTH`/`SCREEN_HEIGHT`
-that doesn't match the Dockerfile's expectations — reset to `1440x900`.
+If this fails, the in-container agent service didn't boot. Also probe
+noVNC: `curl -fs -o /dev/null http://127.0.0.1:6080/vnc.html`. Compose
+`--wait` requires both. Common causes: a stale X server lock from a
+previous container (`docker compose down && docker compose up -d --wait`
+clears it), or a custom `SCREEN_WIDTH`/`SCREEN_HEIGHT` that doesn't
+match the Dockerfile's expectations — reset to `1440x900`.
 
 ### Backend will not start
 
@@ -636,20 +680,26 @@ start Vite through Node. Do not use `npm run dev` as the daily launcher;
 
 ### Viewport says "Connecting to sandbox" or never shows a desktop
 
-The Live tab streams `/api/v2/ws/desktop` without starting a run. Check,
-in order:
+The Live viewport is a noVNC iframe, not the CUAF WebSocket image.
+`GET /api/v2/desktop` must yield `/vnc/vnc.html` with
+`path=vnc/websockify` (a bare `websockify` hits unproxied
+`ws://127.0.0.1:8505/websockify` and fails). Check, in order:
 
 1. The sandbox is up: `docker ps --filter name=cua-environment` should
-   show `healthy`. If not, `docker compose up -d` and wait ~30 seconds.
-2. The agent service answers: `curl http://127.0.0.1:9222/health`.
-3. The backend loaded the root `.env`. A log line
+   show `healthy`. If not, `docker compose up -d --wait --wait-timeout 90`.
+2. Agent and noVNC both answer: `curl http://127.0.0.1:9222/health` and
+   `curl -fs -o /dev/null http://127.0.0.1:6080/vnc.html`.
+3. From the dashboard origin, `curl -I http://127.0.0.1:8505/vnc/vnc.html`
+   (dev) or `http://127.0.0.1:8100/vnc/vnc.html` (production) is 200.
+4. The backend loaded the root `.env`. A log line
    `Agent service rejected request (token mismatch)` or repeated
    `401 Unauthorized` on `/screenshot` means restart the backend after
    confirming `AGENT_SERVICE_TOKEN` in the repo-root `.env` matches
    `docker exec cua-environment printenv AGENT_SERVICE_TOKEN`.
-4. You are using `http://127.0.0.1:8505` (dev) or
+5. You are using `http://127.0.0.1:8505` (dev) or
    `http://127.0.0.1:8100` (production bundle). A WebSocket `403` means
-   the page origin is not on the CORS allowlist.
+   the page origin is not on the CORS allowlist. Production SPA also
+   serves `/cost` (and the other tabs) via `_SPA_ROUTES`.
 
 If `node_modules` is missing or esbuild is broken after `npm ci`:
 
@@ -664,15 +714,17 @@ at your proxy and retry.
 
 ### A route shows as configured but every session on it fails
 
-Check the Providers tab's circuit-state badge — if it shows `OPEN`, the
-route is being temporarily skipped after repeated failures and will
-recover automatically after its cooldown window.
+Check the Providers tab's circuit-state badge — if it shows `OPEN`,
+three failures tripped the breaker. It allows the route again after 30
+seconds.
 
 ### Files attached or Web Search requested but nothing happens
 
-These two features aren't wired into the dashboard's session contract
-yet — see [Feature Availability](#feature-availability-dashboard-vs-rest-api)
-and use the v1 REST API directly for now.
+On Live, turn on **Provider web search planning** and attach files before
+**Start run**. Gemini hides the file input and rejects attachments at
+session start. Confirm the v2 session body actually sent
+`useBuiltinSearch` / `attachedFiles` (browser Network tab, or the v2
+curl example above).
 
 ### Port already in use
 
@@ -766,7 +818,16 @@ changelog and release notes, read `CHANGELOG.md` and
 
 Patterns that show up repeatedly in real sessions.
 
-### Pin reasoning effort per task class (v1 REST; not yet in the dashboard)
+### Pin reasoning effort per task class
+
+Live shows a **Reasoning** select when the catalog lists
+`reasoningEfforts` (`none`/`low`/`medium`/`high`/`xhigh`/`max` for
+GPT-5.6; `low`/`medium`/`high` for Gemini 3.x). Claude Sonnet 5 has
+no catalog efforts, so the select is hidden. Empty select = omit the
+field (OpenAI default `medium` for Luna/Terra). v2 `reasoningEffort`
+uses that same catalog pattern. v1 `reasoning_effort` is applied for
+OpenAI only; its allow-set is `none`/`minimal`/`low`/`medium`/`high`/`xhigh`
+(`max` is not in the v1 allow-set and falls back to the model default).
 
 | Task class | Suggested effort | Notes |
 |---|---|---|

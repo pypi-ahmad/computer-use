@@ -22,8 +22,8 @@
 - `backend/main.py` configures logging, enforces the public-bind guardrail, and launches `backend.server:app` with Uvicorn.
 - `backend/server/__init__.py` constructs the FastAPI app, registers v1/v2 HTTP and WebSocket surfaces, bridges v2 sessions to `AgentLoop`, and optionally serves `frontend/dist`.
 - `run.cmd` is the one-file Windows setup-if-needed launcher. `START.bat` and `setup.bat` remain the always-bootstrap path. After a fresh `npm ci`, setup rebuilds esbuild.
-- `dev.py`, `dev.bat`, and `dev.sh` coordinate the local Docker sandbox, backend, and Vite development server. On Windows, `dev.py` waits for `GET /api/health`, then starts Vite through Node on `127.0.0.1`.
-- `frontend/src/main.tsx` mounts the React application; `frontend/src/App.tsx` owns the five routes/views.
+- `dev.py`, `dev.bat`, and `dev.sh` coordinate the local Docker sandbox, backend, and Vite development server. `dev.py` runs `docker compose up -d --wait`, waits for `GET /api/health`, then starts Vite through Node on `127.0.0.1` (Windows) or `npm run dev` elsewhere. The dashboard opener waits for Vite on port 8505.
+- `frontend/src/main.tsx` mounts the React application; `frontend/src/App.tsx` owns the six routes/views (`/`, `/audit`, `/cost`, `/workflows`, `/providers`, `/analytics`).
 - `docker/entrypoint.sh` starts the virtual desktop services and `docker/agent_service.py` inside the sandbox.
 - `scripts/build_release.py` and `scripts/build_docs_site.py` are packaging/documentation entrypoints.
 
@@ -55,7 +55,7 @@
 - `frontend/src/api.ts` is the HTTP client boundary, including the session-scoped workbench token, and `frontend/src/useLiveStream.ts` is the WebSocket boundary.
 - `frontend/src/protocol.ts` decodes the binary CUAF preview-frame protocol.
 - `frontend/src/types.ts` describes API-facing frontend data.
-- `frontend/src/App.tsx` currently contains routing and all five page components; visual styling is in `frontend/src/index.css` and `frontend/src/pages/Workbench.css`.
+- `frontend/src/App.tsx` currently contains routing and all six page components; `frontend/src/pricing.ts` maps catalog model IDs to list rates for the Session cost tab; visual styling is in `frontend/src/index.css` and `frontend/src/pages/Workbench.css`.
 
 ### Test layout
 

@@ -34,7 +34,7 @@ Run `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy`, `npm -
 
 - Ruff/isort groups standard-library, third-party, then first-party imports; `backend` is the configured first-party root.
 - Backend imports normally use absolute `backend.*` paths. Provider clients are re-exported from `backend.engine` where compatibility requires a public facade.
-- Frontend source uses relative local imports (`./api`, `./types`, `./useLiveStream`) and package imports for React/router/icons.
+- Frontend source uses relative local imports (`./api`, `./types`, `./useLiveStream`, `./pricing`) and package imports for React/router/icons.
 - Model/capability data belongs in JSON registries and external schemas belong in Pydantic/type modules rather than route-local duplicate constants.
 
 ### API and data contracts

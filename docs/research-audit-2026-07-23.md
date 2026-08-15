@@ -2,16 +2,21 @@
 
 Verified July 23, 2026 against official vendor documentation. The catalog records eligibility, not account entitlement or regional availability.
 
-## Current implementation status (2026-08-12)
+## Current implementation status (2026-08-16)
 
-This audit remains a historical research record. The active application catalog
-has since been intentionally narrowed to three executable provider-native
-routes: `gpt-5.6-luna` through OpenAI Responses, `claude-sonnet-5` through
-Anthropic Messages, and `gemini-3.6-flash` through Google Interactions. API
-keys are supported for all three providers; Gemini also supports process-local
-browser OAuth. The canonical current definitions are
+This audit remains a historical research record. The **active** application
+catalog is five Computer Use models on three executable routes, defined in
 `backend/models/allowed_models.json` and
-`backend/models/computer_use_models.v2.json`.
+`backend/models/computer_use_models.v2.json`:
+
+- `gpt-5.6-luna` and `gpt-5.6-terra` through OpenAI Responses (`openai-direct`)
+- `claude-sonnet-5` through Anthropic Messages (`anthropic-direct`)
+- `gemini-3.7-flash` and `gemini-3.5-flash-lite` through Google Interactions (`gemini-direct`)
+
+API keys are supported for all three providers (`GOOGLE_API_KEY` is preferred
+over `GEMINI_API_KEY` and a process env var is not overwritten by `.env`).
+Gemini also supports process-local browser OAuth. The dated tables below
+describe the July 23, 2026 research snapshot, not the live allowlist.
 
 ## Eligible catalog
 

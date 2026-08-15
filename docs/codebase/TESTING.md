@@ -26,7 +26,8 @@ npm --prefix frontend run test:run
 - `tests/test_infra.py` asserts the repository-root `.env` path; `tests/test_audit_fixes.py` asserts `http://127.0.0.1:8100` is an allowed WebSocket origin.
 - `tests/integration/test_gemini_live_sdk.py` is the opt-in live Gemini Interactions test.
 - `evals/test_degraded_container_startup.py` tests a degraded startup scenario offline with Docker/provider boundaries mocked.
-- `frontend/src/api.test.ts`, `frontend/src/App.test.tsx`, `frontend/src/protocol.test.ts`, and `frontend/src/useLiveStream.test.ts` cover HTTP behavior, the idle desktop stream, CUAF decoding, and dashboard empty-state copy.
+- `frontend/src/api.test.ts`, `frontend/src/App.test.tsx`, `frontend/src/protocol.test.ts`, `frontend/src/useLiveStream.test.ts`, and `frontend/src/pricing.test.ts` cover HTTP behavior, the six-tab dashboard, idle desktop stream, CUAF decoding, and session-cost list rates.
+- `tests/test_v2_platform.py` also asserts Gemini 3.7 Flash / 3.5 Flash-Lite catalog entries and that `GOOGLE_API_KEY` in the process environment marks the Google route configured.
 
 Setup is centralized in `tests/conftest.py`, `evals/conftest.py`, and `frontend/src/test/setup.ts`.
 
@@ -37,7 +38,7 @@ Setup is centralized in `tests/conftest.py`, `evals/conftest.py`, and `frontend/
 | Unit | yes | engine helpers, models, action service, protocols | mocked SDK/Docker boundaries |
 | Integration/contract | yes | FastAPI, SQLite, provider-run/executor boundaries | mostly offline with TestClient/fakes |
 | Live integration | opt-in | Google SDK transport | `integration` marker, key/network required |
-| End-to-end UI + real sandbox/provider | [TODO] no automated suite identified | complete operator flow | manual smoke test documented in `USAGE.md` |
+| End-to-end UI + real sandbox/provider | [TODO] no automated suite identified | complete operator flow | manual smoke test documented in `USAGE.md` and `TESTING.md` |
 
 ### Default and CI behavior
 
