@@ -127,6 +127,71 @@ class TestBrowserSecurityPosture:
             "Chrome must launch with an explicit --user-data-dir"
         )
 
+
+class TestOfficialComputerActions:
+    def test_terra_uses_built_in_computer_tool(self):
+        from unittest.mock import patch
+
+        from backend.engine import OpenAICUClient
+
+        with patch("openai.AsyncOpenAI"):
+            client = OpenAICUClient(api_key="k", model="gpt-5.6-terra")
+        assert client._build_tools(1440, 900) == [{"type": "computer"}]
+
+    def test_drag_accepts_coordinate_pairs(self):
+        import asyncio
+        from unittest.mock import patch
+
+        from backend.engine import OpenAICUClient
+        from backend.executor import CUActionResult
+
+        calls: list[tuple[str, dict]] = []
+
+        class Executor:
+            async def execute(self, name, args):
+                calls.append((name, dict(args)))
+                return CUActionResult(name=name)
+
+        with patch("openai.AsyncOpenAI"):
+            client = OpenAICUClient(api_key="k", model="gpt-5.6-luna")
+        result = asyncio.run(
+            client._execute_openai_action(
+                {"type": "drag", "path": [[10, 20], [80, 90]]},
+                Executor(),
+            )
+        )
+        assert result.success
+        assert [name for name, _ in calls] == ["move", "mouse_down", "move", "mouse_up"]
+        assert calls[0][1] == {"x": 10, "y": 20}
+        assert calls[2][1] == {"x": 80, "y": 90}
+
+    def test_click_holds_modifier_keys(self):
+        import asyncio
+        from unittest.mock import patch
+
+        from backend.engine import OpenAICUClient
+        from backend.executor import CUActionResult
+
+        calls: list[tuple[str, dict]] = []
+
+        class Executor:
+            async def execute(self, name, args):
+                calls.append((name, dict(args)))
+                return CUActionResult(name=name)
+
+        with patch("openai.AsyncOpenAI"):
+            client = OpenAICUClient(api_key="k", model="gpt-5.6-luna")
+        result = asyncio.run(
+            client._execute_openai_action(
+                {"type": "click", "button": "left", "x": 4, "y": 5, "keys": ["SHIFT"]},
+                Executor(),
+            )
+        )
+        assert result.success
+        assert calls[0] == ("key_down", {"key": "shift"})
+        assert calls[1] == ("click_at", {"x": 4, "y": 5})
+        assert calls[2] == ("key_up", {"key": "shift"})
+
     def test_browser_subprocess_uses_minimal_env(self):
         """The browser subprocess must NOT inherit the full host env
         (it would leak AGENT_SERVICE_TOKEN, operator API keys, etc.).

@@ -12,7 +12,7 @@ import hashlib
 import logging
 import os
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from backend.engine import (
@@ -37,6 +37,30 @@ from backend.executor import ActionExecutor, CUActionResult
 from backend.infra.config import config as _app_config
 
 logger = logging.getLogger(__name__)
+
+_CLAUDE_HOLD_KEYS = {
+    "control": "ctrl",
+    "ctrl": "ctrl",
+    "shift": "shift",
+    "alt": "alt",
+    "option": "alt",
+    "meta": "super",
+    "cmd": "super",
+    "command": "super",
+    "super": "super",
+}
+
+
+def _display_number_from_env() -> int | None:
+    """X11 display number for the official ``display_number`` tool field."""
+    raw = os.getenv("DISPLAY", ":99").strip()
+    if not raw:
+        return None
+    token = raw.split(",")[0].lstrip(":")
+    if token.startswith("localhost"):
+        token = token.split(":", 1)[-1]
+    token = token.split(".")[0]
+    return int(token) if token.isdigit() else None
 
 _ANTHROPIC_WEB_SEARCH_CONSOLE_URL = "https://platform.claude.com/settings/privacy"
 _ANTHROPIC_WEB_SEARCH_PROBE_TTL_SECONDS = 24 * 60 * 60
@@ -164,8 +188,8 @@ class ClaudeCUClient:
             configuration error instead of guessing.
     - Uses ``client.beta.messages.create()`` (beta endpoint required).
     - Sends screenshots as base64 in ``tool_result`` content.
-    - ``display_number`` is intentionally omitted.
-    - Actions (``computer_20251124``): screenshot, click, double_click,
+    - ``display_number`` is taken from ``DISPLAY`` (X11, e.g. ``:99``).
+    - Actions (``computer_20251124``): screenshot, left_click/click, double_click,
       type, key, scroll, mouse_move, left_click_drag, triple_click,
       right_click, middle_click, left_mouse_down, left_mouse_up,
       hold_key, wait, zoom.
@@ -395,6 +419,9 @@ class ClaudeCUClient:
             "display_width_px": sw,
             "display_height_px": sh,
         }
+        display_number = _display_number_from_env()
+        if display_number is not None:
+            tool["display_number"] = display_number
         # Enable zoom action for computer_20251124 tool version
         if self._tool_version == "computer_20251124":
             tool["enable_zoom"] = True
@@ -847,10 +874,11 @@ class ClaudeCUClient:
     ) -> CUActionResult:
         """Map Claude computer tool actions to executor calls.
 
-        Claude actions (computer_20251124): screenshot, click, double_click,
-        type, key, scroll, mouse_move, left_click_drag, triple_click,
-        right_click, middle_click, left_mouse_down, left_mouse_up,
-        hold_key, wait, zoom.
+        Claude actions (computer_20251124): screenshot, left_click/click,
+        double_click, type, key, scroll, mouse_move, left_click_drag,
+        triple_click, right_click, middle_click, left_mouse_down,
+        left_mouse_up, hold_key, wait, zoom. Click/scroll may include a
+        modifier via official ``key`` (clicks) or ``text`` (scroll).
 
         Claude uses REAL pixel coordinates — no denormalization.
         When screenshot scaling is active, coordinates are upscaled by
@@ -879,12 +907,28 @@ class ClaudeCUClient:
             # coordinate/key/scroll actions ride the shared args dict).
             args["include_screenshot"] = True
 
-        if action in ("click", "double_click", "right_click", "triple_click", "middle_click"):
+        if action in (
+            "click",
+            "left_click",
+            "double_click",
+            "right_click",
+            "triple_click",
+            "middle_click",
+        ):
             if coord:
                 args["x"], args["y"] = coord[0], coord[1]
-            if action in ("double_click", "right_click", "triple_click", "middle_click"):
-                return await self._special_click(action, coord, executor, action_id=action_id)
-            return await executor.execute("click_at", args)
+            exec_name = "click_at" if action in {"click", "left_click"} else action
+
+            async def _do_click() -> CUActionResult:
+                if exec_name == "click_at":
+                    return await executor.execute("click_at", args)
+                return await self._special_click(
+                    exec_name, coord, executor, action_id=action_id
+                )
+
+            return await self._with_modifiers(
+                action_input.get("key"), executor, _do_click
+            )
 
         elif action == "type":
             text = action_input.get("text", "")
@@ -906,7 +950,7 @@ class ClaudeCUClient:
                 return CUActionResult(name="type", success=False, error=str(exc))
 
         elif action == "key":
-            key = action_input.get("key", "")
+            key = action_input.get("key") or action_input.get("text") or ""
             KEY_MAP = {"Return": "Enter", "space": "Space"}
             args["keys"] = KEY_MAP.get(key, key)
             return await executor.execute("key_combination", args)
@@ -914,10 +958,22 @@ class ClaudeCUClient:
         elif action == "scroll":
             if coord:
                 args["x"], args["y"] = coord[0], coord[1]
-            args["direction"] = action_input.get("direction", "down")
-            amount = action_input.get("amount", 3)
-            args["magnitude"] = min(999, amount * 200)
-            return await executor.execute("scroll_at", args)
+            args["direction"] = (
+                action_input.get("direction")
+                or action_input.get("scroll_direction")
+                or "down"
+            )
+            amount = action_input.get("amount", action_input.get("scroll_amount", 3))
+            try:
+                amount_int = int(amount)
+            except (TypeError, ValueError):
+                amount_int = 3
+            args["magnitude"] = min(999, max(amount_int, 0) * 200)
+            return await self._with_modifiers(
+                action_input.get("text") or action_input.get("key"),
+                executor,
+                lambda: executor.execute("scroll_at", args),
+            )
 
         elif action == "mouse_move":
             if coord:
@@ -938,7 +994,7 @@ class ClaudeCUClient:
             return await executor.execute("left_mouse_up", {})
 
         elif action == "hold_key":
-            key = action_input.get("key", "")
+            key = action_input.get("key") or action_input.get("text") or ""
             duration = action_input.get("duration", 1)
             return await executor.execute("hold_key", {"key": key, "duration": duration})
 
@@ -996,6 +1052,25 @@ class ClaudeCUClient:
             return CUActionResult(
                 name=action, success=False, error=f"Unknown Claude action: {action}"
             )
+
+    async def _with_modifiers(
+        self,
+        modifier: Any,
+        executor: ActionExecutor,
+        action: Callable[[], Awaitable[CUActionResult]],
+    ) -> CUActionResult:
+        """Hold official click ``key`` / scroll ``text`` for the duration of *action*."""
+        token = str(modifier or "").strip()
+        if not token:
+            return await action()
+        hold = _CLAUDE_HOLD_KEYS.get(token.lower(), token)
+        held = await executor.execute("key_down", {"key": hold})
+        if not held.success:
+            return held
+        try:
+            return await action()
+        finally:
+            await executor.execute("key_up", {"key": hold})
 
     async def _special_click(
         self,

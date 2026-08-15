@@ -758,6 +758,8 @@ _READ_ONLY_ACTIONS = frozenset(
         "scroll",
         "scroll_at",
         "wait",
+        "take_screenshot",
+        "screenshot",
     }
 )
 
@@ -863,7 +865,7 @@ class ComputerUseEngine:
         if provider == Provider.GEMINI:
             self._client: Any = GeminiCUClient(
                 api_key=api_key,
-                model=model or "gemini-3.6-flash",
+                model=model or "gemini-3.7-flash",
                 environment=environment,
                 excluded_actions=excluded_actions,
                 system_instruction=system_instruction,
@@ -871,6 +873,7 @@ class ComputerUseEngine:
                 **file_kwargs,
                 credentials=oauth_credentials,
                 quota_project_id=quota_project_id,
+                thinking_level=reasoning_effort,
             )
             self._client._planner_use_builtin_search = planner_use_builtin_search
         elif provider == Provider.CLAUDE:
