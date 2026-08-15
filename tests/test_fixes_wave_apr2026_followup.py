@@ -538,3 +538,4 @@ class TestRegistryGpt54Flag:
 
         models = {m["model_id"]: m for m in load_allowed_models_json()}
         assert models["gpt-5.6-luna"]["supports_computer_use"] is True
+        assert models["gpt-5.6-terra"]["supports_computer_use"] is True

@@ -375,6 +375,37 @@ class TestScreenshotFallback:
         with pytest.raises(httpx.HTTPStatusError):
             await ss.capture_screenshot()
 
+    @pytest.mark.asyncio
+    async def test_transport_error_retries_then_succeeds(self, monkeypatch):
+        import backend.executor as ss
+
+        good = self._response(200, {"screenshot": "c2hvdA=="})
+        calls = {"n": 0}
+
+        class _FakeClient:
+            async def get(self, *_a, **_kw):
+                calls["n"] += 1
+                if calls["n"] < 3:
+                    raise httpx.RemoteProtocolError("Server disconnected without sending a response.")
+                return good
+
+            async def aclose(self):
+                pass
+
+            @property
+            def is_closed(self):
+                return False
+
+        async def boom_fallback():
+            raise AssertionError("fallback should not run after a recovered transport error")
+
+        monkeypatch.setattr(ss, "_get_client", lambda: _FakeClient())
+        monkeypatch.setattr(ss, "_fallback_docker_screenshot", boom_fallback)
+        monkeypatch.setattr(ss, "_SCREENSHOT_TRANSPORT_DELAY_S", 0)
+        b64 = await ss.capture_screenshot()
+        assert b64 == "c2hvdA=="
+        assert calls["n"] == 3
+
 
 # ── AI6 — secret scrubbing ─────────────────────────────────────────────────
 
@@ -489,6 +520,16 @@ class TestWebSocketOriginGating:
         ws.client = MagicMock()
         ws.client.host = "192.168.1.50"  # non-loopback — Origin is what matters
         assert server._ws_origin_ok(ws)
+
+    def test_ws_origin_ok_accepts_backend_origin(self):
+        from backend import server
+
+        for origin in ("http://127.0.0.1:8100", "http://localhost:8100"):
+            ws = MagicMock()
+            ws.headers = {"origin": origin}
+            ws.client = MagicMock()
+            ws.client.host = "127.0.0.1"
+            assert server._ws_origin_ok(ws), origin
 
     def test_ws_origin_ok_rejects_foreign_origin(self):
         from backend import server
@@ -1082,7 +1123,7 @@ class TestGeminiNativeAsync:
         from backend.engine.gemini import GeminiCUClient
 
         client = GeminiCUClient.__new__(GeminiCUClient)
-        client._model = "gemini-3.6-flash"
+        client._model = "gemini-3.7-flash"
 
         fake_interactions = MagicMock()
         fake_interactions.create = AsyncMock(return_value="RESPONSE")
@@ -1100,7 +1141,7 @@ class TestGeminiNativeAsync:
 
         assert result == "RESPONSE"
         fake_interactions.create.assert_awaited_once_with(
-            model="gemini-3.6-flash",
+            model="gemini-3.7-flash",
             input=[{"type": "text", "text": "hi"}],
             tools=[
                 {

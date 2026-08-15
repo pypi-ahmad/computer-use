@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from unittest.mock import patch
 
 from backend.infra.config import Config, config, get_all_key_statuses, resolve_api_key
@@ -15,12 +16,17 @@ class TestConfig:
     def test_singleton_exists(self):
         assert config is not None
 
+    def test_env_file_is_repository_root(self):
+        from backend.infra import config as config_mod
+
+        assert config_mod._ENV_FILE == Path(__file__).resolve().parents[1] / ".env"
+
     def test_default_screen_dimensions(self):
         assert config.screen_width == 1440
         assert config.screen_height == 900
 
     def test_default_model(self):
-        assert config.gemini_model == "gemini-3.6-flash"
+        assert config.gemini_model == "gemini-3.7-flash"
 
     def test_agent_service_url(self):
         c = Config(agent_service_host="127.0.0.1", agent_service_port=9222)

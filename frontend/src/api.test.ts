@@ -3,6 +3,33 @@ import { api } from './api'
 
 beforeEach(() => vi.stubGlobal('fetch', vi.fn()))
 
+it('waits for noVNC 200 before returning the viewer URL', async () => {
+  const { waitForNovnc } = await import('./api')
+  let calls = 0
+  const fetchImpl = (async () => {
+    calls += 1
+    return new Response(calls === 1 ? 'noVNC not available yet' : '<html></html>', { status: calls === 1 ? 502 : 200 })
+  }) as typeof fetch
+  const sleeps: number[] = []
+  await expect(waitForNovnc('/vnc/vnc.html?autoconnect=1', {
+    fetchImpl,
+    sleep: async (ms) => { sleeps.push(ms) },
+  })).resolves.toBe('/vnc/vnc.html?autoconnect=1')
+  expect(calls).toBe(2)
+  expect(sleeps).toEqual([500])
+})
+
+it('puts the workbench token on the noVNC websockify path', async () => {
+  const { desktopViewerSrc } = await import('./api')
+  expect(desktopViewerSrc('/vnc/vnc.html?autoconnect=1', 'secret')).toContain('path=vnc%2Fwebsockify%3Ftoken%3Dsecret')
+})
+
+it('points noVNC at the proxied /vnc/websockify socket', async () => {
+  const { desktopViewerSrc } = await import('./api')
+  expect(desktopViewerSrc('/vnc/vnc.html?autoconnect=1&path=websockify')).toContain('path=vnc%2Fwebsockify')
+  expect(desktopViewerSrc('/vnc/vnc.html?autoconnect=1&path=websockify')).not.toMatch(/path=websockify(?!\?)/)
+})
+
 it('creates a v2 session with credential and routing state', async () => {
   vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ id: 's1', status: 'RUNNING' }), { status: 201, headers: { 'content-type': 'application/json' } }))
   await api.createSession({ task: 'Run audit', model: 'gpt-5.6-luna', primaryRoute: 'openai-direct', fallbackRoutes: [], credentialSessionId: 'cred-1', maxSteps: 25, reasoningEffort: 'medium', safetyPolicy: 'provider_default', useBuiltinSearch: false, attachedFiles: [], retainAuditFrames: true })

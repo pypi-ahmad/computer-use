@@ -262,7 +262,10 @@ def _bootstrap() -> None:
 
 def _compose_restart() -> None:
     _compose_down()
-    _run_checked(["docker", "compose", "up", "-d"])
+    # --wait blocks until the compose healthcheck (agent + noVNC) is
+    # healthy. Without it the dashboard iframe hits /vnc/vnc.html at
+    # 502 and never reloads.
+    _run_checked(["docker", "compose", "up", "-d", "--wait", "--wait-timeout", "90"])
 
 
 def _compose_down() -> None:
@@ -383,11 +386,9 @@ def main() -> int:
         _compose_restart()
         backend, frontend = _spawn_services()
         if args.open_browser:
-            backend_port = _env_int("PORT", DEFAULT_BACKEND_PORT, dotenv=_dotenv_values())
             threading.Thread(
                 target=open_dashboard_when_ready,
                 args=(f"http://127.0.0.1:{DEFAULT_FRONTEND_PORT}",),
-                kwargs={"ready_url": f"http://127.0.0.1:{backend_port}/api/health"},
                 name="dashboard-opener",
                 daemon=True,
             ).start()

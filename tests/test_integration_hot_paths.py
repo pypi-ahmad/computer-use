@@ -128,7 +128,7 @@ class TestAgentStartFinishIntegration:
         [
             ("openai", "gpt-5.6-luna"),
             ("anthropic", "claude-sonnet-5"),
-            ("google", "gemini-3.6-flash"),
+            ("google", "gemini-3.7-flash"),
         ],
     )
     def test_start_path_preserves_frontend_event_stream_for_each_provider(

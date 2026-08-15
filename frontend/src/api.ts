@@ -17,7 +17,44 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
 }
+export function desktopViewerSrc(viewerUrl: string, token = getAppToken()): string {
+  const url = new URL(viewerUrl, 'http://127.0.0.1')
+  // noVNC builds ws://host:port/<path>. A bare "websockify" hits the
+  // Vite origin at /websockify, which is not proxied. The workbench
+  // websocket lives at /vnc/websockify.
+  url.searchParams.set('path', token ? `vnc/websockify?token=${token}` : 'vnc/websockify')
+  return `${url.pathname}?${url.searchParams.toString()}`
+}
+
+export async function waitForNovnc(
+  viewerUrl: string,
+  {
+    attempts = 40,
+    delayMs = 500,
+    fetchImpl = fetch,
+    sleep = (ms: number) => new Promise<void>(resolve => { window.setTimeout(resolve, ms) }),
+  }: {
+    attempts?: number
+    delayMs?: number
+    fetchImpl?: typeof fetch
+    sleep?: (ms: number) => Promise<void>
+  } = {},
+): Promise<string> {
+  const probe = viewerUrl.split('?')[0] || viewerUrl
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      const response = await fetchImpl(probe)
+      if (response.ok) return viewerUrl
+    } catch {
+      // sandbox still coming up
+    }
+    if (attempt + 1 < attempts) await sleep(delayMs)
+  }
+  return viewerUrl
+}
+
 export const api = {
+  desktop: () => request<{ viewerUrl: string }>('/desktop'),
   models: () => request<{ data: Model[]; catalogVersion: string; verifiedAt: string }>('/models'),
   routes: () => request<Page<Route>>('/provider-routes'),
   sessions: () => request<Page<Session>>('/sessions'),
