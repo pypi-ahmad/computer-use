@@ -60,7 +60,7 @@ from backend.models.schemas import load_allowed_models_json as _load_allowed_mod
 from backend.models.validation import validate_tool_parity
 from backend.v2.api import error_response as _v2_error_response
 from backend.v2.api import router as v2_router
-from backend.v2.frames import FrameBroker, FrameCodec, pack_cuaf_frame
+from backend.v2.frames import DESKTOP_STREAM_ID, FrameBroker, FrameCodec, pack_cuaf_frame
 from backend.v2.orchestrator import ExecutionOutcome as V2ExecutionOutcome
 from backend.v2.orchestrator import ExecutionRequest as V2ExecutionRequest
 from backend.v2.orchestrator import orchestrator as _v2_orchestrator
@@ -195,6 +195,8 @@ _ALLOWED_ORIGINS = _parse_cors_origins(os.getenv("CORS_ORIGINS", "")) or [
     "http://127.0.0.1:3000",
     "http://localhost:8505",
     "http://127.0.0.1:8505",
+    "http://localhost:8100",
+    "http://127.0.0.1:8100",
 ]
 
 app.add_middleware(
@@ -247,6 +249,7 @@ _SECURITY_HEADERS = {
         "font-src 'self' https://fonts.gstatic.com; "
         "img-src 'self' blob: data:; "
         "connect-src 'self'; "
+        "frame-src 'self'; "
         "frame-ancestors 'none'"
     ),
     # S10: cross-origin isolation. Prevents this origin from being
@@ -1589,6 +1592,8 @@ async def api_agent_history(session_id: str):
 
 _NOVNC_HTTP = "http://127.0.0.1:6080"
 _NOVNC_WS = "ws://127.0.0.1:6080"
+_NOVNC_PROXY_ATTEMPTS = 8
+_NOVNC_PROXY_RETRY_DELAY_S = 0.25
 _novnc_client: httpx.AsyncClient | None = None
 
 
@@ -1701,16 +1706,23 @@ async def vnc_http_proxy(path: str):
     if not _is_safe_vnc_path(path):
         return Response(content="forbidden", status_code=403)
     client = _get_novnc_client()
-    try:
-        resp = await client.get(f"{_NOVNC_HTTP}/{path}")
-        content_type = resp.headers.get("content-type", "application/octet-stream")
-        return Response(
-            content=resp.content,
-            status_code=resp.status_code,
-            media_type=content_type,
-        )
-    except (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError, httpx.ReadError):
-        return Response(content="noVNC not available yet", status_code=502)
+    last_exc: Exception | None = None
+    for attempt in range(_NOVNC_PROXY_ATTEMPTS):
+        try:
+            resp = await client.get(f"{_NOVNC_HTTP}/{path}")
+            content_type = resp.headers.get("content-type", "application/octet-stream")
+            return Response(
+                content=resp.content,
+                status_code=resp.status_code,
+                media_type=content_type,
+            )
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError, httpx.ReadError) as exc:
+            last_exc = exc
+            if attempt + 1 >= _NOVNC_PROXY_ATTEMPTS:
+                break
+            await asyncio.sleep(_NOVNC_PROXY_RETRY_DELAY_S)
+    logger.debug("noVNC proxy still unavailable after retries: %s", last_exc)
+    return Response(content="noVNC not available yet", status_code=502)
 
 
 # ── WebSocket ─────────────────────────────────────────────────────────────────
@@ -1766,9 +1778,25 @@ async def v2_websocket_endpoint(ws: WebSocket, session_id: str):
         while True:
             while not event_queue.empty():
                 await ws.send_json(event_queue.get_nowait())
-            frame = await _v2_frame_broker.capture()
+            try:
+                frame = await _v2_frame_broker.capture()
+            except Exception:
+                logger.exception("v2 frame capture failed session_id=%s", session_id)
+                await ws.send_json(
+                    {
+                        "event": "FRAME_CAPTURE_FAILED",
+                        "sessionId": session_id,
+                        "message": "Sandbox screenshot is not ready yet.",
+                    }
+                )
+                await asyncio.sleep(config.ws_screenshot_interval)
+                continue
             canonical = _v2_latest_canonical_frame
-            if canonical is not None and _v2_frame_retention.is_enabled(session_id):
+            if (
+                session_id != DESKTOP_STREAM_ID
+                and canonical is not None
+                and _v2_frame_retention.is_enabled(session_id)
+            ):
                 _v2_frame_retention.put(session_id, canonical[0], "png")
             await ws.send_json(
                 {

@@ -35,8 +35,15 @@ def test_model_catalog_is_transport_aware_and_computer_use_only() -> None:
     assert models
     assert all(model.supports_computer_use for model in models)
     assert catalog.get("gpt-5.6-luna").routes[0].transport == "OPENAI_RESPONSES"
+    assert catalog.get("gpt-5.6-terra").routes[0].id == "openai-direct"
+    assert catalog.get("gpt-5.6-terra").routes[0].transport == "OPENAI_RESPONSES"
     assert "computer-use-preview" not in {model.logical_id for model in models}
     assert "gemini-2.5-computer-use-preview" not in {model.logical_id for model in models}
+    gemini = {model.logical_id: model for model in models if model.family == "GEMINI"}
+    assert set(gemini) == {"gemini-3.7-flash", "gemini-3.5-flash-lite"}
+    assert all(model.routes[0].id == "gemini-direct" for model in gemini.values())
+    assert all(model.routes[0].transport == "GEMINI_INTERACTIONS" for model in gemini.values())
+    assert catalog.get("gemini-3.7-flash").reasoning_efforts == ["low", "medium", "high"]
 
 
 def test_sqlite_store_persists_session_actions_events_metrics_and_workflow_versions() -> None:
@@ -111,6 +118,49 @@ def test_cuaf_binary_frame_round_trip() -> None:
     frame = unpack_cuaf_frame(packed)
     assert (frame.sequence, frame.width, frame.height, frame.payload) == (7, 1440, 900, data)
     assert struct.calcsize(">4sBBQIIQ") < len(packed)
+
+
+def test_desktop_viewer_url_includes_novnc_and_password(monkeypatch) -> None:
+    monkeypatch.setenv("VNC_PASSWORD", "desk-secret")
+    from backend.server import app
+
+    with TestClient(app) as client:
+        payload = client.get("/api/v2/desktop").json()
+    assert payload["viewerUrl"].startswith("/vnc/vnc.html?")
+    assert "autoconnect=1" in payload["viewerUrl"]
+    assert "path=vnc%2Fwebsockify" in payload["viewerUrl"]
+    assert "password=desk-secret" in payload["viewerUrl"]
+
+
+def test_desktop_stream_survives_capture_failure_without_retaining_frames(monkeypatch) -> None:
+    import backend.server as server
+
+    puts: list[tuple[object, ...]] = []
+    captures = {"n": 0}
+
+    async def capture() -> BinaryFrame:
+        captures["n"] += 1
+        if captures["n"] == 1:
+            raise RuntimeError("sandbox warming")
+        return BinaryFrame(1, 2, 1, 1000, FrameCodec.WEBP, b"frame")
+
+    monkeypatch.setattr(server.config, "ws_screenshot_interval", 0)
+    monkeypatch.setattr(server, "_v2_frame_broker", SimpleNamespace(capture=capture))
+    monkeypatch.setattr(server, "_v2_latest_canonical_frame", (b"png", 2, 1, 1000))
+    monkeypatch.setattr(
+        server,
+        "_v2_frame_retention",
+        SimpleNamespace(put=lambda *args: puts.append(args), is_enabled=lambda *_args: True),
+    )
+
+    with TestClient(server.app).websocket_connect("/api/v2/ws/desktop") as websocket:
+        assert websocket.receive_json()["event"] == "SESSION_STREAM_READY"
+        assert websocket.receive_json()["event"] == "FRAME_CAPTURE_FAILED"
+        assert websocket.receive_json()["event"] == "FRAME"
+        binary = websocket.receive_bytes()
+
+    assert unpack_cuaf_frame(binary).payload == b"frame"
+    assert puts == []
 
 
 def test_frame_broker_coalesces_concurrent_capture() -> None:
@@ -256,6 +306,21 @@ def test_vendor_protocol_adapters_validate_and_canonicalize() -> None:
         ).delta_y
         == 50
     )
+    parsed_click = parse_gemini_action(
+        {"functionCall": {"name": "click", "args": {"x": 4, "y": 5, "intent": "open"}}}
+    )
+    assert parsed_click.type.value == "CLICK"
+    assert parsed_click.x == 4
+    parsed_drag = parse_gemini_action(
+        {
+            "functionCall": {
+                "name": "drag_and_drop",
+                "args": {"start_x": 1, "start_y": 2, "end_x": 8, "end_y": 9},
+            }
+        }
+    )
+    assert parsed_drag.type.value == "DRAG"
+    assert (parsed_drag.x, parsed_drag.y, parsed_drag.end_x, parsed_drag.end_y) == (1, 2, 8, 9)
     try:
         parse_openai_action({"action": {"type": "click", "x": -1, "y": 0}})
     except ProtocolActionError:

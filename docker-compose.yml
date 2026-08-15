@@ -61,13 +61,13 @@ services:
         soft: 1024
         hard: 2048
     healthcheck:
-      # Verify the in-container agent service is responding.
-      # (Backend /api/health is a separate process outside compose.)
-      # D3 — start_period already covers the ~15-25s between container
-      # start and X11/DBus/XFCE being ready; kept at 30s for margin.
-      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:9222/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
+      # Agent /health is last in entrypoint; noVNC is up just before it.
+      # Probe both so `docker compose up --wait` does not return while
+      # the dashboard iframe would still 502 on /vnc/vnc.html.
+      # D3 — start_period covers XFCE + x11vnc + websockify + agent boot.
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:9222/health && curl -fs -o /dev/null http://127.0.0.1:6080/vnc.html || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+      start_period: 45s
 

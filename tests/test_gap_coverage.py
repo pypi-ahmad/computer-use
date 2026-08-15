@@ -65,9 +65,33 @@ class TestVncHttpProxyErrors:
 
         mock_client = MagicMock()
         mock_client.get = AsyncMock(side_effect=httpx.ConnectError("refused"))
-        with patch("backend.server._get_novnc_client", return_value=mock_client):
+        with (
+            patch("backend.server._get_novnc_client", return_value=mock_client),
+            patch("backend.server._NOVNC_PROXY_ATTEMPTS", 1),
+        ):
             resp = server_client.get("/vnc/vnc.html")
         assert resp.status_code == 502
+
+    def test_upstream_retries_then_succeeds(self, server_client):
+        """Transient connect errors during sandbox warmup should recover."""
+        import httpx
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.content = b"<html>noVNC</html>"
+        mock_resp.headers = {"content-type": "text/html"}
+        mock_client = MagicMock()
+        mock_client.get = AsyncMock(
+            side_effect=[httpx.ConnectError("refused"), mock_resp]
+        )
+        with (
+            patch("backend.server._get_novnc_client", return_value=mock_client),
+            patch("backend.server._NOVNC_PROXY_RETRY_DELAY_S", 0),
+        ):
+            resp = server_client.get("/vnc/vnc.html")
+        assert resp.status_code == 200
+        assert resp.content == b"<html>noVNC</html>"
+        assert mock_client.get.await_count == 2
 
     def test_whitelisted_path_proxied_on_success(self, server_client):
         """Happy path: vnc.html returns upstream bytes + content-type."""
@@ -925,7 +949,7 @@ class TestConcurrentSessionLimit:
             "task": "concurrent contention probe",
             "engine": "computer_use",
             "provider": "google",
-            "model": "gemini-3.6-flash",
+            "model": "gemini-3.7-flash",
             "mode": "desktop",
             "execution_target": "docker",
             "max_steps": 5,
@@ -1052,7 +1076,7 @@ class TestSafetyTimeoutAutoDeny:
         loop = AgentLoop(
             task="t",
             api_key="sk-dummytoken",
-            model="gemini-3.6-flash",
+            model="gemini-3.7-flash",
             provider="google",
             engine="computer_use",
         )
@@ -1167,9 +1191,13 @@ class TestComposeHardening:
 
         path = Path(__file__).parent.parent / "docker-compose.yml"
         src = path.read_text(encoding="utf-8")
-        assert "start_period: 30s" in src or "start_period: 20s" in src, (
-            "D3: healthcheck must include a start_period of ≥ 20s"
-        )
+        assert (
+            "start_period: 45s" in src
+            or "start_period: 30s" in src
+            or "start_period: 20s" in src
+        ), "D3: healthcheck must include a start_period of ≥ 20s"
+        assert "6080/vnc.html" in src
+        assert "9222/health" in src
 
     def test_compose_drops_all_capabilities(self):
         from pathlib import Path

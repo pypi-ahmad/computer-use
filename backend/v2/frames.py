@@ -10,6 +10,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 CUAF_MAGIC = b"CUAF"
+DESKTOP_STREAM_ID = "desktop"
 _HEADER = struct.Struct(">4sBBQIIQ")
 _VERSION = 1
 

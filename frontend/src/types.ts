@@ -11,6 +11,7 @@ export type PipelineStage = 'capture' | 'encode' | 'infer' | 'validate' | 'act'
 export type StreamEvent =
   | { event: 'SESSION_STREAM_READY'; sessionId: string }
   | { event: 'FRAME'; sessionId: string; sequence: number; codec: string; width: number; height: number; timestampMs: number }
+  | { event: 'FRAME_CAPTURE_FAILED'; sessionId: string; message?: string }
   | { event: 'PIPELINE_STAGE'; stage: PipelineStage; status: 'ACTIVE' | 'COMPLETED' | 'ERROR' }
   | { event: 'ACTION'; action: Action }
   | { event: 'LOG'; level: string; message: string }
