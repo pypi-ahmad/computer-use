@@ -6,10 +6,16 @@ observable result.
 
 ## Before You Start
 
-- Use GitHub Issues for reproducible bugs and feature proposals.
+- Use GitHub Issues for reproducible bugs and feature proposals. Bug
+  reports should use [.github/ISSUE_TEMPLATE/bug.yml](.github/ISSUE_TEMPLATE/bug.yml).
+- How to test a running install and the offline CI commands:
+  [TESTING.md](TESTING.md).
+- How to ask for help: [SUPPORT.md](SUPPORT.md).
+- What data stays on the operator machine: [DATA.md](DATA.md).
 - Do not disclose vulnerabilities or credentials in an issue. Follow
   [SECURITY.md](SECURITY.md) instead.
 - By participating, you agree to [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+- The project is MIT-licensed ([LICENSE](LICENSE)).
 
 ## Development Setup
 

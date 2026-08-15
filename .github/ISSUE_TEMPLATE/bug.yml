@@ -1,0 +1,78 @@
+name: Bug report
+description: Reproducible defect in this repository's code or docs
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing issues first. Vulnerabilities go to SECURITY.md, not here.
+        Do not paste API keys, AGENT_SERVICE_TOKEN, VNC_PASSWORD, CUA_API_TOKEN, or live desktop screenshots.
+  - type: dropdown
+    id: version
+    attributes:
+      label: Version
+      options:
+        - v3.1.0 (latest release)
+        - main (commit SHA in the next field)
+        - other
+    validations:
+      required: true
+  - type: input
+    id: sha
+    attributes:
+      label: Commit SHA or tag
+      placeholder: e.g. 8e0ccb7 or v3.1.0
+  - type: dropdown
+    id: how-started
+    attributes:
+      label: How you started the app
+      options:
+        - run.cmd
+        - START.bat
+        - uv run python dev.py --open-browser
+        - production bundle at http://127.0.0.1:8100
+        - other (describe in steps)
+    validations:
+      required: true
+  - type: dropdown
+    id: route
+    attributes:
+      label: Route (if a run was involved)
+      options:
+        - none / dashboard only
+        - openai-direct (GPT-5.6 Luna or Terra)
+        - anthropic-direct (Claude Sonnet 5)
+        - gemini-direct (Gemini 3.7 Flash or 3.5 Flash-Lite)
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. run.cmd
+        2. Open http://127.0.0.1:8505
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: checks
+    attributes:
+      label: What you already checked
+      description: USAGE.md troubleshooting. Example — docker ps healthy, curl 127.0.0.1:9222/health, origin is 127.0.0.1:8505 or :8100.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted logs
+      description: Strip tokens and passwords. Backend lines around the failure are enough.
