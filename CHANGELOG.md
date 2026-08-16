@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [3.2.1] - 2026-08-17
+
+### Fixed
+
+- Bug report template version dropdown updated to `v3.2.0 (latest release)`
+  (was stale at `v3.1.1`).
+
+### Changed
+
+- SECURITY.md: minor wording on supported version line.
+- README index: added `MODERNIZATION_PLAN.md` entry under Technical docs.
+
 ## [3.2.0] - 2026-08-16
 
 ### Added
