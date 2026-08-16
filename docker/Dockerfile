@@ -8,14 +8,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV DISPLAY=:99
 # Viewport default is 1440x900 — single best-compromise across all four CU
 # target models:
-#   - Anthropic Opus 4.7 (native 1:1 up to 2576px / 3.75MP; opt into the
-#     higher ceiling via CUA_OPUS47_HIRES=1 + larger docker-run viewport)
+#   - Anthropic Opus 4.7 (native 1:1 up to 2576px / 3.75MP)
 #   - Anthropic Sonnet 4.6 / Opus 4.6 (downscale internally; 1440x900 ≈ no-op)
 #   - OpenAI GPT-5.4 (guide prefers 1440x900 / 1600x900)
 #   - Google Gemini 3 Flash (docs recommend exactly 1440x900)
-# For Opus 4.7 hi-fidelity sessions: set CUA_OPUS47_HIRES=1 and override
-# SCREEN_WIDTH/SCREEN_HEIGHT up to 2560x1600 at docker run time. Do NOT
-# set CUA_OPUS47_HIRES for other models — they downscale internally.
 ENV SCREEN_WIDTH=1440
 ENV SCREEN_HEIGHT=900
 # ``WIDTH`` / ``HEIGHT`` are accepted as aliases of the canonical

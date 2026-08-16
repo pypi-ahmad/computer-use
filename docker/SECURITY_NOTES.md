@@ -123,17 +123,10 @@ the enforcement surface lives here and in the provider adapters.
 
 Union-of-best-practice across all CU providers:
 
-- **Anthropic Opus 4.7** — native 1:1 coordinates. Opt into the
-  higher native ceiling (2576px long-edge / ~3.75 MP) by setting
-  `CUA_OPUS47_HIRES=1` in the backend env AND overriding
-  `SCREEN_WIDTH` / `SCREEN_HEIGHT` up to 2560x1600 at `docker run`
-  time. The backend enforces only the long-edge cap on this path
-  (skips the 3.75 MP total-pixel cap) so hi-fidelity sessions keep
-  1:1 coordinates.
+- **Anthropic Opus 4.7** — native 1:1 coordinates up to 2576px
+  long-edge / ~3.75 MP.
 - **Anthropic Sonnet 4.6 / Opus 4.6** — downscale internally; 1440x900
-  is a no-op for them. Do **not** set `CUA_OPUS47_HIRES` for these
-  models — it is gated by `_is_opus_47` and is a no-op outside Opus
-  4.7.
+  is a no-op for them.
 - **OpenAI GPT-5.4** — the current guide's preferred viewport is
   1440x900 / 1600x900. The built-in `computer` tool infers display
   dimensions from the screenshot bytes, so no display_width /
@@ -166,10 +159,7 @@ packages or viewport overrides exist in the image.
 
 Sonnet 4.6 does **not** inherit Opus 4.7's 2576px / 1:1 coordinate
 improvements — it keeps the 1568 px / 1.15 MP ceiling and downscales
-anything larger internally.  `CUA_OPUS47_HIRES` is gated on
-`_is_opus_47(model)` in `backend/engine/claude.py` and is
-intentionally ignored for Sonnet 4.6 so the extra framebuffer tokens
-cost nothing in coordinate accuracy.
+anything larger internally.
 
 
 ## OpenAI GPT-5.4 sandbox alignment
