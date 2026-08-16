@@ -21,6 +21,14 @@ from backend.executor import DesktopExecutor
 
 logger = logging.getLogger(__name__)
 
+
+def _win_user32() -> Any:
+    """Windows user32.dll. Isolated so Linux mypy does not see ctypes.windll."""
+    import ctypes
+
+    return getattr(ctypes, "windll").user32  # noqa: B009  # Linux stubs have no windll
+
+
 _MOUSEEVENTF_MOVE = 0x0001
 _MOUSEEVENTF_LEFTDOWN = 0x0002
 _MOUSEEVENTF_LEFTUP = 0x0004
@@ -80,9 +88,7 @@ _VK: dict[str, int] = {
 def detect_host_screen() -> tuple[int, int]:
     """Return the primary display size in pixels."""
     if sys.platform == "win32":
-        import ctypes
-
-        user32 = ctypes.windll.user32
+        user32 = _win_user32()
         try:
             user32.SetProcessDPIAware()
         except Exception:
@@ -250,13 +256,9 @@ class HostDesktopExecutor(DesktopExecutor):
         x = max(0, min(int(x), self.screen_width - 1))
         y = max(0, min(int(y), self.screen_height - 1))
         if self._plat == "win32":
-            import ctypes
-
             ax = int(x * 65535 / max(self.screen_width - 1, 1))
             ay = int(y * 65535 / max(self.screen_height - 1, 1))
-            ctypes.windll.user32.mouse_event(
-                _MOUSEEVENTF_MOVE | _MOUSEEVENTF_ABSOLUTE, ax, ay, 0, 0
-            )
+            _win_user32().mouse_event(_MOUSEEVENTF_MOVE | _MOUSEEVENTF_ABSOLUTE, ax, ay, 0, 0)
             return
         if self._plat.startswith("linux"):
             self._run("xdotool", "mousemove", "--sync", str(x), str(y))
@@ -265,8 +267,6 @@ class HostDesktopExecutor(DesktopExecutor):
 
     def _mouse_button(self, button: int, *, down: bool) -> None:
         if self._plat == "win32":
-            import ctypes
-
             flags = {
                 (1, True): _MOUSEEVENTF_LEFTDOWN,
                 (1, False): _MOUSEEVENTF_LEFTUP,
@@ -277,7 +277,7 @@ class HostDesktopExecutor(DesktopExecutor):
             }.get((button, down))
             if flags is None:
                 raise RuntimeError(f"Unsupported mouse button {button}")
-            ctypes.windll.user32.mouse_event(flags, 0, 0, 0, 0)
+            _win_user32().mouse_event(flags, 0, 0, 0, 0)
             return
         if self._plat.startswith("linux"):
             verb = "mousedown" if down else "mouseup"
@@ -291,8 +291,6 @@ class HostDesktopExecutor(DesktopExecutor):
     def _scroll(self, direction: str, amount: int) -> None:
         amount = max(1, min(amount, 20))
         if self._plat == "win32":
-            import ctypes
-
             delta = _WHEEL_DELTA * amount
             if direction in {"down", "south"}:
                 delta = -delta
@@ -303,7 +301,7 @@ class HostDesktopExecutor(DesktopExecutor):
                 if direction in {"right", "east"}:
                     self._key_combo(["right"] * min(amount, 5))
                     return
-            ctypes.windll.user32.mouse_event(_MOUSEEVENTF_WHEEL, 0, 0, delta & 0xFFFFFFFF, 0)
+            _win_user32().mouse_event(_MOUSEEVENTF_WHEEL, 0, 0, delta & 0xFFFFFFFF, 0)
             return
         if self._plat.startswith("linux"):
             button = "4" if direction in {"up", "north"} else "5"
@@ -317,9 +315,7 @@ class HostDesktopExecutor(DesktopExecutor):
         if not text:
             return
         if self._plat == "win32":
-            import ctypes
-
-            user32 = ctypes.windll.user32
+            user32 = _win_user32()
             for char in text:
                 if char == "\n":
                     self._tap_key("return")
@@ -355,15 +351,13 @@ class HostDesktopExecutor(DesktopExecutor):
     def _key_event(self, token: str, *, up: bool) -> None:
         name = token.lower()
         if self._plat == "win32":
-            import ctypes
-
             vk = _VK.get(name)
             if vk is None and len(name) == 1:
                 vk = ord(name.upper())
             if vk is None:
                 raise RuntimeError(f"Unsupported host key: {token}")
             flags = _KEYEVENTF_KEYUP if up else 0
-            ctypes.windll.user32.keybd_event(vk, 0, flags, 0)
+            _win_user32().keybd_event(vk, 0, flags, 0)
             return
         if self._plat.startswith("linux"):
             verb = "keyup" if up else "keydown"
