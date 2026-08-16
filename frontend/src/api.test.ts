@@ -6,14 +6,14 @@ beforeEach(() => vi.stubGlobal('fetch', vi.fn()))
 it('waits for noVNC 200 before returning the viewer URL', async () => {
   const { waitForNovnc } = await import('./api')
   let calls = 0
-  const fetchImpl = (async () => {
+  const fetchImpl = (() => {
     calls += 1
-    return new Response(calls === 1 ? 'noVNC not available yet' : '<html></html>', { status: calls === 1 ? 502 : 200 })
+    return Promise.resolve(new Response(calls === 1 ? 'noVNC not available yet' : '<html></html>', { status: calls === 1 ? 502 : 200 }))
   }) as typeof fetch
   const sleeps: number[] = []
   await expect(waitForNovnc('/vnc/vnc.html?autoconnect=1', {
     fetchImpl,
-    sleep: async (ms) => { sleeps.push(ms) },
+    sleep: (ms) => { sleeps.push(ms); return Promise.resolve() },
   })).resolves.toBe('/vnc/vnc.html?autoconnect=1')
   expect(calls).toBe(2)
   expect(sleeps).toEqual([500])
