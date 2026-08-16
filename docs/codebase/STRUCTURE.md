@@ -6,9 +6,9 @@
 |---|---|---|
 | `backend/` | Python app, providers, API, persistence | package inventory; `pyproject.toml:27-28` |
 | `backend/engine/` | Provider-specific Computer Use SDK clients | `backend/engine/__init__.py:734-943` |
-| `backend/infra/` | Configuration, Docker control, storage, observability | `backend/infra/` inventory |
+| `backend/infra/` | Configuration, Docker control, storage, observability, MCP fetch | `backend/infra/config.py`; `backend/infra/mcp_fetch.py` |
 | `backend/models/` | Contracts and model/capability registries | `backend/models/*.json`; `backend/models/schemas.py` |
-| `backend/providers/` | Provider-owned run interfaces and planning adapters | `backend/providers/_common.py` |
+| `backend/providers/` | Provider-owned run interfaces and MCP-fetch planning adapters | `backend/providers/_common.py`; `backend/providers/planner.py` |
 | `backend/server/` | FastAPI app, legacy API, WS, frontend mount | `backend/server/__init__.py` |
 | `backend/v2/` | v2 API, routing, credentials, frames, SQLite | `backend/v2/` inventory |
 | `docker/` | Sandbox image, entrypoint, action service | `docker/Dockerfile`; `docker/agent_service.py` |
@@ -48,7 +48,7 @@
 - `backend/engine/` owns provider SDK conversation/tool loops; `backend/providers/` exposes the provider-neutral run contract around them.
 - `backend/executor.py` translates canonical Computer Use actions into calls to the sandbox action service.
 - `backend/v2/persistence.py` is the durable domain store; `backend/v2/credentials.py` intentionally remains process-local for API keys and Google OAuth; `backend/v2/retention.py` and the server frame broker handle live/audit images.
-- `backend/infra/` contains operational adapters rather than domain/API contracts.
+- `backend/infra/` contains operational adapters rather than domain/API contracts. `mcp_fetch.py` is the host Fetch MCP client used by the planner.
 
 ### Frontend details
 

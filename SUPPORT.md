@@ -1,18 +1,33 @@
 # Support and community
 
-This repository is open source (MIT). Clone it, run it on your own
-machine, and use your own API keys. **Contributions are always
-welcome** — testers, bug reports, ideas, docs, and pull requests.
-First-time and issue-only help counts.
+This repository is **open source (MIT)**. Clone it, run it on your own
+machine, and use your own API keys. Contributions, testers, and issue
+reports are welcome. There is no hosted product, no SLA, and no
+multi-tenant support desk.
 
-There is no hosted product, no SLA, and no multi-tenant support desk.
-
-**Do not send money.** This project does not take donations, sponsorship,
-bounties, or paid support. Time, test notes, issues, and patches are
-the help that matters.
+**Do not send any financial help.** This project does not want or
+accept donations, sponsorship, bounties, paid support, or consulting.
+Time, test notes, issues, and patches are the only help that matters.
 
 Files and other data you put into a local clone (PDFs, documents,
-sandbox contents) are your responsibility only. See [DATA.md](DATA.md).
+sandbox contents) are **your responsibility only**. See
+[DATA.md](DATA.md).
+
+## Which file to use
+
+| You want to | File |
+|---|---|
+| Test a running install | [TESTING.md](TESTING.md) |
+| Report a bug | [Bug report](.github/ISSUE_TEMPLATE/bug.yml) |
+| Suggest a feature or improvement | [Feature or improvement](.github/ISSUE_TEMPLATE/feature.yml) |
+| Send a patch | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Understand who owns in-app data | [DATA.md](DATA.md) |
+| Clone and use the app (open, own machine, own keys) | [OPEN_SOURCE.md](OPEN_SOURCE.md) · [LICENSE](LICENSE) |
+| Report a vulnerability | [SECURITY.md](SECURITY.md) — email, not a public issue |
+| Conduct / harassment | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) |
+
+Search existing [GitHub Issues](https://github.com/pypi-ahmad/computer-use/issues)
+before opening a new one.
 
 ## How you can help
 
@@ -22,10 +37,7 @@ sandbox contents) are your responsibility only. See [DATA.md](DATA.md).
 | Report a defect | [Bug report](.github/ISSUE_TEMPLATE/bug.yml) |
 | Suggest a feature or improvement | [Feature or improvement](.github/ISSUE_TEMPLATE/feature.yml) |
 | Send a fix or small change | [CONTRIBUTING.md](CONTRIBUTING.md) and a PR against `main` |
-| Report a vulnerability | [SECURITY.md](SECURITY.md) — email, not a public issue |
-
-Search existing [GitHub Issues](https://github.com/pypi-ahmad/computer-use/issues)
-before opening a new one.
+| Report a vulnerability | [SECURITY.md](SECURITY.md) |
 
 ## First, read these
 
@@ -44,8 +56,8 @@ Maintainer contact already used by this project: `pypi.ahmad@gmail.com`.
 - Conduct: subject `[computer-use conduct]` — see CODE_OF_CONDUCT.md.
 
 Do not email API keys, `AGENT_SERVICE_TOKEN`, `VNC_PASSWORD`,
-`CUA_API_TOKEN`, OAuth secrets, live desktop screenshots, or payment
-offers.
+`CUA_API_TOKEN`, OAuth secrets, live desktop screenshots, PDFs or
+other files from a session, or payment offers.
 
 ## How to file a report
 

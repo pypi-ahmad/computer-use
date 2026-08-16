@@ -81,11 +81,12 @@ npm --prefix frontend run build
 
 ## 5) Environment and Config
 
-- Provider credentials: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and process-level `GOOGLE_API_KEY` (preferred) or `GEMINI_API_KEY`. `load_dotenv(..., override=False)` does not overwrite an already-set user environment variable.
+- Provider credentials: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and process-level `GOOGLE_API_KEY` (preferred) or `GEMINI_API_KEY`. `_USER_ENV` is snapshotted before `load_dotenv(..., override=False)` so a user-env `GOOGLE_API_KEY` wins over `.env` (`backend/infra/config.py` `resolve_api_key()`).
 - Backend/state: `HOST`, `PORT`, `CUA_V2_DB_PATH`, `CUA_V2_FRAME_PATH`, and optional `CUA_FRONTEND_DIST`.
-- Sandbox: `AGENT_SERVICE_TOKEN`, `VNC_PASSWORD`, `CONTAINER_NAME`, agent-service host/port, screen geometry, step count, and timeout.
+- Sandbox: `AGENT_SERVICE_TOKEN` (required), unused `VNC_PASSWORD` (x11vnc `-nopw`; Compose does not pass it), `CONTAINER_NAME`, agent-service host/port, screen geometry, step count, and timeout.
+- Web-search planning: `CUA_MCP_FETCH_CMD` (default `uvx mcp-server-fetch`) via `backend/infra/mcp_fetch.py`.
 - Google OAuth uses `GOOGLE_OAUTH_CLIENT_ID` plus `GOOGLE_OAUTH_CLIENT_SECRET` (or `GOOGLE_OAUTH_CLIENT_SECRET_FILE`), with optional project and redirect settings.
-- External binding is opt-in through `CUA_ALLOW_PUBLIC_BIND` plus `CUA_API_TOKEN`; deployment documentation additionally requires an authenticated TLS reverse proxy.
+- External binding is opt-in through `CUA_ALLOW_PUBLIC_BIND` plus `CUA_API_TOKEN` (gates all `/api/*` except the OAuth callback); deployment documentation additionally requires an authenticated TLS reverse proxy.
 - Logging uses `LOG_FORMAT`, `LOG_LEVEL`, and `DEBUG`. Hot reload is separately controlled by `CUA_RELOAD`.
 
 ## 6) Evidence

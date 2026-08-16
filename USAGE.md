@@ -24,16 +24,20 @@ whatever the model does stays contained. You watch it work in real time
 through a browser dashboard.
 
 **Who this is for:** anyone who wants to prototype or evaluate
-AI-driven desktop automation locally — no workbench signup, no
-multi-user setup, single operator on a single machine. You still need
-an OpenAI, Anthropic, or Google API key (or Google OAuth) so a model
-can decide what to click.
+AI-driven desktop automation locally. This repo is **open source
+(MIT)**. Clones, forks, local use, and contributions are welcome. There
+is no workbench signup and no hosted service. You run it on **your own
+machine** with **your own** OpenAI, Anthropic, or Google API key (or
+Google OAuth). **All data you use in the app** (PDFs and other
+uploads, sandbox files, keys, task text) is **your responsibility
+only** — see [DATA.md](DATA.md).
 
 **What it is not:** a production, multi-tenant, internet-facing service.
-There is no user/account system. An optional shared `CUA_API_TOKEN` protects
-sensitive REST operations, WebSockets, and noVNC, but it does not turn the
-workbench into a multi-user service. Keep it on `127.0.0.1` unless you've read
-[Network hardening](#networking) and deliberately opted in to exposing it.
+There is no user/account system. An optional shared `CUA_API_TOKEN` gates
+`/api/*` (except the Google OAuth callback), `/ws`, `/api/v2/ws/*`, and
+`/vnc/websockify`. It does not turn the workbench into a multi-user
+service. Keep it on `127.0.0.1` unless you've read
+[Networking](#networking) and deliberately opted in to exposing it.
 
 **Two ways to use it**, both fully working today:
 
@@ -99,8 +103,9 @@ cd computer-use
 
 On Windows 11, `run.cmd` is the one-file first-run installer and daily
 launcher. It uses exact winget packages to install missing Docker Desktop,
-Node.js LTS, and uv; creates `.env` when absent; generates the required local
-sandbox secrets without printing or replacing existing values; installs
+Node.js LTS, and uv; creates `.env` when absent; fills empty
+`AGENT_SERVICE_TOKEN` (and unused `VNC_PASSWORD`) without printing or
+replacing existing values; installs
 locked Python/frontend dependencies only when they are missing; rebuilds
 esbuild after a fresh `npm ci`; builds the Docker image only when
 `cua-ubuntu:latest` is absent; then starts `dev.py --open-browser`.
@@ -121,7 +126,7 @@ Linux/macOS and manual Windows setup remain available:
 
 ```powershell
 Copy-Item .env.example .env
-# Set AGENT_SERVICE_TOKEN and VNC_PASSWORD, then:
+# Set AGENT_SERVICE_TOKEN, then:
 setup.bat             # Windows manual bootstrap
 ```
 
@@ -162,23 +167,34 @@ The settings you'll actually touch:
 ```dotenv
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
-GOOGLE_API_KEY=AIza...       # process env wins; .env does not override it
-# GEMINI_API_KEY=            # accepted as an alias for GOOGLE_API_KEY
+# Prefer a process-level GOOGLE_API_KEY. Leave these commented when
+# the user/system env var is already set.
+# GOOGLE_API_KEY=AIza...
+# GEMINI_API_KEY=            # alias if GOOGLE_API_KEY is unset
 
 AGENT_SERVICE_TOKEN=...      # generate a unique random value
-VNC_PASSWORD=...             # generate a unique random value
 SCREEN_WIDTH=1440
 SCREEN_HEIGHT=900
 MAX_STEPS=50
+# CUA_MCP_FETCH_CMD=uvx mcp-server-fetch
 ```
 
-`AGENT_SERVICE_TOKEN` and `VNC_PASSWORD` are required sandbox secrets —
-generate real random values, don't leave them blank or copy an example.
-The backend loads this file from the **repository root** (next to
-`docker-compose.yml`), not from `backend/.env`, with
-`load_dotenv(..., override=False)`. A process-level `GOOGLE_API_KEY`
-(or other already-set provider key) is not overwritten by `.env`. If
-the token in `.env` does not match the value Compose passed into the
+`AGENT_SERVICE_TOKEN` is a required sandbox secret —
+generate a real random value, don't leave it blank or copy an example.
+x11vnc starts with `-nopw`. Compose does not pass `VNC_PASSWORD`.
+`GET /api/v2/desktop` returns
+`/vnc/vnc.html?autoconnect=1&reconnect=1&resize=scale&path=vnc/websockify`
+with no `password=`. The dashboard `desktopViewerSrc()` strips leftover
+`password` / `token` query params.
+
+The backend snapshots `GOOGLE_API_KEY`, `GEMINI_API_KEY`,
+`OPENAI_API_KEY`, and `ANTHROPIC_API_KEY` from the process environment
+into `_USER_ENV` **before** loading this file from the **repository
+root** (next to `docker-compose.yml`, not `backend/.env`) with
+`load_dotenv(..., override=False)`. `resolve_api_key()` then prefers
+`_USER_ENV` over a `.env` assignment (`backend/infra/config.py`). A
+user-env `GOOGLE_API_KEY` wins over a repo-root `.env` value. If the
+token in `.env` does not match the value Compose passed into the
 container, screenshots return `401` and the viewport stays blank.
 If you intend to bind the backend to a non-loopback address, also set
 `CUA_ALLOW_PUBLIC_BIND=1` and `CUA_API_TOKEN=<secret>`; without both, the
@@ -189,7 +205,8 @@ process refuses to start when `HOST != 127.0.0.1`.
 `run.cmd` (or `START.bat`) opens `http://127.0.0.1:8505` after Vite
 responds. If the browser does not open, go there manually. The
 **Live session** viewport is a noVNC iframe (`GET /api/v2/desktop` →
-`/vnc/vnc.html?path=vnc/websockify`). It should show the sandbox XFCE
+`/vnc/vnc.html?autoconnect=1&reconnect=1&resize=scale&path=vnc/websockify`,
+no VNC password). It should show the sandbox XFCE
 desktop within a few seconds — you do not need to start a run first.
 The header reads **Stream linked** once `/api/v2/ws/desktop` is
 connected (pipeline and safety events; that socket is not the desktop
@@ -237,14 +254,24 @@ CONTROL sidebar. The main pane is the live desktop.
   route; optional **Fallback model** (`model@route`); **Reasoning**
   when the catalog lists `reasoningEfforts` (hidden for Claude Sonnet 5);
   **Safety policy** (`provider_default` / `confirm_mutating` /
-  `read_only`); **Provider web search planning** toggle; **Reference
+  `read_only`); **Provider web search (model fetch via MCP)** toggle
+  (model calls `mcp_fetch`; host runs `uvx mcp-server-fetch`); **Reference
   files** (`.md`/`.txt`/`.pdf`/`.docx`) when the selected model is not
   Gemini. **Start run** posts `POST /api/v2/sessions` with
   `maxSteps: 50`. **Stop run** patches the session to `STOPPING`.
-  Default model is the first catalog entry (`gemini-3.7-flash`);
-  default route prefers `gemini-direct`.
+  Live defaults in `frontend/src/App.tsx`: model `gemini-3.7-flash`,
+  `preferredRoute` `gemini-direct`, fallback
+  `gemini-3.5-flash-lite@gemini-direct`.
+- **Provider web search (MCP fetch):** opt-in. The Computer Use request
+  includes an `mcp_fetch` function tool. The model calls it with a
+  public `http(s)` URL during the run. The host implements the tool
+  with `uvx mcp-server-fetch` (`backend/infra/mcp_fetch.py`; override
+  `CUA_MCP_FETCH_CMD`). Not a search index. Localhost, `*.local`, and
+  non-global IPs are rejected. No OpenAI / Anthropic / Gemini
+  `web_search`. Host needs `uvx` on `PATH`.
 - **Main (Viewport):** a noVNC iframe. On load the client calls
-  `GET /api/v2/desktop`, rewrites `path` to `vnc/websockify`, waits
+  `GET /api/v2/desktop`, `desktopViewerSrc()` sets `path=vnc/websockify`
+  and strips leftover `password` / `token` query params, waits
   until `/vnc/vnc.html` returns 200, then shows XFCE. You do not start
   a run to see the desktop. The iframe stays noVNC for the whole
   session — it is not swapped for the CUAF WebSocket preview. After
@@ -346,12 +373,13 @@ technical path used to reach that provider: `openai-direct`,
 preview-model routes are not catalogued or selectable.
 
 When you start a Live session, you pick a **primary route**. The
-dashboard preselects `gemini-direct` when that route exists on the
-chosen model; otherwise it uses the model's first catalog route. An
-optional fallback is one other `model@route` pair. There is no
-automatic "pick the cheapest/fastest" behavior — routing is the
-operator's explicit choice. The coordinator tries the primary, then
-only the supplied fallbacks (`max_attempts=1` per route).
+dashboard defaults to model `gemini-3.7-flash` and preselects
+`gemini-direct` when that route exists on the chosen model; otherwise
+it uses the model's first catalog route. The default fallback is
+`gemini-3.5-flash-lite@gemini-direct`. You can clear or change that
+pair. There is no automatic "pick the cheapest/fastest" behavior —
+routing is the operator's explicit choice. The coordinator tries the
+primary, then only the supplied fallbacks (`max_attempts=1` per route).
 
 If a route fails **3** times, its **circuit** opens (Providers tab
 shows `OPEN` instead of `CLOSED`) and the app skips it for **30
@@ -374,17 +402,19 @@ What actually happens to the key you paste:
   latest** (shorter if you configure a smaller TTL via the API), whether
   you're actively using it or not.
 - If a session's credential has expired, gone missing, or simply wasn't
-  supplied, the app falls back to whatever provider API key is set in
-  your `.env`/system environment for that provider — so a stale or
-  expired credential session never silently uses the *wrong* key,
-  it only ever falls back to your own already-configured one.
+  supplied, v2 calls `resolve_api_key()`: user/process env snapshotted
+  in `_USER_ENV` first (`GOOGLE_API_KEY` then `GEMINI_API_KEY` for
+  Google), then values dotenv loaded from `.env`. A stale or expired
+  credential session never silently uses the *wrong* key — it only
+  falls back to your own already-configured one.
 - Deleting the credential session (the trash icon next to "Credential
   session active") removes it from memory immediately, before its TTL
   would otherwise expire.
 
-If you'd rather not use the Providers tab at all, simply configure your
-key(s) in `.env` — every route will resolve credentials from there
-automatically with no credential session needed.
+If you'd rather not use the Providers tab at all, set the provider
+keys in the user/process environment (preferred for `GOOGLE_API_KEY`)
+or in repo-root `.env`. Routes resolve through `resolve_api_key()`
+with no credential session needed.
 
 Google also supports browser OAuth. Set `GOOGLE_OAUTH_CLIENT_ID` and either
 `GOOGLE_OAUTH_CLIENT_SECRET` or `GOOGLE_OAUTH_CLIENT_SECRET_FILE`, restart the
@@ -445,10 +475,14 @@ Stop when the display shows "4". Tell me the displayed result.
 ```
 
 **Web research** (dashboard: turn on **Provider web search planning**,
-or v1 `use_builtin_search: true`):
+or v1/v2 `useBuiltinSearch` / `use_builtin_search: true`). That toggle
+does **not** attach provider `web_search` / Google Search. The planner
+extracts or asks for up to 3 public `https` URLs, fetches them via
+`uvx mcp-server-fetch`, then the desktop loop runs computer-only with
+that brief. Put the official URL in the task when you know it:
 
 ```text
-Open the browser and go to the official OpenAI docs.
+Open the browser and go to https://platform.openai.com/docs.
 Find the Computer Use guide. Do not sign in or change any settings.
 Stop when the guide page is visible.
 Tell me the page title and the first section heading.
@@ -477,7 +511,7 @@ most operator features. Use this table to pick a surface:
 | Safety policy | ✅ `provider_default` / `confirm_mutating` / `read_only` | — (v1 `StartTaskRequest` has no `safety_policy`; engine default applies) |
 | Persistent, queryable session history | ✅ Audit trail tab (SQLite-backed) | — (in-memory only; lost on restart) |
 | Credential vault (paste-once API keys) | ✅ Providers tab | — (pass `api_key` per request, or rely on `.env`) |
-| **Web Search planning pass** | ✅ toggle → `useBuiltinSearch` | ✅ `use_builtin_search: true` |
+| **Web Search planning pass** | ✅ toggle → MCP fetch (`uvx mcp-server-fetch`) then CU-only | ✅ `use_builtin_search: true` (same MCP planner) |
 | **File attachments** (`.pdf`/`.txt`/`.md`/`.docx`) | ✅ Live file input (hidden for Gemini) via `POST /api/files/upload` | ✅ same upload + `attached_files` |
 | **Answering a safety confirmation** | ✅ Approve/Deny → `POST /api/v2/sessions/{id}/safety-decisions` | ✅ `POST /api/agent/safety-confirm` |
 | Session cost estimate | ✅ Session cost tab | — (read `GET /api/v2/analytics?sessionId=`) |
@@ -494,7 +528,7 @@ The full HTTP API is documented exhaustively in `TECHNICAL.md` and via
 the live OpenAPI document at `/docs`. This section is the
 operator-friendly walkthrough of common patterns for both surfaces.
 
-### v1 — quick-start a session with Web Search and files
+### v1 — quick-start a session
 
 ```bash
 curl -X POST http://127.0.0.1:8100/api/agent/start \
@@ -602,7 +636,7 @@ need.
 | `HOST` | `127.0.0.1` | Backend bind. Anything else requires `CUA_ALLOW_PUBLIC_BIND=1` and `CUA_API_TOKEN`. |
 | `PORT` | `8100` | Backend port. |
 | `CUA_ALLOW_PUBLIC_BIND` | unset | Explicit opt-in for non-loopback `HOST`. |
-| `CUA_API_TOKEN` | unset | Shared secret gating sensitive/mutating REST operations, `/ws`, `/api/v2/ws/*`, and `/vnc/*`. `CUA_WS_TOKEN` is a deprecated fallback. |
+| `CUA_API_TOKEN` | unset | Shared secret gating `/api/*` (reads and writes, except the Google OAuth callback), `/ws`, `/api/v2/ws/*`, and `/vnc/websockify`. HTTP: `X-CUA-Token` or `?token=`. Browser WS/noVNC: `token` query. Default-open on loopback when unset. `CUA_WS_TOKEN` is a deprecated fallback. |
 | `CUA_ALLOWED_HOSTS` | derived from CORS | Extra Host headers to allow. |
 | `CORS_ORIGINS` | `127.0.0.1`/`localhost` on `8505`, `8100`, `5173`, and `3000` | Comma-separated allowlist. Dev UI is `http://127.0.0.1:8505`; the production bundle served by FastAPI is `http://127.0.0.1:8100`. Both origins must be allowed or the live stream gets `403`. |
 
@@ -614,7 +648,10 @@ need.
 | `SCREEN_WIDTH` / `SCREEN_HEIGHT` | `1440` / `900` | Virtual display geometry — restart the backend if you change these. |
 | `AGENT_SERVICE_HOST` / `AGENT_SERVICE_PORT` | `127.0.0.1` / `9222` | Where the in-container action service listens. |
 | `AGENT_SERVICE_TOKEN` | required | Bearer token enforced by the in-container agent service. |
+| `VNC_PASSWORD` | unused | Ignored. x11vnc starts with `-nopw`; Compose does not pass this in. |
 | `CUA_ENABLE_LEGACY_ACTIONS` | `0` | Re-enables shell/clipboard/window-management actions inside the sandbox. Do not enable when binding non-loopback. |
+| `CUA_ALLOWED_NAV_HOSTS` | unset | Optional comma-separated host allowlist for `navigate` / `open_url`. |
+| `CUA_MCP_FETCH_CMD` | `uvx mcp-server-fetch` | Fetch MCP used when **Provider web search planning** is on. Host needs `uvx` on `PATH`. |
 
 ### Agent runtime
 
@@ -683,8 +720,8 @@ start Vite through Node. Do not use `npm run dev` as the daily launcher;
 
 The Live viewport is a noVNC iframe, not the CUAF WebSocket image.
 `GET /api/v2/desktop` must yield `/vnc/vnc.html` with
-`path=vnc/websockify` (a bare `websockify` hits unproxied
-`ws://127.0.0.1:8505/websockify` and fails). Check, in order:
+`path=vnc/websockify` and **no** `password=` (a bare `websockify` hits
+unproxied `ws://127.0.0.1:8505/websockify` and fails). Check, in order:
 
 1. The sandbox is up: `docker ps --filter name=cua-environment` should
    show `healthy`. If not, `docker compose up -d --wait --wait-timeout 90`.
@@ -725,7 +762,10 @@ On Live, turn on **Provider web search planning** and attach files before
 **Start run**. Gemini hides the file input and rejects attachments at
 session start. Confirm the v2 session body actually sent
 `useBuiltinSearch` / `attachedFiles` (browser Network tab, or the v2
-curl example above).
+curl example above). Planning needs `uvx` on `PATH` (or a working
+`CUA_MCP_FETCH_CMD`). If MCP spawn/fetch fails, the run continues
+computer-only with a warning log and no brief. Localhost and private
+IP URLs in the task are skipped.
 
 ### Port already in use
 
@@ -754,6 +794,7 @@ Focused checks:
 
 ```powershell
 uv run pytest tests/test_v2_platform.py --tb=short          # v2 platform contract
+uv run pytest tests/test_mcp_fetch.py --tb=short            # MCP planner URL filter (offline)
 uv run pytest tests/test_provider_run_contract.py --tb=short
 uv run pytest tests/test_server.py --tb=short
 uv run pytest tests/engine/test_openai.py tests/engine/test_claude.py tests/engine/test_gemini.py --tb=short
@@ -813,7 +854,8 @@ For a deeper look at the runtime contracts and module boundaries, read
 `TECHNICAL.md` or the [Zero to Hero Study Handbook](docs/zero-to-hero-study-handbook.md).
 For prompt patterns, read `docs/computer-use-prompt-guide.md`. For
 changelog and release notes, read `CHANGELOG.md` and
-`docs/release-notes-v3.1.1.md`.
+`docs/release-notes-v3.1.1.md`. Security model:
+[SECURITY.md](SECURITY.md).
 
 ## Appendix A — Operating Patterns
 
@@ -891,9 +933,10 @@ one with more budget.
 - **Streamed turns.** Turns stream via the beta Messages API with the
   `computer-use-2025-11-24` header to avoid the SDK's HTTP-timeout guard
   at the configured `max_tokens` budget.
-- **Web search probe.** The first session per API key per 24 hours that
-  enables Web Search runs a small probe call confirming the org has
-  access; cached for 24 hours after success.
+- **Web-search planning.** Live/v1/v2 `useBuiltinSearch` runs the MCP
+  fetch planner, then the Claude Computer Use loop stays computer-only
+  (`use_builtin_search=False` on the CU client). The org-enablement
+  probe in `claude.py` is not called on that start path.
 - **Document handling.** PDFs/TXTs upload via the Files API as document
   blocks; Markdown/DOCX are extracted and inlined as plain text — there
   is no Anthropic-side vector store equivalent.
@@ -949,9 +992,15 @@ The app keeps everything local by default:
 - Logs stay on the host. Set `LOG_FORMAT=json` if you want to pipe them
   into a log-aggregation tool you control.
 
-The provider call itself is the only outbound traffic the backend makes
-during normal operation. The in-container agent service does not call
-out to the network on its own — but the model's own browser/desktop
-actions inside the sandbox can of course initiate arbitrary outbound
-traffic from inside that container, since that's the whole point of
-letting it operate a browser.
+The provider API call is the usual outbound traffic from the backend.
+When **Provider web search planning** is on, the host also fetches up
+to 3 public pages through `uvx mcp-server-fetch` (see
+`backend/infra/mcp_fetch.py`). The in-container agent service does
+not call out to the network on its own — but the model's own
+browser/desktop actions inside the sandbox can initiate arbitrary
+outbound traffic from inside that container, since that's the whole
+point of letting it operate a browser.
+
+Community testing, bugs, ideas, and PRs are welcome. Do not send
+money. See [CONTRIBUTING.md](CONTRIBUTING.md) and
+[SUPPORT.md](SUPPORT.md).

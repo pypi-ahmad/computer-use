@@ -11,17 +11,22 @@ missing, starts the stack, waits for `GET /api/health`, and opens
 The production-style path below still serves the built SPA from FastAPI
 on port `8100`. Both `http://127.0.0.1:8505` and `http://127.0.0.1:8100`
 are default WebSocket origins so the live desktop stream works on either
-URL. The backend loads the repository-root `.env` so `AGENT_SERVICE_TOKEN`
-matches the sandbox.
+URL. The backend snapshots user/process `GOOGLE_API_KEY` (then
+`GEMINI_API_KEY`) into `_USER_ENV` before loading the repository-root
+`.env` (`load_dotenv(..., override=False)`), so `AGENT_SERVICE_TOKEN`
+matches the sandbox and a user-env Google key wins over `.env`.
+x11vnc starts with `-nopw`; `VNC_PASSWORD` is unused.
 
 ## Production-style local deployment
 
 1. Install Docker Desktop, Node.js 22, and uv.
 2. Copy `.env.example` to `.env`; set an OpenAI, Anthropic, or Google API
-   key (process `GOOGLE_API_KEY` is enough for Gemini; dotenv does not
-   override it), or configure Google OAuth with `GOOGLE_OAUTH_CLIENT_ID` and
-   `GOOGLE_OAUTH_CLIENT_SECRET`. Set strong `AGENT_SERVICE_TOKEN` and
-   `VNC_PASSWORD` values.
+   key (prefer a process-level `GOOGLE_API_KEY` — `_USER_ENV` in
+   `backend/infra/config.py` wins over `.env`), or configure Google OAuth
+   with `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET`. Set a
+   strong `AGENT_SERVICE_TOKEN`. Optional: `CUA_MCP_FETCH_CMD` if
+   Provider web-search planning should use something other than
+   `uvx mcp-server-fetch` (host needs `uvx` on `PATH`).
 3. Install locked dependencies: `uv sync --frozen` and `npm --prefix frontend ci`.
 4. Build the dashboard: `npm --prefix frontend run build`.
 5. Start the sandbox: `docker compose up -d --wait --wait-timeout 90 --build`
@@ -58,9 +63,11 @@ allowed; when set, other hosts are rejected.
 
 Keep all ports loopback-bound. External binding requires
 `CUA_ALLOW_PUBLIC_BIND=1` and `CUA_API_TOKEN`, plus an authenticated TLS
-reverse proxy. The same token protects REST, WebSocket, and noVNC access;
-`CUA_WS_TOKEN` is a deprecated fallback. The Docker socket and host filesystem
-must never be exposed to the model container.
+reverse proxy. When set, `CUA_API_TOKEN` gates `/api/*` (reads and
+writes, except the Google OAuth callback), `/ws`, `/api/v2/ws/*`, and
+`/vnc/websockify`. HTTP: `X-CUA-Token` or `?token=`. Browser WS/noVNC:
+`token` query. `CUA_WS_TOKEN` is a deprecated fallback. The Docker
+socket and host filesystem must never be exposed to the model container.
 
 ## Health and logs
 

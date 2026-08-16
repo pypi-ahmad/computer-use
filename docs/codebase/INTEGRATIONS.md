@@ -9,7 +9,8 @@
 | Google Gen AI API | HTTPS API/SDK | Interactions Computer Use and optional planning | API key or browser OAuth | high | `backend/engine/gemini.py`; `backend/providers/gemini.py` |
 | Docker Engine | local process/API | build/start/stop sandbox | host Docker access | high | `backend/infra/docker.py`; Compose |
 | Sandbox action service | loopback HTTP | screenshots and OS actions | `X-Agent-Token` shared secret | critical | `backend/executor.py`; `docker/agent_service.py:72-97` |
-| VNC/noVNC | TCP/WebSocket | human desktop observation/control | VNC password + optional WS token | high | Dashboard uses `/vnc/vnc.html?path=vnc/websockify`; `docker-compose.yml`; `frontend/src/pricing.ts` is local list-rate math, not a billing API |
+| VNC/noVNC | TCP/WebSocket | human desktop observation/control | no VNC password (`x11vnc -nopw`); optional workbench `token` on `/vnc/websockify` | high | `GET /api/v2/desktop` returns `/vnc/vnc.html?autoconnect=1&reconnect=1&resize=scale&path=vnc/websockify` (no `password=`); `frontend/src/api.ts` `desktopViewerSrc()`; `docker/entrypoint.sh` |
+| Fetch MCP | host stdio subprocess | web-search planning URL fetch | none (public `http(s)` only) | medium | `backend/infra/mcp_fetch.py`; `backend/providers/planner.py`; `CUA_MCP_FETCH_CMD` defaults to `uvx mcp-server-fetch` |
 | GitHub Actions | hosted automation | CI, audits, image scan, releases | repository permissions | medium | `.github/workflows/` |
 
 ## 2) Data Stores
@@ -23,12 +24,12 @@
 
 ## 3) Secrets and Credentials Handling
 
-- Direct provider keys come from the process environment or an ephemeral v2 credential session. Google uses `GOOGLE_API_KEY` first, then `GEMINI_API_KEY`. `load_dotenv(..., override=False)` keeps a user/system `GOOGLE_API_KEY` already set. Credential responses expose readiness/expiry metadata, never the secret.
+- Direct provider keys come from the process environment or an ephemeral v2 credential session. `backend/infra/config.py` snapshots `GOOGLE_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, and `ANTHROPIC_API_KEY` into `_USER_ENV` before `load_dotenv(..., override=False)`. `resolve_api_key()` prefers UI key, then `_USER_ENV` (Google: `GOOGLE_API_KEY` then `GEMINI_API_KEY`), then dotenv-loaded values. Credential responses expose readiness/expiry metadata, never the secret.
 - Ephemeral credential sessions expire within eight hours, can be deleted early, and are not written to SQLite.
 - The backend sends provider credentials only to the selected provider SDK/API.
-- `AGENT_SERVICE_TOKEN` protects the in-container action service and is required by Compose. `VNC_PASSWORD` is also required unless an explicit insecure development escape hatch is used.
+- `AGENT_SERVICE_TOKEN` protects the in-container action service and is required by Compose. x11vnc starts with `-nopw`; noVNC does not use a VNC password.
 - Google OAuth uses a state- and PKCE-bound browser flow; refreshable credentials stay in the process-local vault with the same eight-hour maximum session lifetime.
-- `CUA_API_TOKEN` gates REST, WebSockets, and noVNC; `CUA_WS_TOKEN` is a deprecated fallback. External binding still requires an authenticated TLS reverse proxy.
+- `CUA_API_TOKEN` gates `/api/*` (reads and writes, except the Google OAuth callback), `/ws`, `/api/v2/ws/*`, and `/vnc/websockify`; `CUA_WS_TOKEN` is a deprecated fallback. External binding still requires an authenticated TLS reverse proxy.
 
 No hardcoded production credentials were found in the inspected configuration or source; `.env.example` contains names/placeholders only. Rotation is manual for environment secrets; v2 credential sessions expire within eight hours and support early deletion.
 

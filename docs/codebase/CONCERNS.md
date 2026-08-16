@@ -14,7 +14,8 @@
 
 - The v2 dashboard can now approve or deny nonce-bound safety prompts through
   `/api/v2/sessions/{id}/safety-decisions`.
-- `CUA_API_TOKEN` now gates REST, WebSocket, and noVNC access when configured;
+- `CUA_API_TOKEN` now gates `/api/*` (reads and writes, except the Google
+  OAuth callback), WebSocket, and noVNC access when configured;
   `CUA_WS_TOKEN` remains only as a deprecated compatibility fallback.
 - Confirmed v2 actions are persisted during execution, avoiding the former
   post-run-only journal gap.
@@ -38,6 +39,12 @@
   or checkpoints.
 - Google OAuth is intentionally limited to the configured redirect URI and a
   short-lived, PKCE-bound authorization state.
+- Provider web-search planning fetches public pages from the **host**
+  through `uvx mcp-server-fetch`. Localhost / `.local` / non-global IPs
+  are skipped; hostnames with a dot are fetched. This is not full SSRF
+  protection. The CU loop does not attach provider `web_search` tools.
+- x11vnc starts with `-nopw`. Loopback-only publish is the control; do
+  not expose `5900`/`6080` off the workstation.
 
 ## 4) Technical Debt and Change Discipline
 

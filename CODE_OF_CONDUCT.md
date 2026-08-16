@@ -106,10 +106,14 @@ or acting as an appointed representative at an online or offline event.
 
 For this repository those spaces are GitHub issues, pull requests, review
 comments, and releases on `pypi-ahmad/computer-use`. There is no official
-chat, Discord, or Slack. Local clones, sandbox desktops, and operator data
-are not community spaces — see [DATA.md](DATA.md). Vulnerabilities go to
+chat, Discord, Slack, or funding channel. Community participation is
+testing, bug reports, improvement ideas, features, docs, and pull
+requests. Do not solicit donations, sponsorship, bounties, or paid
+support in project spaces — see [CONTRIBUTING.md](CONTRIBUTING.md).
+Local clones, sandbox desktops, and operator data are not community
+spaces — see [DATA.md](DATA.md). Vulnerabilities go to
 [SECURITY.md](SECURITY.md) (`[computer-use security]`), not this conduct
-address.
+address. There is no paid bug bounty.
 
 ## Attribution
 

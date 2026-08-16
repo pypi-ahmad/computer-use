@@ -215,7 +215,7 @@ dialog::backdrop { background: rgb(5 12 17 / 70%); backdrop-filter: blur(4px); }
       <button type="button" data-track="business" aria-pressed="false">Business</button>
     </div>
     <section class="nav-group"><h2>Start here</h2><a class="nav-link" href="#doc-overview" data-audiences="all"><span>Repository overview</span><small>Purpose, supported routes, quick start, and verification status.</small></a><a class="nav-link" href="#doc-business" data-audiences="business"><span>Business guide</span><small>Capabilities, pilot design, controls, measures, and go/no-go questions.</small></a></section><section class="nav-group"><h2>Operate</h2><a class="nav-link" href="#doc-user-manual" data-audiences="user technical"><span>Complete user manual</span><small>Installation, dashboard operation, credentials, safety, APIs, and troubleshooting.</small></a><a class="nav-link" href="#doc-prompt-guide" data-audiences="user technical"><span>Prompt-writing guide</span><small>Write tasks that are bounded, observable, and easier to verify.</small></a><a class="nav-link" href="#doc-deployment" data-audiences="user technical business"><span>Deployment guide</span><small>Local operation, public binding, persistence, backup, and rollback preparation.</small></a></section><section class="nav-group"><h2>Understand</h2><a class="nav-link" href="#doc-handbook" data-audiences="technical user"><span>Zero to Hero technical handbook</span><small>Computer Use theory, architecture, execution flows, and study exercises.</small></a><a class="nav-link" href="#doc-technical" data-audiences="technical"><span>Technical architecture</span><small>Current runtime boundaries, public contracts, authentication, and quality gates.</small></a><a class="nav-link" href="#doc-architecture" data-audiences="technical business"><span>Architecture map</span><small>Verified layers, runtime flow, patterns, and architectural risks.</small></a><a class="nav-link" href="#doc-structure" data-audiences="technical"><span>Repository structure</span><small>Entry points, module boundaries, directories, and naming organization.</small></a><a class="nav-link" href="#doc-stack" data-audiences="technical business"><span>Technology stack</span><small>Runtime, dependencies, infrastructure, toolchain, and configuration.</small></a><a class="nav-link" href="#doc-integrations" data-audiences="technical business"><span>Integrations</span><small>Provider APIs, local stores, credentials, reliability, and observability.</small></a><a class="nav-link" href="#doc-conventions" data-audiences="technical"><span>Engineering conventions</span><small>Naming, formatting, contracts, errors, logging, and testing discipline.</small></a></section><section class="nav-group"><h2>Trust and verify</h2><a class="nav-link" href="#doc-security" data-audiences="all"><span>Security policy</span><small>Supported versions and responsible vulnerability reporting.</small></a><a class="nav-link" href="#doc-testing" data-audiences="technical business"><span>Testing and quality</span><small>Test layers, commands, isolation strategy, and known coverage gaps.</small></a><a class="nav-link" href="#doc-concerns" data-audiences="technical business"><span>Known concerns</span><small>Prioritized risks, privacy watchpoints, and change discipline.</small></a></section><section class="nav-group"><h2>Evidence and history</h2><a class="nav-link" href="#doc-migration" data-audiences="technical"><span>v2 migration</span><small>Contract and operational migration guidance.</small></a><a class="nav-link" href="#doc-rollback" data-audiences="technical business"><span>v2 rollback</span><small>Rollback triggers, procedure, and verification.</small></a><a class="nav-link" href="#doc-release" data-audiences="all"><span>v3.1.1 release notes</span><small>Current patch scope: sidebar Mission control, session cost, Google key precedence.</small></a><a class="nav-link" href="#doc-release-v310" data-audiences="all"><span>v3.1.0 release notes</span><small>Historical v3.1.0 Gemini 3.7, run.cmd, and noVNC path notes.</small></a><a class="nav-link" href="#doc-release-v302" data-audiences="all"><span>v3.0.2 release notes</span><small>Historical v3.0.2 CI and sandbox notes.</small></a><a class="nav-link" href="#doc-release-v301" data-audiences="all"><span>v3.0.1 release notes</span><small>Historical v3.0.1 Windows launcher fixes.</small></a><a class="nav-link" href="#doc-release-v3" data-audiences="all"><span>v3.0.0 release notes</span><small>Historical v3.0.0 release scope.</small></a><a class="nav-link" href="#doc-release-v2" data-audiences="all"><span>v2.0.0 release notes</span><small>Historical v2 release scope.</small></a><a class="nav-link" href="#doc-research" data-audiences="technical business"><span>Provider research audit</span><small>Dated evidence behind the supported provider catalog.</small></a><a class="nav-link" href="#doc-gemini-evaluation" data-audiences="technical business"><span>Gemini successor checklist</span><small>Acceptance criteria for future Gemini route changes.</small></a></section>
-    <p class="build-note">Offline build · source fingerprint 1044b6fc0c00</p>
+    <p class="build-note">Offline build · source fingerprint 1a8019f818c6</p>
   </nav>
   <main class="content" id="main-content">
     <section class="hero" aria-labelledby="hero-title">
@@ -233,6 +233,10 @@ dialog::backdrop { background: rgb(5 12 17 / 70%); backdrop-filter: blur(4px); }
 <h1>Computer Use Workbench</h1>
 <p>A local, single-user workbench for provider-native Computer Use
 agents.</p>
+<p><strong>Contributions to this repo are always welcome.</strong> Test
+the app, find bugs, file reports, suggest improvements and features,
+improve docs, or send a PR. <strong>Do not send money</strong> — no
+donations, sponsorship, bounties, or paid support.</p>
 <p>The latest tag is <strong>v3.1.1</strong>. This README describes the
 current tree (including Unreleased work in <code>CHANGELOG.md</code>).
 You run a FastAPI backend, a React dashboard, and an isolated
@@ -244,6 +248,32 @@ Use protocol.</p>
 non-sensitive data. This project is not a multi-tenant service and does
 not make model actions safe by itself.</p>
 </blockquote>
+<section id="overview-index" class="level2">
+<h2>Index</h2>
+<p><strong>This README</strong></p>
+<ol type="1">
+<li><a href="#overview-open-source">Open source</a></li>
+<li><a href="#overview-features">Features</a></li>
+<li><a href="#overview-demo">Demo</a></li>
+<li><a href="#overview-tech-stack">Tech stack</a></li>
+<li><a href="#overview-project-structure">Project structure</a></li>
+<li><a href="#overview-installation-and-setup">Installation and
+setup</a></li>
+<li><a href="#overview-environment-variables">Environment
+variables</a></li>
+<li><a href="#overview-usage">Usage</a></li>
+<li><a href="#overview-how-it-works">How it works</a></li>
+<li><a href="#overview-configuration-options">Configuration
+options</a></li>
+<li><a href="#overview-documentation">Documentation</a></li>
+<li><a href="#overview-community">Community</a></li>
+<li><a href="#overview-license">License</a></li>
+</ol>
+<p><strong>Start here:</strong> <a href="#doc-user-manual">USAGE.md</a> · <a
+href="../TESTING.md">TESTING.md</a> · <a href="../DATA.md">DATA.md</a> · <a
+href="#doc-deployment">docs/deployment.md</a> · <a
+href="#overview-documentation">full catalog</a></p>
+</section>
 <section id="overview-open-source" class="level2">
 <h2>Open source</h2>
 <p>This repository is <strong>MIT-licensed</strong> (<a
@@ -255,18 +285,22 @@ service.</li>
 <li>Use <strong>your own provider API keys</strong>
 (<code>GOOGLE_API_KEY</code> then <code>GEMINI_API_KEY</code>,
 <code>OPENAI_API_KEY</code>, <code>ANTHROPIC_API_KEY</code>) or a
-Providers-tab credential session. A process-level
-<code>GOOGLE_API_KEY</code> is not overwritten by <code>.env</code>
-(<code>load_dotenv(..., override=False)</code>). Keys stay process-local
-and are never written to SQLite.</li>
+Providers-tab credential session. <code>GOOGLE_API_KEY</code> already
+set in the user/process environment is snapshotted before
+<code>.env</code> loads (<code>backend/infra/config.py</code>
+<code>_USER_ENV</code>) and wins over a <code>.env</code> assignment.
+Keys stay process-local and are never written to SQLite.</li>
 <li><strong>You are solely responsible</strong> for every file and
 payload you put into the app: PDFs, <code>.txt</code>, <code>.md</code>,
 <code>.docx</code> uploads, sandbox desktop files, browser sessions,
 screenshots, and task text. See <a href="../DATA.md">DATA.md</a>.</li>
-<li>Contributions are always welcome: tests, bug reports, ideas, docs,
-and PRs. See <a href="../SUPPORT.md">SUPPORT.md</a> and <a
-href="../CONTRIBUTING.md">CONTRIBUTING.md</a>. <strong>No donations or paid
-support</strong> — time and reports only.</li>
+<li>Community help is what this project needs: testers, bug reports,
+improvement ideas, features, docs, and PRs. See <a
+href="../SUPPORT.md">SUPPORT.md</a> and <a
+href="../CONTRIBUTING.md">CONTRIBUTING.md</a>.</li>
+<li><strong>No financial help.</strong> Do not send donations,
+sponsorship, bounties, or paid-support offers. Time and reports
+only.</li>
 </ul>
 <p><a
 href="https://github.com/pypi-ahmad/computer-use/releases/latest">Latest
@@ -279,21 +313,31 @@ href="https://github.com/pypi-ahmad/computer-use/actions/workflows/ci.yml">CI</a
 <li><strong>Three direct Computer Use routes</strong> (catalog:
 <code>backend/models/computer_use_models.v2.json</code>)
 <ul>
-<li><code>gemini-direct</code> — Gemini 3.7 Flash (dashboard
-<code>preferredRoute</code> and first catalog entry) or Gemini 3.5
-Flash-Lite via Google Interactions</li>
+<li><code>gemini-direct</code> — Gemini 3.7 Flash (Live default model
+<code>gemini-3.7-flash</code>, <code>preferredRoute</code>
+<code>gemini-direct</code>) or Gemini 3.5 Flash-Lite (Live default
+fallback <code>gemini-3.5-flash-lite@gemini-direct</code>)</li>
 <li><code>anthropic-direct</code> — Claude Sonnet 5 via Anthropic
 Messages (<code>computer_20251124</code>)</li>
-<li><code>openai-direct</code> — GPT-5.6 Luna (default OpenAI model on
-this route) or GPT-5.6 Terra via the OpenAI Responses API</li>
+<li><code>openai-direct</code> — GPT-5.6 Luna or GPT-5.6 Terra via the
+OpenAI Responses API</li>
 </ul></li>
 <li><strong>Six-tab React dashboard</strong> — Live session, Audit
 trail, Session cost, Workflow library, Providers, Analytics
-(<code>frontend/src/App.tsx</code>)</li>
+(<code>frontend/src/App.tsx</code>). On Live, Mission control is
+portaled into the CONTROL sidebar; the main pane is the noVNC
+viewport.</li>
 <li><strong>Live sandbox viewport</strong> — noVNC iframe of XFCE as
 soon as the container is ready
-(<code>/vnc/vnc.html?path=vnc/websockify</code>); you do not start a run
-to see the screen</li>
+(<code>/vnc/vnc.html?path=vnc/websockify</code>, no VNC password); you
+do not start a run to see the screen</li>
+<li><strong>Web-search planning</strong> — Live toggle
+<code>useBuiltinSearch</code> runs
+<code>backend/providers/planner.py</code> +
+<code>backend/infra/mcp_fetch.py</code>
+(<code>uvx mcp-server-fetch</code>). It does <strong>not</strong> attach
+provider <code>web_search</code> / Google Search to the Computer Use
+loop.</li>
 <li><strong>Session event socket</strong> —
 <code>/api/v2/ws/desktop</code> while idle, then
 <code>/api/v2/ws/{session_id}</code> after <strong>Start run</strong>.
@@ -398,13 +442,13 @@ Actions</td>
 │   ├── server/               # HTTP/WS, noVNC proxy, app lifespan
 │   ├── v2/                   # /api/v2 REST, credentials, SQLite, frames
 │   ├── engine/               # OpenAI / Anthropic / Gemini Computer Use clients
-│   ├── providers/            # Provider-neutral run adapters
+│   ├── providers/            # Run adapters + MCP-fetch planner
 │   ├── executor.py           # Desktop actions → agent_service
 │   ├── loop.py               # Session / step orchestration
-│   ├── infra/                # Config, Docker lifecycle, logging
+│   ├── infra/                # Config, Docker, logging, mcp_fetch.py
 │   └── models/               # allowed_models.json, v2 catalog, schemas
 ├── frontend/                 # React + Vite dashboard
-│   └── src/App.tsx           # Six tabs; pricing.ts holds list rates
+│   └── src/App.tsx           # Six tabs; Live form in CONTROL sidebar; pricing.ts holds list rates
 ├── docker/                   # Sandbox image, entrypoint, agent_service
 ├── docker-compose.yml        # cua-environment (5900, 6080, 9222)
 ├── tests/                    # Offline pytest (excludes integration by default)
@@ -437,8 +481,8 @@ class="sourceCode powershell"><code class="sourceCode powershell"><span id="over
 <p><code>run.cmd</code> installs missing host tools (uv, Python 3.12,
 Node.js LTS, Docker Desktop) via winget, copies
 <code>.env.example</code> to <code>.env</code> if needed, fills empty
-<code>AGENT_SERVICE_TOKEN</code> and <code>VNC_PASSWORD</code>, runs
-<code>uv sync --frozen</code>, installs frontend deps when Vite is
+<code>AGENT_SERVICE_TOKEN</code> (and unused <code>VNC_PASSWORD</code>),
+runs <code>uv sync --frozen</code>, installs frontend deps when Vite is
 missing, builds <code>cua-ubuntu:latest</code> only if the image is
 absent, then starts <code>dev.py --open-browser</code>.
 <code>dev.py</code> runs
@@ -446,7 +490,8 @@ absent, then starts <code>dev.py --open-browser</code>.
 after <code>9222/health</code> <strong>and</strong>
 <code>6080/vnc.html</code>), waits for <code>GET /api/health</code>,
 starts Vite on <code>127.0.0.1:8505</code>, and opens that URL once Vite
-responds.</p>
+responds. x11vnc starts with <code>-nopw</code>;
+<code>VNC_PASSWORD</code> is not used for noVNC.</p>
 <p><code>START.bat</code> always runs
 <code>setup.bat --bootstrap-only</code> first, then launches.</p>
 <p>If Docker asks for a reboot or WSL setup, finish that and run
@@ -457,7 +502,7 @@ responds.</p>
 <div class="sourceCode" id="overview-cb3"><pre
 class="sourceCode powershell"><code class="sourceCode powershell"><span id="overview-cb3-1"><a href="#overview-cb3-1" aria-hidden="true" tabindex="-1"></a>git clone https<span class="op">://</span>github<span class="op">.</span><span class="fu">com</span><span class="op">/</span>pypi-ahmad<span class="op">/</span>computer-use<span class="op">.</span><span class="fu">git</span></span>
 <span id="overview-cb3-2"><a href="#overview-cb3-2" aria-hidden="true" tabindex="-1"></a><span class="fu">cd</span> computer-use</span>
-<span id="overview-cb3-3"><a href="#overview-cb3-3" aria-hidden="true" tabindex="-1"></a><span class="fu">Copy-Item</span> <span class="op">.</span><span class="fu">env</span><span class="op">.</span><span class="fu">example</span> <span class="op">.</span><span class="fu">env</span>   <span class="co"># then set AGENT_SERVICE_TOKEN and VNC_PASSWORD</span></span>
+<span id="overview-cb3-3"><a href="#overview-cb3-3" aria-hidden="true" tabindex="-1"></a><span class="fu">Copy-Item</span> <span class="op">.</span><span class="fu">env</span><span class="op">.</span><span class="fu">example</span> <span class="op">.</span><span class="fu">env</span>   <span class="co"># then set AGENT_SERVICE_TOKEN</span></span>
 <span id="overview-cb3-4"><a href="#overview-cb3-4" aria-hidden="true" tabindex="-1"></a>uv sync <span class="op">--</span>frozen</span>
 <span id="overview-cb3-5"><a href="#overview-cb3-5" aria-hidden="true" tabindex="-1"></a>npm <span class="op">--</span>prefix frontend ci</span>
 <span id="overview-cb3-6"><a href="#overview-cb3-6" aria-hidden="true" tabindex="-1"></a>docker compose build          <span class="co"># first time, or after Dockerfile changes</span></span>
@@ -465,7 +510,7 @@ class="sourceCode powershell"><code class="sourceCode powershell"><span id="over
 <p>On Linux/macOS:</p>
 <div class="sourceCode" id="overview-cb4"><pre
 class="sourceCode bash"><code class="sourceCode bash"><span id="overview-cb4-1"><a href="#overview-cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cp</span> .env.example .env</span>
-<span id="overview-cb4-2"><a href="#overview-cb4-2" aria-hidden="true" tabindex="-1"></a><span class="co"># set AGENT_SERVICE_TOKEN and VNC_PASSWORD</span></span>
+<span id="overview-cb4-2"><a href="#overview-cb4-2" aria-hidden="true" tabindex="-1"></a><span class="co"># set AGENT_SERVICE_TOKEN</span></span>
 <span id="overview-cb4-3"><a href="#overview-cb4-3" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> setup.sh                 <span class="co"># optional bootstrap</span></span>
 <span id="overview-cb4-4"><a href="#overview-cb4-4" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> dev.sh</span></code></pre></div>
 </section>
@@ -501,10 +546,13 @@ proxy)</td>
 </tr>
 </tbody>
 </table>
-<p>The backend loads <strong>repository-root</strong> <code>.env</code>
-(next to <code>docker-compose.yml</code>), not
-<code>backend/.env</code>, with
-<code>load_dotenv(..., override=False)</code>.</p>
+<p>The backend snapshots user/process <code>GOOGLE_API_KEY</code> (then
+<code>GEMINI_API_KEY</code>) <strong>before</strong> loading
+repository-root <code>.env</code> (next to
+<code>docker-compose.yml</code>, not <code>backend/.env</code>) with
+<code>load_dotenv(..., override=False)</code>. That user-env key wins
+over a <code>.env</code> assignment
+(<code>backend/infra/config.py</code>).</p>
 <p>A non-loopback <code>HOST</code> requires both
 <code>CUA_ALLOW_PUBLIC_BIND=1</code> and <code>CUA_API_TOKEN</code>.
 Otherwise <code>backend/main.py</code> exits with code 2. Production SPA
@@ -534,11 +582,6 @@ populated file.</p>
 <td>Shared secret between the backend and
 <code>docker/agent_service.py</code></td>
 </tr>
-<tr>
-<td><code>VNC_PASSWORD</code></td>
-<td>generated by <code>run.cmd</code> if empty</td>
-<td>x11vnc password; also passed into the noVNC viewer URL</td>
-</tr>
 </tbody>
 </table>
 <p>If the token in <code>.env</code> does not match the container,
@@ -567,8 +610,8 @@ class="level3">
 </tr>
 <tr>
 <td><code>GOOGLE_API_KEY</code> or <code>GEMINI_API_KEY</code></td>
-<td><code>gemini-direct</code>. Prefer process-level
-<code>GOOGLE_API_KEY</code>; <code>.env</code> does not override it.
+<td><code>gemini-direct</code>. User/process <code>GOOGLE_API_KEY</code>
+is captured before <code>.env</code> and wins.
 <code>GEMINI_API_KEY</code> is the alias.</td>
 </tr>
 </tbody>
@@ -677,6 +720,12 @@ Do not enable off loopback.</td>
 <td>unset</td>
 <td>Optional comma-separated host allowlist for navigation</td>
 </tr>
+<tr>
+<td><code>CUA_MCP_FETCH_CMD</code></td>
+<td><code>uvx mcp-server-fetch</code></td>
+<td>Fetch MCP used when Live <strong>Provider web search
+planning</strong> is on</td>
+</tr>
 </tbody>
 </table>
 </section>
@@ -749,12 +798,16 @@ What is stored where: <a href="../DATA.md">DATA.md</a>.</p>
 <li><strong>Providers</strong> — create a credential session (API key or
 Google OAuth) if you did not set provider keys in
 <code>.env</code>.</li>
-<li><strong>Live session</strong> — choose model and primary route
-(defaults: <code>gemini-3.7-flash</code> / <code>gemini-direct</code>),
-optional fallback (<code>model@route</code>), reasoning (when the
-catalog lists efforts), safety policy, optional provider web-search
-planning, optional reference files on non-Gemini models, then
-<strong>Start run</strong> (<code>maxSteps: 50</code>).</li>
+<li><strong>Live session</strong> — Mission control is in the left
+CONTROL sidebar. Defaults: model <code>gemini-3.7-flash</code>, route
+<code>gemini-direct</code>, fallback
+<code>gemini-3.5-flash-lite@gemini-direct</code>. Optional reasoning
+(when the catalog lists efforts), safety policy, <strong>Provider web
+search planning (MCP fetch)</strong>
+(<code>uvx mcp-server-fetch</code>), optional reference files on
+non-Gemini models, then <strong>Start run</strong>
+(<code>maxSteps: 50</code>). The main pane is the noVNC viewport
+(<code>GET /api/v2/desktop</code>, no VNC password).</li>
 <li>Approve or deny amber <strong>Approval required</strong> banners
 when the policy and provider ask
 (<code>POST /api/v2/sessions/{id}/safety-decisions</code>). Unanswered
@@ -779,7 +832,7 @@ launcher stops Vite, the backend, and
 <tr>
 <td><code>/</code></td>
 <td>Live session</td>
-<td>Task, routing, noVNC viewport, pipeline stages</td>
+<td>Mission control (sidebar), noVNC viewport, pipeline stages</td>
 </tr>
 <tr>
 <td><code>/audit</code></td>
@@ -822,7 +875,7 @@ Content-Type: application/json
   &quot;task&quot;: &quot;Open the file manager. Stop when the file manager window is visible.&quot;,
   &quot;model&quot;: &quot;gemini-3.7-flash&quot;,
   &quot;primaryRoute&quot;: &quot;gemini-direct&quot;,
-  &quot;fallbackRoutes&quot;: [],
+  &quot;fallbackRoutes&quot;: [{ &quot;model&quot;: &quot;gemini-3.5-flash-lite&quot;, &quot;route&quot;: &quot;gemini-direct&quot; }],
   &quot;maxSteps&quot;: 50,
   &quot;safetyPolicy&quot;: &quot;provider_default&quot;,
   &quot;useBuiltinSearch&quot;: false,
@@ -918,15 +971,23 @@ cua-environment              docker/agent_service.py
 <code>/health</code> and noVNC <code>vnc.html</code> are up before Vite
 starts.</li>
 <li>The Live tab loads <code>/api/v2/desktop</code> (viewer URL with
-<code>path=vnc/websockify</code> and <code>VNC_PASSWORD</code>) and
+<code>path=vnc/websockify</code>, no <code>password=</code>) and
 <code>waitForNovnc()</code> holds the iframe until
-<code>/vnc/vnc.html</code> returns 200.</li>
+<code>/vnc/vnc.html</code> returns 200. <code>desktopViewerSrc()</code>
+strips leftover <code>password</code>/<code>token</code> query
+params.</li>
+<li>If <strong>Provider web search planning</strong> is on,
+<code>maybe_plan_with_web_search()</code> fetches up to 3 public URLs
+via MCP fetch, then the Computer Use loop runs computer-only with that
+brief.</li>
 <li>Starting a session stores the run in SQLite, calls the selected
 engine, and maps official desktop actions (<code>click</code>,
-<code>type</code>, <code>hotkey</code>, …) onto the sandbox.</li>
-<li>Fallback routes run only if the primary route fails and you
-configured them (<code>max_attempts=1</code> per route; circuit opens
-after 3 failures for 30 s).</li>
+<code>type</code>, <code>hotkey</code>, …) onto the sandbox. Google
+sessions use user-env <code>GOOGLE_API_KEY</code> via
+<code>resolve_api_key("google")</code>.</li>
+<li>Fallback routes run only if the primary route fails
+(<code>max_attempts=1</code> per route; circuit opens after 3 failures
+for 30 s). Live defaults fallback to Gemini 3.5 Flash-Lite.</li>
 <li>Preview frames on the session WebSocket use the CUAF binary protocol
 (<code>frontend/src/protocol.ts</code>). The interactive desktop is
 noVNC, not those preview frames.</li>
@@ -960,14 +1021,17 @@ href="#doc-architecture">docs/codebase/ARCHITECTURE.md</a>.</p>
 </tr>
 </tbody>
 </table>
-<p>Optional <code>useBuiltinSearch</code> runs a provider-native
-planning/search pass before the computer-only loop (OpenAI
-<code>web_search</code>, Anthropic <code>web_search_20260209</code> for
-<code>claude-sonnet-5</code>, Gemini <code>google_search</code>). Gemini
-<strong>File Search</strong> cannot be combined with Computer Use;
-attaching files with a Gemini model fails at session start. The Live tab
-hides the file input when the selected family is
-<code>GEMINI</code>.</p>
+<p>Optional <code>useBuiltinSearch</code> runs an MCP-fetch planning
+pass (<code>backend/providers/planner.py</code>,
+<code>uvx mcp-server-fetch</code> unless <code>CUA_MCP_FETCH_CMD</code>
+is set) before the computer-only loop. It does not attach OpenAI
+<code>web_search</code>, Anthropic <code>web_search_20260209</code>, or
+Gemini <code>google_search</code> to Computer Use turns.
+Private/localhost URLs are skipped. Host needs <code>uvx</code> on
+<code>PATH</code>. Gemini <strong>File Search</strong> cannot be
+combined with Computer Use; attaching files with a Gemini model fails at
+session start. The Live tab hides the file input when the selected
+family is <code>GEMINI</code>.</p>
 <p>Non-Gemini routes accept <code>.md</code>, <code>.txt</code>,
 <code>.pdf</code>, <code>.docx</code> uploads as reference files.</p>
 <p>Production-style single-process serving: build the frontend, then run
@@ -976,6 +1040,8 @@ href="#doc-deployment">docs/deployment.md</a>.</p>
 </section>
 <section id="overview-documentation" class="level2">
 <h2>Documentation</h2>
+<section id="overview-operator" class="level3">
+<h3>Operator</h3>
 <table>
 <thead>
 <tr>
@@ -986,7 +1052,7 @@ href="#doc-deployment">docs/deployment.md</a>.</p>
 <tbody>
 <tr>
 <td><a href="#doc-user-manual">USAGE.md</a></td>
-<td>Operator guide: tabs, credentials, REST, troubleshooting</td>
+<td>Tabs, credentials, REST, troubleshooting</td>
 </tr>
 <tr>
 <td><a href="../TESTING.md">TESTING.md</a></td>
@@ -994,8 +1060,44 @@ href="#doc-deployment">docs/deployment.md</a>.</p>
 </tr>
 <tr>
 <td><a href="../DATA.md">DATA.md</a></td>
-<td>What is stored locally and operator responsibility</td>
+<td>Local storage and operator responsibility</td>
 </tr>
+<tr>
+<td><a href="#doc-deployment">docs/deployment.md</a></td>
+<td>Local and single-process production start</td>
+</tr>
+<tr>
+<td><a
+href="#doc-prompt-guide">docs/computer-use-prompt-guide.md</a></td>
+<td>How to write bounded Computer Use tasks</td>
+</tr>
+<tr>
+<td><a href="#doc-business">docs/business-guide.md</a></td>
+<td>Pilot, risk, and go/no-go for sponsors</td>
+</tr>
+<tr>
+<td><a
+href="#doc-handbook">docs/zero-to-hero-study-handbook.md</a></td>
+<td>Study handbook (markdown source)</td>
+</tr>
+<tr>
+<td><a
+href="zero-to-hero-study-handbook.html">docs/zero-to-hero-study-handbook.html</a></td>
+<td>Study handbook (standalone HTML)</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="overview-project-and-community" class="level3">
+<h3>Project and community</h3>
+<table>
+<thead>
+<tr>
+<th>Document</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
 <tr>
 <td><a href="../SUPPORT.md">SUPPORT.md</a></td>
 <td>How to get help; what this repo will not debug</td>
@@ -1006,44 +1108,163 @@ href="#doc-deployment">docs/deployment.md</a>.</p>
 </tr>
 <tr>
 <td><a href="#doc-security">SECURITY.md</a></td>
-<td>Workbench security model and vulnerability reports</td>
-</tr>
-<tr>
-<td><a href="../CHANGELOG.md">CHANGELOG.md</a></td>
-<td>Released and Unreleased changes</td>
+<td>Security model and vulnerability reports</td>
 </tr>
 <tr>
 <td><a href="../CODE_OF_CONDUCT.md">CODE_OF_CONDUCT.md</a></td>
 <td>Contributor Covenant 3.0</td>
 </tr>
 <tr>
-<td><a href="#doc-technical">TECHNICAL.md</a></td>
-<td>Runtime contracts</td>
+<td><a href="../CHANGELOG.md">CHANGELOG.md</a></td>
+<td>Released and Unreleased changes</td>
 </tr>
 <tr>
-<td><a href="#doc-migration">docs/migration-v2.md</a> / <a
-href="#doc-rollback">docs/rollback-v2.md</a></td>
-<td>v2 migration and rollback</td>
-</tr>
-<tr>
-<td><a
-href="#doc-release">docs/release-notes-v3.1.1.md</a></td>
-<td>v3.1.1 release notes</td>
-</tr>
-<tr>
-<td><a
-href="zero-to-hero-study-handbook.html">docs/zero-to-hero-study-handbook.html</a></td>
-<td>Guided handbook</td>
+<td><a href="../AGENTS.md">AGENTS.md</a></td>
+<td>Terse-response rules for coding agents</td>
 </tr>
 </tbody>
 </table>
 </section>
+<section id="overview-technical" class="level3">
+<h3>Technical</h3>
+<table>
+<thead>
+<tr>
+<th>Document</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="#doc-technical">TECHNICAL.md</a></td>
+<td>Runtime contracts, routes, models</td>
+</tr>
+<tr>
+<td><a
+href="#doc-architecture">docs/codebase/ARCHITECTURE.md</a></td>
+<td>Modular monolith and sandbox split</td>
+</tr>
+<tr>
+<td><a href="#doc-stack">docs/codebase/STACK.md</a></td>
+<td>Languages, frameworks, and tools</td>
+</tr>
+<tr>
+<td><a
+href="#doc-structure">docs/codebase/STRUCTURE.md</a></td>
+<td>Top-level repository map</td>
+</tr>
+<tr>
+<td><a
+href="#doc-conventions">docs/codebase/CONVENTIONS.md</a></td>
+<td>Naming and code conventions</td>
+</tr>
+<tr>
+<td><a
+href="#doc-integrations">docs/codebase/INTEGRATIONS.md</a></td>
+<td>Providers, tokens, and external APIs</td>
+</tr>
+<tr>
+<td><a
+href="#doc-concerns">docs/codebase/CONCERNS.md</a></td>
+<td>Prioritized risks</td>
+</tr>
+<tr>
+<td><a href="#doc-testing">docs/codebase/TESTING.md</a></td>
+<td>Test stack and how to run it</td>
+</tr>
+<tr>
+<td><a href="../docker/SECURITY_NOTES.md">docker/SECURITY_NOTES.md</a></td>
+<td>Sandbox / agent-service attack surface</td>
+</tr>
+<tr>
+<td><a href="../evals/README.md">evals/README.md</a></td>
+<td>Offline deterministic evals</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="overview-history-and-migration" class="level3">
+<h3>History and migration</h3>
+<table>
+<thead>
+<tr>
+<th>Document</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="#doc-migration">docs/migration-v2.md</a></td>
+<td>v1 → v2 contract and ops migration</td>
+</tr>
+<tr>
+<td><a href="#doc-rollback">docs/rollback-v2.md</a></td>
+<td>v2 rollback triggers and checks</td>
+</tr>
+<tr>
+<td><a
+href="#doc-gemini-evaluation">docs/gemini-successor-evaluation.md</a></td>
+<td>Checklist when a Gemini CU model is replaced</td>
+</tr>
+<tr>
+<td><a
+href="#doc-research">docs/research-audit-2026-07-23.md</a></td>
+<td>Historical July 2026 research note</td>
+</tr>
+<tr>
+<td><a
+href="#doc-release">docs/release-notes-v3.1.1.md</a></td>
+<td>v3.1.1</td>
+</tr>
+<tr>
+<td><a
+href="#doc-release-v310">docs/release-notes-v3.1.0.md</a></td>
+<td>v3.1.0</td>
+</tr>
+<tr>
+<td><a
+href="release-notes-v3.0.3.md">docs/release-notes-v3.0.3.md</a></td>
+<td>v3.0.3</td>
+</tr>
+<tr>
+<td><a
+href="#doc-release-v302">docs/release-notes-v3.0.2.md</a></td>
+<td>v3.0.2</td>
+</tr>
+<tr>
+<td><a
+href="#doc-release-v301">docs/release-notes-v3.0.1.md</a></td>
+<td>v3.0.1</td>
+</tr>
+<tr>
+<td><a
+href="#doc-release-v3">docs/release-notes-v3.0.0.md</a></td>
+<td>v3.0.0</td>
+</tr>
+<tr>
+<td><a
+href="#doc-release-v2">docs/release-notes-v2.0.0.md</a></td>
+<td>v2.0.0</td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
 <section id="overview-community" class="level2">
 <h2>Community</h2>
-<p>Contributions are always welcome. Run the app locally, file what you
-find, suggest improvements, or send a PR. First-time and issue-only help
-counts. This project does <strong>not</strong> take donations,
-sponsorship, or paid support.</p>
+<p>This project is open source. <strong>Community support is welcome and
+needed:</strong></p>
+<ul>
+<li>Test a local install (<a href="../TESTING.md">TESTING.md</a>)</li>
+<li>Report bugs</li>
+<li>Suggest improvements and features</li>
+<li>Fix docs</li>
+<li>Send a pull request</li>
+</ul>
+<p>First-time and issue-only help counts.</p>
+<p><strong>We do not want or accept any financial help.</strong> No
+donations, sponsorship, bounties, paid support, or consulting. Do not
+offer money.</p>
 <table>
 <thead>
 <tr>
@@ -1094,11 +1315,14 @@ with tokens or exploits</td>
 </tbody>
 </table>
 <p>There is no automated end-to-end UI plus live-provider suite. CI
-(<code>.github/workflows/ci.yml</code>) runs Ruff, format, mypy, pytest
-on Python 3.12–3.14, evals, frontend lint/typecheck/tests/build,
-<code>pip-audit</code>, <code>npm audit</code>, sandbox image build, and
-a blocking HIGH/CRITICAL image scan. Live provider tests are opt-in;
-missing credentials are disclosed, never treated as a pass.</p>
+(<code>.github/workflows/ci.yml</code>) runs Ruff, format, mypy,
+<code>pip-audit</code>, pytest on Python 3.12–3.14 with
+<code>--cov-fail-under=60</code>, evals, frontend
+lint/typecheck/tests/build, <code>npm audit --audit-level=high</code>,
+sandbox image build, and a blocking HIGH/CRITICAL Trivy scan
+(<code>ignore-unfixed: true</code>). Live provider tests are opt-in
+(<code>pytest -m integration</code>); missing credentials are disclosed,
+never treated as a pass.</p>
 </section>
 <section id="overview-license" class="level2">
 <h2>License</h2>
@@ -1116,9 +1340,11 @@ See <a href="../DATA.md">DATA.md</a>.</p>
 class="level1">
 <h1>Business Guide: Evaluating Computer Use Workbench</h1>
 <p>This guide explains the repository in business terms. It is written
-for sponsors, operations leaders, risk owners, and product managers
-deciding whether a Computer Use pilot is appropriate. Technical
-implementation details remain available in the linked handbook and
+for operations leaders, risk owners, and product managers deciding
+whether a Computer Use pilot is appropriate. “Sponsor” here means the
+org funding a local evaluation — this project does <strong>not</strong>
+want or accept donations, GitHub sponsorship, bounties, or paid support.
+Technical implementation details remain in the linked handbook and
 architecture references.</p>
 <blockquote>
 <p>Computer Use agents operate graphical interfaces by looking at
@@ -1139,11 +1365,17 @@ routes:</p>
 <li>Gemini 3.7 Flash or Gemini 3.5 Flash-Lite through Google
 Interactions.</li>
 </ul>
-<p>The current release is v3.1.1. On Windows 11, <code>run.cmd</code>
-installs anything missing, starts the local stack, and opens the
-dashboard at <code>http://127.0.0.1:8505</code> after the backend health
-check succeeds. The Live tab shows the isolated desktop as soon as the
-sandbox is ready; a run is not required to see the screen.</p>
+<p>The package version is v3.1.1; this document describes the current
+tree (including Unreleased work in <code>CHANGELOG.md</code>). On
+Windows 11, <code>run.cmd</code> installs anything missing, starts the
+local stack, and opens the dashboard at
+<code>http://127.0.0.1:8505</code> after the backend health check
+succeeds. Live defaults to Gemini 3.7 Flash (<code>gemini-direct</code>)
+with fallback Gemini 3.5 Flash-Lite. The Live tab shows the isolated
+desktop (noVNC, no VNC password) as soon as the sandbox is ready; a run
+is not required to see the screen. Optional web-search planning fetches
+public pages via Fetch MCP; it does not attach provider search
+tools.</p>
 <p>The practical value is not “AI that can do everything.” The useful
 capability is operating software that lacks a stable API, spans several
 visual steps, or still requires human judgment at checkpoints. The
@@ -1490,11 +1722,12 @@ OpenAI, Anthropic, or Google API key (or Google OAuth) so a model can
 decide what to click.</p>
 <p><strong>What it is not:</strong> a production, multi-tenant,
 internet-facing service. There is no user/account system. An optional
-shared <code>CUA_API_TOKEN</code> protects sensitive REST operations,
-WebSockets, and noVNC, but it does not turn the workbench into a
+shared <code>CUA_API_TOKEN</code> gates <code>/api/*</code> (except the
+Google OAuth callback), <code>/ws</code>, <code>/api/v2/ws/*</code>, and
+<code>/vnc/websockify</code>. It does not turn the workbench into a
 multi-user service. Keep it on <code>127.0.0.1</code> unless you've read
-<a href="#user-manual-networking">Network hardening</a> and deliberately
-opted in to exposing it.</p>
+<a href="#user-manual-networking">Networking</a> and deliberately opted
+in to exposing it.</p>
 <p><strong>Two ways to use it</strong>, both fully working today:</p>
 <ol type="1">
 <li><strong>The dashboard</strong> (<code>http://127.0.0.1:8505</code>)
@@ -1610,13 +1843,13 @@ class="sourceCode powershell"><code class="sourceCode powershell"><span id="user
 <p>On Windows 11, <code>run.cmd</code> is the one-file first-run
 installer and daily launcher. It uses exact winget packages to install
 missing Docker Desktop, Node.js LTS, and uv; creates <code>.env</code>
-when absent; generates the required local sandbox secrets without
-printing or replacing existing values; installs locked Python/frontend
-dependencies only when they are missing; rebuilds esbuild after a fresh
-<code>npm ci</code>; builds the Docker image only when
-<code>cua-ubuntu:latest</code> is absent; then starts
-<code>dev.py --open-browser</code>. <code>dev.py</code> brings the
-sandbox up with
+when absent; fills empty <code>AGENT_SERVICE_TOKEN</code> (and unused
+<code>VNC_PASSWORD</code>) without printing or replacing existing
+values; installs locked Python/frontend dependencies only when they are
+missing; rebuilds esbuild after a fresh <code>npm ci</code>; builds the
+Docker image only when <code>cua-ubuntu:latest</code> is absent; then
+starts <code>dev.py --open-browser</code>. <code>dev.py</code> brings
+the sandbox up with
 <code>docker compose up -d --wait --wait-timeout 90</code> (healthy only
 after both <code>9222/health</code> and <code>6080/vnc.html</code>
 answer), waits for <code>GET /api/health</code>, starts Vite on
@@ -1635,7 +1868,7 @@ OAuth.</p>
 <p>Linux/macOS and manual Windows setup remain available:</p>
 <div class="sourceCode" id="user-manual-cb2"><pre
 class="sourceCode powershell"><code class="sourceCode powershell"><span id="user-manual-cb2-1"><a href="#user-manual-cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">Copy-Item</span> <span class="op">.</span><span class="fu">env</span><span class="op">.</span><span class="fu">example</span> <span class="op">.</span><span class="fu">env</span></span>
-<span id="user-manual-cb2-2"><a href="#user-manual-cb2-2" aria-hidden="true" tabindex="-1"></a><span class="co"># Set AGENT_SERVICE_TOKEN and VNC_PASSWORD, then:</span></span>
+<span id="user-manual-cb2-2"><a href="#user-manual-cb2-2" aria-hidden="true" tabindex="-1"></a><span class="co"># Set AGENT_SERVICE_TOKEN, then:</span></span>
 <span id="user-manual-cb2-3"><a href="#user-manual-cb2-3" aria-hidden="true" tabindex="-1"></a>setup<span class="op">.</span><span class="fu">bat</span>             <span class="co"># Windows manual bootstrap</span></span></code></pre></div>
 <div class="sourceCode" id="user-manual-cb3"><pre
 class="sourceCode bash"><code class="sourceCode bash"><span id="user-manual-cb3-1"><a href="#user-manual-cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> setup.sh          <span class="co"># Linux/macOS</span></span></code></pre></div>
@@ -1671,25 +1904,38 @@ final stopped state.</p>
 <p>The settings you'll actually touch:</p>
 <pre class="dotenv"><code>OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
-GOOGLE_API_KEY=AIza...       # process env wins; .env does not override it
-# GEMINI_API_KEY=            # accepted as an alias for GOOGLE_API_KEY
+# Prefer a process-level GOOGLE_API_KEY. Leave these commented when
+# the user/system env var is already set.
+# GOOGLE_API_KEY=AIza...
+# GEMINI_API_KEY=            # alias if GOOGLE_API_KEY is unset
 
 AGENT_SERVICE_TOKEN=...      # generate a unique random value
-VNC_PASSWORD=...             # generate a unique random value
 SCREEN_WIDTH=1440
 SCREEN_HEIGHT=900
-MAX_STEPS=50</code></pre>
-<p><code>AGENT_SERVICE_TOKEN</code> and <code>VNC_PASSWORD</code> are
-required sandbox secrets — generate real random values, don't leave them
-blank or copy an example. The backend loads this file from the
-<strong>repository root</strong> (next to
-<code>docker-compose.yml</code>), not from <code>backend/.env</code>,
-with <code>load_dotenv(..., override=False)</code>. A process-level
-<code>GOOGLE_API_KEY</code> (or other already-set provider key) is not
-overwritten by <code>.env</code>. If the token in <code>.env</code> does
-not match the value Compose passed into the container, screenshots
-return <code>401</code> and the viewport stays blank. If you intend to
-bind the backend to a non-loopback address, also set
+MAX_STEPS=50
+# CUA_MCP_FETCH_CMD=uvx mcp-server-fetch</code></pre>
+<p><code>AGENT_SERVICE_TOKEN</code> is a required sandbox secret —
+generate a real random value, don't leave it blank or copy an example.
+x11vnc starts with <code>-nopw</code>. Compose does not pass
+<code>VNC_PASSWORD</code>. <code>GET /api/v2/desktop</code> returns
+<code>/vnc/vnc.html?autoconnect=1&amp;reconnect=1&amp;resize=scale&amp;path=vnc/websockify</code>
+with no <code>password=</code>. The dashboard
+<code>desktopViewerSrc()</code> strips leftover <code>password</code> /
+<code>token</code> query params.</p>
+<p>The backend snapshots <code>GOOGLE_API_KEY</code>,
+<code>GEMINI_API_KEY</code>, <code>OPENAI_API_KEY</code>, and
+<code>ANTHROPIC_API_KEY</code> from the process environment into
+<code>_USER_ENV</code> <strong>before</strong> loading this file from
+the <strong>repository root</strong> (next to
+<code>docker-compose.yml</code>, not <code>backend/.env</code>) with
+<code>load_dotenv(..., override=False)</code>.
+<code>resolve_api_key()</code> then prefers <code>_USER_ENV</code> over
+a <code>.env</code> assignment (<code>backend/infra/config.py</code>). A
+user-env <code>GOOGLE_API_KEY</code> wins over a repo-root
+<code>.env</code> value. If the token in <code>.env</code> does not
+match the value Compose passed into the container, screenshots return
+<code>401</code> and the viewport stays blank. If you intend to bind the
+backend to a non-loopback address, also set
 <code>CUA_ALLOW_PUBLIC_BIND=1</code> and
 <code>CUA_API_TOKEN=&lt;secret&gt;</code>; without both, the process
 refuses to start when <code>HOST != 127.0.0.1</code>.</p>
@@ -1701,13 +1947,14 @@ refuses to start when <code>HOST != 127.0.0.1</code>.</p>
 <code>http://127.0.0.1:8505</code> after Vite responds. If the browser
 does not open, go there manually. The <strong>Live session</strong>
 viewport is a noVNC iframe (<code>GET /api/v2/desktop</code> →
-<code>/vnc/vnc.html?path=vnc/websockify</code>). It should show the
-sandbox XFCE desktop within a few seconds — you do not need to start a
-run first. The header reads <strong>Stream linked</strong> once
-<code>/api/v2/ws/desktop</code> is connected (pipeline and safety
-events; that socket is not the desktop picture). If the viewport stays
-on <strong>Connecting to sandbox</strong> or never shows a desktop, see
-<a href="#user-manual-troubleshooting">Troubleshooting</a>.</p>
+<code>/vnc/vnc.html?autoconnect=1&amp;reconnect=1&amp;resize=scale&amp;path=vnc/websockify</code>,
+no VNC password). It should show the sandbox XFCE desktop within a few
+seconds — you do not need to start a run first. The header reads
+<strong>Stream linked</strong> once <code>/api/v2/ws/desktop</code> is
+connected (pipeline and safety events; that socket is not the desktop
+picture). If the viewport stays on <strong>Connecting to
+sandbox</strong> or never shows a desktop, see <a
+href="#user-manual-troubleshooting">Troubleshooting</a>.</p>
 <p>Then type a local smoke-test task:</p>
 <blockquote>
 <p>Open the file manager. Stop when the file manager window is
@@ -1753,25 +2000,39 @@ model</strong> (<code>model@route</code>); <strong>Reasoning</strong>
 when the catalog lists <code>reasoningEfforts</code> (hidden for Claude
 Sonnet 5); <strong>Safety policy</strong> (<code>provider_default</code>
 / <code>confirm_mutating</code> / <code>read_only</code>);
-<strong>Provider web search planning</strong> toggle; <strong>Reference
-files</strong>
+<strong>Provider web search planning</strong> toggle (MCP fetch, not
+provider-native search — see below); <strong>Reference files</strong>
 (<code>.md</code>/<code>.txt</code>/<code>.pdf</code>/<code>.docx</code>)
 when the selected model is not Gemini. <strong>Start run</strong> posts
 <code>POST /api/v2/sessions</code> with <code>maxSteps: 50</code>.
 <strong>Stop run</strong> patches the session to <code>STOPPING</code>.
-Default model is the first catalog entry
-(<code>gemini-3.7-flash</code>); default route prefers
-<code>gemini-direct</code>.</li>
+Live defaults in <code>frontend/src/App.tsx</code>: model
+<code>gemini-3.7-flash</code>, <code>preferredRoute</code>
+<code>gemini-direct</code>, fallback
+<code>gemini-3.5-flash-lite@gemini-direct</code>.</li>
+<li><strong>Provider web search planning:</strong> opt-in.
+<code>maybe_plan_with_web_search()</code> in
+<code>backend/providers/_common.py</code> calls
+<code>backend/providers/planner.py</code>: extract or ask the selected
+provider for at most 3 public <code>http(s)</code> URLs, then
+<code>backend/infra/mcp_fetch.py</code> fetches them through
+<code>uvx mcp-server-fetch</code> (override
+<code>CUA_MCP_FETCH_CMD</code>). This is URL fetch, not a search index.
+Localhost, <code>*.local</code>, hostnames without a dot, and non-global
+IP literals are skipped. The Computer Use loop then runs computer-only
+with that brief prepended. Host needs <code>uvx</code> on
+<code>PATH</code>.</li>
 <li><strong>Main (Viewport):</strong> a noVNC iframe. On load the client
-calls <code>GET /api/v2/desktop</code>, rewrites <code>path</code> to
-<code>vnc/websockify</code>, waits until <code>/vnc/vnc.html</code>
-returns 200, then shows XFCE. You do not start a run to see the desktop.
-The iframe stays noVNC for the whole session — it is not swapped for the
-CUAF WebSocket preview. After <strong>Start run</strong>,
-<code>/api/v2/ws/{session_id}</code> carries pipeline stages, safety
-prompts, and terminal events. The header reads <strong>Stream
-linked</strong> when that socket is up, or <strong>Stream idle</strong>
-while connecting.</li>
+calls <code>GET /api/v2/desktop</code>, <code>desktopViewerSrc()</code>
+sets <code>path=vnc/websockify</code> and strips leftover
+<code>password</code> / <code>token</code> query params, waits until
+<code>/vnc/vnc.html</code> returns 200, then shows XFCE. You do not
+start a run to see the desktop. The iframe stays noVNC for the whole
+session — it is not swapped for the CUAF WebSocket preview. After
+<strong>Start run</strong>, <code>/api/v2/ws/{session_id}</code> carries
+pipeline stages, safety prompts, and terminal events. The header reads
+<strong>Stream linked</strong> when that socket is up, or <strong>Stream
+idle</strong> while connecting.</li>
 </ul>
 <p>If the model raises a safety-sensitive action, an amber
 <strong>Approval required</strong> banner appears with
@@ -1906,12 +2167,14 @@ provider: <code>openai-direct</code>, <code>anthropic-direct</code>, or
 <code>gemini-direct</code>. Cloud-intermediary and older preview-model
 routes are not catalogued or selectable.</p>
 <p>When you start a Live session, you pick a <strong>primary
-route</strong>. The dashboard preselects <code>gemini-direct</code> when
-that route exists on the chosen model; otherwise it uses the model's
-first catalog route. An optional fallback is one other
-<code>model@route</code> pair. There is no automatic "pick the
-cheapest/fastest" behavior — routing is the operator's explicit choice.
-The coordinator tries the primary, then only the supplied fallbacks
+route</strong>. The dashboard defaults to model
+<code>gemini-3.7-flash</code> and preselects <code>gemini-direct</code>
+when that route exists on the chosen model; otherwise it uses the
+model's first catalog route. The default fallback is
+<code>gemini-3.5-flash-lite@gemini-direct</code>. You can clear or
+change that pair. There is no automatic "pick the cheapest/fastest"
+behavior — routing is the operator's explicit choice. The coordinator
+tries the primary, then only the supplied fallbacks
 (<code>max_attempts=1</code> per route).</p>
 <p>If a route fails <strong>3</strong> times, its
 <strong>circuit</strong> opens (Providers tab shows <code>OPEN</code>
@@ -1935,18 +2198,21 @@ the audit database.</li>
 absolute latest</strong> (shorter if you configure a smaller TTL via the
 API), whether you're actively using it or not.</li>
 <li>If a session's credential has expired, gone missing, or simply
-wasn't supplied, the app falls back to whatever provider API key is set
-in your <code>.env</code>/system environment for that provider — so a
-stale or expired credential session never silently uses the
-<em>wrong</em> key, it only ever falls back to your own
-already-configured one.</li>
+wasn't supplied, v2 calls <code>resolve_api_key()</code>: user/process
+env snapshotted in <code>_USER_ENV</code> first
+(<code>GOOGLE_API_KEY</code> then <code>GEMINI_API_KEY</code> for
+Google), then values dotenv loaded from <code>.env</code>. A stale or
+expired credential session never silently uses the <em>wrong</em> key —
+it only falls back to your own already-configured one.</li>
 <li>Deleting the credential session (the trash icon next to "Credential
 session active") removes it from memory immediately, before its TTL
 would otherwise expire.</li>
 </ul>
-<p>If you'd rather not use the Providers tab at all, simply configure
-your key(s) in <code>.env</code> — every route will resolve credentials
-from there automatically with no credential session needed.</p>
+<p>If you'd rather not use the Providers tab at all, set the provider
+keys in the user/process environment (preferred for
+<code>GOOGLE_API_KEY</code>) or in repo-root <code>.env</code>. Routes
+resolve through <code>resolve_api_key()</code> with no credential
+session needed.</p>
 <p>Google also supports browser OAuth. Set
 <code>GOOGLE_OAUTH_CLIENT_ID</code> and either
 <code>GOOGLE_OAUTH_CLIENT_SECRET</code> or
@@ -2011,9 +2277,15 @@ passwords or 2FA codes.</li>
 <pre class="text"><code>Open the calculator app. Type &quot;2 + 2&quot; and press Enter.
 Stop when the display shows &quot;4&quot;. Tell me the displayed result.</code></pre>
 <p><strong>Web research</strong> (dashboard: turn on <strong>Provider
-web search planning</strong>, or v1
-<code>use_builtin_search: true</code>):</p>
-<pre class="text"><code>Open the browser and go to the official OpenAI docs.
+web search planning</strong>, or v1/v2 <code>useBuiltinSearch</code> /
+<code>use_builtin_search: true</code>). That toggle does
+<strong>not</strong> attach provider <code>web_search</code> / Google
+Search. The planner extracts or asks for up to 3 public
+<code>https</code> URLs, fetches them via
+<code>uvx mcp-server-fetch</code>, then the desktop loop runs
+computer-only with that brief. Put the official URL in the task when you
+know it:</p>
+<pre class="text"><code>Open the browser and go to https://platform.openai.com/docs.
 Find the Computer Use guide. Do not sign in or change any settings.
 Stop when the guide page is visible.
 Tell me the page title and the first section heading.</code></pre>
@@ -2079,8 +2351,9 @@ to model default)</td>
 </tr>
 <tr>
 <td><strong>Web Search planning pass</strong></td>
-<td>✅ toggle → <code>useBuiltinSearch</code></td>
-<td>✅ <code>use_builtin_search: true</code></td>
+<td>✅ toggle → MCP fetch (<code>uvx mcp-server-fetch</code>) then
+CU-only</td>
+<td>✅ <code>use_builtin_search: true</code> (same MCP planner)</td>
 </tr>
 <tr>
 <td><strong>File attachments</strong>
@@ -2123,10 +2396,8 @@ class="level2">
 <code>TECHNICAL.md</code> and via the live OpenAPI document at
 <code>/docs</code>. This section is the operator-friendly walkthrough of
 common patterns for both surfaces.</p>
-<section
-id="user-manual-v1--quick-start-a-session-with-web-search-and-files"
-class="level3">
-<h3>v1 — quick-start a session with Web Search and files</h3>
+<section id="user-manual-v1--quick-start-a-session" class="level3">
+<h3>v1 — quick-start a session</h3>
 <div class="sourceCode" id="user-manual-cb11"><pre
 class="sourceCode bash"><code class="sourceCode bash"><span id="user-manual-cb11-1"><a href="#user-manual-cb11-1" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> <span class="at">-X</span> POST http://127.0.0.1:8100/api/agent/start <span class="dt">\</span></span>
 <span id="user-manual-cb11-2"><a href="#user-manual-cb11-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">-H</span> <span class="st">&quot;Content-Type: application/json&quot;</span> <span class="dt">\</span></span>
@@ -2248,9 +2519,12 @@ operators usually need.</p>
 <tr>
 <td><code>CUA_API_TOKEN</code></td>
 <td>unset</td>
-<td>Shared secret gating sensitive/mutating REST operations,
-<code>/ws</code>, <code>/api/v2/ws/*</code>, and <code>/vnc/*</code>.
-<code>CUA_WS_TOKEN</code> is a deprecated fallback.</td>
+<td>Shared secret gating <code>/api/*</code> (reads and writes, except
+the Google OAuth callback), <code>/ws</code>, <code>/api/v2/ws/*</code>,
+and <code>/vnc/websockify</code>. HTTP: <code>X-CUA-Token</code> or
+<code>?token=</code>. Browser WS/noVNC: <code>token</code> query.
+Default-open on loopback when unset. <code>CUA_WS_TOKEN</code> is a
+deprecated fallback.</td>
 </tr>
 <tr>
 <td><code>CUA_ALLOWED_HOSTS</code></td>
@@ -2303,10 +2577,28 @@ these.</td>
 <td>Bearer token enforced by the in-container agent service.</td>
 </tr>
 <tr>
+<td><code>VNC_PASSWORD</code></td>
+<td>unused</td>
+<td>Ignored. x11vnc starts with <code>-nopw</code>; Compose does not
+pass this in.</td>
+</tr>
+<tr>
 <td><code>CUA_ENABLE_LEGACY_ACTIONS</code></td>
 <td><code>0</code></td>
 <td>Re-enables shell/clipboard/window-management actions inside the
 sandbox. Do not enable when binding non-loopback.</td>
+</tr>
+<tr>
+<td><code>CUA_ALLOWED_NAV_HOSTS</code></td>
+<td>unset</td>
+<td>Optional comma-separated host allowlist for <code>navigate</code> /
+<code>open_url</code>.</td>
+</tr>
+<tr>
+<td><code>CUA_MCP_FETCH_CMD</code></td>
+<td><code>uvx mcp-server-fetch</code></td>
+<td>Fetch MCP used when <strong>Provider web search planning</strong> is
+on. Host needs <code>uvx</code> on <code>PATH</code>.</td>
 </tr>
 </tbody>
 </table>
@@ -2441,9 +2733,10 @@ class="level3">
 <h3>Viewport says "Connecting to sandbox" or never shows a desktop</h3>
 <p>The Live viewport is a noVNC iframe, not the CUAF WebSocket image.
 <code>GET /api/v2/desktop</code> must yield <code>/vnc/vnc.html</code>
-with <code>path=vnc/websockify</code> (a bare <code>websockify</code>
-hits unproxied <code>ws://127.0.0.1:8505/websockify</code> and fails).
-Check, in order:</p>
+with <code>path=vnc/websockify</code> and <strong>no</strong>
+<code>password=</code> (a bare <code>websockify</code> hits unproxied
+<code>ws://127.0.0.1:8505/websockify</code> and fails). Check, in
+order:</p>
 <ol type="1">
 <li>The sandbox is up:
 <code>docker ps --filter name=cua-environment</code> should show
@@ -2494,7 +2787,10 @@ attach files before <strong>Start run</strong>. Gemini hides the file
 input and rejects attachments at session start. Confirm the v2 session
 body actually sent <code>useBuiltinSearch</code> /
 <code>attachedFiles</code> (browser Network tab, or the v2 curl example
-above).</p>
+above). Planning needs <code>uvx</code> on <code>PATH</code> (or a
+working <code>CUA_MCP_FETCH_CMD</code>). If MCP spawn/fetch fails, the
+run continues computer-only with a warning log and no brief. Localhost
+and private IP URLs in the task are skipped.</p>
 </section>
 <section id="user-manual-port-already-in-use" class="level3">
 <h3>Port already in use</h3>
@@ -2519,10 +2815,11 @@ class="sourceCode powershell"><code class="sourceCode powershell"><span id="user
 <p>Focused checks:</p>
 <div class="sourceCode" id="user-manual-cb23"><pre
 class="sourceCode powershell"><code class="sourceCode powershell"><span id="user-manual-cb23-1"><a href="#user-manual-cb23-1" aria-hidden="true" tabindex="-1"></a>uv run pytest tests<span class="op">/</span>test_v2_platform<span class="op">.</span><span class="fu">py</span> <span class="op">--</span>tb<span class="op">=</span>short          <span class="co"># v2 platform contract</span></span>
-<span id="user-manual-cb23-2"><a href="#user-manual-cb23-2" aria-hidden="true" tabindex="-1"></a>uv run pytest tests<span class="op">/</span>test_provider_run_contract<span class="op">.</span><span class="fu">py</span> <span class="op">--</span>tb<span class="op">=</span>short</span>
-<span id="user-manual-cb23-3"><a href="#user-manual-cb23-3" aria-hidden="true" tabindex="-1"></a>uv run pytest tests<span class="op">/</span>test_server<span class="op">.</span><span class="fu">py</span> <span class="op">--</span>tb<span class="op">=</span>short</span>
-<span id="user-manual-cb23-4"><a href="#user-manual-cb23-4" aria-hidden="true" tabindex="-1"></a>uv run pytest tests<span class="op">/</span>engine<span class="op">/</span>test_openai<span class="op">.</span><span class="fu">py</span> tests<span class="op">/</span>engine<span class="op">/</span>test_claude<span class="op">.</span><span class="fu">py</span> tests<span class="op">/</span>engine<span class="op">/</span>test_gemini<span class="op">.</span><span class="fu">py</span> <span class="op">--</span>tb<span class="op">=</span>short</span>
-<span id="user-manual-cb23-5"><a href="#user-manual-cb23-5" aria-hidden="true" tabindex="-1"></a>uv run pytest tests<span class="op">/</span>docker<span class="op">/</span>test_agent_service<span class="op">.</span><span class="fu">py</span> <span class="op">--</span>tb<span class="op">=</span>short  <span class="co"># in-container service; no Docker needed</span></span></code></pre></div>
+<span id="user-manual-cb23-2"><a href="#user-manual-cb23-2" aria-hidden="true" tabindex="-1"></a>uv run pytest tests<span class="op">/</span>test_mcp_fetch<span class="op">.</span><span class="fu">py</span> <span class="op">--</span>tb<span class="op">=</span>short            <span class="co"># MCP planner URL filter (offline)</span></span>
+<span id="user-manual-cb23-3"><a href="#user-manual-cb23-3" aria-hidden="true" tabindex="-1"></a>uv run pytest tests<span class="op">/</span>test_provider_run_contract<span class="op">.</span><span class="fu">py</span> <span class="op">--</span>tb<span class="op">=</span>short</span>
+<span id="user-manual-cb23-4"><a href="#user-manual-cb23-4" aria-hidden="true" tabindex="-1"></a>uv run pytest tests<span class="op">/</span>test_server<span class="op">.</span><span class="fu">py</span> <span class="op">--</span>tb<span class="op">=</span>short</span>
+<span id="user-manual-cb23-5"><a href="#user-manual-cb23-5" aria-hidden="true" tabindex="-1"></a>uv run pytest tests<span class="op">/</span>engine<span class="op">/</span>test_openai<span class="op">.</span><span class="fu">py</span> tests<span class="op">/</span>engine<span class="op">/</span>test_claude<span class="op">.</span><span class="fu">py</span> tests<span class="op">/</span>engine<span class="op">/</span>test_gemini<span class="op">.</span><span class="fu">py</span> <span class="op">--</span>tb<span class="op">=</span>short</span>
+<span id="user-manual-cb23-6"><a href="#user-manual-cb23-6" aria-hidden="true" tabindex="-1"></a>uv run pytest tests<span class="op">/</span>docker<span class="op">/</span>test_agent_service<span class="op">.</span><span class="fu">py</span> <span class="op">--</span>tb<span class="op">=</span>short  <span class="co"># in-container service; no Docker needed</span></span></code></pre></div>
 <p>Live SDK integration tests are gated behind the
 <code>integration</code> marker and excluded from the default run (they
 need a real provider key and outbound network access):</p>
@@ -2564,7 +2861,8 @@ href="#doc-handbook">Zero to Hero Study
 Handbook</a>. For prompt patterns, read
 <code>docs/computer-use-prompt-guide.md</code>. For changelog and
 release notes, read <code>CHANGELOG.md</code> and
-<code>docs/release-notes-v3.1.1.md</code>.</p>
+<code>docs/release-notes-v3.1.1.md</code>. Security model: <a
+href="#doc-security">SECURITY.md</a>.</p>
 </section>
 <section id="user-manual-appendix-a--operating-patterns" class="level2">
 <h2>Appendix A — Operating Patterns</h2>
@@ -2686,9 +2984,12 @@ coordinates are remapped back to real screen space automatically.</li>
 API with the <code>computer-use-2025-11-24</code> header to avoid the
 SDK's HTTP-timeout guard at the configured <code>max_tokens</code>
 budget.</li>
-<li><strong>Web search probe.</strong> The first session per API key per
-24 hours that enables Web Search runs a small probe call confirming the
-org has access; cached for 24 hours after success.</li>
+<li><strong>Web-search planning.</strong> Live/v1/v2
+<code>useBuiltinSearch</code> runs the MCP fetch planner, then the
+Claude Computer Use loop stays computer-only
+(<code>use_builtin_search=False</code> on the CU client). The
+org-enablement probe in <code>claude.py</code> is not called on that
+start path.</li>
 <li><strong>Document handling.</strong> PDFs/TXTs upload via the Files
 API as document blocks; Markdown/DOCX are extracted and inlined as plain
 text — there is no Anthropic-side vector store equivalent.</li>
@@ -2777,19 +3078,32 @@ provider.</li>
 <li>Logs stay on the host. Set <code>LOG_FORMAT=json</code> if you want
 to pipe them into a log-aggregation tool you control.</li>
 </ul>
-<p>The provider call itself is the only outbound traffic the backend
-makes during normal operation. The in-container agent service does not
-call out to the network on its own — but the model's own browser/desktop
-actions inside the sandbox can of course initiate arbitrary outbound
-traffic from inside that container, since that's the whole point of
-letting it operate a browser.</p>
+<p>The provider API call is the usual outbound traffic from the backend.
+When <strong>Provider web search planning</strong> is on, the host also
+fetches up to 3 public pages through <code>uvx mcp-server-fetch</code>
+(see <code>backend/infra/mcp_fetch.py</code>). The in-container agent
+service does not call out to the network on its own — but the model's
+own browser/desktop actions inside the sandbox can initiate arbitrary
+outbound traffic from inside that container, since that's the whole
+point of letting it operate a browser.</p>
+<p>Community testing, bugs, ideas, and PRs are welcome. Do not send
+money. See <a href="../CONTRIBUTING.md">CONTRIBUTING.md</a> and <a
+href="../SUPPORT.md">SUPPORT.md</a>.</p>
 </section>
 </section>
 <footer class="lesson-nav"><button type="button" data-previous>Previous</button><button type="button" data-next>Next</button></footer></article><article class="manual-entry" id="doc-prompt-guide" data-audiences="user technical"><p class="source-label">Operate · Source: docs/computer-use-prompt-guide.md</p><section id="prompt-guide-computer-use-prompt-guide" class="level1">
 <h1>Computer Use Prompt Guide</h1>
-<p>This app runs provider-native Computer Use. It can optionally add Web
-Search and provider file retrieval. Prompts should describe the desktop
-outcome, allowed evidence, safety boundaries, and stop condition.</p>
+<p>This app runs provider-native Computer Use. It can optionally run a
+<strong>web-search planning</strong> pass (Live toggle /
+<code>useBuiltinSearch</code>) and provider file retrieval. Planning is
+<strong>not</strong> provider-native <code>web_search</code> or Google
+Search. <code>backend/providers/planner.py</code> extracts or asks for
+up to 3 public <code>http(s)</code> URLs,
+<code>backend/infra/mcp_fetch.py</code> fetches them via
+<code>uvx mcp-server-fetch</code>, then the Computer Use loop runs
+computer-only with that brief. Prompts should describe the desktop
+outcome, allowed evidence, safety boundaries, and stop condition. Put
+the official URL in the task when you know it.</p>
 <section id="prompt-guide-short-rule" class="level2">
 <h2>Short Rule</h2>
 <p>Write the task like a work order for a careful desktop operator.</p>
@@ -2816,7 +3130,7 @@ Starting point:
 [App, website, file, or current screen.]
 
 Sources:
-[Visible page, attached files, official docs, Web Search, or a specific domain.]
+[Visible page, attached files, official docs, a specific URL, or MCP-fetched public pages when planning is on.]
 
 Constraints:
 [Things not to click, submit, buy, delete, publish, save, or change.]
@@ -2835,27 +3149,28 @@ Approval boundary:
 <p>Web Search off:</p>
 <pre class="text"><code>Use only the visible desktop and the page I open.
 Do not browse elsewhere unless I ask.</code></pre>
-<p>Web Search on:</p>
-<pre class="text"><code>Use Web Search only for current public information.
-Prefer official sources.
-Ignore unrelated search results.</code></pre>
+<p>Web Search planning on:</p>
+<pre class="text"><code>Use only official public URLs I name (or that the planner listed).
+Prefer those pages for current public facts.
+Do not invent extra sites. The desktop loop has no search tool.</code></pre>
 <p>Files uploaded:</p>
 <pre class="text"><code>Use the attached file as the source of truth.
 If the website disagrees with the file, report the mismatch before acting.</code></pre>
-<p>Files plus Web Search:</p>
+<p>Files plus web-search planning:</p>
 <pre class="text"><code>Use the attached file for internal requirements.
-Use Web Search only to verify current public facts.
+Use fetched official pages only to verify current public facts.
 Keep those two sources separate in the final answer.</code></pre>
 <p>Gemini with files:</p>
 <pre class="text"><code>Do not upload reference files for Gemini Computer Use sessions.
 Use OpenAI or Anthropic when the task needs file retrieval plus Computer Use.</code></pre>
 <p>Provider selection:</p>
 <pre class="text"><code>Use OpenAI or Anthropic if the task depends on attached reference files.
-Use Gemini only for screen-driven Computer Use, optionally with Google Search
-grounding when Web Search is enabled.</code></pre>
+Use Gemini only for screen-driven Computer Use. Planning, if enabled,
+fetches public URLs via MCP; it does not attach Google Search to the
+Computer Use loop.</code></pre>
 <p>Source precedence:</p>
 <pre class="text"><code>Treat the attached file as the source of truth for internal requirements.
-Use Web Search only for current public facts.
+Use fetched official pages only for current public facts.
 If the sources conflict, stop and report the conflict instead of guessing.</code></pre>
 </section>
 <section id="prompt-guide-good-examples" class="level2">
@@ -2874,15 +3189,15 @@ Do not save, submit, or edit anything.
 Stop after inspecting the form.
 Return missing fields as a short bullet list.</code></pre>
 <p>Use live web context:</p>
-<pre class="text"><code>Use Web Search and official sources only.
-Find the current pricing page for the selected provider.
-Open the page in the browser.
+<pre class="text"><code>Turn on Provider web search planning. Start from this official URL:
+https://platform.openai.com/docs/pricing
+Open that page in the browser.
 Stop when the pricing table is visible.
 Summarize the relevant price and include the visible source page title.</code></pre>
 <p>Compare file and web page:</p>
 <pre class="text"><code>Use the attached release checklist as the source of truth.
 Open the product page that is already visible in the browser.
-If Web Search is enabled, use it only to verify the current public page URL.
+If planning is on, use fetched official pages only to verify the current public URL.
 Do not publish, save, or submit anything.
 Stop after comparing the visible page to the checklist.
 Return: matching items, missing items, and uncertain items.</code></pre>
@@ -2912,8 +3227,9 @@ boundary.</p>
 <pre class="text"><code>Use the attached policy as source of truth, but ignore it if search says
 something newer.</code></pre>
 <p>Instead, decide the precedence explicitly:</p>
-<pre class="text"><code>Use the attached policy for internal requirements. Use Web Search only to
-check whether the public page changed. If they disagree, report the mismatch.</code></pre>
+<pre class="text"><code>Use the attached policy for internal requirements. Use fetched official
+pages only to check whether the public page changed. If they disagree,
+report the mismatch.</code></pre>
 </section>
 <section id="prompt-guide-stop-conditions" class="level2">
 <h2>Stop Conditions</h2>
@@ -2975,9 +3291,14 @@ loopback during development. The production-style path below still
 serves the built SPA from FastAPI on port <code>8100</code>. Both
 <code>http://127.0.0.1:8505</code> and
 <code>http://127.0.0.1:8100</code> are default WebSocket origins so the
-live desktop stream works on either URL. The backend loads the
-repository-root <code>.env</code> so <code>AGENT_SERVICE_TOKEN</code>
-matches the sandbox.</p>
+live desktop stream works on either URL. The backend snapshots
+user/process <code>GOOGLE_API_KEY</code> (then
+<code>GEMINI_API_KEY</code>) into <code>_USER_ENV</code> before loading
+the repository-root <code>.env</code>
+(<code>load_dotenv(..., override=False)</code>), so
+<code>AGENT_SERVICE_TOKEN</code> matches the sandbox and a user-env
+Google key wins over <code>.env</code>. x11vnc starts with
+<code>-nopw</code>; <code>VNC_PASSWORD</code> is unused.</p>
 </section>
 <section id="deployment-production-style-local-deployment"
 class="level2">
@@ -2985,12 +3306,15 @@ class="level2">
 <ol type="1">
 <li>Install Docker Desktop, Node.js 22, and uv.</li>
 <li>Copy <code>.env.example</code> to <code>.env</code>; set an OpenAI,
-Anthropic, or Google API key (process <code>GOOGLE_API_KEY</code> is
-enough for Gemini; dotenv does not override it), or configure Google
-OAuth with <code>GOOGLE_OAUTH_CLIENT_ID</code> and
-<code>GOOGLE_OAUTH_CLIENT_SECRET</code>. Set strong
-<code>AGENT_SERVICE_TOKEN</code> and <code>VNC_PASSWORD</code>
-values.</li>
+Anthropic, or Google API key (prefer a process-level
+<code>GOOGLE_API_KEY</code> — <code>_USER_ENV</code> in
+<code>backend/infra/config.py</code> wins over <code>.env</code>), or
+configure Google OAuth with <code>GOOGLE_OAUTH_CLIENT_ID</code> and
+<code>GOOGLE_OAUTH_CLIENT_SECRET</code>. Set a strong
+<code>AGENT_SERVICE_TOKEN</code>. Optional:
+<code>CUA_MCP_FETCH_CMD</code> if Provider web-search planning should
+use something other than <code>uvx mcp-server-fetch</code> (host needs
+<code>uvx</code> on <code>PATH</code>).</li>
 <li>Install locked dependencies: <code>uv sync --frozen</code> and
 <code>npm --prefix frontend ci</code>.</li>
 <li>Build the dashboard:
@@ -3038,8 +3362,12 @@ targets. Unset means any <code>http</code>/<code>https</code> URL is
 allowed; when set, other hosts are rejected.</p>
 <p>Keep all ports loopback-bound. External binding requires
 <code>CUA_ALLOW_PUBLIC_BIND=1</code> and <code>CUA_API_TOKEN</code>,
-plus an authenticated TLS reverse proxy. The same token protects REST,
-WebSocket, and noVNC access; <code>CUA_WS_TOKEN</code> is a deprecated
+plus an authenticated TLS reverse proxy. When set,
+<code>CUA_API_TOKEN</code> gates <code>/api/*</code> (reads and writes,
+except the Google OAuth callback), <code>/ws</code>,
+<code>/api/v2/ws/*</code>, and <code>/vnc/websockify</code>. HTTP:
+<code>X-CUA-Token</code> or <code>?token=</code>. Browser WS/noVNC:
+<code>token</code> query. <code>CUA_WS_TOKEN</code> is a deprecated
 fallback. The Docker socket and host filesystem must never be exposed to
 the model container.</p>
 </section>
@@ -3193,20 +3521,23 @@ controls for <code>provider_default</code>,
 <code>confirm_mutating</code>, and <code>read_only</code> policies.</p>
 </section>
 <section
-id="handbook-provider-native-web-search-why-its-not-just-another-tool"
+id="handbook-web-search-planning-why-its-not-a-search-tool-on-the-cu-loop"
 class="level3">
-<h3>Provider-native web search (why it's not just another tool)</h3>
+<h3>Web-search planning (why it's not a search tool on the CU loop)</h3>
 <p>Adding a generic "search the web" tool alongside the computer tool
 would let the model split attention between two very different tool
-contracts every single turn, which measurably hurts CU tool-call
-reliability. So instead, when web search is enabled, this repo runs a
-<strong>separate, one-shot planning call</strong> before the CU loop
-even starts
-(<code>backend/providers/planner.py::create_web_execution_brief()</code>)
-using each vendor's own native search tool, and folds the resulting
-brief into the CU task text as plain instructions. The CU loop itself
-never sees a search tool — only the <code>computer</code> tool, every
-turn, with no competition.</p>
+contracts every single turn. So when Live <strong>Provider web search
+planning</strong> (<code>useBuiltinSearch</code>) is on, this repo runs
+a <strong>separate planning call</strong> before the CU loop
+(<code>backend/providers/planner.py::create_web_execution_brief()</code>).
+The planner extracts or asks for at most 3 public <code>http(s)</code>
+URLs, then <code>backend/infra/mcp_fetch.py</code> fetches them through
+<code>uvx mcp-server-fetch</code> (override
+<code>CUA_MCP_FETCH_CMD</code>). That is URL fetch, not a search index
+and not OpenAI/Anthropic/Gemini native <code>web_search</code>. The
+brief is folded into the CU task text. <code>ComputerUseEngine</code>
+constructs CU clients with <code>use_builtin_search=False</code>. The CU
+loop never sees a search tool.</p>
 </section>
 <section
 id="handbook-v2-concepts-deterministic-fallback-circuit-breaking-and-audited-state"
@@ -3292,8 +3623,8 @@ disk.</td>
 </tr>
 <tr>
 <td><strong>CUAF frame</strong></td>
-<td>(v2) The custom binary WebSocket frame format used to stream
-compressed screenshot previews (see Module 1).</td>
+<td>(v2) Binary WebSocket preview format. Decoded in the client but
+<strong>not</strong> shown on Live; the picture is noVNC.</td>
 </tr>
 <tr>
 <td><strong>Checkpoint</strong></td>
@@ -3318,7 +3649,7 @@ is a local full-stack workbench for provider-native Computer Use agents
 (Google Gemini, Anthropic Claude, OpenAI) running against a Dockerized
 Linux desktop.</li>
 <li><strong>Primary use cases:</strong> browser automation, desktop app
-automation, screenshot-driven task execution, optional provider-native
+automation, screenshot-driven task execution, optional MCP-fetch
 web-search planning, and optional document-grounded runs.</li>
 <li><strong>Runtime boundary:</strong> the application targets one
 trusted operator on one workstation. FastAPI runs as a single process
@@ -3417,9 +3748,9 @@ history, and retained audit frames.</td>
 </tr>
 <tr>
 <td>Frame streaming</td>
-<td>v1 uses <code>/ws</code>; v2 uses coalesced binary <code>CUAF</code>
-frames at <code>/api/v2/ws/desktop</code> (idle sandbox) and
-<code>/api/v2/ws/{id}</code> (active run).</td>
+<td>v1 uses <code>/ws</code>; v2 sockets send coalesced binary
+<code>CUAF</code> plus JSON events. Live picture is noVNC
+(<code>/vnc/vnc.html</code>, no password), not CUAF.</td>
 </tr>
 <tr>
 <td>Frontend</td>
@@ -3459,7 +3790,7 @@ FastAPI Server (backend/server/__init__.py)
    |      |
    |      +--&gt; Provider run wrapper (backend/providers/*.py)
    |      |       |
-   |      |       +--&gt; optional planning (backend/providers/planner.py)
+   |      |       +--&gt; optional MCP-fetch planning (planner.py + infra/mcp_fetch.py)
    |      |       +--&gt; provider client loop (backend/engine/openai.py|claude.py|gemini.py)
    |      |
    |      v
@@ -3506,11 +3837,13 @@ SQLite audit, frame retention, and CUAF streaming in
 token-protected action service in <code>docker/agent_service.py</code>,
 <code>docker/entrypoint.sh</code>, and
 <code>docker-compose.yml</code>.</li>
-<li><strong>Frontend:</strong> six-tab v2 workbench, token-aware API/WS
-clients, preview decoding, and session-cost list rates in
-<code>frontend/src/App.tsx</code>, <code>api.ts</code>,
+<li><strong>Frontend:</strong> six-tab v2 workbench (Mission control
+portaled into the CONTROL sidebar on Live; noVNC viewport; session-cost
+list rates) in <code>frontend/src/App.tsx</code>, <code>api.ts</code>,
 <code>useLiveStream.ts</code>, <code>protocol.ts</code>, and
-<code>pricing.ts</code>.</li>
+<code>pricing.ts</code>. Live defaults: <code>gemini-3.7-flash</code> /
+<code>gemini-direct</code> / fallback
+<code>gemini-3.5-flash-lite@gemini-direct</code>.</li>
 <li><strong>Tooling:</strong> local configuration, development
 orchestration, and release/documentation builds in
 <code>.env.example</code>, <code>run.cmd</code>, <code>dev.py</code>,
@@ -3541,9 +3874,11 @@ validates:
 <code>backend/files.py::validate_attached_files()</code></li>
 <li>reasoning/search config via
 <code>validate_builtin_search_config()</code></li>
-<li>API key via <code>resolve_api_key()</code> (UI input → process env,
-including <code>GOOGLE_API_KEY</code> → <code>.env</code> loaded with
-<code>override=False</code>)</li>
+<li>API key via <code>resolve_api_key()</code> (UI input →
+<code>_USER_ENV</code> snapshotted before dotenv,
+<code>GOOGLE_API_KEY</code> then <code>GEMINI_API_KEY</code> → values
+<code>load_dotenv(..., override=False)</code> loaded from repo-root
+<code>.env</code>)</li>
 </ul></li>
 <li>Backend starts/checks the sandbox via
 <code>backend/infra/docker.py::start_container()</code>. A
@@ -3584,7 +3919,8 @@ via <code>backend/prompts.py::get_system_prompt(...)</code>.</li>
 <li>The provider wrapper (<code>backend/providers/openai.py</code>,
 <code>anthropic.py</code>, <code>gemini.py</code>) can run
 <code>maybe_plan_with_web_search(...)</code> first if search is enabled
-(see Module 0 — this is a separate call, not a competing tool).</li>
+(MCP fetch of public URLs, then a text brief — see Module 0. Not a
+competing native search tool).</li>
 <li>The provider client emits turn records/logs;
 <code>AgentLoop._on_turn()</code> maps action data to a
 <code>StepRecord</code>, running a stuck-agent fingerprint check (three
@@ -3727,8 +4063,8 @@ resolves the model from <code>ModelCatalog</code>, validates the primary
 <li><code>_coordinate()</code> calls <code>run_with_fallback()</code>
 (<code>backend/v2/routing.py</code>) over the ordered route list. For
 each route, <code>_invoke()</code> resolves a credential — the vault
-first, falling back to the environment variable for that provider if no
-vault session was supplied — then calls
+first, else <code>resolve_api_key()</code> (<code>_USER_ENV</code> then
+dotenv) for that provider if no vault session was supplied — then calls
 <code>V2Orchestrator.start()</code>, which runs the same
 <code>AgentLoop</code> v1 uses.</li>
 <li>On success, confirmed actions are journalled one-by-one via
@@ -3761,8 +4097,10 @@ timestamp, followed by the raw WebP/JPEG bytes). A capture failure sends
 <code>FRAME_CAPTURE_FAILED</code> and retries instead of closing the
 socket.</li>
 <li><code>frontend/src/protocol.ts::decodeCuafFrame()</code> parses that
-header back out and hands the frontend an object URL to paint into
-<code>&lt;img&gt;</code>.</li>
+header. The Live viewport does <strong>not</strong> paint CUAF frames;
+it is a noVNC iframe (<code>GET /api/v2/desktop</code>, no
+<code>password=</code>). The socket carries pipeline, safety, and
+terminal events.</li>
 <li>If audit-frame retention is enabled for a real session id, the
 canonical (uncompressed) frame is also written to disk via
 <code>FrameRetentionStore.put()</code>, hashed and content-addressed,
@@ -3812,7 +4150,8 @@ subject to the 7-day / 1 GiB eviction policy. The idle
 <h3>Environment setup</h3>
 <p>On Windows 11, double-click <code>run.cmd</code>. It installs missing
 Docker Desktop, Node.js LTS, and uv through winget; creates
-<code>.env</code> if needed; generates the required sandbox secrets;
+<code>.env</code> if needed; generates the
+<code>AGENT_SERVICE_TOKEN</code> (and unused <code>VNC_PASSWORD</code>);
 installs locked dependencies only when they are missing; rebuilds
 esbuild after a fresh <code>npm ci</code>; builds the sandbox image only
 when <code>cua-ubuntu:latest</code> is absent; waits for
@@ -3820,17 +4159,21 @@ when <code>cua-ubuntu:latest</code> is absent; waits for
 <code>http://127.0.0.1:8505</code>. The Live tab should show the XFCE
 desktop without starting a run. Vite listens on IPv4 loopback and, on
 Windows, is started through Node rather than <code>npm.cmd</code>.
-Existing <code>.env</code> values are preserved. The backend loads the
-repository-root <code>.env</code>. If Docker asks for a restart or
-initial WSL setup, complete it and run <code>run.cmd</code> again.
-<code>START.bat</code> still always runs the full <code>setup.bat</code>
-bootstrap.</p>
+Existing <code>.env</code> values are preserved. The backend snapshots
+provider keys into <code>_USER_ENV</code> then loads the repository-root
+<code>.env</code>. If Docker asks for a restart or initial WSL setup,
+complete it and run <code>run.cmd</code> again. <code>START.bat</code>
+still always runs the full <code>setup.bat</code> bootstrap.</p>
 <p>For manual or non-Windows setup:</p>
 <ol type="1">
 <li>Copy <code>.env.example</code> to <code>.env</code>.</li>
-<li>Set required sandbox secrets: <code>AGENT_SERVICE_TOKEN=...</code>,
-<code>VNC_PASSWORD=...</code> (generate unique random values — don't
-reuse examples).</li>
+<li>Set the required sandbox secret:
+<code>AGENT_SERVICE_TOKEN=...</code> (generate a unique random value —
+don't reuse examples). x11vnc starts with <code>-nopw</code>;
+<code>VNC_PASSWORD</code> is unused. <code>GET /api/v2/desktop</code>
+has no <code>password=</code>. Prefer process-level
+<code>GOOGLE_API_KEY</code> (<code>_USER_ENV</code> wins over
+<code>.env</code>).</li>
 <li>Sign in from the Provider Manager with an OpenAI, Anthropic, or
 Google API key; alternatively configure Google OAuth.</li>
 <li>Optional: <code>HOST</code>/<code>PORT</code>,
@@ -3838,7 +4181,8 @@ Google API key; alternatively configure Google OAuth.</li>
 <code>data/computer-use-v2.sqlite3</code>),
 <code>CUA_V2_FRAME_PATH</code>, <code>CUA_API_TOKEN</code> +
 <code>CUA_ALLOW_PUBLIC_BIND=1</code> for external binding,
-<code>CORS_ORIGINS</code>, <code>CUA_ALLOWED_HOSTS</code>.</li>
+<code>CORS_ORIGINS</code>, <code>CUA_ALLOWED_HOSTS</code>,
+<code>CUA_MCP_FETCH_CMD</code>.</li>
 </ol>
 </section>
 <section id="handbook-typical-command-sequences" class="level3">
@@ -3927,6 +4271,7 @@ the same binary format.</li>
 <li>Review tests: <code>tests/test_server.py</code>,
 <code>tests/test_v2_platform.py</code>,
 <code>tests/test_provider_run_contract.py</code>,
+<code>tests/test_mcp_fetch.py</code>,
 <code>tests/docker/test_agent_service.py</code>.</li>
 </ol>
 </section>
@@ -3939,9 +4284,10 @@ behavior end-to-end.</strong> Files:
 <code>backend/server/__init__.py</code>,
 <code>backend/providers/_common.py</code>,
 <code>backend/providers/planner.py</code>. Outline: request flag
-validated → provider wrapper runs a one-shot planning call with the
-vendor's native search tool → planner brief is appended into the CU task
-text; the CU loop itself never sees a search tool.</p></li>
+validated → planner extracts/asks for up to 3 public URLs →
+<code>mcp_fetch.py</code> fetches them via
+<code>uvx mcp-server-fetch</code> → brief prepended to the CU task; CU
+clients stay <code>use_builtin_search=False</code>.</p></li>
 <li><p><strong>Explain why <code>POST /api/agent/start</code> can return
 <code>409</code> even when the container process exists.</strong> Files:
 <code>backend/server/__init__.py</code>,
@@ -4036,8 +4382,15 @@ layer?</li>
 </ul>
 </section>
 </section>
-<footer class="lesson-nav"><button type="button" data-previous>Previous</button><button type="button" data-next>Next</button></footer></article><article class="manual-entry" id="doc-technical" data-audiences="technical"><p class="source-label">Understand · Source: TECHNICAL.md</p><section id="technical-technical-architecture--v311" class="level1">
-<h1>Technical Architecture — v3.1.1</h1>
+<footer class="lesson-nav"><button type="button" data-previous>Previous</button><button type="button" data-next>Next</button></footer></article><article class="manual-entry" id="doc-technical" data-audiences="technical"><p class="source-label">Understand · Source: TECHNICAL.md</p><section
+id="technical-technical-architecture--current-tree-v311--unreleased"
+class="level1">
+<h1>Technical Architecture — current tree (v3.1.1 + Unreleased)</h1>
+<p>Grounded in the files named below. Package version is
+<code>3.1.1</code> (<code>pyproject.toml</code>,
+<code>frontend/package.json</code>). Unreleased work in this tree is
+listed in <code>CHANGELOG.md</code> under
+<code>## [Unreleased]</code>.</p>
 <section id="technical-runtime-boundary" class="level2">
 <h2>Runtime boundary</h2>
 <p>The application is a local, single-operator modular monolith plus one
@@ -4051,8 +4404,9 @@ allowed to execute OS input.</p>
 <p>On Windows, <code>run.cmd</code> is the one-file entry: it installs
 missing host tools (uv, Python 3.12, Node.js LTS, Docker Desktop),
 copies <code>.env.example</code> to <code>.env</code> if needed, fills
-empty <code>AGENT_SERVICE_TOKEN</code> and <code>VNC_PASSWORD</code>,
-runs <code>uv sync --frozen</code>, installs frontend deps when Vite is
+empty <code>AGENT_SERVICE_TOKEN</code> and <code>VNC_PASSWORD</code>
+(the password is unused by x11vnc; see Sandbox), runs
+<code>uv sync --frozen</code>, installs frontend deps when Vite is
 missing, builds <code>cua-ubuntu:latest</code> only if that image is
 absent, then starts <code>dev.py --open-browser</code>.
 <code>START.bat</code> always runs
@@ -4070,8 +4424,10 @@ healthcheck requires both <code>http://127.0.0.1:9222/health</code> and
 <code>GET /api/health</code>.</li>
 <li>Starts Vite on <code>127.0.0.1:8505</code> (Windows:
 <code>node …/vite/bin/vite.js</code>; elsewhere:
-<code>npm run dev</code>). Vite proxies <code>/api</code>,
-<code>/api/v2/ws</code>, and <code>/vnc</code> to the backend.</li>
+<code>npm run dev</code>). <code>frontend/vite.config.ts</code> proxies
+<code>/api</code>, <code>/api/v2/ws</code> (WebSocket), and
+<code>/vnc</code> (HTTP + WebSocket) to
+<code>127.0.0.1:${PORT}</code>.</li>
 <li>With <code>--open-browser</code>, opens
 <code>http://127.0.0.1:8505</code> once that URL responds.</li>
 <li>On Ctrl+C, stops frontend, backend, then
@@ -4082,13 +4438,18 @@ runs Uvicorn on <code>HOST</code>/<code>PORT</code> with WebSocket
 protocol pings disabled (<code>ws_ping_interval=None</code>).
 <code>CUA_RELOAD=1</code> enables <code>--reload</code>;
 <code>DEBUG</code> only changes log level.</p>
-<p><code>backend/infra/config.py</code> loads the
-<strong>repository-root</strong> <code>.env</code> with
-<code>override=False</code>, so a process-level
-<code>GOOGLE_API_KEY</code> (or other already set key) is not
-overwritten. Default CORS/WebSocket origins include
-<code>http://127.0.0.1:8505</code>, <code>http://127.0.0.1:8100</code>,
-and the 5173/3000 localhost variants.</p>
+<p><code>backend/infra/config.py</code> snapshots
+<code>GOOGLE_API_KEY</code>, <code>GEMINI_API_KEY</code>,
+<code>OPENAI_API_KEY</code>, and <code>ANTHROPIC_API_KEY</code> from the
+process environment into <code>_USER_ENV</code> <strong>before</strong>
+loading the <strong>repository-root</strong> <code>.env</code> with
+<code>load_dotenv(..., override=False)</code>.
+<code>resolve_api_key()</code> prefers <code>_USER_ENV</code> over a
+<code>.env</code> assignment, so a user-env <code>GOOGLE_API_KEY</code>
+wins. Default CORS/WebSocket origins in
+<code>backend/server/__init__.py</code> are localhost/127.0.0.1 on ports
+5173, 3000, 8505, and 8100 (override with
+<code>CORS_ORIGINS</code>).</p>
 <p>Production-style: build <code>frontend/dist</code>, start the
 sandbox, run <code>uv run python -m backend.main</code>, open
 <code>http://127.0.0.1:8100</code>.</p>
@@ -4096,7 +4457,11 @@ sandbox, run <code>uv run python -m backend.main</code>, open
 </section>
 <section id="technical-operator-surface" class="level2">
 <h2>Operator surface</h2>
-<p><code>frontend/src/App.tsx</code> is a six-route SPA:</p>
+<p><code>frontend/src/App.tsx</code> is a six-route SPA. The shell owns
+<code>liveSession</code> and <code>credentialSessionId</code> so leaving
+Live does not stop a run. On <code>/</code>, Mission control is portaled
+into <code>.sidebar-control</code> under the CONTROL nav. The main pane
+is the viewport plus pipeline rail.</p>
 <table>
 <thead>
 <tr>
@@ -4107,7 +4472,8 @@ sandbox, run <code>uv run python -m backend.main</code>, open
 <tbody>
 <tr>
 <td><code>/</code></td>
-<td>Live session — task, routing, noVNC viewport, pipeline stages</td>
+<td>Live session — Mission control (sidebar), noVNC viewport, pipeline
+stages</td>
 </tr>
 <tr>
 <td><code>/audit</code></td>
@@ -4115,7 +4481,8 @@ sandbox, run <code>uv run python -m backend.main</code>, open
 </tr>
 <tr>
 <td><code>/cost</code></td>
-<td>Session cost — list-rate USD from recorded tokens</td>
+<td>Session cost — list-rate USD from recorded tokens
+(<code>frontend/src/pricing.ts</code>)</td>
 </tr>
 <tr>
 <td><code>/workflows</code></td>
@@ -4133,22 +4500,32 @@ session</strong> calls
 </tr>
 </tbody>
 </table>
-<p>The Live tab defaults <code>preferredRoute</code> to
-<code>gemini-direct</code>. The viewport is an iframe to
+<p>Live defaults in <code>frontend/src/App.tsx</code>: model
+<code>gemini-3.7-flash</code>, <code>preferredRoute</code>
+<code>gemini-direct</code>, fallback
+<code>gemini-3.5-flash-lite@gemini-direct</code>. Start run posts
+<code>maxSteps: 50</code>. <code>GET /api/v2/desktop</code> returns
 <code>/vnc/vnc.html?autoconnect=1&amp;reconnect=1&amp;resize=scale&amp;path=vnc/websockify</code>
-plus <code>password</code> from <code>VNC_PASSWORD</code>.
-<code>waitForNovnc()</code> in <code>frontend/src/api.ts</code> holds
-the iframe until <code>/vnc/vnc.html</code> returns 200. A bare
+with <strong>no</strong> <code>password</code> query
+(<code>backend/v2/api.py</code> <code>desktop()</code>).
+<code>desktopViewerSrc()</code> in <code>frontend/src/api.ts</code>
+deletes <code>password</code> and <code>token</code> query params, then
+sets <code>path</code> to <code>vnc/websockify</code> or
+<code>vnc/websockify?token=…</code> when a workbench token is in
+sessionStorage. <code>waitForNovnc()</code> probes
+<code>/vnc/vnc.html</code> until HTTP 200 (40 × 500 ms). A bare
 <code>path=websockify</code> would hit unproxied
 <code>ws://127.0.0.1:8505/websockify</code> and fail.</p>
 <p>The sidebar <strong>Stop app</strong> button posts
-<code>POST /api/v2/system/shutdown</code>.</p>
+<code>POST /api/v2/system/shutdown</code> (202, then SIGINT in a
+background task).</p>
 </section>
 <section id="technical-model-catalog-and-request-path" class="level2">
 <h2>Model catalog and request path</h2>
 <p>Canonical files: <code>backend/models/allowed_models.json</code> and
-<code>backend/models/computer_use_models.v2.json</code>. Five Computer
-Use models on three executable routes:</p>
+<code>backend/models/computer_use_models.v2.json</code>
+(<code>version</code> 2.1.0, <code>verified_at</code> 2026-08-14). Five
+Computer Use models on three executable routes:</p>
 <table>
 <thead>
 <tr>
@@ -4156,6 +4533,7 @@ Use models on three executable routes:</p>
 <th>Display</th>
 <th>Route</th>
 <th>Transport</th>
+<th>Reasoning in catalog</th>
 </tr>
 </thead>
 <tbody>
@@ -4164,12 +4542,14 @@ Use models on three executable routes:</p>
 <td>Gemini 3.7 Flash</td>
 <td><code>gemini-direct</code></td>
 <td><code>GEMINI_INTERACTIONS</code></td>
+<td>low / medium / high</td>
 </tr>
 <tr>
 <td><code>gemini-3.5-flash-lite</code></td>
 <td>Gemini 3.5 Flash-Lite</td>
 <td><code>gemini-direct</code></td>
 <td><code>GEMINI_INTERACTIONS</code></td>
+<td>low / medium / high</td>
 </tr>
 <tr>
 <td><code>claude-sonnet-5</code></td>
@@ -4177,38 +4557,45 @@ Use models on three executable routes:</p>
 <td><code>anthropic-direct</code></td>
 <td><code>ANTHROPIC_MESSAGES</code>
 (<code>computer_20251124</code>)</td>
+<td>none listed</td>
 </tr>
 <tr>
 <td><code>gpt-5.6-luna</code></td>
 <td>GPT-5.6 Luna</td>
 <td><code>openai-direct</code></td>
 <td><code>OPENAI_RESPONSES</code></td>
+<td>none / low / medium / high / xhigh / max</td>
 </tr>
 <tr>
 <td><code>gpt-5.6-terra</code></td>
 <td>GPT-5.6 Terra</td>
 <td><code>openai-direct</code></td>
 <td><code>OPENAI_RESPONSES</code></td>
+<td>none / low / medium / high / xhigh / max</td>
 </tr>
 </tbody>
 </table>
 <ol type="1">
 <li><code>POST /api/v2/sessions</code> validates the model, compatible
-primary route, ordered explicit fallbacks, attached files, and runtime
-options (<code>maxSteps</code>, <code>safetyPolicy</code>,
-<code>useBuiltinSearch</code>, <code>reasoningEffort</code>,
-<code>credentialSessionId</code>, <code>retainAuditFrames</code>).</li>
+primary route, ordered explicit fallbacks (max 10), attached files (max
+20), and runtime options (<code>maxSteps</code> 1–200, default 50;
+<code>safetyPolicy</code>; <code>useBuiltinSearch</code>;
+<code>reasoningEffort</code>; <code>credentialSessionId</code>;
+<code>retainAuditFrames</code>).</li>
 <li>The coordinator runs the primary route, then only the supplied
 fallbacks. It does not pick routes by cost or latency.
-<code>backend/v2/routing.py</code> applies a circuit breaker and one
-attempt per route.</li>
+<code>backend/v2/api.py</code> builds
+<code>RouteSpec(..., max_attempts=1)</code>.
+<code>backend/v2/routing.py</code> <code>CircuitBreaker</code> opens
+after 3 failures for 30 s.</li>
 <li><code>backend/engine/</code> talks to each vendor’s Computer Use
 protocol. Gemini continues with <code>previous_interaction_id</code>.
 Claude and OpenAI use their native computer tools.
 <code>backend/executor.py</code> <code>normalize_desktop_action()</code>
 maps Gemini 3.x names (<code>click</code>, <code>type</code>,
-<code>hotkey</code>, <code>press_key</code>, …) onto existing
-handlers.</li>
+<code>hotkey</code>, <code>press_key</code>, …) onto existing handlers.
+<code>reasoning_effort</code> is forwarded only for <code>OPENAI</code>
+and <code>GEMINI</code> families.</li>
 <li>Safety policies <code>provider_default</code>,
 <code>confirm_mutating</code>, and <code>read_only</code> govern
 execution. Pending decisions carry a nonce and are answered at
@@ -4222,18 +4609,40 @@ failure is not replayed or failed over.</li>
 <code>navigate</code> / <code>open_url</code> hosts in
 <code>backend/executor.py</code>.</li>
 </ol>
-<p>Built-in search is opt-in (<code>useBuiltinSearch</code>). File
-attachments (<code>.md</code>, <code>.txt</code>, <code>.pdf</code>,
-<code>.docx</code> via <code>backend/files.py</code>) are validated for
-every selected route before start. Gemini Computer Use sessions reject
-attachments (File Search cannot combine with Computer Use here).</p>
+<p><code>useBuiltinSearch</code> is opt-in from the Live toggle. It does
+<strong>not</strong> attach provider-native <code>web_search</code> /
+Google Search tools to the Computer Use loop.
+<code>backend/engine/__init__.py</code> constructs CU clients with
+<code>use_builtin_search=False</code> and sets
+<code>_planner_use_builtin_search</code> separately.
+<code>backend/providers/_common.py</code>
+<code>maybe_plan_with_web_search()</code> calls
+<code>backend/providers/planner.py</code>: extract or ask for up to 3
+public <code>http(s)</code> URLs, fetch them via
+<code>backend/infra/mcp_fetch.py</code>
+(<code>uvx mcp-server-fetch</code> unless <code>CUA_MCP_FETCH_CMD</code>
+is set). <code>_is_public_http_url</code> skips
+non-<code>http(s)</code>, <code>localhost</code>, <code>*.local</code>,
+hostnames without a dot, and non-global IP literals. Cap: 3 pages, 4000
+characters. MCP spawn/fetch failure returns an empty page list and the
+run continues computer-only. Host needs <code>uvx</code> on
+<code>PATH</code>. Fetches run from the <strong>host</strong> process,
+not the sandbox.</p>
+<p>File attachments (<code>.md</code>, <code>.txt</code>,
+<code>.pdf</code>, <code>.docx</code> via <code>backend/files.py</code>)
+are validated for every selected route before start. Gemini Computer Use
+sessions reject attachments (File Search cannot combine with Computer
+Use here). The Live tab hides the file input when the selected family is
+<code>GEMINI</code>.</p>
 </section>
 <section id="technical-frames-websockets-and-novnc" class="level2">
 <h2>Frames, WebSockets, and noVNC</h2>
-<p>One <code>FrameBroker</code> coalesces screenshot demand. The
-canonical PNG remains the model input. Browser previews are WebP/JPEG
-<code>CUAF</code> frames (magic, version, codec, sequence, width,
-height, timestamp) decoded in <code>frontend/src/protocol.ts</code>.</p>
+<p>One <code>FrameBroker</code> (<code>backend/v2/frames.py</code>)
+coalesces screenshot demand. The canonical PNG remains the model input.
+Browser previews are WebP/JPEG <code>CUAF</code> frames (magic, version,
+codec, sequence, width, height, timestamp) decoded in
+<code>frontend/src/protocol.ts</code>. The Live viewport does
+<strong>not</strong> display CUAF frames; it is noVNC.</p>
 <ul>
 <li>Idle desktop: WebSocket <code>/api/v2/ws/desktop</code>
 (<code>DESKTOP_STREAM_ID</code>). Not retained as audit frames.</li>
@@ -4249,7 +4658,8 @@ fallback. A failed capture keeps the socket open.</li>
 allowlisted prefixes and connect retries. WebSocket
 <code>/vnc/websockify</code> proxies RFB to
 <code>ws://127.0.0.1:6080/websockify</code>, gated by the same Origin
-and optional <code>token</code> checks as <code>/ws</code>.</p>
+and optional <code>token</code> checks as <code>/ws</code>
+(<code>CUA_API_TOKEN</code> / <code>CUA_WS_TOKEN</code>).</p>
 </section>
 <section id="technical-persistence-audit-cost-and-retention"
 class="level2">
@@ -4267,8 +4677,10 @@ frames.</p>
 <code>GET /api/v2/analytics</code> (optional <code>sessionId</code> /
 <code>model</code> / <code>route</code>), diagnostics, ZIP export,
 retention preview/prune.</p>
-<p>The Session cost tab estimates USD as
-<code>tokens / 1_000_000 × list rate</code> using
+<p>The Session cost tab polls
+<code>GET /api/v2/analytics?sessionId=</code> every 2 s while the
+selected session is <code>RUNNING</code>. Estimate is
+<code>tokens / 1_000_000 × list rate</code> in
 <code>frontend/src/pricing.ts</code>:</p>
 <table>
 <thead>
@@ -4319,12 +4731,13 @@ class="level2">
 <h2>Credentials and workbench authentication</h2>
 <p>Resolution for a v2 run (<code>backend/v2/api.py</code>):
 credential-session secret if <code>credentialSessionId</code> is set;
-else process env <code>OPENAI_API_KEY</code>,
-<code>ANTHROPIC_API_KEY</code>, or <code>GOOGLE_API_KEY</code> then
-<code>GEMINI_API_KEY</code>. <code>resolve_api_key()</code> in
-<code>backend/infra/config.py</code> prefers UI key, then those env
-names. Responses never include secrets. Vault entries are process-local
-and expire within eight hours (28_800 s).</p>
+else <code>resolve_api_key()</code>. <code>resolve_api_key()</code> in
+<code>backend/infra/config.py</code> order: UI key, then
+<code>_USER_ENV</code> (Google: <code>GOOGLE_API_KEY</code> then
+<code>GEMINI_API_KEY</code>; also <code>OPENAI_API_KEY</code> /
+<code>ANTHROPIC_API_KEY</code>), then values dotenv loaded into the
+process. Responses never include secrets. Vault entries are
+process-local and expire within eight hours (28_800 s).</p>
 <p>Google OAuth:
 <code>POST /api/v2/credential-sessions/google/oauth/start</code> issues
 state + PKCE; the callback exchanges the code and stores refreshable
@@ -4333,20 +4746,24 @@ and <code>GOOGLE_OAUTH_CLIENT_SECRET</code> (or
 <code>GOOGLE_OAUTH_CLIENT_SECRET_FILE</code>). Optional:
 <code>GOOGLE_CLOUD_PROJECT</code>,
 <code>CUA_GOOGLE_OAUTH_REDIRECT_URI</code>.</p>
-<p>When <code>CUA_API_TOKEN</code> is set it gates mutating REST, both
-WebSocket surfaces, and noVNC. HTTP: <code>X-CUA-Token</code> or
-<code>?token=</code>. Browser WS and noVNC: <code>token</code> query.
-<code>CUA_WS_TOKEN</code> is a deprecated fallback. Loopback with no
-token is default-open. The Google OAuth callback is the mutating-auth
-exception (bound to short-lived state + PKCE).</p>
+<p>When <code>CUA_API_TOKEN</code> is set, <code>_guard_api</code> in
+<code>backend/server/__init__.py</code> gates <code>/api/*</code> reads
+and writes except the Google OAuth callback, plus <code>/ws</code>,
+<code>/api/v2/ws/*</code>, and <code>/vnc/websockify</code>
+(<code>_ws_token_ok</code>). HTTP: <code>X-CUA-Token</code> or
+<code>?token=</code>. Browser WS and noVNC: <code>token</code> query on
+<code>/vnc/websockify</code>. <code>CUA_WS_TOKEN</code> is a deprecated
+fallback. Loopback with no token is default-open. The OAuth callback is
+bound to short-lived state + PKCE.</p>
 <p>Non-loopback <code>HOST</code> requires
 <code>CUA_ALLOW_PUBLIC_BIND=1</code> <strong>and</strong>
 <code>CUA_API_TOKEN</code> (or <code>CUA_WS_TOKEN</code>); otherwise
 <code>backend/main.py</code> exits 2.</p>
 <p><code>AGENT_SERVICE_TOKEN</code> is required between the backend and
 <code>docker/agent_service.py</code> (<code>X-Agent-Token</code>).
-<code>VNC_PASSWORD</code> is required unless
-<code>CUA_ALLOW_NOPW=1</code>.</p>
+Compose requires it. x11vnc starts with <code>-nopw</code>
+(<code>docker/entrypoint.sh</code>). <code>VNC_PASSWORD</code> is not
+passed into the container and is not put on the viewer URL.</p>
 </section>
 <section id="technical-sandbox" class="level2">
 <h2>Sandbox</h2>
@@ -4359,16 +4776,19 @@ exception (bound to short-lived state + PKCE).</p>
 256, memory 4g, 2 CPUs, tmpfs <code>/tmp</code> and
 <code>/var/run</code>.</li>
 <li><code>docker/entrypoint.sh</code> starts DBus, Xvfb
-<code>:99</code>, XFCE, x11vnc, websockify, then <code>exec</code>s
-<code>docker/agent_service.py</code>.</li>
+<code>:99</code>, XFCE, x11vnc (<code>-nopw</code>), websockify, then
+<code>exec</code>s <code>docker/agent_service.py</code>.</li>
 <li>Default geometry 1440×900 (<code>SCREEN_WIDTH</code> /
 <code>SCREEN_HEIGHT</code>).</li>
 </ul>
-<p><code>GET /api/health</code> is process liveness only.
-<code>GET /api/ready</code> checks Docker, at least one provider env
-key, and sandbox startability (HTTP 503 + <code>reasons</code> on
-failure). Compose healthcheck is <strong>not</strong>
-<code>/api/ready</code>; it is in-container agent + noVNC as above.</p>
+<p><code>GET /api/health</code> is process liveness only
+(<code>{"status": "ok"}</code>). <code>GET /api/ready</code> checks
+Docker daemon (<code>docker version</code>), at least one provider env
+key (<code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>,
+<code>GOOGLE_API_KEY</code>, <code>GEMINI_API_KEY</code>), and sandbox
+startability. Failure is HTTP 503 + <code>reasons</code>. Compose
+healthcheck is <strong>not</strong> <code>/api/ready</code>; it is
+in-container agent + noVNC as above.</p>
 </section>
 <section id="technical-production-frontend" class="level2">
 <h2>Production frontend</h2>
@@ -4377,10 +4797,11 @@ bundle last so API and WebSocket routes keep precedence. SPA fallback to
 <code>index.html</code> is only for <code>GET</code>/<code>HEAD</code>
 of <code>/audit</code>, <code>/cost</code>, <code>/workflows</code>,
 <code>/providers</code>, and <code>/analytics</code> (and those paths
-with a trailing segment). Unknown paths, <code>/api/*</code>,
-<code>/vnc/*</code>, and <code>/ws</code> stay 404. A missing bundle is
-non-fatal in development. <code>CUA_FRONTEND_DIST</code> overrides the
-directory.</p>
+with a trailing segment) — <code>_SPA_ROUTES</code> in
+<code>backend/server/__init__.py</code>. Unknown paths,
+<code>/api/*</code>, <code>/vnc/*</code>, and <code>/ws</code> stay 404.
+A missing bundle is non-fatal in development.
+<code>CUA_FRONTEND_DIST</code> overrides the directory.</p>
 </section>
 <section id="technical-public-contracts" class="level2">
 <h2>Public contracts</h2>
@@ -4399,14 +4820,16 @@ examples: <code>USAGE.md</code>.</p>
 <p><code>uv.lock</code> and <code>frontend/package-lock.json</code> are
 authoritative. CI (<code>.github/workflows/ci.yml</code>) runs
 <code>uv sync --frozen</code> and <code>npm ci</code>, then Ruff,
-format, mypy, pytest on Python 3.12–3.14 with 60% backend coverage,
-offline evals, frontend lint/typecheck/tests/build,
-<code>pip-audit</code>, <code>npm audit --audit-level=high</code>,
-sandbox image build, and a blocking HIGH/CRITICAL Trivy scan. Live SDK
-tests are opt-in (<code>pytest -m integration</code>); missing
-credentials are not a pass.</p>
+format, mypy, <code>pip-audit</code>, pytest on Python 3.12–3.14 with
+<code>--cov=backend --cov-fail-under=60</code>, offline evals, frontend
+lint/typecheck/tests/build, <code>npm audit --audit-level=high</code>,
+sandbox image build, and a blocking HIGH/CRITICAL Trivy scan
+(<code>ignore-unfixed: true</code>). Live SDK tests are opt-in
+(<code>pytest -m integration</code>); missing credentials are not a
+pass.</p>
 <p>Contributor commands: <code>CONTRIBUTING.md</code>. Operator data
-ownership: <code>DATA.md</code>.</p>
+ownership: <code>DATA.md</code>. Document catalog:
+<code>README.md</code> § Documentation.</p>
 </section>
 </section>
 <footer class="lesson-nav"><button type="button" data-previous>Previous</button><button type="button" data-next>Next</button></footer></article><article class="manual-entry" id="doc-architecture" data-audiences="technical business"><p class="source-label">Understand · Source: docs/codebase/ARCHITECTURE.md</p><section id="architecture-architecture" class="level1">
@@ -4429,31 +4852,39 @@ Flash-Lite via Google Interactions.</p>
 <h2>2) System Flow</h2>
 <pre class="text"><code>React dashboard -&gt; FastAPI v2 contract -&gt; SQLite session/coordinator -&gt; AgentLoop/provider engine -&gt; sandbox action service -&gt; audit/status/WS output</code></pre>
 <ol type="1">
-<li>The dashboard posts a task, logical model, explicit route/fallbacks,
-step limit, and optional credential reference to
-<code>/api/v2/sessions</code>.</li>
+<li>The dashboard (Mission control in the CONTROL sidebar) posts a task,
+logical model, explicit route/fallbacks, step limit, and optional
+credential reference to <code>/api/v2/sessions</code>. Live defaults:
+model <code>gemini-3.7-flash</code>, route <code>gemini-direct</code>,
+fallback <code>gemini-3.5-flash-lite@gemini-direct</code>.</li>
 <li>The v2 API validates the catalog selection, creates/starts a SQLite
 session, records an event, and launches a background coordinator.</li>
-<li>The coordinator resolves process-local/environment credentials,
-including Google OAuth when selected, and dispatches through the v2
-orchestrator into <code>AgentLoop</code> after sandbox readiness
-succeeds.</li>
-<li><code>ComputerUseEngine</code> selects the native
-OpenAI/Anthropic/Google client; its provider loop alternates inference
-with canonical actions sent by <code>DesktopExecutor</code> to the
-token-protected sandbox service. Safety prompts pause on an in-memory
-nonce handshake and the dashboard can approve or deny them.</li>
-<li>v2 persists actions, metrics, events, audit frames, and terminal
-state; uncertain post-action failures are not replayed or failed
-over.</li>
+<li>The coordinator resolves credentials
+(<code>credentialSessionId</code> vault, else
+<code>resolve_api_key()</code> / <code>_USER_ENV</code>), including
+Google OAuth when selected, and dispatches through the v2 orchestrator
+into <code>AgentLoop</code> after sandbox readiness succeeds.</li>
+<li>If <code>useBuiltinSearch</code> is on,
+<code>maybe_plan_with_web_search()</code> fetches up to 3 public URLs
+via <code>backend/infra/mcp_fetch.py</code>
+(<code>uvx mcp-server-fetch</code>) and prepends a text brief.
+<code>ComputerUseEngine</code> then constructs CU clients with
+<code>use_builtin_search=False</code>. The provider loop alternates
+inference with canonical actions sent by <code>DesktopExecutor</code> to
+the token-protected sandbox service. Safety prompts pause on an
+in-memory nonce handshake and the dashboard can approve or deny
+them.</li>
+<li>v2 journals confirmed actions as <code>ACTION</code> events arrive,
+then writes metrics, events, audit frames, and terminal state; uncertain
+post-action failures are not replayed or failed over.</li>
 <li>The API returns/query exposes durable audit state. The Live tab
-embeds noVNC at <code>/vnc/vnc.html</code> with
-<code>path=vnc/websockify</code> (Vite/backend proxy to container
-websockify). It also opens <code>/api/v2/ws/desktop</code> immediately,
-then <code>/api/v2/ws/{session_id}</code> during a run. Those sockets
-send newest-only binary CUAF frames; the session socket also carries
-JSON control events. Capture failures retry without closing the
-socket.</li>
+embeds noVNC at
+<code>/vnc/vnc.html?autoconnect=1&amp;reconnect=1&amp;resize=scale&amp;path=vnc/websockify</code>
+(no <code>password=</code>; Vite/backend proxy to container websockify).
+It also opens <code>/api/v2/ws/desktop</code> immediately, then
+<code>/api/v2/ws/{session_id}</code> during a run. Those sockets send
+newest-only binary CUAF frames; the session socket also carries JSON
+control events. Capture failures retry without closing the socket.</li>
 <li>The Session cost tab (<code>/cost</code>) estimates USD from SQLite
 <code>metrics</code> token totals
 (<code>GET /api/v2/analytics?sessionId=</code>) and the list rates in
@@ -4596,12 +5027,16 @@ designed for a trusted workstation, not multi-tenant isolation.</li>
 <section id="architecture-5-known-architectural-risks" class="level2">
 <h2>5) Known Architectural Risks</h2>
 <ul>
-<li>v2 audit actions are written only after <code>AgentLoop</code>
-returns an <code>ExecutionOutcome</code>; a crash during a run can leave
-physical actions absent from the SQLite action journal.</li>
+<li>A crash between an executed desktop action and the next
+<code>ACTION</code> event can still omit that step from the SQLite
+action journal.</li>
 <li><code>backend/server/__init__.py</code> combines app construction,
 security middleware, API endpoints, WebSockets, noVNC proxying, task
-registries, and execution bridging in one 2,033-line module.</li>
+registries, and execution bridging in one ~1,900-line module.</li>
+<li>Host-side MCP fetch (<code>mcp_fetch.py</code>) is URL fetch from
+the backend process, not the sandbox. DNS names with a dot pass
+<code>_is_public_http_url</code>; it is not a complete SSRF
+guarantee.</li>
 <li>The v2 surface depends on legacy <code>AgentLoop</code>, so changes
 to the original runtime can affect both API generations.</li>
 <li>Process-local state prevents horizontal scaling and is intentionally
@@ -4656,8 +5091,10 @@ authentication boundary.</li>
 </tr>
 <tr>
 <td><code>backend/infra/</code></td>
-<td>Configuration, Docker control, storage, observability</td>
-<td><code>backend/infra/</code> inventory</td>
+<td>Configuration, Docker control, storage, observability, MCP
+fetch</td>
+<td><code>backend/infra/config.py</code>;
+<code>backend/infra/mcp_fetch.py</code></td>
 </tr>
 <tr>
 <td><code>backend/models/</code></td>
@@ -4667,8 +5104,9 @@ authentication boundary.</li>
 </tr>
 <tr>
 <td><code>backend/providers/</code></td>
-<td>Provider-owned run interfaces and planning adapters</td>
-<td><code>backend/providers/_common.py</code></td>
+<td>Provider-owned run interfaces and MCP-fetch planning adapters</td>
+<td><code>backend/providers/_common.py</code>;
+<code>backend/providers/planner.py</code></td>
 </tr>
 <tr>
 <td><code>backend/server/</code></td>
@@ -4818,7 +5256,8 @@ process-local for API keys and Google OAuth;
 <code>backend/v2/retention.py</code> and the server frame broker handle
 live/audit images.</li>
 <li><code>backend/infra/</code> contains operational adapters rather
-than domain/API contracts.</li>
+than domain/API contracts. <code>mcp_fetch.py</code> is the host Fetch
+MCP client used by the planner.</li>
 </ul>
 </section>
 <section id="structure-frontend-details" class="level3">
@@ -5140,22 +5579,30 @@ class="sourceCode powershell"><code class="sourceCode powershell"><span id="stac
 <li>Provider credentials: <code>OPENAI_API_KEY</code>,
 <code>ANTHROPIC_API_KEY</code>, and process-level
 <code>GOOGLE_API_KEY</code> (preferred) or <code>GEMINI_API_KEY</code>.
-<code>load_dotenv(..., override=False)</code> does not overwrite an
-already-set user environment variable.</li>
+<code>_USER_ENV</code> is snapshotted before
+<code>load_dotenv(..., override=False)</code> so a user-env
+<code>GOOGLE_API_KEY</code> wins over <code>.env</code>
+(<code>backend/infra/config.py</code>
+<code>resolve_api_key()</code>).</li>
 <li>Backend/state: <code>HOST</code>, <code>PORT</code>,
 <code>CUA_V2_DB_PATH</code>, <code>CUA_V2_FRAME_PATH</code>, and
 optional <code>CUA_FRONTEND_DIST</code>.</li>
-<li>Sandbox: <code>AGENT_SERVICE_TOKEN</code>,
-<code>VNC_PASSWORD</code>, <code>CONTAINER_NAME</code>, agent-service
-host/port, screen geometry, step count, and timeout.</li>
+<li>Sandbox: <code>AGENT_SERVICE_TOKEN</code> (required), unused
+<code>VNC_PASSWORD</code> (x11vnc <code>-nopw</code>; Compose does not
+pass it), <code>CONTAINER_NAME</code>, agent-service host/port, screen
+geometry, step count, and timeout.</li>
+<li>Web-search planning: <code>CUA_MCP_FETCH_CMD</code> (default
+<code>uvx mcp-server-fetch</code>) via
+<code>backend/infra/mcp_fetch.py</code>.</li>
 <li>Google OAuth uses <code>GOOGLE_OAUTH_CLIENT_ID</code> plus
 <code>GOOGLE_OAUTH_CLIENT_SECRET</code> (or
 <code>GOOGLE_OAUTH_CLIENT_SECRET_FILE</code>), with optional project and
 redirect settings.</li>
 <li>External binding is opt-in through
-<code>CUA_ALLOW_PUBLIC_BIND</code> plus <code>CUA_API_TOKEN</code>;
-deployment documentation additionally requires an authenticated TLS
-reverse proxy.</li>
+<code>CUA_ALLOW_PUBLIC_BIND</code> plus <code>CUA_API_TOKEN</code>
+(gates all <code>/api/*</code> except the OAuth callback); deployment
+documentation additionally requires an authenticated TLS reverse
+proxy.</li>
 <li>Logging uses <code>LOG_FORMAT</code>, <code>LOG_LEVEL</code>, and
 <code>DEBUG</code>. Hot reload is separately controlled by
 <code>CUA_RELOAD</code>.</li>
@@ -5249,11 +5696,24 @@ deployment prerequisites.</li>
 <td>VNC/noVNC</td>
 <td>TCP/WebSocket</td>
 <td>human desktop observation/control</td>
-<td>VNC password + optional WS token</td>
+<td>no VNC password (<code>x11vnc -nopw</code>); optional workbench
+<code>token</code> on <code>/vnc/websockify</code></td>
 <td>high</td>
-<td>Dashboard uses <code>/vnc/vnc.html?path=vnc/websockify</code>;
-<code>docker-compose.yml</code>; <code>frontend/src/pricing.ts</code> is
-local list-rate math, not a billing API</td>
+<td><code>GET /api/v2/desktop</code> returns
+<code>/vnc/vnc.html?autoconnect=1&amp;reconnect=1&amp;resize=scale&amp;path=vnc/websockify</code>
+(no <code>password=</code>); <code>frontend/src/api.ts</code>
+<code>desktopViewerSrc()</code>; <code>docker/entrypoint.sh</code></td>
+</tr>
+<tr>
+<td>Fetch MCP</td>
+<td>host stdio subprocess</td>
+<td>web-search planning URL fetch</td>
+<td>none (public <code>http(s)</code> only)</td>
+<td>medium</td>
+<td><code>backend/infra/mcp_fetch.py</code>;
+<code>backend/providers/planner.py</code>;
+<code>CUA_MCP_FETCH_CMD</code> defaults to
+<code>uvx mcp-server-fetch</code></td>
 </tr>
 <tr>
 <td>GitHub Actions</td>
@@ -5316,23 +5776,28 @@ class="level2">
 <h2>3) Secrets and Credentials Handling</h2>
 <ul>
 <li>Direct provider keys come from the process environment or an
-ephemeral v2 credential session. Google uses <code>GOOGLE_API_KEY</code>
-first, then <code>GEMINI_API_KEY</code>.
-<code>load_dotenv(..., override=False)</code> keeps a user/system
-<code>GOOGLE_API_KEY</code> already set. Credential responses expose
-readiness/expiry metadata, never the secret.</li>
+ephemeral v2 credential session. <code>backend/infra/config.py</code>
+snapshots <code>GOOGLE_API_KEY</code>, <code>GEMINI_API_KEY</code>,
+<code>OPENAI_API_KEY</code>, and <code>ANTHROPIC_API_KEY</code> into
+<code>_USER_ENV</code> before
+<code>load_dotenv(..., override=False)</code>.
+<code>resolve_api_key()</code> prefers UI key, then
+<code>_USER_ENV</code> (Google: <code>GOOGLE_API_KEY</code> then
+<code>GEMINI_API_KEY</code>), then dotenv-loaded values. Credential
+responses expose readiness/expiry metadata, never the secret.</li>
 <li>Ephemeral credential sessions expire within eight hours, can be
 deleted early, and are not written to SQLite.</li>
 <li>The backend sends provider credentials only to the selected provider
 SDK/API.</li>
 <li><code>AGENT_SERVICE_TOKEN</code> protects the in-container action
-service and is required by Compose. <code>VNC_PASSWORD</code> is also
-required unless an explicit insecure development escape hatch is
-used.</li>
+service and is required by Compose. x11vnc starts with
+<code>-nopw</code>; noVNC does not use a VNC password.</li>
 <li>Google OAuth uses a state- and PKCE-bound browser flow; refreshable
 credentials stay in the process-local vault with the same eight-hour
 maximum session lifetime.</li>
-<li><code>CUA_API_TOKEN</code> gates REST, WebSockets, and noVNC;
+<li><code>CUA_API_TOKEN</code> gates <code>/api/*</code> (reads and
+writes, except the Google OAuth callback), <code>/ws</code>,
+<code>/api/v2/ws/*</code>, and <code>/vnc/websockify</code>;
 <code>CUA_WS_TOKEN</code> is a deprecated fallback. External binding
 still requires an authenticated TLS reverse proxy.</li>
 </ul>
@@ -5686,8 +6151,15 @@ independently authenticated TLS reverse proxy.</li>
 <code>docker/agent_service.py</code> (<code>X-Agent-Token</code>,
 <code>hmac.compare_digest</code>). A mismatch yields screenshot
 <code>401</code>.</li>
-<li><code>VNC_PASSWORD</code> is required unless
-<code>CUA_ALLOW_NOPW=1</code>.</li>
+<li>x11vnc starts with <code>-nopw</code>
+(<code>docker/entrypoint.sh</code>). Compose does not pass
+<code>VNC_PASSWORD</code>. <code>GET /api/v2/desktop</code> returns
+<code>/vnc/vnc.html?autoconnect=1&amp;reconnect=1&amp;resize=scale&amp;path=vnc/websockify</code>
+with no <code>password=</code>. <code>desktopViewerSrc()</code> in
+<code>frontend/src/api.ts</code> strips leftover <code>password</code>
+and <code>token</code> query params. When <code>CUA_API_TOKEN</code> is
+set, the workbench token is placed on the websockify <code>path</code>
+only (<code>vnc/websockify?token=…</code>).</li>
 <li>Default action set is the executor mapping.
 <code>CUA_ENABLE_LEGACY_ACTIONS=1</code> re-enables
 shell/clipboard/window handlers. Do not enable that off loopback.</li>
@@ -5698,20 +6170,46 @@ Isolation is not a review of model actions.</li>
 </ul>
 <p><strong>Secrets and audit</strong></p>
 <ul>
-<li>Repo-root <code>.env</code> is loaded with
-<code>load_dotenv(..., override=False)</code>. A process-level
-<code>GOOGLE_API_KEY</code> (then <code>GEMINI_API_KEY</code>),
-<code>OPENAI_API_KEY</code>, or <code>ANTHROPIC_API_KEY</code> is not
-overwritten.</li>
+<li><code>backend/infra/config.py</code> snapshots
+<code>GOOGLE_API_KEY</code>, <code>GEMINI_API_KEY</code>,
+<code>OPENAI_API_KEY</code>, and <code>ANTHROPIC_API_KEY</code> from the
+process environment into <code>_USER_ENV</code> <strong>before</strong>
+<code>load_dotenv(..., override=False)</code>.
+<code>resolve_api_key()</code> order: UI key, then
+<code>_USER_ENV</code> (Google: <code>GOOGLE_API_KEY</code> then
+<code>GEMINI_API_KEY</code>), then values dotenv loaded into the
+process. A user-env <code>GOOGLE_API_KEY</code> wins over a repo-root
+<code>.env</code> assignment. v2 session start uses a credential-session
+secret when <code>credentialSessionId</code> is set; otherwise it calls
+<code>resolve_api_key()</code>.</li>
 <li>Providers-tab keys and Google OAuth tokens live only in process
-memory and expire within <strong>8 hours</strong> (28 800 s). They are
-not written to SQLite.</li>
+memory and expire within <strong>8 hours</strong> (28 800 s,
+<code>backend/v2/credentials.py</code>). They are not written to
+SQLite.</li>
 <li>Safety prompts carry a nonce; decisions use
 <code>POST /api/v2/sessions/{id}/safety-decisions</code> (dashboard) or
 <code>POST /api/agent/safety-confirm</code> (v1). Comparison is
 <code>hmac.compare_digest</code>. Unanswered prompts auto-deny after
-<strong>60 s</strong>.</li>
+<strong>60 s</strong> (<code>backend/loop.py</code>).</li>
 <li>Ambiguous OS actions are not replayed or failed over.</li>
+</ul>
+<p><strong>Host outbound fetch (web-search planning)</strong></p>
+<ul>
+<li>Live toggle <code>useBuiltinSearch</code> runs
+<code>backend/providers/planner.py</code>. That planner extracts or asks
+the selected provider for at most 3 public <code>http(s)</code> URLs,
+then <code>backend/infra/mcp_fetch.py</code> fetches them through
+<code>uvx mcp-server-fetch</code> (override
+<code>CUA_MCP_FETCH_CMD</code>). This is URL fetch, not a search index.
+The Computer Use loop stays computer-only and does not attach provider
+<code>web_search</code> / Google Search tools.</li>
+<li><code>_is_public_http_url</code> skips non-<code>http(s)</code>,
+<code>localhost</code>, <code>*.local</code>, hostnames without a dot,
+and non-global IP literals. Remaining hostnames are fetched from the
+<strong>host</strong> process, not the sandbox. That is not a complete
+SSRF guarantee (DNS names with a dot pass).</li>
+<li>Cap: 3 pages, 4000 characters each. MCP spawn or fetch failure
+returns an empty page list; the run continues without a brief.</li>
 </ul>
 <p><strong>Out of scope for this policy</strong></p>
 <ul>
@@ -5773,7 +6271,7 @@ remediation deadline is promised. There is no paid bug bounty.</p>
 <section id="testing-1-test-stack-and-commands" class="level2">
 <h2>1) Test Stack and Commands</h2>
 <ul>
-<li>Backend: pytest 8.4, pytest-asyncio, pytest-cov, FastAPI/Starlette
+<li>Backend: pytest 9.0.3, pytest-asyncio, pytest-cov, FastAPI/Starlette
 <code>TestClient</code>, and standard monkeypatch/mock facilities.</li>
 <li>Frontend: Vitest 3 with jsdom, Testing Library, user-event, and
 jest-dom matchers.</li>
@@ -5826,8 +6324,14 @@ mocked.</li>
 six-tab dashboard, idle desktop stream, CUAF decoding, and session-cost
 list rates.</li>
 <li><code>tests/test_v2_platform.py</code> also asserts Gemini 3.7 Flash
-/ 3.5 Flash-Lite catalog entries and that <code>GOOGLE_API_KEY</code> in
-the process environment marks the Google route configured.</li>
+/ 3.5 Flash-Lite catalog entries, that <code>GOOGLE_API_KEY</code> in
+<code>_USER_ENV</code> wins over a dotenv value
+(<code>test_resolve_api_key_prefers_user_google_api_key_over_dotenv</code>),
+and that <code>/api/v2/desktop</code> has no
+<code>password=</code>.</li>
+<li><code>tests/test_mcp_fetch.py</code> covers public-URL filtering
+(localhost/private skipped) and that the planner does not attach a
+native search tool.</li>
 </ul>
 <p>Setup is centralized in <code>tests/conftest.py</code>,
 <code>evals/conftest.py</code>, and
@@ -5914,24 +6418,25 @@ class="sourceCode powershell"><code class="sourceCode powershell"><span id="test
 <span id="testing-cb2-3"><a href="#testing-cb2-3" aria-hidden="true" tabindex="-1"></a></span>
 <span id="testing-cb2-4"><a href="#testing-cb2-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Focused contracts</span></span>
 <span id="testing-cb2-5"><a href="#testing-cb2-5" aria-hidden="true" tabindex="-1"></a>uv run pytest tests<span class="op">/</span>test_v2_platform<span class="op">.</span><span class="fu">py</span> <span class="op">--</span>tb<span class="op">=</span>short</span>
-<span id="testing-cb2-6"><a href="#testing-cb2-6" aria-hidden="true" tabindex="-1"></a>uv run pytest tests<span class="op">/</span>test_provider_run_contract<span class="op">.</span><span class="fu">py</span> <span class="op">--</span>tb<span class="op">=</span>short</span>
-<span id="testing-cb2-7"><a href="#testing-cb2-7" aria-hidden="true" tabindex="-1"></a>uv run pytest tests<span class="op">/</span>test_server<span class="op">.</span><span class="fu">py</span> <span class="op">--</span>tb<span class="op">=</span>short</span>
-<span id="testing-cb2-8"><a href="#testing-cb2-8" aria-hidden="true" tabindex="-1"></a>uv run pytest tests<span class="op">/</span>engine <span class="op">--</span>tb<span class="op">=</span>short</span>
-<span id="testing-cb2-9"><a href="#testing-cb2-9" aria-hidden="true" tabindex="-1"></a>uv run pytest tests<span class="op">/</span>docker<span class="op">/</span>test_agent_service<span class="op">.</span><span class="fu">py</span> <span class="op">--</span>tb<span class="op">=</span>short</span>
-<span id="testing-cb2-10"><a href="#testing-cb2-10" aria-hidden="true" tabindex="-1"></a></span>
-<span id="testing-cb2-11"><a href="#testing-cb2-11" aria-hidden="true" tabindex="-1"></a><span class="co"># Offline eval and opt-in integration</span></span>
-<span id="testing-cb2-12"><a href="#testing-cb2-12" aria-hidden="true" tabindex="-1"></a>uv run pytest <span class="op">-</span>p no<span class="op">:</span>warnings <span class="op">--</span>tb<span class="op">=</span>short <span class="op">-</span>o addopts<span class="op">=</span><span class="st">&#39;&#39;</span> evals<span class="op">/</span></span>
-<span id="testing-cb2-13"><a href="#testing-cb2-13" aria-hidden="true" tabindex="-1"></a>uv run pytest <span class="op">-</span>m integration <span class="op">--</span>tb<span class="op">=</span>short</span>
-<span id="testing-cb2-14"><a href="#testing-cb2-14" aria-hidden="true" tabindex="-1"></a></span>
-<span id="testing-cb2-15"><a href="#testing-cb2-15" aria-hidden="true" tabindex="-1"></a><span class="co"># CI-equivalent coverage/static checks</span></span>
-<span id="testing-cb2-16"><a href="#testing-cb2-16" aria-hidden="true" tabindex="-1"></a>uv run pytest <span class="op">-</span>p no<span class="op">:</span>warnings <span class="op">--</span>tb<span class="op">=</span>short <span class="op">--</span>cov<span class="op">=</span>backend <span class="op">--</span>cov-report<span class="op">=</span>term-missing <span class="op">--</span>cov-fail-under<span class="op">=</span><span class="dv">60</span></span>
-<span id="testing-cb2-17"><a href="#testing-cb2-17" aria-hidden="true" tabindex="-1"></a><span class="dt">uv</span> run ruff check <span class="op">.</span></span>
-<span id="testing-cb2-18"><a href="#testing-cb2-18" aria-hidden="true" tabindex="-1"></a>uv run ruff format <span class="op">--</span>check <span class="op">.</span></span>
-<span id="testing-cb2-19"><a href="#testing-cb2-19" aria-hidden="true" tabindex="-1"></a>uv run mypy</span>
-<span id="testing-cb2-20"><a href="#testing-cb2-20" aria-hidden="true" tabindex="-1"></a>npm <span class="op">--</span>prefix frontend run lint</span>
-<span id="testing-cb2-21"><a href="#testing-cb2-21" aria-hidden="true" tabindex="-1"></a>npm <span class="op">--</span>prefix frontend run typecheck</span>
-<span id="testing-cb2-22"><a href="#testing-cb2-22" aria-hidden="true" tabindex="-1"></a>npm <span class="op">--</span>prefix frontend run test<span class="op">:</span>run</span>
-<span id="testing-cb2-23"><a href="#testing-cb2-23" aria-hidden="true" tabindex="-1"></a>npm <span class="op">--</span>prefix frontend run build</span></code></pre></div>
+<span id="testing-cb2-6"><a href="#testing-cb2-6" aria-hidden="true" tabindex="-1"></a>uv run pytest tests<span class="op">/</span>test_mcp_fetch<span class="op">.</span><span class="fu">py</span> <span class="op">--</span>tb<span class="op">=</span>short</span>
+<span id="testing-cb2-7"><a href="#testing-cb2-7" aria-hidden="true" tabindex="-1"></a>uv run pytest tests<span class="op">/</span>test_provider_run_contract<span class="op">.</span><span class="fu">py</span> <span class="op">--</span>tb<span class="op">=</span>short</span>
+<span id="testing-cb2-8"><a href="#testing-cb2-8" aria-hidden="true" tabindex="-1"></a>uv run pytest tests<span class="op">/</span>test_server<span class="op">.</span><span class="fu">py</span> <span class="op">--</span>tb<span class="op">=</span>short</span>
+<span id="testing-cb2-9"><a href="#testing-cb2-9" aria-hidden="true" tabindex="-1"></a>uv run pytest tests<span class="op">/</span>engine <span class="op">--</span>tb<span class="op">=</span>short</span>
+<span id="testing-cb2-10"><a href="#testing-cb2-10" aria-hidden="true" tabindex="-1"></a>uv run pytest tests<span class="op">/</span>docker<span class="op">/</span>test_agent_service<span class="op">.</span><span class="fu">py</span> <span class="op">--</span>tb<span class="op">=</span>short</span>
+<span id="testing-cb2-11"><a href="#testing-cb2-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="testing-cb2-12"><a href="#testing-cb2-12" aria-hidden="true" tabindex="-1"></a><span class="co"># Offline eval and opt-in integration</span></span>
+<span id="testing-cb2-13"><a href="#testing-cb2-13" aria-hidden="true" tabindex="-1"></a>uv run pytest <span class="op">-</span>p no<span class="op">:</span>warnings <span class="op">--</span>tb<span class="op">=</span>short <span class="op">-</span>o addopts<span class="op">=</span><span class="st">&#39;&#39;</span> evals<span class="op">/</span></span>
+<span id="testing-cb2-14"><a href="#testing-cb2-14" aria-hidden="true" tabindex="-1"></a>uv run pytest <span class="op">-</span>m integration <span class="op">--</span>tb<span class="op">=</span>short</span>
+<span id="testing-cb2-15"><a href="#testing-cb2-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="testing-cb2-16"><a href="#testing-cb2-16" aria-hidden="true" tabindex="-1"></a><span class="co"># CI-equivalent coverage/static checks</span></span>
+<span id="testing-cb2-17"><a href="#testing-cb2-17" aria-hidden="true" tabindex="-1"></a>uv run pytest <span class="op">-</span>p no<span class="op">:</span>warnings <span class="op">--</span>tb<span class="op">=</span>short <span class="op">--</span>cov<span class="op">=</span>backend <span class="op">--</span>cov-report<span class="op">=</span>term-missing <span class="op">--</span>cov-fail-under<span class="op">=</span><span class="dv">60</span></span>
+<span id="testing-cb2-18"><a href="#testing-cb2-18" aria-hidden="true" tabindex="-1"></a><span class="dt">uv</span> run ruff check <span class="op">.</span></span>
+<span id="testing-cb2-19"><a href="#testing-cb2-19" aria-hidden="true" tabindex="-1"></a>uv run ruff format <span class="op">--</span>check <span class="op">.</span></span>
+<span id="testing-cb2-20"><a href="#testing-cb2-20" aria-hidden="true" tabindex="-1"></a>uv run mypy</span>
+<span id="testing-cb2-21"><a href="#testing-cb2-21" aria-hidden="true" tabindex="-1"></a>npm <span class="op">--</span>prefix frontend run lint</span>
+<span id="testing-cb2-22"><a href="#testing-cb2-22" aria-hidden="true" tabindex="-1"></a>npm <span class="op">--</span>prefix frontend run typecheck</span>
+<span id="testing-cb2-23"><a href="#testing-cb2-23" aria-hidden="true" tabindex="-1"></a>npm <span class="op">--</span>prefix frontend run test<span class="op">:</span>run</span>
+<span id="testing-cb2-24"><a href="#testing-cb2-24" aria-hidden="true" tabindex="-1"></a>npm <span class="op">--</span>prefix frontend run build</span></code></pre></div>
 </section>
 </section>
 <section id="testing-5-coverage-and-quality-signals" class="level2">
@@ -6023,9 +6528,10 @@ refactors</td>
 <ul>
 <li>The v2 dashboard can now approve or deny nonce-bound safety prompts
 through <code>/api/v2/sessions/{id}/safety-decisions</code>.</li>
-<li><code>CUA_API_TOKEN</code> now gates REST, WebSocket, and noVNC
-access when configured; <code>CUA_WS_TOKEN</code> remains only as a
-deprecated compatibility fallback.</li>
+<li><code>CUA_API_TOKEN</code> now gates <code>/api/*</code> (reads and
+writes, except the Google OAuth callback), WebSocket, and noVNC access
+when configured; <code>CUA_WS_TOKEN</code> remains only as a deprecated
+compatibility fallback.</li>
 <li>Confirmed v2 actions are persisted during execution, avoiding the
 former post-run-only journal gap.</li>
 <li>Audit-frame retention has preview/prune controls; SQLite record
@@ -6051,6 +6557,14 @@ non-recoverable by design. Do not add them to SQLite, logs, action
 payloads, or checkpoints.</li>
 <li>Google OAuth is intentionally limited to the configured redirect URI
 and a short-lived, PKCE-bound authorization state.</li>
+<li>Provider web-search planning fetches public pages from the
+<strong>host</strong> through <code>uvx mcp-server-fetch</code>.
+Localhost / <code>.local</code> / non-global IPs are skipped; hostnames
+with a dot are fetched. This is not full SSRF protection. The CU loop
+does not attach provider <code>web_search</code> tools.</li>
+<li>x11vnc starts with <code>-nopw</code>. Loopback-only publish is the
+control; do not expose <code>5900</code>/<code>6080</code> off the
+workstation.</li>
 </ul>
 </section>
 <section id="concerns-4-technical-debt-and-change-discipline"
@@ -6118,6 +6632,10 @@ will not choose dynamically by price or latency.</li>
 <code>gpt-5.6-luna</code>, <code>gpt-5.6-terra</code>,
 <code>claude-sonnet-5</code>, <code>gemini-3.7-flash</code>, and
 <code>gemini-3.5-flash-lite</code>.</li>
+<li><code>useBuiltinSearch</code> / <code>use_builtin_search</code> runs
+MCP fetch planning (<code>uvx mcp-server-fetch</code>), not
+provider-native <code>web_search</code>. Host needs <code>uvx</code> on
+<code>PATH</code> (or set <code>CUA_MCP_FETCH_CMD</code>).</li>
 </ol>
 <p>Before deleting v1 state, run the v2 contract tests, create and
 delete a disposable session, verify approve/deny safety confirmation,
@@ -6321,12 +6839,14 @@ OpenAI Responses (<code>openai-direct</code>)</li>
 <li><code>gemini-3.7-flash</code> and <code>gemini-3.5-flash-lite</code>
 through Google Interactions (<code>gemini-direct</code>)</li>
 </ul>
-<p>API keys are supported for all three providers
-(<code>GOOGLE_API_KEY</code> is preferred over
-<code>GEMINI_API_KEY</code> and a process env var is not overwritten by
-<code>.env</code>). Gemini also supports process-local browser OAuth.
-The dated tables below describe the July 23, 2026 research snapshot, not
-the live allowlist.</p>
+<p>API keys are supported for all three providers.
+<code>GOOGLE_API_KEY</code> is preferred over
+<code>GEMINI_API_KEY</code>. <code>backend/infra/config.py</code>
+snapshots those names into <code>_USER_ENV</code> before
+<code>load_dotenv(..., override=False)</code>, so a user-env
+<code>GOOGLE_API_KEY</code> wins over <code>.env</code>. Gemini also
+supports process-local browser OAuth. The dated tables below describe
+the July 23, 2026 research snapshot, not the live allowlist.</p>
 </section>
 <section id="research-eligible-catalog" class="level2">
 <h2>Eligible catalog</h2>
@@ -6487,9 +7007,12 @@ overview.</li>
 <code>Computer use Supported</code>.</li>
 <li>Confirm the Computer Use guide documents a compatible Interactions
 API request and continuation mechanism for the candidate.</li>
-<li>Confirm the page explicitly says
-<code>Search grounding Supported</code> if Web Search planning should
-remain available for the successor.</li>
+<li>Web-search planning in this repo uses Fetch MCP
+(<code>backend/infra/mcp_fetch.py</code>,
+<code>uvx mcp-server-fetch</code>), not Gemini Search grounding. Do
+<strong>not</strong> require <code>Search grounding Supported</code> to
+keep planning available. Confirm Computer Use still works without a
+search tool on the CU loop.</li>
 <li>Confirm the Computer Use guide or model page does not exclude the
 candidate from Computer Use, prompt-injection detection, or its safety
 acknowledgement flow.</li>

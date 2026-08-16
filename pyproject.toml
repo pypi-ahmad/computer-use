@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "computer-use-workbench"
 version = "3.1.1"
-description = "Local, provider-native Computer Use agent workbench"
+description = "Open-source local Computer Use workbench. Run on your machine with your API keys."
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
 license = { text = "MIT" }

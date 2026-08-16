@@ -1,8 +1,14 @@
 # Computer Use Prompt Guide
 
-This app runs provider-native Computer Use. It can optionally add Web Search
-and provider file retrieval. Prompts should describe the desktop outcome,
-allowed evidence, safety boundaries, and stop condition.
+This app runs provider-native Computer Use. It can optionally run a
+**web-search planning** pass (Live toggle / `useBuiltinSearch`) and
+provider file retrieval. Planning is **not** provider-native
+`web_search` or Google Search. `backend/providers/planner.py` extracts
+or asks for up to 3 public `http(s)` URLs, `backend/infra/mcp_fetch.py`
+fetches them via `uvx mcp-server-fetch`, then the Computer Use loop
+runs computer-only with that brief. Prompts should describe the desktop
+outcome, allowed evidence, safety boundaries, and stop condition. Put
+the official URL in the task when you know it.
 
 ## Short Rule
 
@@ -32,7 +38,7 @@ Starting point:
 [App, website, file, or current screen.]
 
 Sources:
-[Visible page, attached files, official docs, Web Search, or a specific domain.]
+[Visible page, attached files, official docs, a specific URL, or MCP-fetched public pages when planning is on.]
 
 Constraints:
 [Things not to click, submit, buy, delete, publish, save, or change.]
@@ -56,12 +62,12 @@ Use only the visible desktop and the page I open.
 Do not browse elsewhere unless I ask.
 ```
 
-Web Search on:
+Web Search planning on:
 
 ```text
-Use Web Search only for current public information.
-Prefer official sources.
-Ignore unrelated search results.
+Use only official public URLs I name (or that the planner listed).
+Prefer those pages for current public facts.
+Do not invent extra sites. The desktop loop has no search tool.
 ```
 
 Files uploaded:
@@ -71,11 +77,11 @@ Use the attached file as the source of truth.
 If the website disagrees with the file, report the mismatch before acting.
 ```
 
-Files plus Web Search:
+Files plus web-search planning:
 
 ```text
 Use the attached file for internal requirements.
-Use Web Search only to verify current public facts.
+Use fetched official pages only to verify current public facts.
 Keep those two sources separate in the final answer.
 ```
 
@@ -90,15 +96,16 @@ Provider selection:
 
 ```text
 Use OpenAI or Anthropic if the task depends on attached reference files.
-Use Gemini only for screen-driven Computer Use, optionally with Google Search
-grounding when Web Search is enabled.
+Use Gemini only for screen-driven Computer Use. Planning, if enabled,
+fetches public URLs via MCP; it does not attach Google Search to the
+Computer Use loop.
 ```
 
 Source precedence:
 
 ```text
 Treat the attached file as the source of truth for internal requirements.
-Use Web Search only for current public facts.
+Use fetched official pages only for current public facts.
 If the sources conflict, stop and report the conflict instead of guessing.
 ```
 
@@ -128,9 +135,9 @@ Return missing fields as a short bullet list.
 Use live web context:
 
 ```text
-Use Web Search and official sources only.
-Find the current pricing page for the selected provider.
-Open the page in the browser.
+Turn on Provider web search planning. Start from this official URL:
+https://platform.openai.com/docs/pricing
+Open that page in the browser.
 Stop when the pricing table is visible.
 Summarize the relevant price and include the visible source page title.
 ```
@@ -140,7 +147,7 @@ Compare file and web page:
 ```text
 Use the attached release checklist as the source of truth.
 Open the product page that is already visible in the browser.
-If Web Search is enabled, use it only to verify the current public page URL.
+If planning is on, use fetched official pages only to verify the current public URL.
 Do not publish, save, or submit anything.
 Stop after comparing the visible page to the checklist.
 Return: matching items, missing items, and uncertain items.
@@ -193,8 +200,9 @@ something newer.
 Instead, decide the precedence explicitly:
 
 ```text
-Use the attached policy for internal requirements. Use Web Search only to
-check whether the public page changed. If they disagree, report the mismatch.
+Use the attached policy for internal requirements. Use fetched official
+pages only to check whether the public page changed. If they disagree,
+report the mismatch.
 ```
 
 ## Stop Conditions
