@@ -4,7 +4,7 @@ import { Activity, BookOpen, CircleDollarSign, CircleStop, History, KeyRound, Mo
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { api, desktopViewerSrc, getAppToken, setAppToken, waitForNovnc } from './api'
 import type { Action, Analytics, EventRecord, Session, Workflow } from './types'
-import { estimateSessionCost, formatUsd } from './pricing'
+import { MODEL_PRICES, estimateSessionCost, formatUsd } from './pricing'
 import { useLiveStream } from './useLiveStream'
 
 const tabs = [
@@ -36,7 +36,7 @@ function Header({ eyebrow, title, aside }: { eyebrow: string; title: string; asi
 
 function LivePage({ credentialSessionId, preferredRoute, initialTask, session, onSession, controlSlot }: { credentialSessionId: string | null; preferredRoute: string; initialTask: string; session: Session | null; onSession: (session: Session | null) => void; controlSlot: HTMLElement | null }) {
   const models = useResource(() => api.models()); const routes = useResource(() => api.routes())
-  const [task, setTask] = useState(initialTask); const [modelId, setModelId] = useState(''); const [routeId, setRouteId] = useState(''); const [fallback, setFallback] = useState(''); const [safetyPolicy, setSafetyPolicy] = useState('provider_default'); const [reasoning, setReasoning] = useState(''); const [search, setSearch] = useState(false); const [files, setFiles] = useState<Array<{ id: string; name: string }>>([]); const [handledNonce, setHandledNonce] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [viewerUrl, setViewerUrl] = useState('')
+  const [task, setTask] = useState(initialTask); const [modelId, setModelId] = useState('gemini-3.7-flash'); const [routeId, setRouteId] = useState(''); const [fallback, setFallback] = useState('gemini-3.5-flash-lite@gemini-direct'); const [safetyPolicy, setSafetyPolicy] = useState('provider_default'); const [reasoning, setReasoning] = useState(''); const [search, setSearch] = useState(false); const [files, setFiles] = useState<Array<{ id: string; name: string }>>([]); const [handledNonce, setHandledNonce] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [viewerUrl, setViewerUrl] = useState('')
   useEffect(() => { let live = true; void api.desktop().then(desktop => waitForNovnc(desktopViewerSrc(desktop.viewerUrl))).then(src => { if (live) setViewerUrl(src) }).catch((e: unknown) => { if (live) setError(e instanceof Error ? e.message : String(e)) }); return () => { live = false } }, [])
   const model = models.data?.data.find(item => item.logicalId === (modelId || models.data?.data[0]?.logicalId)) ?? models.data?.data[0]
   const selectedRouteId = model?.routes.some(route => route.id === routeId) ? routeId : (model?.routes.find(route => route.id === preferredRoute)?.id ?? model?.routes[0]?.id ?? '')
@@ -59,7 +59,7 @@ function LivePage({ credentialSessionId, preferredRoute, initialTask, session, o
       <label>Fallback model<select value={fallback} onChange={e => setFallback(e.target.value)}><option value="">No fallback</option>{models.data?.data.filter(item => item.logicalId !== model?.logicalId).flatMap(item => item.routes.map(route => <option value={`${item.logicalId}@${route.id}`} key={`${item.logicalId}@${route.id}`}>{item.displayName} · {route.provider}</option>))}</select></label>
       {Boolean(model?.reasoningEfforts?.length) && <label>Reasoning<select value={reasoning} onChange={e => setReasoning(e.target.value)}><option value="">Model default</option>{model?.reasoningEfforts.map(effort => <option key={effort}>{effort}</option>)}</select></label>}
       <label>Safety policy<select value={safetyPolicy} onChange={e => setSafetyPolicy(e.target.value)}><option value="provider_default">Provider default</option><option value="confirm_mutating">Confirm mutating actions</option><option value="read_only">Read only</option></select></label>
-      <label className="toggle-field">Provider web search planning<button type="button" className={search ? 'toggle on' : 'toggle'} role="switch" aria-checked={search} aria-label="Provider web search planning" onClick={() => { setSearch(on => !on) }}><span className="toggle-knob" /><span>{search ? 'On' : 'Off'}</span></button></label>
+      <label className="toggle-field">Provider web search (model fetch via MCP)<button type="button" className={search ? 'toggle on' : 'toggle'} role="switch" aria-checked={search} aria-label="Provider web search via MCP fetch" onClick={() => { setSearch(on => !on) }}><span className="toggle-knob" /><span>{search ? 'On' : 'Off'}</span></button></label>
       {model?.family !== 'GEMINI' && <label>Reference files<input type="file" multiple accept=".md,.txt,.pdf,.docx" onChange={event => { void attach(event) }}/><span>{files.map(file => file.name).join(', ')}</span></label>}
       {(error || models.error || routes.error) && <p className="form-error" role="alert">{error || models.error || routes.error}</p>}
       </div>
@@ -110,10 +110,12 @@ function CostPage({ currentSession }: { currentSession: Session | null }) {
   const sessions = useResource(() => api.sessions())
   const [selected, setSelected] = useState(currentSession?.id ?? '')
   const [usage, setUsage] = useState<Analytics | null>(null)
+  useEffect(() => { if (currentSession?.id) setSelected(currentSession.id) }, [currentSession?.id])
   const listed = sessions.data?.data ?? []
   const rows = currentSession && !listed.some(item => item.id === currentSession.id) ? [currentSession, ...listed] : listed
   const selectedId = selected || currentSession?.id || rows[0]?.id || ''
   const session = rows.find(item => item.id === selectedId) ?? currentSession
+  const isCurrent = Boolean(currentSession && session?.id === currentSession.id)
   useEffect(() => {
     if (!selectedId) { setUsage(null); return }
     let live = true
@@ -131,14 +133,18 @@ function CostPage({ currentSession }: { currentSession: Session | null }) {
   const cards = [
     ['Input tokens', String(inputTokens)],
     ['Output tokens', String(outputTokens)],
-    ['Estimated cost', cost.known ? formatUsd(cost.totalUsd) : 'Unknown model'],
+    ['Input cost', cost.known ? formatUsd(cost.inputUsd) : '—'],
+    ['Estimated total', cost.known ? formatUsd(cost.totalUsd) : session ? 'Unknown model' : '—'],
   ]
-  return <><Header eyebrow="Token billing estimate" title="Session cost" aside={<div><select aria-label="Session" value={selectedId} onChange={e => setSelected(e.target.value)}>{rows.map(item => <option value={item.id} key={item.id}>{item.task.slice(0, 42) || item.id}</option>)}</select>{session && <StatusBadge status={session.status}/>}</div>}/>
+  return <><Header eyebrow="Current session usage" title="Session cost" aside={<div><select aria-label="Session" value={selectedId} onChange={e => setSelected(e.target.value)}>{rows.map(item => <option value={item.id} key={item.id}>{item.id === currentSession?.id ? `Current · ${item.task.slice(0, 32) || item.id}` : item.task.slice(0, 42) || item.id}</option>)}</select>{session && <StatusBadge status={session.status}/>}</div>}/>
     <section className="metrics">{cards.map(([label, value]) => <article className="panel metric" key={label}><span>{label}</span><strong>{value}</strong></article>)}</section>
-    <section className="panel table-panel"><div className="panel-head"><span>{cost.rate?.label ?? session?.model ?? 'No session'}</span><span>{session?.primaryRoute ?? ''}</span></div>
-      {session ? <dl className="cost-breakdown"><div><dt>Input rate</dt><dd>{cost.rate ? `${formatUsd(cost.rate.inputPerMillion)} / 1M` : '—'}</dd></div><div><dt>Output rate</dt><dd>{cost.rate ? `${formatUsd(cost.rate.outputPerMillion)} / 1M` : '—'}</dd></div><div><dt>Input cost</dt><dd>{cost.known ? formatUsd(cost.inputUsd) : '—'}</dd></div><div><dt>Output cost</dt><dd>{cost.known ? formatUsd(cost.outputUsd) : '—'}</dd></div></dl> : <div className="empty"><CircleDollarSign/><h2>No session yet</h2><p>Start a run on Live session. Cost uses recorded EXECUTION token totals.</p></div>}
+    <section className="panel table-panel"><div className="panel-head"><span>{isCurrent ? 'Current session' : (cost.rate?.label ?? session?.model ?? 'No session')}</span><span>{session ? `${cost.rate?.label ?? session.model} · ${session.primaryRoute}` : ''}</span></div>
+      {session ? <dl className="cost-breakdown"><div><dt>Input rate</dt><dd>{cost.rate ? `${formatUsd(cost.rate.inputPerMillion)} / 1M` : '—'}</dd></div><div><dt>Output rate</dt><dd>{cost.rate ? `${formatUsd(cost.rate.outputPerMillion)} / 1M` : '—'}</dd></div><div><dt>Input cost</dt><dd>{cost.known ? formatUsd(cost.inputUsd) : '—'}</dd></div><div><dt>Output cost</dt><dd>{cost.known ? formatUsd(cost.outputUsd) : '—'}</dd></div></dl> : <div className="empty"><CircleDollarSign/><h2>No session yet</h2><p>Start a run on Live session. Cost = recorded EXECUTION tokens / 1,000,000 × list rate below.</p></div>}
       {session && usage && usage.sampleCount === 0 && <p className="form-error" role="status">No token metrics yet. Totals appear after the session writes an EXECUTION metric.</p>}
-      {cost.rate && <p className="cost-note">{cost.rate.details} Estimate = tokens / 1,000,000 × list rate. Not an invoice.</p>}
+      {cost.rate && <p className="cost-note">{cost.rate.details} Estimate = tokens / 1,000,000 × list rate. Batch, cache, and Terra long-context doubling are not applied. Not an invoice.</p>}
+    </section>
+    <section className="panel table-panel rate-panel"><div className="panel-head"><span>List rates</span><span>USD per 1M tokens</span></div>
+      <div className="rate-wrap"><table className="rate-table"><thead><tr><th>Model</th><th>Input / 1M</th><th>Output / 1M</th><th>Key details</th></tr></thead><tbody>{Object.entries(MODEL_PRICES).map(([id, rate]) => <tr key={id} className={session?.model === id ? 'is-current' : undefined}><td>{rate.label}</td><td>{formatUsd(rate.inputPerMillion)}</td><td>{formatUsd(rate.outputPerMillion)}</td><td>{rate.details}</td></tr>)}</tbody></table></div>
     </section></>
 }
 

@@ -11,31 +11,31 @@ export const MODEL_PRICES: Record<string, ModelPrice> = {
     label: 'Sonnet 5',
     inputPerMillion: 2,
     outputPerMillion: 10,
-    details: 'Anthropic standard list rate. Batch API discounts are not applied here.',
+    details: 'Anthropic $2 / $10 standard list rate. 50% Batch API discount is not applied here.',
   },
   'gemini-3.7-flash': {
     label: 'Gemini Flash 3.7',
     inputPerMillion: 0.75,
     outputPerMillion: 3.75,
-    details: 'Promo list rate through 31 Dec 2026. Batch discounts are not applied here.',
+    details: 'Half price of 3.6 Flash under a promo rate through 31 Dec 2026.',
   },
   'gemini-3.5-flash-lite': {
     label: 'Gemini 3.5 Flash Lite',
     inputPerMillion: 0.3,
     outputPerMillion: 2.5,
-    details: 'Flash-family list rate. Batch rates ($0.15 / $1.25) are not applied here.',
+    details: 'Lowest cost Flash-family tier. Batch $0.15 / $1.25 is not applied here.',
   },
   'gpt-5.6-luna': {
     label: 'GPT 5.6 Luna',
     inputPerMillion: 0.2,
     outputPerMillion: 1.2,
-    details: 'OpenAI budget-tier list rate. Prompt-cache reads ($0.02) are not metered separately.',
+    details: 'OpenAI budget tier. Prompt-cache reads ($0.02) are not metered separately.',
   },
   'gpt-5.6-terra': {
     label: 'GPT 5.6 Terra',
     inputPerMillion: 2,
     outputPerMillion: 12,
-    details: 'Mid-tier list rate. Long-context doubling (>272k input) is not applied automatically.',
+    details: 'OpenAI mid-tier. Long-context doubling (>272k input) is not applied automatically.',
   },
 }
 
