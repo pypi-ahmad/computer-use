@@ -1138,6 +1138,7 @@ class TestGeminiNativeAsync:
         client._quota_project_id = None
         client._excluded = []
         client._system_instruction = None
+        client._use_builtin_search = False
 
         result = await client._create_interaction([{"type": "text", "text": "hi"}])
 

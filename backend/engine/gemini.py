@@ -361,12 +361,12 @@ class GeminiCUClient:
 
     def _interaction_tools(self, computer_tool: dict[str, Any]) -> list[dict[str, Any]]:
         tools = [computer_tool]
-        if self._use_builtin_search:
+        if getattr(self, "_use_builtin_search", False):
             tools.append(gemini_mcp_fetch_tool())
         return tools
 
     def _compose_initial_goal_text(self, goal: str) -> str:
-        if self._use_builtin_search:
+        if getattr(self, "_use_builtin_search", False):
             return f"{goal}\n\n{mcp_fetch_instruction()}"
         return goal
 
