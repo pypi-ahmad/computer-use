@@ -1,63 +1,119 @@
 # Computer Use Workbench
 
-A local app that lets an AI model operate a **real Linux desktop** for
-you — click, type, open apps, and use a browser — while you watch.
+Computer Use Workbench is a **local operator console** for official
+Computer Use models. You give the model a task in plain English. It
+receives screenshots of a **disposable Ubuntu/XFCE desktop** running
+in Docker on your machine, and it replies with vendor Computer Use
+actions (`click`, `type`, `hotkey`, scroll, navigate). Those actions
+run **inside the container**, not on your host desktop. You watch the
+same XFCE screen live in the browser through noVNC.
+
+It is a workbench, not a product you log into. There is no hosted
+agent and no account on this repo. You clone it, start three local
+processes (dashboard, API, sandbox), and pay the model vendor
+directly with **your** API keys.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/pypi-ahmad/computer-use/actions/workflows/ci.yml/badge.svg)](https://github.com/pypi-ahmad/computer-use/actions/workflows/ci.yml)
 [![Python 3.12–3.14](https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-3776AB)](pyproject.toml)
 [![Latest release](https://img.shields.io/github/v/release/pypi-ahmad/computer-use)](https://github.com/pypi-ahmad/computer-use/releases/latest)
 
-You write a task in plain English. A model from **Google**, **OpenAI**,
-or **Anthropic** looks at screenshots of an isolated Docker desktop
-and issues official Computer Use actions (`click`, `type`, `hotkey`,
-…). Those actions run inside Ubuntu/XFCE, not on your host. You see
-the desktop live in the browser (noVNC).
-
-This is **not** a hosted product. Clone it, run it on **your machine**,
-use **your API keys**. **MIT** ([LICENSE](LICENSE)). Contributions
-(tests, bugs, ideas, PRs) are welcome. **Do not send money.** **You
-own every file and payload you put in the app** (PDFs, other uploads,
-sandbox files, keys). [DATA.md](DATA.md) · [OPEN_SOURCE.md](OPEN_SOURCE.md)
-· [SUPPORT.md](SUPPORT.md).
+**MIT** ([LICENSE](LICENSE)). Contributions (tests, bugs, ideas, PRs)
+are welcome. **Do not send money.** Every file and payload you put in
+the app — PDFs, other uploads, sandbox files, keys, task text — is
+**yours and your responsibility**. [DATA.md](DATA.md) ·
+[OPEN_SOURCE.md](OPEN_SOURCE.md) · [SUPPORT.md](SUPPORT.md).
 
 Latest tag **v3.1.1**. This file matches the current tree, including
-Unreleased work in `CHANGELOG.md`.
+Unreleased work in [CHANGELOG.md](CHANGELOG.md).
 
-> Computer Use can execute destructive actions. Use test accounts and
+> Computer Use can execute destructive actions (delete files, submit
+> forms, spend money in a browser session). Use test accounts and
 > non-sensitive data. This project is not a multi-tenant service and
 > does not make model actions safe by itself.
 
 ## What this project is
 
-Three processes on one workstation:
+Provider Computer Use APIs already know how to look at a screen and
+choose a mouse or keyboard action. They do **not** give you a desktop,
+a live view, an audit log, or a place to approve risky steps. This
+repo is that missing local layer.
+
+You run it when you want to **see** a Gemini, OpenAI, or Claude
+Computer Use model work a real GUI — file manager, browser, settings —
+and keep the record of what it did on **your** disk.
+
+### Who it is for
+
+- Operators who will run a clone on one workstation and watch it
+- People evaluating Computer Use models on bounded, local tasks
+- Contributors who want to test, file bugs, or send patches
+
+It is **not** for anyone who needs a hosted agent, multi-user access,
+or a guarantee the model will stay inside the task. Isolation is a
+throw-away container. It is not a review of every click.
+
+### What you do
+
+1. Start the stack (`run.cmd` on Windows, or `dev.py` after setup).
+2. Open [http://127.0.0.1:8505](http://127.0.0.1:8505). The Live tab
+   shows XFCE as soon as the sandbox is healthy. You do **not** start
+   a run just to see the desktop.
+3. In the left **CONTROL** sidebar (Mission control), pick a model
+   (Live default `gemini-3.7-flash` on `gemini-direct`, fallback
+   `gemini-3.5-flash-lite@gemini-direct`), type a task, optionally
+   turn on **Provider web search** so the model may call `mcp_fetch`
+   during the run, and click **Start run** (`POST /api/v2/sessions`,
+   `maxSteps: 50`).
+4. Watch the model drive XFCE in the main pane. If a step is flagged,
+   Approve or Deny (unanswered prompts auto-deny after 60 seconds).
+5. After the run, use the other tabs: **Audit trail** (what happened),
+   **Session cost** (`EXECUTION` tokens × list rates), **Analytics**
+   (aggregates), **Workflow library** (named step lists),
+   **Providers** (keys / OAuth for this process).
+
+All of that data stays under `data/` on the machine that ran the
+stack. Maintainers never receive it.
+
+### The three processes
+
+One workstation, three processes, loopback only by default:
 
 | Piece | Role |
 |---|---|
-| React dashboard (`127.0.0.1:8505` in dev) | Six tabs. Live **Mission control** sits in the left CONTROL sidebar; the main pane is the XFCE screen. |
+| React dashboard (`127.0.0.1:8505` in dev) | Six tabs. Live **Mission control** is in the left CONTROL sidebar; the main pane is the XFCE screen. |
 | FastAPI backend (`127.0.0.1:8100`) | Sessions, safety prompts, SQLite audit, cost estimates, noVNC proxy. |
 | Docker sandbox `cua-environment` | Xvfb + XFCE + x11vnc (`-nopw`) + `docker/agent_service.py`. Loopback ports 5900 / 6080 / 9222. |
 
-**A run, in order**
+The model does not SSH into your laptop. It talks to the vendor API.
+The backend translates the vendor’s Computer Use actions into HTTP
+calls on the sandbox (`AGENT_SERVICE_TOKEN`). The sandbox is Ubuntu
+24.04 with a virtual 1440×900 display.
 
-1. The Live viewport connects as soon as the sandbox is healthy. You
-   do not start a run to see XFCE.
-2. You pick a model (default `gemini-3.7-flash` on `gemini-direct`,
-   fallback `gemini-3.5-flash-lite@gemini-direct`) and click
-   **Start run**. That is `POST /api/v2/sessions` with `maxSteps: 50`.
-3. Optional **Provider web search** (`useBuiltinSearch`) advertises
-   `mcp_fetch` on the Computer Use loop. The model calls that tool;
-   the host runs official Fetch MCP (`uvx mcp-server-fetch`). No
-   OpenAI / Anthropic / Gemini `web_search`.
-4. The selected vendor SDK returns desktop actions. The backend maps
-   them onto the sandbox over `AGENT_SERVICE_TOKEN`.
+### A run, in order
+
+1. Sandbox healthy → noVNC iframe connects (`/vnc/vnc.html?path=vnc/websockify`, no VNC password).
+2. **Start run** writes a session to SQLite and calls the selected
+   engine (`gemini-direct`, `openai-direct`, or `anthropic-direct`).
+3. If **Provider web search** is on (`useBuiltinSearch`), the engine
+   advertises an `mcp_fetch` tool on Computer Use turns. The **model**
+   chooses when to fetch a public `https` URL. The host runs official
+   Fetch MCP (`uvx mcp-server-fetch`). This is not OpenAI / Anthropic /
+   Gemini `web_search`, and it is not a pre-run URL brief.
+4. The vendor SDK returns desktop actions. `backend/executor.py` maps
+   them onto `docker/agent_service.py`.
 5. Risky steps can pause for Approve/Deny (60 s then auto-deny).
-6. After the run, Audit trail, Session cost (`EXECUTION` tokens ×
-   list rates), and Analytics read SQLite on your disk.
+6. Audit trail, Session cost, and Analytics read SQLite on your disk.
 
-**What it is not:** a cloud agent, a multi-user SaaS, or a guarantee
-that the model will stay inside the task. Isolation is a disposable
-container, not a review of every click.
+### What it is not
+
+| Not this | Why |
+|---|---|
+| A hosted / cloud agent | You run the clone. No sign-in on this repo. |
+| Multi-user SaaS | Default bind is `127.0.0.1`. A public bind needs `CUA_ALLOW_PUBLIC_BIND=1` **and** `CUA_API_TOKEN`. |
+| A safety system | The container limits *where* clicks land, not *whether* the task is wise. |
+| A provider invoice | Session cost is list-rate arithmetic on recorded tokens. |
+| A search engine | `mcp_fetch` fetches a URL the model already has. It does not search the web. |
 
 ## Index
 
@@ -69,6 +125,11 @@ Longer blurbs: [Documentation](#documentation).
 ### This README
 
 1. [What this project is](#what-this-project-is)
+    - [Who it is for](#who-it-is-for)
+    - [What you do](#what-you-do)
+    - [The three processes](#the-three-processes)
+    - [A run, in order](#a-run-in-order)
+    - [What it is not](#what-it-is-not)
 2. [Open source](#open-source)
 3. [Features](#features)
 4. [Demo](#demo)
@@ -221,10 +282,11 @@ forks, local use, and contributions are **always welcome**.
 - **Live sandbox viewport** — noVNC iframe of XFCE as soon as the
   container is ready (`/vnc/vnc.html?path=vnc/websockify`, no VNC
   password). You do not start a run to see the screen.
-- **Web-search planning** — Live toggle `useBuiltinSearch` runs
-  `backend/providers/planner.py` + `backend/infra/mcp_fetch.py`
-  (`uvx mcp-server-fetch`). It does **not** attach provider
-  `web_search` / Google Search to the Computer Use loop.
+- **Provider web search (model fetch via MCP)** — Live toggle
+  `useBuiltinSearch` advertises `mcp_fetch` on Computer Use turns.
+  The model calls it; the host runs `uvx mcp-server-fetch`
+  (`backend/infra/mcp_fetch.py`). It does **not** attach provider
+  `web_search` / Google Search, and it does not pre-fetch URLs.
 - **Session event socket** — `/api/v2/ws/desktop` while idle, then
   `/api/v2/ws/{session_id}` after **Start run**. Carries pipeline,
   safety, and terminal events. CUAF preview frames are decoded but
@@ -296,7 +358,7 @@ computer-use/
 │   ├── server/               # HTTP/WS, noVNC proxy, app lifespan
 │   ├── v2/                   # /api/v2 REST, credentials, SQLite, frames
 │   ├── engine/               # OpenAI / Anthropic / Gemini Computer Use clients
-│   ├── providers/            # Run adapters + MCP-fetch planner
+│   ├── providers/            # Run adapters; MCP fetch lives in infra/
 │   ├── executor.py           # Desktop actions → agent_service
 │   ├── loop.py               # Session / step orchestration
 │   ├── infra/                # Config, Docker, logging, mcp_fetch.py
@@ -614,10 +676,11 @@ cua-environment              docker/agent_service.py
    the iframe until `/vnc/vnc.html` returns 200.
    `desktopViewerSrc()` strips leftover `password`/`token` query
    params.
-3. If **Provider web search planning** is on,
-   `maybe_plan_with_web_search()` fetches up to 3 public URLs via MCP
-   fetch, then the Computer Use loop runs computer-only with that
-   brief.
+3. If **Provider web search** is on, the engine advertises
+   `mcp_fetch` on Computer Use turns. The model calls it with a
+   public `https` URL; the host runs `uvx mcp-server-fetch`.
+   Localhost / private URLs are rejected. This is not a pre-run
+   planner brief.
 4. Starting a session stores the run in SQLite, calls the selected
    engine, and maps official desktop actions (`click`, `type`,
    `hotkey`, …) onto the sandbox. Google sessions use user-env
@@ -642,12 +705,12 @@ Safety policies on Live session / `POST /api/v2/sessions`:
 | `confirm_mutating` | Extra operator confirm for mutating actions |
 | `read_only` | Reject mutating actions |
 
-Optional `useBuiltinSearch` runs an MCP-fetch planning pass
-(`backend/providers/planner.py`, `uvx mcp-server-fetch` unless
-`CUA_MCP_FETCH_CMD` is set) before the computer-only loop. It does
+Optional `useBuiltinSearch` advertises `mcp_fetch` on Computer Use
+turns (`backend/infra/mcp_fetch.py`, `uvx mcp-server-fetch` unless
+`CUA_MCP_FETCH_CMD` is set). The model decides when to fetch. It does
 not attach OpenAI `web_search`, Anthropic `web_search_20260209`, or
-Gemini `google_search` to Computer Use turns. Private/localhost URLs
-are skipped. Host needs `uvx` on `PATH`.
+Gemini `google_search`. Private/localhost URLs are rejected. Host
+needs `uvx` on `PATH`.
 
 Gemini **File Search** cannot be combined with Computer Use; attaching
 files with a Gemini model fails at session start. The Live tab hides
