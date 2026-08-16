@@ -103,6 +103,18 @@ tmp/
 #   assets/
 # and do NOT ignore that folder.
 
+# Live operator data (SQLite audit DB, uploaded/reference files, audit
+# frames) — never commit; see DATA.md.
+data/
+
+# Playwright MCP's own session snapshots (not source, not curated docs).
+.playwright-mcp/
+
+# Local .ua/ tool scratch dirs (trash/backup) — the rest of .ua/ (config,
+# fingerprints, knowledge-graph.json) is intentionally tracked.
+.ua/.trash-*/
+.ua/codegraph-backup-*/
+
 # Build/test artifacts (local only)
 build_log.txt
 frontend/build_output.txt
