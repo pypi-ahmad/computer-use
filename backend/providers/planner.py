@@ -1,23 +1,37 @@
-"""Provider-native planning phase for Web Search ON runs.
+"""Web-search planning phase for Web Search ON runs.
 
-The planner is intentionally separate from the Computer Use executor. When
-the user enables web search, providers first produce a compact execution
-brief with their native search tool. The Computer Use loop then receives that
-brief and runs with only the computer tool.
+The planner is separate from the Computer Use executor. When the user enables
+Provider web search planning, this module fetches public pages through the
+Fetch MCP server (``uvx mcp-server-fetch``) and asks the selected provider
+for a compact execution brief. The Computer Use loop then runs with only the
+computer tool.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
-LogCallback = Callable[[str, str], None]
+from backend.infra.mcp_fetch import fetch_pages, public_http_urls
 
+LogCallback = Callable[[str, str], None]
+FetchPages = Callable[[list[str]], Awaitable[list[dict[str, str]]]]
+
+
+_URL_PROMPT = """You are preparing sources for a Computer Use execution brief.
+
+Reply with at most 3 public https URLs, one per line, that would help interpret
+this desktop task (docs, official download pages, current UI labels).
+No commentary. If no URL would help, reply with NONE.
+
+User task:
+{task}
+"""
 
 _PLANNER_PROMPT = """You are preparing an execution brief for a Computer Use model.
 
 The next phase will control a Linux desktop through screenshots, mouse, and
-keyboard. Use provider-native web search only when it helps interpret the
+keyboard. Use the fetched web pages below only when they help interpret the
 user's request, the application name, operating-system behavior, or current
 public web facts. Do not perform the desktop task yourself.
 
@@ -30,6 +44,9 @@ Return a concise brief with exactly these sections:
 
 User task:
 {task}
+
+Fetched pages (MCP fetch):
+{pages}
 """
 
 
@@ -41,7 +58,7 @@ def build_planned_computer_use_task(task: str, brief: str) -> str:
     return (
         "Complete the original user task using the computer tool only.\n\n"
         f"Original user task:\n{task}\n\n"
-        "Execution brief from the provider-native planning/search phase:\n"
+        "Execution brief from the MCP fetch planning/search phase:\n"
         f"{brief}\n\n"
         "Do not use web search in this phase. Use screenshots and computer "
         "actions to complete the task. Stop only when the verification "
@@ -55,45 +72,75 @@ async def create_web_execution_brief(
     task: str,
     client: Any,
     on_log: LogCallback | None = None,
+    fetch_pages_fn: FetchPages | None = None,
 ) -> str | None:
-    """Create an execution brief with the provider's native web-search tool."""
+    """Create an execution brief using MCP fetch, not provider-native search."""
+    fetch = fetch_pages_fn or fetch_pages
+    urls = public_http_urls(task)
+    if not urls:
+        listed = await _complete_text(
+            provider=provider,
+            client=client,
+            prompt=_URL_PROMPT.format(task=task),
+            on_log=on_log,
+        )
+        urls = public_http_urls(listed or "")
+    if on_log and urls:
+        on_log("info", f"MCP fetch planner: fetching {len(urls)} URL(s)")
+    pages = await fetch(urls) if urls else []
+    if on_log:
+        on_log(
+            "info",
+            "MCP fetch planner: building execution brief before Computer Use"
+            + (f" ({len(pages)} page(s))" if pages else " (no pages fetched)"),
+        )
+    return await _complete_text(
+        provider=provider,
+        client=client,
+        prompt=_PLANNER_PROMPT.format(task=task, pages=_format_pages(pages)),
+        on_log=on_log,
+    )
+
+
+def _format_pages(pages: list[dict[str, str]]) -> str:
+    if not pages:
+        return "(none)"
+    blocks: list[str] = []
+    for page in pages:
+        text = (page.get("text") or "").strip() or "(empty)"
+        blocks.append(f"URL: {page.get('url', '')}\n{text}")
+    return "\n\n".join(blocks)
+
+
+async def _complete_text(
+    *,
+    provider: str,
+    client: Any,
+    prompt: str,
+    on_log: LogCallback | None,
+) -> str | None:
     provider_key = str(provider or "").strip().lower()
     if provider_key == "openai":
-        return await _openai_web_plan(task=task, client=client, on_log=on_log)
+        return await _openai_text(client=client, prompt=prompt, on_log=on_log)
     if provider_key in {"google", "gemini"}:
-        return await _gemini_web_plan(task=task, client=client, on_log=on_log)
+        return await _gemini_text(client=client, prompt=prompt, on_log=on_log)
     if provider_key in {"anthropic", "claude"}:
-        return await _anthropic_web_plan(task=task, client=client, on_log=on_log)
+        return await _anthropic_text(client=client, prompt=prompt)
     return None
 
 
-async def _openai_web_plan(
-    *,
-    task: str,
-    client: Any,
-    on_log: LogCallback | None,
-) -> str | None:
-    """Plan with OpenAI Responses API web_search, without computer."""
+async def _openai_text(*, client: Any, prompt: str, on_log: LogCallback | None) -> str | None:
     sdk_client = getattr(client, "_client", None)
     if sdk_client is None or not hasattr(sdk_client, "responses"):
         return None
-
-    if on_log:
-        on_log("info", "OpenAI web planner: building execution brief before Computer Use")
-
     request: dict[str, Any] = {
         "model": getattr(client, "_model", "gpt-5.6-luna"),
-        "tools": [{"type": "web_search"}],
-        "input": _PLANNER_PROMPT.format(task=task),
+        "input": prompt,
         "store": False,
         "truncation": "auto",
-        "parallel_tool_calls": False,
-        "include": ["web_search_call.action.sources"],
     }
-    # Keep planning latency bounded and avoid GPT-5 minimal+web_search issues.
     if str(request["model"]).startswith("gpt-5"):
         request["reasoning"] = {"effort": "low"}
-
     create_response = getattr(client, "_create_response", None)
     if create_response is not None:
         response = await create_response(on_log=on_log, **request)
@@ -102,24 +149,12 @@ async def _openai_web_plan(
     return _extract_response_text(response)
 
 
-async def _gemini_web_plan(
-    *,
-    task: str,
-    client: Any,
-    on_log: LogCallback | None,
-) -> str | None:
-    """Plan with Gemini Google Search grounding, without computer_use."""
+async def _gemini_text(*, client: Any, prompt: str, on_log: LogCallback | None) -> str | None:
     create_interaction = getattr(client, "_create_interaction", None)
     if create_interaction is None:
         return None
-
-    if on_log:
-        on_log("info", "Gemini Google Search planner: building execution brief before Computer Use")
-
-    interaction = await create_interaction(
-        [{"type": "text", "text": _PLANNER_PROMPT.format(task=task)}],
-        tools=[{"type": "google_search"}],
-    )
+    _ = on_log
+    interaction = await create_interaction([{"type": "text", "text": prompt}])
     raw_text = (
         interaction.get("output_text")
         if isinstance(interaction, dict)
@@ -129,38 +164,10 @@ async def _gemini_web_plan(
     return text or None
 
 
-async def _anthropic_web_plan(
-    *,
-    task: str,
-    client: Any,
-    on_log: LogCallback | None,
-) -> str | None:
-    """Plan with Anthropic web_search_20250305, without computer."""
+async def _anthropic_text(*, client: Any, prompt: str) -> str | None:
     sdk_client = getattr(client, "_client", None)
     if sdk_client is None or not hasattr(sdk_client, "beta"):
         return None
-
-    ensure_search = getattr(client, "_ensure_anthropic_web_search_enabled", None)
-    if ensure_search is not None:
-        original_search = getattr(client, "_use_builtin_search", None)
-        if original_search is not None:
-            client._use_builtin_search = True
-        try:
-            await ensure_search(on_log)
-        finally:
-            if original_search is not None:
-                client._use_builtin_search = original_search
-
-    # D6: use the public protocol method (was a reach into a private one). The
-    # tool it returns carries the model-appropriate version
-    # (web_search_20260209 for the 4.6+ family), resolved inside the client.
-    build_tool = getattr(client, "build_web_search_tool", None)
-    if build_tool is None:
-        return None
-
-    if on_log:
-        on_log("info", "Anthropic web planner: building execution brief before Computer Use")
-
     response = await sdk_client.beta.messages.create(
         model=getattr(client, "_model", "claude-sonnet-5"),
         max_tokens=2048,
@@ -168,13 +175,7 @@ async def _anthropic_web_plan(
             "You create concise execution briefs for a separate Computer Use "
             "agent. Do not perform desktop actions."
         ),
-        tools=[build_tool(max_uses=3)],
-        messages=[
-            {
-                "role": "user",
-                "content": _PLANNER_PROMPT.format(task=task),
-            }
-        ],
+        messages=[{"role": "user", "content": prompt}],
     )
     return _extract_anthropic_text(response)
 
@@ -192,18 +193,6 @@ def _extract_response_text(response: Any) -> str | None:
             if value:
                 parts.append(str(value).strip())
     return "\n\n".join(part for part in parts if part) or None
-
-
-def _extract_gemini_text(response: Any) -> str | None:
-    candidates = getattr(response, "candidates", None) or []
-    if not candidates:
-        return None
-    content = getattr(candidates[0], "content", None)
-    parts = getattr(content, "parts", None) or []
-    text_parts = [
-        str(getattr(part, "text", "")).strip() for part in parts if getattr(part, "text", None)
-    ]
-    return "\n".join(part for part in text_parts if part) or None
 
 
 def _extract_anthropic_text(response: Any) -> str | None:

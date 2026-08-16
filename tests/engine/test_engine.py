@@ -1472,8 +1472,10 @@ class TestOpenAIZDRReplay:
 
         req = captured_requests[0]
         assert req["include"] == ["reasoning.encrypted_content"]
-        assert req["tools"] == [{"type": "computer"}]
-        assert "web search" not in req.get("instructions", "").lower()
+        assert req["tools"][0] == {"type": "computer"}
+        assert req["tools"][-1]["type"] == "function"
+        assert req["tools"][-1]["name"] == "mcp_fetch"
+        assert "web_search" not in req.get("instructions", "").lower()
 
 
 # ---------------------------------------------------------------------------
@@ -1776,19 +1778,24 @@ class TestOpenAIWebSearch:
         tools = client._build_tools(1440, 900)
         assert tools == [{"type": "computer"}]
 
-    def test_enabled_still_emits_only_computer_tool(self):
+    def test_enabled_adds_mcp_fetch_tool(self):
+        from backend.infra.mcp_fetch import MCP_FETCH_TOOL_NAME
+
         client = self._make(use_builtin_search=True)
         tools = client._build_tools(1440, 900)
-        assert tools == [{"type": "computer"}]
+        assert tools[0] == {"type": "computer"}
+        assert tools[-1]["type"] == "function"
+        assert tools[-1]["name"] == MCP_FETCH_TOOL_NAME
 
-    def test_enabled_with_file_search_keeps_cu_and_file_tools_only(self):
+    def test_enabled_with_file_search_keeps_cu_file_and_mcp_fetch(self):
+        from backend.infra.mcp_fetch import MCP_FETCH_TOOL_NAME
+
         client = self._make(use_builtin_search=True)
         client._vector_store_id = "vs_test"
         tools = client._build_tools(1440, 900)
-        assert tools == [
-            {"type": "computer"},
-            {"type": "file_search", "vector_store_ids": ["vs_test"]},
-        ]
+        assert tools[0] == {"type": "computer"}
+        assert tools[1] == {"type": "file_search", "vector_store_ids": ["vs_test"]}
+        assert tools[-1]["name"] == MCP_FETCH_TOOL_NAME
 
     def test_file_search_without_web_search_keeps_computer_tool(self):
         client = self._make(use_builtin_search=False)
@@ -1815,8 +1822,12 @@ class TestOpenAIWebSearch:
             use_builtin_search=True,
             reasoning_effort="minimal",
         )
+        from backend.infra.mcp_fetch import MCP_FETCH_TOOL_NAME
+
         assert client._reasoning_effort == "none"
-        assert client._build_tools(1440, 900) == [{"type": "computer"}]
+        tools = client._build_tools(1440, 900)
+        assert tools[0] == {"type": "computer"}
+        assert tools[-1]["name"] == MCP_FETCH_TOOL_NAME
 
 
 # ---------------------------------------------------------------------------
@@ -1849,17 +1860,21 @@ class TestClaudeWebSearch:
         assert len(tools) == 1
         assert tools[0]["name"] == "computer"
 
-    def test_enabled_still_emits_only_computer_tool(self):
+    def test_enabled_adds_mcp_fetch_tool(self):
+        from backend.infra.mcp_fetch import MCP_FETCH_TOOL_NAME
+
         client = self._make(use_builtin_search=True)
         tools = client._build_tools(1440, 900)
-        assert len(tools) == 1
         assert tools[0]["name"] == "computer"
+        assert tools[-1]["name"] == MCP_FETCH_TOOL_NAME
 
-    def test_enabled_with_files_keeps_computer_tool_only(self):
+    def test_enabled_with_files_keeps_computer_and_mcp_fetch(self):
+        from backend.infra.mcp_fetch import MCP_FETCH_TOOL_NAME
+
         client = self._make(use_builtin_search=True, attached_file_ids=["f_doc"])
         tools = client._build_tools(1440, 900)
-        assert len(tools) == 1
         assert tools[0]["name"] == "computer"
+        assert tools[-1]["name"] == MCP_FETCH_TOOL_NAME
 
     @pytest.mark.asyncio
     async def test_probe_success_marks_api_key_as_enabled(self):
@@ -2020,11 +2035,12 @@ class TestGeminiGoogleSearch:
             return GeminiCUClient(api_key="k", **kwargs)
 
     def test_disabled_emits_only_computer_use_tool(self):
+        from backend.infra.mcp_fetch import MCP_FETCH_TOOL_NAME
+
         client = self._make(use_builtin_search=False)
-        config = client._build_config()
-        # Exactly one tool: computer_use
-        assert len(config.tools) == 1
-        assert config.tools[0].computer_use is not None
+        tools = client._interaction_tools({"type": "computer_use"})
+        assert tools == [{"type": "computer_use"}]
+        assert MCP_FETCH_TOOL_NAME not in str(tools)
 
     def test_attached_files_are_rejected_for_gemini_computer_use(self):
         with pytest.raises(
@@ -2032,69 +2048,21 @@ class TestGeminiGoogleSearch:
         ):
             self._make(attached_file_ids=["f_doc"])
 
-    def test_enabled_still_emits_only_computer_use_tool(self):
+    def test_enabled_adds_mcp_fetch_tool(self):
+        from backend.infra.mcp_fetch import MCP_FETCH_TOOL_NAME
+
         client = self._make(use_builtin_search=True)
-        config = client._build_config()
-        assert len(config.tools) == 1
-        assert config.tools[0].computer_use is not None
+        tools = client._interaction_tools({"type": "computer_use"})
+        assert tools[0] == {"type": "computer_use"}
+        assert tools[-1]["name"] == MCP_FETCH_TOOL_NAME
 
-    def test_forced_search_flag_still_keeps_config_cu_only(self):
-        client = self._make(use_builtin_search=False)
+    def test_forced_search_flag_adds_mcp_fetch_not_google_search(self):
+        from backend.infra.mcp_fetch import MCP_FETCH_TOOL_NAME
 
-        class _FakeComputerUse:
-            def __init__(self, **kwargs):
-                self.__dict__.update(kwargs)
-
-        class _FakeTool:
-            def __init__(self, **kwargs):
-                self.computer_use = kwargs.get("computer_use")
-                self.google_search = kwargs.get("google_search")
-
-        class _FakeThinkingConfig:
-            def __init__(self, **kwargs):
-                self.__dict__.update(kwargs)
-
-        class _FakeFunctionCallingConfig:
-            def __init__(self, **kwargs):
-                self.mode = kwargs.get("mode")
-
-        class _FakeToolConfig:
-            def __init__(self, **kwargs):
-                self.function_calling_config = kwargs.get("function_calling_config")
-
-        class _FakeGenerateContentConfig:
-            def __init__(self, **kwargs):
-                self.__dict__.update(kwargs)
-
-            def model_dump(self, mode="json", exclude_none=True):
-                return self.__dict__
-
-        fake_types = SimpleNamespace(
-            Tool=_FakeTool,
-            ComputerUse=_FakeComputerUse,
-            ThinkingConfig=_FakeThinkingConfig,
-            ToolConfig=_FakeToolConfig,
-            FunctionCallingConfig=_FakeFunctionCallingConfig,
-            FunctionCallingConfigMode=SimpleNamespace(VALIDATED="VALIDATED"),
-            GoogleSearch=lambda: SimpleNamespace(),
-            Environment=SimpleNamespace(
-                ENVIRONMENT_BROWSER="browser",
-                ENVIRONMENT_DESKTOP="desktop",
-            ),
-            GenerateContentConfig=_FakeGenerateContentConfig,
-        )
-
-        client._types = fake_types
-        client._genai = SimpleNamespace(types=fake_types)
-        client._use_builtin_search = True
-
-        config = client._build_config()
-
-        body = config.model_dump(mode="json", exclude_none=True)
-        assert "include_server_side_tool_invocations" not in body
-        assert "tool_config" not in body
-        assert len(body["tools"]) == 1
-        assert body["tools"][0].computer_use is not None
+        client = self._make(use_builtin_search=True)
+        tools = client._interaction_tools({"type": "computer_use"})
+        assert any(item.get("name") == MCP_FETCH_TOOL_NAME for item in tools)
+        assert all(item.get("type") != "google_search" for item in tools)
 
     def test_non_gemini3_search_planning_raises_explicit_error(self):
         with pytest.raises(ValueError, match="Gemini 3"):

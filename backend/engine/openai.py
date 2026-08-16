@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
+import json
 import logging
 import os
 import re
@@ -32,6 +33,12 @@ from backend.engine import (
 )
 from backend.executor import ActionExecutor, CUActionResult
 from backend.infra.config import config as _app_config
+from backend.infra.mcp_fetch import (
+    MCP_FETCH_TOOL_NAME,
+    fetch_url_for_model,
+    mcp_fetch_instruction,
+    openai_mcp_fetch_tool,
+)
 from backend.models.schemas import load_allowed_models_json as _load_allowed_models_json
 
 logger = logging.getLogger(__name__)
@@ -388,6 +395,8 @@ class OpenAICUClient:
                         "vector_store_ids": [self._vector_store_id],
                     }
                 )
+            if self._use_builtin_search:
+                tools.append(openai_mcp_fetch_tool())
             return tools
         allowed = ", ".join(sorted(_OPENAI_CU_REGISTRY_MODELS))
         raise ValueError(
@@ -410,6 +419,8 @@ class OpenAICUClient:
         parts: list[str] = []
         if self._system_prompt:
             parts.append(self._system_prompt.strip())
+        if self._use_builtin_search:
+            parts.append(mcp_fetch_instruction())
         return "\n\n".join(part for part in parts if part)
 
     async def _ensure_vector_store(
@@ -581,8 +592,14 @@ class OpenAICUClient:
             computer_calls = [
                 item for item in output_items if getattr(item, "type", None) == "computer_call"
             ]
+            function_calls = [
+                item
+                for item in output_items
+                if getattr(item, "type", None) == "function_call"
+                and str(_to_plain_dict(item).get("name") or "") == MCP_FETCH_TOOL_NAME
+            ]
 
-            if not computer_calls:
+            if not computer_calls and not function_calls:
                 needs_more_computer_use = _openai_final_needs_more_computer_use(
                     goal,
                     turn_text,
@@ -670,6 +687,36 @@ class OpenAICUClient:
             screenshot_b64: str | None = None
             next_screenshot_scale = current_screenshot_scale
             terminated = False
+
+            for function_call in function_calls:
+                payload = _to_plain_dict(function_call)
+                raw_args = payload.get("arguments")
+                args: dict[str, Any] = {}
+                if isinstance(raw_args, dict):
+                    args = raw_args
+                elif isinstance(raw_args, str) and raw_args.strip():
+                    try:
+                        parsed = json.loads(raw_args)
+                    except json.JSONDecodeError:
+                        parsed = {}
+                    if isinstance(parsed, dict):
+                        args = parsed
+                url = str(args.get("url") or "")
+                text = await fetch_url_for_model(url)
+                call_id = str(payload.get("call_id") or payload.get("id") or "")
+                tool_outputs.append(
+                    {"type": "function_call_output", "call_id": call_id, "output": text}
+                )
+                results.append(
+                    CUActionResult(
+                        name=MCP_FETCH_TOOL_NAME,
+                        success=not text.startswith("Error:"),
+                        error=text if text.startswith("Error:") else "",
+                        extra={"url": url},
+                    )
+                )
+                if on_log:
+                    on_log("info", f"MCP fetch {url or '(missing url)'}")
 
             for computer_call in computer_calls:
                 acknowledged_safety_checks: list[dict[str, Any]] | None = None

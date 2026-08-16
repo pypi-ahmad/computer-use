@@ -35,6 +35,12 @@ from backend.engine import (
 )
 from backend.executor import ActionExecutor, CUActionResult
 from backend.infra.config import config as _app_config
+from backend.infra.mcp_fetch import (
+    MCP_FETCH_TOOL_NAME,
+    anthropic_mcp_fetch_tool,
+    fetch_url_for_model,
+    mcp_fetch_instruction,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -256,10 +262,13 @@ class ClaudeCUClient:
             use_builtin_search=use_builtin_search,
         )
 
-        # Product-level Web Search ON is handled by backend.providers.planner
-        # before the Computer Use loop. This CU client keeps its action loop
-        # computer-only so web_search does not compete with desktop actions.
+        # Toggle On: model may call mcp_fetch; host runs uvx mcp-server-fetch.
         self._use_builtin_search = bool(use_builtin_search)
+        if self._use_builtin_search:
+            extra = mcp_fetch_instruction()
+            self._system_prompt = (
+                f"{self._system_prompt}\n\n{extra}" if self._system_prompt else extra
+            )
 
         # Anthropic Files API integration. Per the official Computer
         # Use docs there is no sibling ``file_search`` tool on Claude
@@ -439,6 +448,8 @@ class ClaudeCUClient:
                 )
                 ClaudeCUClient._caching_logged = True
         tools: list[dict[str, Any]] = [tool]
+        if self._use_builtin_search:
+            tools.append(anthropic_mcp_fetch_tool())
         return tools
 
     async def iter_turns(
@@ -665,7 +676,7 @@ class ClaudeCUClient:
                 return
             if stop == "end_turn" or not tool_uses:
                 if (
-                    (self._use_builtin_search or self._attached_file_ids)
+                    (self._attached_file_ids or self._use_builtin_search)
                     and not saw_computer_action
                     and not nudged_for_computer_use
                 ):
@@ -726,7 +737,13 @@ class ClaudeCUClient:
                 yield RunCompleted(final_text=final_text)
                 return
 
-            saw_computer_action = True
+            computer_indices = [
+                idx
+                for idx, tu in enumerate(tool_uses)
+                if getattr(tu, "name", "") != MCP_FETCH_TOOL_NAME
+            ]
+            if computer_indices:
+                saw_computer_action = True
 
             # Emit the "model call done, about to run tools" boundary event.
             yield ModelTurnStarted(
@@ -738,60 +755,80 @@ class ClaudeCUClient:
             tool_result_parts: list[dict[str, Any]] = []
             results: list[CUActionResult] = []
 
-            # P5: execute every action first, then capture ONE screenshot for
-            # the turn (was N captures, one per tool_use). P1: request the
-            # post-action frame bundled in the LAST action's /action response so
-            # we can skip the separate GET /screenshot when it's available.
-            last_idx = len(tool_uses) - 1
+            last_computer = computer_indices[-1] if computer_indices else None
+            fetch_texts: dict[int, str] = {}
             for idx, tu in enumerate(tool_uses):
+                if getattr(tu, "name", "") == MCP_FETCH_TOOL_NAME:
+                    raw_input = tu.input if isinstance(tu.input, dict) else {}
+                    url = str(raw_input.get("url") or "")
+                    text = await fetch_url_for_model(url)
+                    fetch_texts[idx] = text
+                    results.append(
+                        CUActionResult(
+                            name=MCP_FETCH_TOOL_NAME,
+                            success=not text.startswith("Error:"),
+                            error=text if text.startswith("Error:") else None,
+                            extra={"url": url},
+                        )
+                    )
+                    if on_log:
+                        on_log("info", f"MCP fetch {url or '(missing url)'}")
+                    continue
                 result = await self._execute_claude_action(
                     tu.input,
                     executor,
                     scale_factor=scale,
                     action_id=tu.id,
-                    include_screenshot=(idx == last_idx),
+                    include_screenshot=(idx == last_computer),
                 )
                 results.append(result)
 
-            bundled = results[-1].extra.get("screenshot") if results else None
+            bundled = None
+            if computer_indices:
+                bundled = results[last_computer].extra.get("screenshot") if last_computer is not None else None
             if bundled:
                 screenshot_bytes = base64.b64decode(bundled)
-            else:
+            elif computer_indices:
                 screenshot_bytes = await executor.capture_screenshot()
-            screenshot_bytes, _, _ = await asyncio.to_thread(
-                resize_screenshot_for_claude,
-                screenshot_bytes,
-                scale,
+            else:
+                screenshot_bytes = b""
+            if screenshot_bytes:
+                screenshot_bytes, _, _ = await asyncio.to_thread(
+                    resize_screenshot_for_claude,
+                    screenshot_bytes,
+                    scale,
+                )
+            screenshot_b64 = (
+                base64.standard_b64encode(screenshot_bytes).decode() if screenshot_bytes else None
             )
-            screenshot_b64 = base64.standard_b64encode(screenshot_bytes).decode()
 
-            # Anthropic requires one tool_result per tool_use_id. Attach the
-            # single fresh screenshot to the LAST result; earlier results in a
-            # multi-action batch get a short text note (text-only content is
-            # allowed and the prior frames were near-identical anyway).
+            # Anthropic requires one tool_result per tool_use_id.
             for idx, tu in enumerate(tool_uses):
                 result = results[idx]
                 content: list[dict] = []
-                if result.error:
-                    content.append({"type": "text", "text": f"Error: {result.error}"})
-                if idx == last_idx:
-                    content.append(
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": _IMAGE_PNG,
-                                "data": screenshot_b64,
-                            },
-                        }
-                    )
-                elif not result.error:
-                    content.append(
-                        {
-                            "type": "text",
-                            "text": "[screenshot attached to the final tool result in this batch]",
-                        }
-                    )
+                if getattr(tu, "name", "") == MCP_FETCH_TOOL_NAME:
+                    content.append({"type": "text", "text": fetch_texts.get(idx) or result.error or ""})
+                else:
+                    if result.error:
+                        content.append({"type": "text", "text": f"Error: {result.error}"})
+                    if idx == last_computer and screenshot_b64:
+                        content.append(
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": _IMAGE_PNG,
+                                    "data": screenshot_b64,
+                                },
+                            }
+                        )
+                    elif not result.error:
+                        content.append(
+                            {
+                                "type": "text",
+                                "text": "[screenshot attached to the final computer tool result in this batch]",
+                            }
+                        )
                 tool_result_parts.append(
                     {
                         "type": "tool_result",

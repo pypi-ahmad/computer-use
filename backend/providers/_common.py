@@ -106,8 +106,8 @@ async def maybe_plan_with_web_search(
         {
             "level": "info",
             "message": (
-                "Web Search planning phase completed; Computer Use will run "
-                "without the web-search tool."
+                "MCP fetch planning phase completed; Computer Use will run "
+                "without a web-search tool."
             ),
         },
     )
