@@ -90,18 +90,10 @@ echo "[VNC] Starting x11vnc..."
 VNC_DIR="${HOME:-/tmp}/.vnc"
 VNC_LOG="${HOME:-/tmp}/x11vnc.log"
 mkdir -p "$VNC_DIR"
-if [ -n "${VNC_PASSWORD:-}" ]; then
-    x11vnc -storepasswd "$VNC_PASSWORD" "$VNC_DIR/passwd"
-    x11vnc -display :99 -forever -rfbauth "$VNC_DIR/passwd" -shared -rfbport 5900 -bg -o "$VNC_LOG"
-elif [ "${CUA_ALLOW_NOPW:-}" = "1" ]; then
-    echo "[VNC] DANGER: CUA_ALLOW_NOPW=1 — VNC is UNAUTHENTICATED. This is an"
-    echo "[VNC] explicit insecure opt-in for local debugging only; never set it"
-    echo "[VNC] on a shared or non-loopback host. Set VNC_PASSWORD instead."
-    x11vnc -display :99 -forever -nopw -shared -rfbport 5900 -bg -o "$VNC_LOG"
-else
-    echo "ERROR: VNC_PASSWORD is not set. Set VNC_PASSWORD or CUA_ALLOW_NOPW=1 to run without one."
-    exit 1
-fi
+# Local single-user sandbox: no RFB password. Loopback-only publish
+# (127.0.0.1:5900/6080). noVNC connects without a password dialog.
+echo "[VNC] starting x11vnc with -nopw (no VNC password)"
+x11vnc -display :99 -forever -nopw -shared -rfbport 5900 -bg -o "$VNC_LOG"
 
 # D1 — x11vnc uses -bg (daemonise) so we need to confirm a process
 # actually survived and is listening on :5900 before moving on.
