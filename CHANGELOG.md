@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Live **Desktop** dropdown: `Sandbox (Docker)` (default) or
+  `Native host`. Host runs Computer Use on the operator machine via
+  `HostDesktopExecutor`. Sandbox path is unchanged. Host start skips
+  the Docker ready gate. `"local"` is still rejected.
 - Community wording across README, SUPPORT, CONTRIBUTING, and
   SECURITY: testing, bugs, ideas, and PRs are welcome. No donations,
   sponsorship, bounties, or paid support. There is no `FUNDING.yml`.
