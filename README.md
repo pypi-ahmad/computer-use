@@ -1,381 +1,116 @@
 # Computer Use Workbench
 
-Computer Use Workbench is a **local operator console** for official
-Computer Use models. You give the model a task in plain English. It
-receives screenshots of a **disposable Ubuntu/XFCE desktop** running
-in Docker on your machine, and it replies with vendor Computer Use
-actions (`click`, `type`, `hotkey`, scroll, navigate). Those actions
-run **inside the container**, not on your host desktop. You watch the
-same XFCE screen live in the browser through noVNC.
+Local operator console for official Computer Use models. You type a
+task. The model sees screenshots of a **disposable Ubuntu/XFCE
+desktop** in Docker, returns vendor actions (`click`, `type`,
+`hotkey`, scroll, navigate), and those actions run **inside the
+container**, not on your host. You watch the same XFCE screen in the
+browser through noVNC.
 
-It is a workbench, not a product you log into. There is no hosted
-agent and no account on this repo. You clone it, start three local
-processes (dashboard, API, sandbox), and pay the model vendor
-directly with **your** API keys.
+No hosted agent. No account. Clone it, start three local processes,
+pay the vendor with **your** API keys.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/pypi-ahmad/computer-use/actions/workflows/ci.yml/badge.svg)](https://github.com/pypi-ahmad/computer-use/actions/workflows/ci.yml)
 [![Python 3.12–3.14](https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-3776AB)](pyproject.toml)
 [![Latest release](https://img.shields.io/github/v/release/pypi-ahmad/computer-use)](https://github.com/pypi-ahmad/computer-use/releases/latest)
 
-**MIT** ([LICENSE](LICENSE)). Contributions (tests, bugs, ideas, PRs)
-are welcome. **Do not send money.** Every file and payload you put in
-the app — PDFs, other uploads, sandbox files, keys, task text — is
-**yours and your responsibility**. [DATA.md](DATA.md) ·
-[OPEN_SOURCE.md](OPEN_SOURCE.md) · [SUPPORT.md](SUPPORT.md).
+Package `computer-use-workbench` **3.1.1**. Tree may include
+Unreleased work — see [CHANGELOG.md](CHANGELOG.md).
 
-Latest tag **v3.1.1**. This file matches the current tree, including
-Unreleased work in [CHANGELOG.md](CHANGELOG.md).
+[USAGE.md](USAGE.md) · [DATA.md](DATA.md) ·
+[OPEN_SOURCE.md](OPEN_SOURCE.md) · [SUPPORT.md](SUPPORT.md)
 
-> Computer Use can execute destructive actions (delete files, submit
-> forms, spend money in a browser session). Use test accounts and
-> non-sensitive data. This project is not a multi-tenant service and
-> does not make model actions safe by itself.
+> [!WARNING]
+> Computer Use can delete files, submit forms, and spend money in a
+> browser session. Use test accounts and non-sensitive data. This
+> project is not a multi-tenant service and does not make model
+> actions safe by itself.
 
-## What this project is
+> [!IMPORTANT]
+> **Do not send money.** No donations, sponsorship, bounties, or
+> paid support. Time and reports only. Every payload you put in the
+> app — PDFs, uploads, sandbox files, keys, task text — is **yours**.
 
-Provider Computer Use APIs already know how to look at a screen and
-choose a mouse or keyboard action. They do **not** give you a desktop,
-a live view, an audit log, or a place to approve risky steps. This
-repo is that missing local layer.
+[Features](#features) · [Quick start](#quick-start) ·
+[Usage](#usage) · [How it works](#how-it-works) ·
+[Environment](#environment) · [Index](#index)
 
-You run it when you want to **see** a Gemini, OpenAI, or Claude
-Computer Use model work a real GUI — file manager, browser, settings —
-and keep the record of what it did on **your** disk.
+## What this is
 
-### Who it is for
+Provider Computer Use APIs already look at a screen and pick a mouse
+or keyboard action. They do **not** give you a desktop, a live view,
+an audit log, or a place to approve risky steps. This repo is that
+local layer.
 
-- Operators who will run a clone on one workstation and watch it
-- People evaluating Computer Use models on bounded, local tasks
-- Contributors who want to test, file bugs, or send patches
+**For:** one-workstation operators, people evaluating Computer Use on
+bounded local tasks, contributors.
 
-It is **not** for anyone who needs a hosted agent, multi-user access,
-or a guarantee the model will stay inside the task. Isolation is a
-throw-away container. It is not a review of every click.
-
-### What you do
-
-1. Start the stack (`run.cmd` on Windows, or `dev.py` after setup).
-2. Open [http://127.0.0.1:8505](http://127.0.0.1:8505). The Live tab
-   shows XFCE as soon as the sandbox is healthy. You do **not** start
-   a run just to see the desktop.
-3. In the left **CONTROL** sidebar (Mission control), pick a model
-   (Live default `gemini-3.7-flash` on `gemini-direct`, fallback
-   `gemini-3.5-flash-lite@gemini-direct`), type a task, optionally
-   turn on **Provider web search** so the model may call `mcp_fetch`
-   during the run, and click **Start run** (`POST /api/v2/sessions`,
-   `maxSteps: 50`).
-4. Watch the model drive XFCE in the main pane. If a step is flagged,
-   Approve or Deny (unanswered prompts auto-deny after 60 seconds).
-5. After the run, use the other tabs: **Audit trail** (what happened),
-   **Session cost** (`EXECUTION` tokens × list rates), **Analytics**
-   (aggregates), **Workflow library** (named step lists),
-   **Providers** (keys / OAuth for this process).
-
-All of that data stays under `data/` on the machine that ran the
-stack. Maintainers never receive it.
-
-### The three processes
-
-One workstation, three processes, loopback only by default:
+**Not for:** hosted agents, multi-user access, or a guarantee the
+model stays inside the task. Isolation is a throw-away container.
 
 | Piece | Role |
 |---|---|
-| React dashboard (`127.0.0.1:8505` in dev) | Six tabs. Live **Mission control** is in the left CONTROL sidebar; the main pane is the XFCE screen. |
-| FastAPI backend (`127.0.0.1:8100`) | Sessions, safety prompts, SQLite audit, cost estimates, noVNC proxy. |
-| Docker sandbox `cua-environment` | Xvfb + XFCE + x11vnc (`-nopw`) + `docker/agent_service.py`. Loopback ports 5900 / 6080 / 9222. |
+| React dashboard (`127.0.0.1:8505`) | Six tabs. Live **Mission control** is the left CONTROL sidebar; the main pane is XFCE. |
+| FastAPI (`127.0.0.1:8100`) | Sessions, safety prompts, SQLite audit, cost estimates, noVNC proxy. |
+| Docker sandbox `cua-environment` | Xvfb + XFCE + x11vnc (`-nopw`) + `docker/agent_service.py`. Loopback 5900 / 6080 / 9222. |
 
-The model does not SSH into your laptop. It talks to the vendor API.
-The backend translates the vendor’s Computer Use actions into HTTP
-calls on the sandbox (`AGENT_SERVICE_TOKEN`). The sandbox is Ubuntu
-24.04 with a virtual 1440×900 display.
-
-### A run, in order
-
-1. Sandbox healthy → noVNC iframe connects (`/vnc/vnc.html?path=vnc/websockify`, no VNC password).
-2. **Start run** writes a session to SQLite and calls the selected
-   engine (`gemini-direct`, `openai-direct`, or `anthropic-direct`).
-3. If **Provider web search** is on (`useBuiltinSearch`), the engine
-   advertises an `mcp_fetch` tool on Computer Use turns. The **model**
-   chooses when to fetch a public `https` URL. The host runs official
-   Fetch MCP (`uvx mcp-server-fetch`). This is not OpenAI / Anthropic /
-   Gemini `web_search`, and it is not a pre-run URL brief.
-4. The vendor SDK returns desktop actions. `backend/executor.py` maps
-   them onto `docker/agent_service.py`.
-5. Risky steps can pause for Approve/Deny (60 s then auto-deny).
-6. Audit trail, Session cost, and Analytics read SQLite on your disk.
-
-### What it is not
+The model talks to the vendor API. The backend maps Computer Use
+actions onto HTTP calls on the sandbox (`AGENT_SERVICE_TOKEN`).
+Sandbox is Ubuntu 24.04, virtual display 1440×900.
 
 | Not this | Why |
 |---|---|
-| A hosted / cloud agent | You run the clone. No sign-in on this repo. |
-| Multi-user SaaS | Default bind is `127.0.0.1`. A public bind needs `CUA_ALLOW_PUBLIC_BIND=1` **and** `CUA_API_TOKEN`. |
+| Hosted / cloud agent | You run the clone. No sign-in on this repo. |
+| Multi-user SaaS | Default bind is `127.0.0.1`. Public bind needs `CUA_ALLOW_PUBLIC_BIND=1` **and** `CUA_API_TOKEN`. |
 | A safety system | The container limits *where* clicks land, not *whether* the task is wise. |
 | A provider invoice | Session cost is list-rate arithmetic on recorded tokens. |
 | A search engine | `mcp_fetch` fetches a URL the model already has. It does not search the web. |
 
-## Index
-
-Jump: [this README](#this-readme) · [operator](#operator-docs) ·
-[community](#community-docs) · [technical](#technical-docs) ·
-[templates and CI](#templates-and-ci).
-Longer blurbs: [Documentation](#documentation).
-
-### This README
-
-1. [What this project is](#what-this-project-is)
-    - [Who it is for](#who-it-is-for)
-    - [What you do](#what-you-do)
-    - [The three processes](#the-three-processes)
-    - [A run, in order](#a-run-in-order)
-    - [What it is not](#what-it-is-not)
-2. [Open source](#open-source)
-3. [Features](#features)
-4. [Demo](#demo)
-5. [Tech stack](#tech-stack)
-6. [Project structure](#project-structure)
-7. [Installation and setup](#installation-and-setup)
-    - [Requirements](#requirements)
-    - [Windows (recommended)](#windows-recommended)
-    - [Manual (Windows, Linux, macOS)](#manual-windows-linux-macos)
-    - [URLs](#urls)
-8. [Environment variables](#environment-variables)
-    - [Required for the sandbox](#required-for-the-sandbox)
-    - [Provider credentials](#provider-credentials-at-least-one-route)
-    - [Networking and workbench auth](#networking-and-workbench-auth)
-    - [Sandbox and agent](#sandbox-and-agent)
-    - [Persistence and logging](#persistence-and-logging)
-9. [Usage](#usage)
-    - [Dashboard](#dashboard)
-    - [Session cost rates](#session-cost-rates)
-    - [Commands](#commands)
-10. [Examples](#examples)
-    - [Local smoke task](#local-smoke-task)
-    - [Start a session over HTTP](#start-a-session-over-http)
-    - [Production-style single process](#production-style-single-process)
-11. [How it works](#how-it-works)
-12. [Configuration options](#configuration-options)
-13. [Documentation](#documentation)
-    - [Operator](#operator)
-    - [Project and community](#project-and-community)
-    - [Technical](#technical)
-14. [Community](#community)
-15. [License](#license)
-16. [Acknowledgements](#acknowledgements)
-
-### Operator docs
-
-| Document | What it is |
-|---|---|
-| [USAGE.md](USAGE.md) | Tabs, credentials, REST, troubleshooting |
-| [TESTING.md](TESTING.md) | Manual smoke test and CI-equivalent commands |
-| [DATA.md](DATA.md) | Local storage; operator owns every payload |
-| [docs/deployment.md](docs/deployment.md) | Local and single-process production start |
-| [docs/computer-use-prompt-guide.md](docs/computer-use-prompt-guide.md) | How to write bounded Computer Use tasks |
-| [docs/business-guide.md](docs/business-guide.md) | Pilot, risk, and go/no-go for an org evaluation |
-| [docs/zero-to-hero-study-handbook.md](docs/zero-to-hero-study-handbook.md) | Study handbook (markdown source) |
-| [docs/zero-to-hero-study-handbook.html](docs/zero-to-hero-study-handbook.html) | Study handbook (standalone HTML) |
-| [docs/zero-to-hero-study-handbook.pdf](docs/zero-to-hero-study-handbook.pdf) | Study handbook (PDF; may lag the HTML build) |
-
-### Community docs
-
-| Document | What it is |
-|---|---|
-| [OPEN_SOURCE.md](OPEN_SOURCE.md) | Clone, local use, own keys; no hosted service |
-| [SUPPORT.md](SUPPORT.md) | How to get help; what this repo will not debug |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Branch, test, and PR rules |
-| [SECURITY.md](SECURITY.md) | Security model and vulnerability reports |
-| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Contributor Covenant 3.0 |
-| [LICENSE](LICENSE) | MIT license text |
-| [AGENTS.md](AGENTS.md) | Terse-response rules for coding agents |
-
-### Technical docs
-
-| Document | What it is |
-|---|---|
-| [TECHNICAL.md](TECHNICAL.md) | Runtime contracts, routes, models |
-| [docs/codebase/ARCHITECTURE.md](docs/codebase/ARCHITECTURE.md) | Modular monolith and sandbox split |
-| [docs/codebase/STACK.md](docs/codebase/STACK.md) | Languages, frameworks, and tools |
-| [docs/codebase/STRUCTURE.md](docs/codebase/STRUCTURE.md) | Top-level repository map |
-| [docs/codebase/CONVENTIONS.md](docs/codebase/CONVENTIONS.md) | Naming and code conventions |
-| [docs/codebase/INTEGRATIONS.md](docs/codebase/INTEGRATIONS.md) | Providers, tokens, and external APIs |
-| [docs/codebase/CONCERNS.md](docs/codebase/CONCERNS.md) | Prioritized risks |
-| [docs/codebase/TESTING.md](docs/codebase/TESTING.md) | Test stack and how to run it |
-| [docker/SECURITY_NOTES.md](docker/SECURITY_NOTES.md) | Sandbox / agent-service attack surface |
-| [evals/README.md](evals/README.md) | Offline deterministic evals |
-| [.env.example](.env.example) | Environment template (copy to `.env`; never commit `.env`) |
-
-### Templates and CI
-
-| Document | What it is |
-|---|---|
-| [Bug template](.github/ISSUE_TEMPLATE/bug.yml) | GitHub bug report form |
-| [Idea template](.github/ISSUE_TEMPLATE/feature.yml) | GitHub feature / improvement form |
-| [Issue chooser](.github/ISSUE_TEMPLATE/config.yml) | Issue picker plus contact links |
-| [PR template](.github/PULL_REQUEST_TEMPLATE.md) | Pull-request checklist |
-| [CI workflow](.github/workflows/ci.yml) | Lint, typecheck, tests, sandbox image, Trivy |
-| [Release workflow](.github/workflows/release.yml) | Tagged-release job |
-| [Gemini changelog watchdog](.github/workflows/gemini-changelog-watchdog.yml) | Scheduled Gemini changelog check |
-
-## Open source
-
-This repository is **MIT-licensed** ([LICENSE](LICENSE)). Clones,
-forks, local use, and contributions are **always welcome**.
-
-- Run it **on your own machine**. There is no hosted service.
-- Use **your own provider API keys** (`GOOGLE_API_KEY` then
-  `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) or a
-  Providers-tab credential session. `GOOGLE_API_KEY` already set in the
-  user/process environment is snapshotted before `.env` loads
-  (`backend/infra/config.py` `_USER_ENV`) and wins over a `.env`
-  assignment. Keys stay process-local and are never written to SQLite.
-- **You are solely responsible** for every file and payload you put
-  into the app: PDFs, `.txt`, `.md`, `.docx` uploads, sandbox desktop
-  files, browser sessions, screenshots, and task text. See
-  [DATA.md](DATA.md).
-- Community help is what this project needs: testers, bug reports,
-  improvement ideas, features, docs, and PRs. See
-  [SUPPORT.md](SUPPORT.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
-- **No financial help.** Do not send donations, sponsorship, bounties,
-  or paid-support offers. Time and reports only.
-
-[Latest release](https://github.com/pypi-ahmad/computer-use/releases/latest)
-· [MIT License](LICENSE)
-· Python 3.12–3.14
-· [CI](https://github.com/pypi-ahmad/computer-use/actions/workflows/ci.yml)
-
 ## Features
 
-- **Three direct Computer Use routes** (catalog:
-  `backend/models/computer_use_models.v2.json`)
-  - `gemini-direct` — Gemini 3.7 Flash (Live default model
-    `gemini-3.7-flash`, `preferredRoute` `gemini-direct`) or Gemini 3.5
-    Flash-Lite (Live default fallback
-    `gemini-3.5-flash-lite@gemini-direct`)
-  - `anthropic-direct` — Claude Sonnet 5 via Anthropic Messages
-    (`computer_20251124`)
-  - `openai-direct` — GPT-5.6 Luna or GPT-5.6 Terra via the OpenAI
-    Responses API
-- **Six-tab React dashboard** — Live session, Audit trail, Session
-  cost, Workflow library, Providers, Analytics
-  (`frontend/src/App.tsx`). On Live, Mission control is portaled into
-  the CONTROL sidebar; the main pane is the noVNC viewport.
-- **Live sandbox viewport** — noVNC iframe of XFCE as soon as the
-  container is ready (`/vnc/vnc.html?path=vnc/websockify`, no VNC
-  password). You do not start a run to see the screen.
-- **Provider web search (model fetch via MCP)** — Live toggle
-  `useBuiltinSearch` advertises `mcp_fetch` on Computer Use turns.
-  The model calls it; the host runs `uvx mcp-server-fetch`
-  (`backend/infra/mcp_fetch.py`). It does **not** attach provider
-  `web_search` / Google Search, and it does not pre-fetch URLs.
-- **Session event socket** — `/api/v2/ws/desktop` while idle, then
-  `/api/v2/ws/{session_id}` after **Start run**. Carries pipeline,
-  safety, and terminal events. CUAF preview frames are decoded but
-  **not** shown; the picture is noVNC.
-- **Session cost** — list-rate USD from recorded `EXECUTION` tokens
+- **Three Computer Use routes** (`backend/models/computer_use_models.v2.json`)
+  - `gemini-direct` — Live default `gemini-3.7-flash`, fallback
+    `gemini-3.5-flash-lite@gemini-direct`
+  - `anthropic-direct` — Claude Sonnet 5 (`computer_20251124`)
+  - `openai-direct` — GPT-5.6 Luna or GPT-5.6 Terra (Responses API)
+- **Six-tab dashboard** — Live, Audit trail, Session cost, Workflow
+  library, Providers, Analytics (`frontend/src/App.tsx`)
+- **Live noVNC viewport** — XFCE as soon as the sandbox is healthy
+  (`/vnc/vnc.html?path=vnc/websockify`, no VNC password). You do not
+  start a run to see the screen.
+- **Provider web search (MCP fetch)** — Live toggle `useBuiltinSearch`
+  advertises `mcp_fetch`. The **model** chooses when to fetch a public
+  `https` URL. Host runs `uvx mcp-server-fetch`. Not provider
+  `web_search`, not a pre-run URL brief.
+- **Session event socket** — `/api/v2/ws/desktop` idle, then
+  `/api/v2/ws/{session_id}` after Start run. CUAF preview frames are
+  decoded but **not** shown; the picture is noVNC.
+- **Session cost** — `EXECUTION` tokens × list rates
   (`frontend/src/pricing.ts`)
-- **Typed `/api/v2` contract** — sessions, safety decisions,
-  workflows, analytics, export, retention, diagnostics, shutdown
-- **Deterministic route fallback** — primary route plus one optional
-  `model@route` pair (Live select)
 - **Safety policies** — `provider_default`, `confirm_mutating`,
-  `read_only`; Approve/Deny on
-  `POST /api/v2/sessions/{id}/safety-decisions`
-- **Process-local credentials** — API keys and Google OAuth tokens
-  stay in memory and expire within eight hours; they are not written
-  to SQLite
-- **SQLite WAL audit store** — sessions, actions, events, metrics,
-  workflow versions (`data/computer-use-v2.sqlite3`)
-- **Audit frame store** — screenshots under `data/audit-frames` with
-  7-day or 1 GiB eviction
-- **Declarative workflows** — named step lists; **Use in live
-  session** calls `POST /api/v2/workflows/{id}/compile`
-- **Windows one-file launcher** — `run.cmd` installs missing host
-  tools, then starts the stack
+  `read_only`; Approve/Deny (60 s then auto-deny)
+- **Process-local credentials** — keys stay in memory, expire within
+  eight hours, never written to SQLite. User/process `GOOGLE_API_KEY`
+  wins over `.env`.
+- **SQLite WAL audit** — `data/computer-use-v2.sqlite3`; frames under
+  `data/audit-frames` (7-day or 1 GiB eviction)
+- **Windows one-file launcher** — `run.cmd`
 
-Live catalog: `backend/models/allowed_models.json` and
-`backend/models/computer_use_models.v2.json`. The July 2026 research
-note is historical:
-[docs/research-audit-2026-07-23.md](docs/research-audit-2026-07-23.md).
+Live catalog: `backend/models/allowed_models.json`.
 
-## Demo
-
-After `run.cmd` (or `dev.py --open-browser`), open
-[http://127.0.0.1:8505](http://127.0.0.1:8505). The Live session
-viewport embeds the sandbox desktop.
-
-![Sandbox XFCE desktop](assets/screenshot.png)
-
-*Isolated XFCE desktop in the Live noVNC viewport. The screenshot is
-from an earlier UI revision; the current operator surface is the
-six-tab dashboard (Mission control in the left CONTROL sidebar).*
-
-A local smoke task (no web search, no attachments):
-
-> Open the file manager. Stop when the file manager window is visible.
-
-If the file manager appears and the session badge reaches `COMPLETED`,
-the install works. Full steps: [TESTING.md](TESTING.md).
-
-## Tech stack
-
-| Layer | What this repo uses |
-|---|---|
-| Backend | Python 3.12–3.14, FastAPI 0.141.1, Uvicorn, Pydantic 2, httpx, Pillow |
-| Providers | `openai` 2.30, `anthropic` 0.88, `google-genai` 2.7, `google-auth` |
-| Frontend | React 19, React Router 7, Vite 6, TypeScript 5.7, Lucide |
-| Sandbox | Docker Compose, `cua-ubuntu:latest` (Ubuntu 24.04), Xvfb, XFCE, x11vnc (`-nopw`), noVNC, `docker/agent_service.py` |
-| Persistence | SQLite WAL + on-disk audit frames |
-| Tooling | uv (`uv.lock`), Ruff, mypy, pytest 9, Vitest 3, GitHub Actions |
-
-Package name in `pyproject.toml`: `computer-use-workbench` **3.1.1**.
-
-## Project structure
-
-```text
-computer-use/
-├── backend/                  # FastAPI app
-│   ├── main.py               # Uvicorn entry; public-bind guardrail
-│   ├── server/               # HTTP/WS, noVNC proxy, app lifespan
-│   ├── v2/                   # /api/v2 REST, credentials, SQLite, frames
-│   ├── engine/               # OpenAI / Anthropic / Gemini Computer Use clients
-│   ├── providers/            # Run adapters; MCP fetch lives in infra/
-│   ├── executor.py           # Desktop actions → agent_service
-│   ├── loop.py               # Session / step orchestration
-│   ├── infra/                # Config, Docker, logging, mcp_fetch.py
-│   └── models/               # allowed_models.json, v2 catalog, schemas
-├── frontend/                 # React + Vite dashboard
-│   └── src/
-│       ├── App.tsx           # Six tabs; Live form in CONTROL sidebar
-│       ├── pricing.ts        # Session-cost list rates
-│       └── api.ts            # /api/v2 client; desktopViewerSrc()
-├── docker/                   # Sandbox image, entrypoint, agent_service
-├── docker-compose.yml        # cua-environment (5900, 6080, 9222)
-├── tests/                    # Offline pytest (excludes integration by default)
-├── evals/                    # Offline HTTP/runtime evals
-├── scripts/                  # Handbook site, release zip, changelog watchdog
-├── docs/                     # Operator, architecture, and release notes
-├── assets/screenshot.png     # Demo screenshot
-├── run.cmd                   # Windows setup-if-needed + launch
-├── setup.bat / setup.sh      # Bootstrap
-├── START.bat                 # Always run setup, then launch
-├── dev.py / dev.bat / dev.sh # Restart sandbox, backend, Vite
-└── .env.example              # Environment template
-```
-
-## Installation and setup
+## Quick start
 
 ### Requirements
 
 - Docker Desktop (engine running)
 - Node.js 22+
-- [uv](https://docs.astral.sh/uv/) and Python 3.12 (3.13 and 3.14 are
-  also tested in CI)
+- [uv](https://docs.astral.sh/uv/) and Python 3.12 (3.13 / 3.14 also
+  in CI)
 - Windows 11 for `run.cmd` / `START.bat`; Linux/macOS use `setup.sh`
   and `dev.sh`
 
-### Windows (recommended)
+### Windows
 
 ```powershell
 git clone https://github.com/pypi-ahmad/computer-use.git
@@ -383,17 +118,11 @@ cd computer-use
 .\run.cmd
 ```
 
-`run.cmd` installs missing host tools (uv, Python 3.12, Node.js LTS,
-Docker Desktop) via winget, copies `.env.example` to `.env` if needed,
-fills empty `AGENT_SERVICE_TOKEN` (and unused `VNC_PASSWORD`), runs
-`uv sync --frozen`, installs frontend deps when Vite is missing,
-builds `cua-ubuntu:latest` only if the image is absent, then starts
-`dev.py --open-browser`. `dev.py` runs
-`docker compose up -d --wait --wait-timeout 90` (healthy after
-`9222/health` **and** `6080/vnc.html`), waits for `GET /api/health`,
-starts Vite on `127.0.0.1:8505`, and opens that URL once Vite
-responds. x11vnc starts with `-nopw`; `VNC_PASSWORD` is not used for
-noVNC.
+`run.cmd` installs missing host tools via winget, copies
+`.env.example` → `.env` if needed, fills empty `AGENT_SERVICE_TOKEN`,
+syncs deps, builds `cua-ubuntu:latest` if missing, then starts
+`dev.py --open-browser`. Opens
+[http://127.0.0.1:8505](http://127.0.0.1:8505) when Vite is up.
 
 `START.bat` always runs `setup.bat --bootstrap-only` first, then
 launches.
@@ -409,156 +138,82 @@ cd computer-use
 Copy-Item .env.example .env   # then set AGENT_SERVICE_TOKEN
 uv sync --frozen
 npm --prefix frontend ci
-docker compose build          # first time, or after Dockerfile changes
+docker compose build
 uv run python dev.py --open-browser
 ```
 
-On Linux/macOS:
+Linux/macOS:
 
 ```bash
 cp .env.example .env
 # set AGENT_SERVICE_TOKEN
-bash setup.sh                 # optional bootstrap
+bash setup.sh
 bash dev.sh
 ```
 
-Daily start after setup: `uv run python dev.py --open-browser`.
-Backend only: `uv run python -m backend.main` (Uvicorn on `HOST`/`PORT`,
-default `127.0.0.1:8100`).
+Daily start: `uv run python dev.py --open-browser`. Backend only:
+`uv run python -m backend.main` (default `127.0.0.1:8100`).
 
 ### URLs
 
 | URL | What listens |
 |---|---|
-| http://127.0.0.1:8505 | Vite dashboard (dev). Proxies `/api`, `/api/v2/ws`, and `/vnc` to the backend. |
-| http://127.0.0.1:8100 | FastAPI. Production UI is `frontend/dist` when that build exists. |
-| http://127.0.0.1:9222/health | In-container agent service (loopback only) |
-| http://127.0.0.1:6080 | noVNC inside the container (prefer the dashboard `/vnc` proxy) |
+| http://127.0.0.1:8505 | Vite dashboard. Proxies `/api`, `/api/v2/ws`, `/vnc`. |
+| http://127.0.0.1:8100 | FastAPI. Production UI is `frontend/dist` when built. |
+| http://127.0.0.1:9222/health | In-container agent service (loopback) |
+| http://127.0.0.1:6080 | noVNC inside the container (prefer dashboard `/vnc`) |
 
-The backend snapshots user/process `GOOGLE_API_KEY` (then
-`GEMINI_API_KEY`) **before** loading repository-root `.env` (next to
-`docker-compose.yml`, not `backend/.env`) with
-`load_dotenv(..., override=False)`. That user-env key wins over a
-`.env` assignment (`backend/infra/config.py`).
+A non-loopback `HOST` requires `CUA_ALLOW_PUBLIC_BIND=1` and
+`CUA_API_TOKEN`, or `backend/main.py` exits 2.
 
-A non-loopback `HOST` requires both `CUA_ALLOW_PUBLIC_BIND=1` and
-`CUA_API_TOKEN`. Otherwise `backend/main.py` exits with code 2.
-Production SPA at `:8100` also serves `/`, `/audit`, `/cost`,
-`/workflows`, `/providers`, `/analytics` (`_SPA_ROUTES`).
+## Demo
 
-## Environment variables
+![Sandbox XFCE desktop](assets/screenshot.png)
 
-Copy `.env.example` to `.env`. Never commit the populated file.
+*Isolated XFCE in the Live noVNC viewport. Screenshot is from an
+earlier UI; current surface is the six-tab dashboard (Mission control
+in the left CONTROL sidebar).*
 
-### Required for the sandbox
+Smoke task (no web search, no attachments):
 
-| Variable | Default | Role |
-|---|---|---|
-| `AGENT_SERVICE_TOKEN` | generated by `run.cmd` if empty | Shared secret between the backend and `docker/agent_service.py` |
+```text
+Open the file manager. Stop when the file manager window is visible.
+```
 
-If the token in `.env` does not match the container, screenshots return
-`401` and the viewport stays blank. Restart the backend after fixing
-it. Confirm with
-`docker exec cua-environment printenv AGENT_SERVICE_TOKEN`.
-
-### Provider credentials (at least one route)
-
-| Variable | Role |
-|---|---|
-| `OPENAI_API_KEY` | `openai-direct` |
-| `ANTHROPIC_API_KEY` | `anthropic-direct` |
-| `GOOGLE_API_KEY` or `GEMINI_API_KEY` | `gemini-direct`. User/process `GOOGLE_API_KEY` is captured before `.env` and wins. `GEMINI_API_KEY` is the alias. |
-
-You can also create an ephemeral credential session in the Providers
-tab instead of putting keys in `.env`. Google OAuth needs
-`GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` or
-`GOOGLE_OAUTH_CLIENT_SECRET_FILE` (optional `GOOGLE_CLOUD_PROJECT`,
-`CUA_GOOGLE_OAUTH_REDIRECT_URI`).
-
-### Networking and workbench auth
-
-| Variable | Default | Role |
-|---|---|---|
-| `HOST` | `127.0.0.1` | Backend bind |
-| `PORT` | `8100` | Backend port |
-| `CUA_ALLOW_PUBLIC_BIND` | unset | Required for non-loopback `HOST` |
-| `CUA_API_TOKEN` | unset | Optional shared secret for `/api/*` (except the Google OAuth callback), `/ws`, `/api/v2/ws/*`, and `/vnc/websockify`. HTTP: `X-CUA-Token` or `?token=`. Default-open on loopback when unset. |
-| `CUA_WS_TOKEN` | unset | Deprecated fallback for `CUA_API_TOKEN` |
-| `CORS_ORIGINS` | 8505 / 8100 / 5173 / 3000 on localhost and 127.0.0.1 | Comma-separated Origin allowlist |
-
-### Sandbox and agent
-
-| Variable | Default | Role |
-|---|---|---|
-| `CONTAINER_NAME` | `cua-environment` | Docker container name |
-| `AGENT_SERVICE_HOST` / `AGENT_SERVICE_PORT` | `127.0.0.1` / `9222` | Action service |
-| `SCREEN_WIDTH` / `SCREEN_HEIGHT` | `1440` / `900` | Virtual display (restart backend after change) |
-| `MAX_STEPS` | `50` | Default step budget for v1/v2 APIs (hard cap 200). Live **Start run** always sends `maxSteps: 50`. |
-| `STEP_TIMEOUT` | `30.0` | Seconds before one action is treated as hung |
-| `VNC_PASSWORD` | unused | Ignored. x11vnc starts with `-nopw`; Compose does not pass this in. |
-| `CUA_ENABLE_LEGACY_ACTIONS` | `0` | Re-enables shell/clipboard/window-management actions in the sandbox. Do not enable off loopback. |
-| `CUA_ALLOWED_NAV_HOSTS` | unset | Optional comma-separated host allowlist for navigation |
-| `CUA_MCP_FETCH_CMD` | `uvx mcp-server-fetch` | Fetch MCP used when Live **Provider web search planning** is on |
-
-### Persistence and logging
-
-| Variable | Default | Role |
-|---|---|---|
-| `CUA_V2_DB_PATH` | `data/computer-use-v2.sqlite3` | SQLite WAL store |
-| `CUA_V2_FRAME_PATH` | `data/audit-frames` | Audit screenshots |
-| `CUA_FRONTEND_DIST` | `frontend/dist` | Optional path to the production UI bundle |
-| `LOG_FORMAT` | `console` | Set `json` for one JSON object per line |
-| `LOG_LEVEL` | `INFO` | Python log level |
-| `DEBUG` | `0` | Debug verbosity (`1` / `true` / `yes`) |
-| `CUA_RELOAD` | unset | Uvicorn `--reload` (explicit; `DEBUG` does not turn this on) |
-
-Frontend Vite (dev server only): `VITE_API_PORT` (default `8100`),
-`VITE_WS_TOKEN`, `VITE_PORT` (default `8505`).
-
-The full template is [.env.example](.env.example). Operator notes:
-[USAGE.md](USAGE.md#configuration-reference). What is stored where:
-[DATA.md](DATA.md).
+If the file manager appears and the session badge reaches
+`COMPLETED`, the install works. Full steps: [TESTING.md](TESTING.md).
 
 ## Usage
 
-### Dashboard
-
 1. Start the stack (`run.cmd` or `dev.py --open-browser`).
 2. Open `http://127.0.0.1:8505`.
-3. **Providers** — create a credential session (API key or Google
-   OAuth) if you did not set provider keys in the environment or
-   `.env`.
-4. **Live session** — Mission control is in the left CONTROL sidebar.
-   Defaults: model `gemini-3.7-flash`, route `gemini-direct`, fallback
-   `gemini-3.5-flash-lite@gemini-direct`. Optional reasoning (when the
-   catalog lists efforts), safety policy, **Provider web search
-   planning (MCP fetch)** (`uvx mcp-server-fetch`), optional reference
-   files on non-Gemini models, then **Start run** (`maxSteps: 50`).
-   The main pane is the noVNC viewport (`GET /api/v2/desktop`, no VNC
-   password).
-5. Approve or deny amber **Approval required** banners when the policy
-   and provider ask (`POST /api/v2/sessions/{id}/safety-decisions`).
-   Unanswered prompts auto-deny after 60 seconds.
+3. **Providers** — credential session if keys are not in the
+   environment or `.env`.
+4. **Live session** — CONTROL sidebar. Defaults: `gemini-3.7-flash` /
+   `gemini-direct`, fallback `gemini-3.5-flash-lite@gemini-direct`.
+   Optional reasoning, safety policy, **Provider web search**
+   (`mcp_fetch`), reference files on non-Gemini models. **Start run**
+   sends `POST /api/v2/sessions` with `maxSteps: 50`.
+5. Approve or deny amber banners
+   (`POST /api/v2/sessions/{id}/safety-decisions`). Unanswered
+   prompts auto-deny after 60 seconds.
 6. **Stop run** patches the session to `STOPPING`. Sidebar **Stop
-   app** posts `POST /api/v2/system/shutdown` (active sessions, Docker
-   sandbox, then SIGINT on the backend). `Ctrl+C` in the launcher
-   stops Vite, the backend, and `docker compose down`.
+   app** posts `POST /api/v2/system/shutdown`. `Ctrl+C` in the
+   launcher stops Vite, the backend, and `docker compose down`.
 
-| Path | Tab | Role |
-|---|---|---|
-| `/` | Live session | Mission control (sidebar), noVNC viewport, pipeline stages |
-| `/audit` | Audit trail | SQLite action journal, events, ZIP export |
-| `/cost` | Session cost | Current-session `EXECUTION` tokens × list rates in `frontend/src/pricing.ts` |
-| `/workflows` | Workflow library | Named step lists; compile into a Live task |
-| `/providers` | Providers | Route readiness and ephemeral credentials |
-| `/analytics` | Analytics | `sampleCount`, input/output tokens, `totalDurationMs`, diagnostics, retention prune |
+| Path | Tab |
+|---|---|
+| `/` | Live — Mission control, noVNC, pipeline stages |
+| `/audit` | Audit trail — action journal, events, ZIP export |
+| `/cost` | Session cost — `EXECUTION` tokens × list rates |
+| `/workflows` | Named step lists; compile into a Live task |
+| `/providers` | Route readiness and ephemeral credentials |
+| `/analytics` | Aggregates, diagnostics, retention prune |
 
-### Session cost rates
+### Session cost
 
-The **Session cost** tab estimates USD as
-`tokens / 1,000,000 × list rate`. Batch, cache, and Terra long-context
-doubling are **not** applied. Totals appear after the session writes an
-`EXECUTION` metric. Not a provider invoice.
+USD = `tokens / 1,000,000 × list rate`. Batch, cache, and Terra
+long-context doubling are **not** applied. Not a provider invoice.
 
 | Model | Input / 1M | Output / 1M |
 |---|---:|---:|
@@ -568,36 +223,7 @@ doubling are **not** applied. Totals appear after the session writes an
 | GPT 5.6 Luna (`gpt-5.6-luna`) | $0.20 | $1.20 |
 | GPT 5.6 Terra (`gpt-5.6-terra`) | $2.00 | $12.00 |
 
-### Commands
-
-| Command | Purpose |
-|---|---|
-| `run.cmd` | Windows: setup if needed, then launch |
-| `START.bat` | Always bootstrap via `setup.bat`, then launch |
-| `uv run python dev.py --open-browser` | Sandbox + backend + Vite; open `http://127.0.0.1:8505` once Vite responds |
-| `uv run python -m backend.main` | Backend only (Uvicorn on `HOST`/`PORT`) |
-| `uv run pytest` | Offline backend tests (`not integration`) |
-| `uv run pytest -o addopts='' evals/` | Offline evals |
-| `uv run ruff check .` / `uv run mypy` | Lint / type-check Python |
-| `npm --prefix frontend run test:run` | Frontend unit tests |
-| `npm --prefix frontend run build` | Production bundle at `frontend/dist` |
-| `uv run python scripts/build_handbook_site.py` | Rebuild `docs/zero-to-hero-study-handbook.html` |
-| `uv run python scripts/build_release.py` | Release zip and checksums |
-
-CI-equivalent checks: [TESTING.md](TESTING.md). Operator detail:
-[USAGE.md](USAGE.md).
-
-## Examples
-
-### Local smoke task
-
-```text
-Open the file manager. Stop when the file manager window is visible.
-```
-
-### Start a session over HTTP
-
-Dev UI calls `/api/v2`. Shape from `frontend/src/api.ts`:
+### HTTP
 
 ```http
 POST /api/v2/sessions
@@ -626,8 +252,33 @@ docker compose up -d --wait --wait-timeout 90
 uv run python -m backend.main
 ```
 
-Then open [http://127.0.0.1:8100](http://127.0.0.1:8100). See
+Then open [http://127.0.0.1:8100](http://127.0.0.1:8100). Detail:
 [docs/deployment.md](docs/deployment.md).
+
+### Commands
+
+| Command | Purpose |
+|---|---|
+| `run.cmd` | Windows: setup if needed, then launch |
+| `START.bat` | Always bootstrap, then launch |
+| `uv run python dev.py --open-browser` | Sandbox + backend + Vite |
+| `uv run python -m backend.main` | Backend only |
+| `uv run pytest` | Offline backend tests (`not integration`) |
+| `uv run ruff check .` / `uv run mypy` | Lint / type-check |
+| `npm --prefix frontend run test:run` | Frontend unit tests |
+| `npm --prefix frontend run build` | Production bundle |
+
+### Safety and files
+
+| `safetyPolicy` | Behavior |
+|---|---|
+| `provider_default` | Provider’s own confirmation rules |
+| `confirm_mutating` | Extra operator confirm for mutating actions |
+| `read_only` | Reject mutating actions |
+
+Gemini **File Search** cannot combine with Computer Use. Live hides
+the file input for `GEMINI`. Non-Gemini routes accept `.md`, `.txt`,
+`.pdf`, `.docx` as reference files.
 
 ## How it works
 
@@ -635,10 +286,10 @@ Then open [http://127.0.0.1:8100](http://127.0.0.1:8100). See
 Browser (127.0.0.1:8505)
     │  REST /api/v2/*
     │  WS   /api/v2/ws/desktop  or  /api/v2/ws/{session_id}
-    │  HTTP+WS /vnc/*  (noVNC assets + websockify)
+    │  HTTP+WS /vnc/*  (noVNC + websockify)
     ▼
 FastAPI (127.0.0.1:8100)     backend/server, backend/v2
-    │  orchestrates AgentLoop, safety, SQLite, CUAF frames
+    │  AgentLoop, safety, SQLite, CUAF frames
     ▼
 Provider SDK                 backend/engine, backend/providers
     OpenAI Responses  |  Anthropic Messages  |  Gemini Interactions
@@ -651,65 +302,146 @@ cua-environment              docker/agent_service.py
     Xvfb :99 1440×900 → XFCE → x11vnc :5900 → websockify :6080
 ```
 
-1. `dev.py` runs `docker compose up -d --wait --wait-timeout 90` so
-   agent `/health` and noVNC `vnc.html` are up before Vite starts.
-2. The Live tab loads `/api/v2/desktop` (viewer URL with
-   `path=vnc/websockify`, no `password=`) and `waitForNovnc()` holds
-   the iframe until `/vnc/vnc.html` returns 200.
-   `desktopViewerSrc()` strips leftover `password`/`token` query
-   params.
+1. `dev.py` waits for agent `/health` and noVNC `vnc.html` before
+   Vite starts.
+2. Live loads `/api/v2/desktop` (`path=vnc/websockify`, no
+   `password=`). Iframe waits until `/vnc/vnc.html` returns 200.
 3. If **Provider web search** is on, the engine advertises
-   `mcp_fetch` on Computer Use turns. The model calls it with a
-   public `https` URL; the host runs `uvx mcp-server-fetch`.
-   Localhost / private URLs are rejected. This is not a pre-run
-   planner brief.
-4. Starting a session stores the run in SQLite, calls the selected
-   engine, and maps official desktop actions (`click`, `type`,
-   `hotkey`, …) onto the sandbox. Google sessions use user-env
-   `GOOGLE_API_KEY` via `resolve_api_key("google")`.
-5. Fallback routes run only if the primary route fails
-   (`max_attempts=1` per route; circuit opens after 3 failures for
-   30 s). Live defaults fallback to Gemini 3.5 Flash-Lite.
-6. Preview frames on the session WebSocket use the CUAF binary
-   protocol (`frontend/src/protocol.ts`). The interactive desktop is
-   noVNC, not those preview frames.
+   `mcp_fetch`. Localhost / private URLs are rejected.
+4. Start run stores the session in SQLite, calls the engine, maps
+   official desktop actions onto the sandbox.
+5. Fallback runs only if the primary route fails (`max_attempts=1`
+   per route; circuit opens after 3 failures for 30 s).
+6. Interactive desktop is noVNC, not CUAF preview frames.
 
-Architecture notes: [TECHNICAL.md](TECHNICAL.md),
+More: [TECHNICAL.md](TECHNICAL.md) ·
 [docs/codebase/ARCHITECTURE.md](docs/codebase/ARCHITECTURE.md).
 
-## Configuration options
+### Tech stack
 
-Safety policies on Live session / `POST /api/v2/sessions`:
-
-| `safetyPolicy` | Behavior |
+| Layer | What this repo uses |
 |---|---|
-| `provider_default` | Provider’s own confirmation rules |
-| `confirm_mutating` | Extra operator confirm for mutating actions |
-| `read_only` | Reject mutating actions |
+| Backend | Python 3.12–3.14, FastAPI 0.141.1, Uvicorn, Pydantic 2, httpx, Pillow |
+| Providers | `openai` 2.30, `anthropic` 0.88, `google-genai` 2.7, `google-auth` |
+| Frontend | React 19, React Router 7, Vite 6, TypeScript 5.7, Lucide |
+| Sandbox | Docker Compose, Ubuntu 24.04, Xvfb, XFCE, x11vnc (`-nopw`), noVNC |
+| Persistence | SQLite WAL + on-disk audit frames |
+| Tooling | uv, Ruff, mypy, pytest 9, Vitest 3, GitHub Actions |
 
-Optional `useBuiltinSearch` advertises `mcp_fetch` on Computer Use
-turns (`backend/infra/mcp_fetch.py`, `uvx mcp-server-fetch` unless
-`CUA_MCP_FETCH_CMD` is set). The model decides when to fetch. It does
-not attach OpenAI `web_search`, Anthropic `web_search_20260209`, or
-Gemini `google_search`. Private/localhost URLs are rejected. Host
-needs `uvx` on `PATH`.
+### Project structure
 
-Gemini **File Search** cannot be combined with Computer Use; attaching
-files with a Gemini model fails at session start. The Live tab hides
-the file input when the selected family is `GEMINI`.
+```text
+computer-use/
+├── backend/                  # FastAPI app
+│   ├── main.py               # Uvicorn entry; public-bind guardrail
+│   ├── server/               # HTTP/WS, noVNC proxy, lifespan
+│   ├── v2/                   # /api/v2 REST, credentials, SQLite
+│   ├── engine/               # OpenAI / Anthropic / Gemini CU clients
+│   ├── providers/            # Run adapters
+│   ├── executor.py           # Desktop actions → agent_service
+│   ├── loop.py               # Session / step orchestration
+│   ├── infra/                # Config, Docker, logging, mcp_fetch
+│   └── models/               # Catalogs and schemas
+├── frontend/                 # React + Vite dashboard
+├── docker/                   # Sandbox image + agent_service
+├── docker-compose.yml
+├── tests/                    # Offline pytest
+├── evals/                    # Offline HTTP/runtime evals
+├── docs/
+├── run.cmd                   # Windows setup-if-needed + launch
+├── START.bat                 # Always setup, then launch
+├── dev.py / dev.bat / dev.sh
+└── .env.example
+```
 
-Non-Gemini routes accept `.md`, `.txt`, `.pdf`, `.docx` uploads as
-reference files. You own those files and any data they contain.
+## Environment
 
-## Documentation
+Copy `.env.example` to `.env`. Never commit the populated file.
 
-### Operator
+`GOOGLE_API_KEY` already set in the user/process environment is
+snapshotted before `.env` loads (`backend/infra/config.py`
+`_USER_ENV`) and wins over a `.env` assignment. Keys stay
+process-local.
 
-| Document | Contents |
+### Required for the sandbox
+
+| Variable | Default | Role |
+|---|---|---|
+| `AGENT_SERVICE_TOKEN` | generated by `run.cmd` if empty | Shared secret with `docker/agent_service.py` |
+
+If the token in `.env` does not match the container, screenshots
+return `401` and the viewport stays blank. Confirm with
+`docker exec cua-environment printenv AGENT_SERVICE_TOKEN`.
+
+### Provider credentials (at least one route)
+
+| Variable | Role |
+|---|---|
+| `OPENAI_API_KEY` | `openai-direct` |
+| `ANTHROPIC_API_KEY` | `anthropic-direct` |
+| `GOOGLE_API_KEY` or `GEMINI_API_KEY` | `gemini-direct`. User/process `GOOGLE_API_KEY` wins. |
+
+Or create an ephemeral credential session in the Providers tab.
+Google OAuth needs `GOOGLE_OAUTH_CLIENT_ID` and
+`GOOGLE_OAUTH_CLIENT_SECRET` (or `GOOGLE_OAUTH_CLIENT_SECRET_FILE`).
+
+### Networking
+
+| Variable | Default | Role |
+|---|---|---|
+| `HOST` | `127.0.0.1` | Backend bind |
+| `PORT` | `8100` | Backend port |
+| `CUA_ALLOW_PUBLIC_BIND` | unset | Required for non-loopback `HOST` |
+| `CUA_API_TOKEN` | unset | Shared secret for `/api/*` (except Google OAuth callback), `/ws`, `/api/v2/ws/*`, `/vnc/websockify`. HTTP: `X-CUA-Token` or `?token=`. Open on loopback when unset. |
+| `CORS_ORIGINS` | 8505 / 8100 / 5173 / 3000 on localhost and 127.0.0.1 | Comma-separated Origin allowlist |
+
+### Sandbox and agent
+
+| Variable | Default | Role |
+|---|---|---|
+| `CONTAINER_NAME` | `cua-environment` | Docker container name |
+| `AGENT_SERVICE_HOST` / `PORT` | `127.0.0.1` / `9222` | Action service |
+| `SCREEN_WIDTH` / `SCREEN_HEIGHT` | `1440` / `900` | Virtual display |
+| `MAX_STEPS` | `50` | Default step budget (hard cap 200). Live always sends `maxSteps: 50`. |
+| `STEP_TIMEOUT` | `30.0` | Seconds before one action is treated as hung |
+| `VNC_PASSWORD` | unused | Ignored. x11vnc starts with `-nopw`. |
+| `CUA_ENABLE_LEGACY_ACTIONS` | `0` | Re-enables shell/clipboard/window-management in the sandbox. Do not enable off loopback. |
+| `CUA_ALLOWED_NAV_HOSTS` | unset | Optional comma-separated host allowlist for navigation |
+| `CUA_MCP_FETCH_CMD` | `uvx mcp-server-fetch` | Fetch MCP when Live Provider web search is on |
+
+> [!NOTE]
+> `VNC_PASSWORD` is unused. noVNC has no password. Do not treat the
+> viewport as authenticated.
+
+### Persistence
+
+| Variable | Default | Role |
+|---|---|---|
+| `CUA_V2_DB_PATH` | `data/computer-use-v2.sqlite3` | SQLite WAL store |
+| `CUA_V2_FRAME_PATH` | `data/audit-frames` | Audit screenshots |
+| `CUA_FRONTEND_DIST` | `frontend/dist` | Production UI bundle |
+| `LOG_FORMAT` | `console` | Set `json` for one JSON object per line |
+| `LOG_LEVEL` | `INFO` | Python log level |
+| `DEBUG` | `0` | Debug verbosity |
+| `CUA_RELOAD` | unset | Uvicorn `--reload` (`DEBUG` does not turn this on) |
+
+Frontend Vite: `VITE_API_PORT` (default `8100`), `VITE_WS_TOKEN`,
+`VITE_PORT` (default `8505`).
+
+Full template: [.env.example](.env.example).
+
+## Index
+
+Jump: [operator](#operator-docs) · [community](#community-docs) ·
+[technical](#technical-docs) · [templates and CI](#templates-and-ci).
+
+### Operator docs
+
+| Document | What it is |
 |---|---|
 | [USAGE.md](USAGE.md) | Tabs, credentials, REST, troubleshooting |
 | [TESTING.md](TESTING.md) | Manual smoke test and CI-equivalent commands |
-| [DATA.md](DATA.md) | Local storage and operator responsibility |
+| [DATA.md](DATA.md) | Local storage; operator owns every payload |
 | [docs/deployment.md](docs/deployment.md) | Local and single-process production start |
 | [docs/computer-use-prompt-guide.md](docs/computer-use-prompt-guide.md) | How to write bounded Computer Use tasks |
 | [docs/business-guide.md](docs/business-guide.md) | Pilot, risk, and go/no-go for an org evaluation |
@@ -717,9 +449,9 @@ reference files. You own those files and any data they contain.
 | [docs/zero-to-hero-study-handbook.html](docs/zero-to-hero-study-handbook.html) | Study handbook (standalone HTML) |
 | [docs/zero-to-hero-study-handbook.pdf](docs/zero-to-hero-study-handbook.pdf) | Study handbook (PDF; may lag the HTML build) |
 
-### Project and community
+### Community docs
 
-| Document | Contents |
+| Document | What it is |
 |---|---|
 | [OPEN_SOURCE.md](OPEN_SOURCE.md) | Clone, local use, own keys; no hosted service |
 | [SUPPORT.md](SUPPORT.md) | How to get help; what this repo will not debug |
@@ -729,17 +461,10 @@ reference files. You own those files and any data they contain.
 | [LICENSE](LICENSE) | MIT license text |
 | [CHANGELOG.md](CHANGELOG.md) | Released and Unreleased changes |
 | [AGENTS.md](AGENTS.md) | Terse-response rules for coding agents |
-| [Bug template](.github/ISSUE_TEMPLATE/bug.yml) | GitHub bug report form |
-| [Idea template](.github/ISSUE_TEMPLATE/feature.yml) | GitHub feature / improvement form |
-| [Issue chooser](.github/ISSUE_TEMPLATE/config.yml) | Issue picker plus contact links |
-| [PR template](.github/PULL_REQUEST_TEMPLATE.md) | Pull-request checklist |
-| [CI workflow](.github/workflows/ci.yml) | Lint, typecheck, tests, sandbox image, Trivy |
-| [Release workflow](.github/workflows/release.yml) | Tagged-release job |
-| [Gemini changelog watchdog](.github/workflows/gemini-changelog-watchdog.yml) | Scheduled Gemini changelog check |
 
-### Technical
+### Technical docs
 
-| Document | Contents |
+| Document | What it is |
 |---|---|
 | [TECHNICAL.md](TECHNICAL.md) | Runtime contracts, routes, models |
 | [docs/codebase/ARCHITECTURE.md](docs/codebase/ARCHITECTURE.md) | Modular monolith and sandbox split |
@@ -751,58 +476,24 @@ reference files. You own those files and any data they contain.
 | [docs/codebase/TESTING.md](docs/codebase/TESTING.md) | Test stack and how to run it |
 | [docker/SECURITY_NOTES.md](docker/SECURITY_NOTES.md) | Sandbox / agent-service attack surface |
 | [evals/README.md](evals/README.md) | Offline deterministic evals |
-| [.env.example](.env.example) | Environment template (copy to `.env`; never commit `.env`) |
+| [.env.example](.env.example) | Environment template (never commit `.env`) |
 
-## Community
+### Templates and CI
 
-This project is open source. **Community support is welcome and
-needed:**
-
-- Test a local install ([TESTING.md](TESTING.md))
-- Report bugs
-- Suggest improvements and features
-- Fix docs
-- Send a pull request
-
-First-time and issue-only help counts.
-
-**We do not want or accept any financial help.** No donations,
-sponsorship, bounties, paid support, or consulting. Do not offer money.
-
-| Need | Where |
+| Document | What it is |
 |---|---|
-| How to test | [TESTING.md](TESTING.md) |
-| Bug report | [Bug template](https://github.com/pypi-ahmad/computer-use/issues/new?template=bug.yml) |
-| Feature or improvement | [Idea template](https://github.com/pypi-ahmad/computer-use/issues/new?template=feature.yml) |
-| All issues | [GitHub Issues](https://github.com/pypi-ahmad/computer-use/issues/new/choose) |
-| How we work together | [SUPPORT.md](SUPPORT.md) |
-| Send a patch | [CONTRIBUTING.md](CONTRIBUTING.md) |
-| Security | [SECURITY.md](SECURITY.md) — do not file public issues with tokens or exploits |
-| Conduct | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) |
+| [Bug template](.github/ISSUE_TEMPLATE/bug.yml) | GitHub bug report form |
+| [Idea template](.github/ISSUE_TEMPLATE/feature.yml) | GitHub feature / improvement form |
+| [Issue chooser](.github/ISSUE_TEMPLATE/config.yml) | Issue picker plus contact links |
+| [PR template](.github/PULL_REQUEST_TEMPLATE.md) | Pull-request checklist |
+| [CI workflow](.github/workflows/ci.yml) | Lint, typecheck, tests, sandbox image, Trivy |
+| [Release workflow](.github/workflows/release.yml) | Tagged-release job |
+| [Gemini changelog watchdog](.github/workflows/gemini-changelog-watchdog.yml) | Scheduled Gemini changelog check |
 
-There is no automated end-to-end UI plus live-provider suite. CI
-(`.github/workflows/ci.yml`) runs Ruff, format, mypy, `pip-audit`,
-pytest on Python 3.12–3.14 with `--cov-fail-under=60`, evals, frontend
-lint/typecheck/tests/build, `npm audit --audit-level=high`, sandbox
-image build, and a blocking HIGH/CRITICAL Trivy scan
-(`ignore-unfixed: true`). Live provider tests are opt-in
-(`pytest -m integration`); missing credentials are disclosed, never
-treated as a pass.
+Bugs: [bug.yml](https://github.com/pypi-ahmad/computer-use/issues/new?template=bug.yml).
+Ideas: [feature.yml](https://github.com/pypi-ahmad/computer-use/issues/new?template=feature.yml).
+Security reports go to [SECURITY.md](SECURITY.md), not public issues.
 
-## License
-
-[MIT](LICENSE). Copyright (c) 2026 Ahmad.
-
-You may clone, use, modify, and contribute — contributions are always
-welcome. Run the workbench on your own machine with your own API keys.
-The software is provided as-is. **All data you use in the app —
-including PDFs and other files — is your responsibility only.** See
-[DATA.md](DATA.md).
-
-## Acknowledgements
-
-Computer Use protocols and model APIs belong to OpenAI, Anthropic, and
-Google. This workbench is an independent local operator surface, not
-an official product of those vendors.
-
-<p align="center">Made with ❤️ by Ahmad Mujtaba</p>
+Computer Use protocols belong to OpenAI, Anthropic, and Google. This
+workbench is an independent local operator surface, not an official
+vendor product.
