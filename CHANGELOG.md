@@ -4,6 +4,33 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Community wording across README, SUPPORT, CONTRIBUTING, and
+  SECURITY: testing, bugs, ideas, and PRs are welcome. No donations,
+  sponsorship, bounties, or paid support. There is no `FUNDING.yml`.
+
+### Changed
+
+- noVNC / x11vnc connect with no VNC password. `GET /api/v2/desktop`
+  returns `/vnc/vnc.html?…&path=vnc/websockify` with no `password=`.
+  `desktopViewerSrc()` strips leftover `password` / `token` query
+  params. x11vnc starts with `-nopw`. `VNC_PASSWORD` is unused and is
+  not passed into Compose.
+- Provider web search planning fetches public pages through
+  `uvx mcp-server-fetch` (`backend/infra/mcp_fetch.py`, override
+  `CUA_MCP_FETCH_CMD`) instead of provider-native `web_search` /
+  Google Search tools. Planner skips localhost, `.local`, and
+  non-global IP literals (max 3 public `http(s)` URLs).
+- `resolve_api_key()` reads `_USER_ENV` (process env snapshotted
+  before dotenv) so a user/system `GOOGLE_API_KEY` wins over a
+  repo-root `.env` value. Google alias remains `GEMINI_API_KEY`.
+- Live tab defaults: model `gemini-3.7-flash`, `preferredRoute`
+  `gemini-direct`, fallback `gemini-3.5-flash-lite@gemini-direct`.
+- README, TECHNICAL, SECURITY, CONTRIBUTING, and CODE_OF_CONDUCT
+  rewritten against the current tree (MCP fetch, `_USER_ENV`, Live
+  Gemini defaults, no-VNC-password connect).
+
 ## [3.1.1] - 2026-08-16
 
 ### Added

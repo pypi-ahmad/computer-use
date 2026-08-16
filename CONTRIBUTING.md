@@ -6,9 +6,9 @@ workbench on your own machine with your own API keys. Keep changes
 focused, reviewable, and backed by tests or documentation that show the
 observable result.
 
-You do not need to send money. This project does not take donations,
-sponsorship, or paid support. A test note, a bug, an idea, or a PR is
-enough.
+Do not send money. This project does not want or accept donations,
+sponsorship, bounties, or paid support. A test note, a bug, an idea,
+or a PR is the help we need.
 
 You are solely responsible for data you run through a clone (PDFs and
 other uploads, sandbox files, keys). See [DATA.md](DATA.md).
@@ -37,9 +37,10 @@ and [`uv`](https://docs.astral.sh/uv/).
 git clone https://github.com/pypi-ahmad/computer-use.git
 cd computer-use
 Copy-Item .env.example .env
-# Set AGENT_SERVICE_TOKEN and VNC_PASSWORD. Optional: OPENAI_API_KEY,
-# ANTHROPIC_API_KEY. Prefer a process-level GOOGLE_API_KEY — dotenv
-# does not override it (backend/infra/config.py).
+# Set AGENT_SERVICE_TOKEN. Optional: OPENAI_API_KEY, ANTHROPIC_API_KEY.
+# Prefer process-level GOOGLE_API_KEY (then GEMINI_API_KEY).
+# backend/infra/config.py snapshots those names into _USER_ENV
+# before load_dotenv(..., override=False). VNC_PASSWORD is unused.
 uv sync --frozen
 Set-Location frontend
 npm ci
@@ -53,6 +54,14 @@ always runs `setup.bat --bootstrap-only` first. `dev.py` runs
 `GET /api/health`, starts Vite on `127.0.0.1:8505` (through Node on
 Windows), and with `--open-browser` opens that URL once Vite responds.
 For normal development keep `uv run python dev.py` in the terminal.
+
+Live defaults in `frontend/src/App.tsx`: model `gemini-3.7-flash`,
+route `gemini-direct`, fallback `gemini-3.5-flash-lite@gemini-direct`.
+Provider web-search planning needs `uvx` on `PATH`
+(`uvx mcp-server-fetch` unless `CUA_MCP_FETCH_CMD` is set). Offline
+planner/fetch coverage is `tests/test_mcp_fetch.py` (no network).
+User-env Google key resolution is
+`tests/test_v2_platform.py::test_resolve_api_key_prefers_user_google_api_key_over_dotenv`.
 
 Never commit `.env`, `data/`, or live desktop screenshots. Live provider
 tests are opt-in (`pytest -m integration`) and must use credentials from

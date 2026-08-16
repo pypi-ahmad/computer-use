@@ -115,17 +115,19 @@ the same nonce back through the applicable v1 or v2 safety-decision endpoint
 timeout auto-denies the action. The v2 dashboard exposes approve/deny controls
 for `provider_default`, `confirm_mutating`, and `read_only` policies.
 
-### Provider-native web search (why it's not just another tool)
+### Web-search planning (why it's not a search tool on the CU loop)
 
 Adding a generic "search the web" tool alongside the computer tool would
 let the model split attention between two very different tool contracts
-every single turn, which measurably hurts CU tool-call reliability. So
-instead, when web search is enabled, this repo runs a **separate,
-one-shot planning call** before the CU loop even starts
-(`backend/providers/planner.py::create_web_execution_brief()`) using each
-vendor's own native search tool, and folds the resulting brief into the
-CU task text as plain instructions. The CU loop itself never sees a search
-tool — only the `computer` tool, every turn, with no competition.
+every single turn. So when Live **Provider web search planning**
+(`useBuiltinSearch`) is on, this repo runs a **separate planning call**
+before the CU loop (`backend/providers/planner.py::create_web_execution_brief()`).
+The planner extracts or asks for at most 3 public `http(s)` URLs, then
+`backend/infra/mcp_fetch.py` fetches them through `uvx mcp-server-fetch`
+(override `CUA_MCP_FETCH_CMD`). That is URL fetch, not a search index
+and not OpenAI/Anthropic/Gemini native `web_search`. The brief is folded
+into the CU task text. `ComputerUseEngine` constructs CU clients with
+`use_builtin_search=False`. The CU loop never sees a search tool.
 
 ### v2 concepts: deterministic fallback, circuit breaking, and audited state
 
@@ -163,7 +165,7 @@ flow whose refreshable credential remains only in the process-local vault.
 | **Fallback** | (v2) An ordered backup route tried if the primary route fails. |
 | **Circuit breaker** | (v2) Temporarily stops retrying a route that has failed repeatedly. |
 | **Credential session** | (v2) A short-lived (<=8h), process-memory-only holder of a provider API key or Google OAuth credential, never persisted to disk. |
-| **CUAF frame** | (v2) The custom binary WebSocket frame format used to stream compressed screenshot previews (see Module 1). |
+| **CUAF frame** | (v2) Binary WebSocket preview format. Decoded in the client but **not** shown on Live; the picture is noVNC. |
 | **Checkpoint** | (v2) A provider-neutral snapshot of session progress (goal, confirmed step count, frame hash) — never raw model reasoning. |
 | **Safety confirmation** | The nonce-gated human-approval handshake for risky actions. |
 
@@ -175,7 +177,7 @@ flow whose refreshable credential remains only in the process-local vault.
   workbench for provider-native Computer Use agents (Google Gemini,
   Anthropic Claude, OpenAI) running against a Dockerized Linux desktop.
 - **Primary use cases:** browser automation, desktop app automation,
-  screenshot-driven task execution, optional provider-native web-search
+  screenshot-driven task execution, optional MCP-fetch web-search
   planning, and optional document-grounded runs.
 - **Runtime boundary:** the application targets one trusted operator on
   one workstation. FastAPI runs as a single process because the
@@ -236,7 +238,7 @@ binary frame streaming *around* that same core, not a parallel one.
 | Provider and executor | `ComputerUseEngine`, provider adapters, `DesktopExecutor`, and the sandbox are shared. |
 | Credentials | v1 resolves environment keys; v2 additionally supports process-local API-key and Google OAuth sessions. |
 | Routing and persistence | v2 adds explicit ordered fallback, circuit breaking, SQLite WAL history, and retained audit frames. |
-| Frame streaming | v1 uses `/ws`; v2 uses coalesced binary `CUAF` frames at `/api/v2/ws/desktop` (idle sandbox) and `/api/v2/ws/{id}` (active run). |
+| Frame streaming | v1 uses `/ws`; v2 sockets send coalesced binary `CUAF` plus JSON events. Live picture is noVNC (`/vnc/vnc.html`, no password), not CUAF. |
 | Frontend | The shipped TypeScript dashboard uses only the v2 surface. |
 
 The **v1 frontend has been removed** from this snapshot (all of
@@ -267,7 +269,7 @@ FastAPI Server (backend/server/__init__.py)
    |      |
    |      +--> Provider run wrapper (backend/providers/*.py)
    |      |       |
-   |      |       +--> optional planning (backend/providers/planner.py)
+   |      |       +--> optional MCP-fetch planning (planner.py + infra/mcp_fetch.py)
    |      |       +--> provider client loop (backend/engine/openai.py|claude.py|gemini.py)
    |      |
    |      v
@@ -294,7 +296,7 @@ Realtime back-channel:
 - **Safety and files:** nonce confirmations and provider-aware attachment handling in `backend/safety.py`, `backend/files.py`, and `backend/infra/storage.py`.
 - **v2 services:** ordered fallback, API-key/OAuth vault, SQLite audit, frame retention, and CUAF streaming in `backend/v2/routing.py`, `credentials.py`, `persistence.py`, `retention.py`, and `frames.py`.
 - **Sandbox:** isolated desktop, allowlisted input, and token-protected action service in `docker/agent_service.py`, `docker/entrypoint.sh`, and `docker-compose.yml`.
-- **Frontend:** six-tab v2 workbench, token-aware API/WS clients, preview decoding, and session-cost list rates in `frontend/src/App.tsx`, `api.ts`, `useLiveStream.ts`, `protocol.ts`, and `pricing.ts`.
+- **Frontend:** six-tab v2 workbench (Mission control portaled into the CONTROL sidebar on Live; noVNC viewport; session-cost list rates) in `frontend/src/App.tsx`, `api.ts`, `useLiveStream.ts`, `protocol.ts`, and `pricing.ts`. Live defaults: `gemini-3.7-flash` / `gemini-direct` / fallback `gemini-3.5-flash-lite@gemini-direct`.
 - **Tooling:** local configuration, development orchestration, and release/documentation builds in `.env.example`, `run.cmd`, `dev.py`, `setup.*`, and `scripts/`.
 
 ---
@@ -312,7 +314,9 @@ Realtime back-channel:
    - `max_steps` hard cap (200)
    - attachments via `backend/files.py::validate_attached_files()`
    - reasoning/search config via `validate_builtin_search_config()`
-   - API key via `resolve_api_key()` (UI input → process env, including `GOOGLE_API_KEY` → `.env` loaded with `override=False`)
+   - API key via `resolve_api_key()` (UI input → `_USER_ENV` snapshotted
+     before dotenv, `GOOGLE_API_KEY` then `GEMINI_API_KEY` → values
+     `load_dotenv(..., override=False)` loaded from repo-root `.env`)
 3. Backend starts/checks the sandbox via
    `backend/infra/docker.py::start_container()`. A `409` here means the
    container process exists but the in-container agent service isn't
@@ -350,8 +354,8 @@ Start request/response shapes:
    `backend/providers/run_client(...)`.
 4. The provider wrapper (`backend/providers/openai.py`, `anthropic.py`,
    `gemini.py`) can run `maybe_plan_with_web_search(...)` first if search
-   is enabled (see Module 0 — this is a separate call, not a competing
-   tool).
+   is enabled (MCP fetch of public URLs, then a text brief — see Module 0.
+   Not a competing native search tool).
 5. The provider client emits turn records/logs; `AgentLoop._on_turn()`
    maps action data to a `StepRecord`, running a stuck-agent fingerprint
    check (three identical consecutive actions triggers a clean stop).
@@ -450,8 +454,8 @@ current frontend only speaks v2. See Flow H below for the live surface.)*
    off an async `_coordinate()` task.
 4. `_coordinate()` calls `run_with_fallback()` (`backend/v2/routing.py`)
    over the ordered route list. For each route, `_invoke()` resolves a
-   credential — the vault first, falling back to the environment variable
-   for that provider if no vault session was supplied — then calls
+   credential — the vault first, else `resolve_api_key()` (`_USER_ENV`
+   then dotenv) for that provider if no vault session was supplied — then calls
    `V2Orchestrator.start()`, which runs the same `AgentLoop` v1 uses.
 5. On success, confirmed actions are journalled one-by-one via
    `SqliteStore.append_action()`, a `ROUTE_SUCCEEDED` event is recorded,
@@ -475,8 +479,10 @@ current frontend only speaks v2. See Flow H below for the live surface.)*
    codec, sequence, width, height, timestamp, followed by the raw
    WebP/JPEG bytes). A capture failure sends `FRAME_CAPTURE_FAILED` and
    retries instead of closing the socket.
-3. `frontend/src/protocol.ts::decodeCuafFrame()` parses that header back
-   out and hands the frontend an object URL to paint into `<img>`.
+3. `frontend/src/protocol.ts::decodeCuafFrame()` parses that header.
+   The Live viewport does **not** paint CUAF frames; it is a noVNC
+   iframe (`GET /api/v2/desktop`, no `password=`). The socket carries
+   pipeline, safety, and terminal events.
 4. If audit-frame retention is enabled for a real session id, the
    canonical (uncompressed) frame is also written to disk via
    `FrameRetentionStore.put()`, hashed and content-addressed, subject to
@@ -500,27 +506,31 @@ current frontend only speaks v2. See Flow H below for the live surface.)*
 
 On Windows 11, double-click `run.cmd`. It installs missing Docker Desktop,
 Node.js LTS, and uv through winget; creates `.env` if needed; generates the
-required sandbox secrets; installs locked dependencies only when they are
+`AGENT_SERVICE_TOKEN` (and unused `VNC_PASSWORD`); installs locked dependencies only when they are
 missing; rebuilds esbuild after a fresh `npm ci`; builds the sandbox image
 only when `cua-ubuntu:latest` is absent; waits for `GET /api/health`; and
 opens `http://127.0.0.1:8505`. The Live tab should show the XFCE desktop
 without starting a run. Vite listens on IPv4 loopback and, on Windows, is
 started through Node rather than `npm.cmd`. Existing `.env` values are
-preserved. The backend loads the repository-root `.env`. If Docker asks
+preserved. The backend snapshots provider keys into `_USER_ENV` then
+loads the repository-root `.env`. If Docker asks
 for a restart or initial WSL setup, complete it and run `run.cmd` again.
 `START.bat` still always runs the full `setup.bat` bootstrap.
 
 For manual or non-Windows setup:
 
 1. Copy `.env.example` to `.env`.
-2. Set required sandbox secrets: `AGENT_SERVICE_TOKEN=...`,
-   `VNC_PASSWORD=...` (generate unique random values — don't reuse examples).
+2. Set the required sandbox secret: `AGENT_SERVICE_TOKEN=...`
+   (generate a unique random value — don't reuse examples). x11vnc
+   starts with `-nopw`; `VNC_PASSWORD` is unused. `GET /api/v2/desktop`
+   has no `password=`. Prefer process-level `GOOGLE_API_KEY` (`_USER_ENV`
+   wins over `.env`).
 3. Sign in from the Provider Manager with an OpenAI, Anthropic, or Google API
    key; alternatively configure Google OAuth.
 4. Optional: `HOST`/`PORT`, `CUA_V2_DB_PATH` (v2 SQLite location,
    defaults to `data/computer-use-v2.sqlite3`), `CUA_V2_FRAME_PATH`,
    `CUA_API_TOKEN` + `CUA_ALLOW_PUBLIC_BIND=1` for external binding,
-   `CORS_ORIGINS`, `CUA_ALLOWED_HOSTS`.
+   `CORS_ORIGINS`, `CUA_ALLOWED_HOSTS`, `CUA_MCP_FETCH_CMD`.
 
 ### Typical command sequences
 
@@ -598,17 +608,18 @@ pandoc -f gfm -t pdf   docs/zero-to-hero-study-handbook.md -o docs/zero-to-hero-
 10. Read infra files: `backend/infra/config.py`, `backend/infra/docker.py`,
     `.env.example`, `docker-compose.yml`.
 11. Review tests: `tests/test_server.py`, `tests/test_v2_platform.py`,
-    `tests/test_provider_run_contract.py`, `tests/docker/test_agent_service.py`.
+    `tests/test_provider_run_contract.py`, `tests/test_mcp_fetch.py`,
+    `tests/docker/test_agent_service.py`.
 
 ### Practice exercises with model answer outlines
 
 1. **Trace how `use_builtin_search` changes behavior end-to-end.**
    Files: `backend/server/__init__.py`, `backend/providers/_common.py`,
    `backend/providers/planner.py`.
-   Outline: request flag validated → provider wrapper runs a one-shot
-   planning call with the vendor's native search tool → planner brief is
-   appended into the CU task text; the CU loop itself never sees a search
-   tool.
+   Outline: request flag validated → planner extracts/asks for up to 3
+   public URLs → `mcp_fetch.py` fetches them via `uvx mcp-server-fetch`
+   → brief prepended to the CU task; CU clients stay
+   `use_builtin_search=False`.
 
 2. **Explain why `POST /api/agent/start` can return `409` even when the
    container process exists.**

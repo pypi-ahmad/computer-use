@@ -11,4 +11,10 @@ contact_links:
     about: Email pypi.ahmad@gmail.com with subject [computer-use security]. Do not file public issues with exploits, tokens, or live screenshots.
   - name: Data stored on your machine
     url: https://github.com/pypi-ahmad/computer-use/blob/main/DATA.md
-    about: Keys, SQLite audit history, and sandbox data are your responsibility.
+    about: PDFs, other files, keys, SQLite, and sandbox data are your responsibility only.
+  - name: How to contribute
+    url: https://github.com/pypi-ahmad/computer-use/blob/main/CONTRIBUTING.md
+    about: Fork, test, and open a PR. Clones and issue-only help are welcome. No donations.
+  - name: Open use
+    url: https://github.com/pypi-ahmad/computer-use/blob/main/OPEN_SOURCE.md
+    about: MIT. Clone and run on your machine with your API keys. No hosted service.

@@ -1,5 +1,8 @@
 # Data responsibility
 
+This workbench is open source. You clone it and run it **on your own
+machine**. Maintainers never receive your files.
+
 **All data used in this app is your responsibility only.** That includes
 PDFs, `.txt` / `.md` / `.docx` uploads, files inside the XFCE sandbox,
 browser cookies and pages the agent opens, screenshots, audit frames,
@@ -35,7 +38,7 @@ safe by itself.
 |---|---|---|
 | Sessions, actions, events, metrics, workflow versions | `data/computer-use-v2.sqlite3` (`CUA_V2_DB_PATH`) | v2 SQLite WAL store |
 | Audit screenshots | `data/audit-frames` (`CUA_V2_FRAME_PATH`) | filesystem store, 7-day or 1 GiB eviction |
-| Sandbox secrets | repo-root `.env` | you, or `run.cmd` generating `AGENT_SERVICE_TOKEN` / `VNC_PASSWORD` |
+| Sandbox secrets | repo-root `.env` | you, or `run.cmd` generating `AGENT_SERVICE_TOKEN` |
 | Provider API keys and Google OAuth tokens | process memory only | Providers tab credential session |
 
 `.env` is gitignored. Never commit it.
@@ -76,7 +79,7 @@ the network or change data inside that desktop.
 - Do not put production credentials, health, financial, or government
   records in the task, the sandbox, or attached files unless you accept
   sending them to the selected provider.
-- Keep `AGENT_SERVICE_TOKEN` and `VNC_PASSWORD` secret on the host.
+- Keep `AGENT_SERVICE_TOKEN` secret on the host.
 - If you share a machine, treat `data/` and `.env` as private.
 - You decide when to prune or back up `data/computer-use-v2.sqlite3`
   and `data/audit-frames` (see docs/deployment.md).

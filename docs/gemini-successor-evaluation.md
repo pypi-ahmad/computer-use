@@ -27,8 +27,11 @@ shows the required capabilities explicitly.
 3. Confirm the page explicitly says `Computer use Supported`.
 4. Confirm the Computer Use guide documents a compatible Interactions API
    request and continuation mechanism for the candidate.
-5. Confirm the page explicitly says `Search grounding Supported` if Web Search
-   planning should remain available for the successor.
+5. Web-search planning in this repo uses Fetch MCP
+   (`backend/infra/mcp_fetch.py`, `uvx mcp-server-fetch`), not Gemini
+   Search grounding. Do **not** require `Search grounding Supported` to
+   keep planning available. Confirm Computer Use still works without a
+   search tool on the CU loop.
 6. Confirm the Computer Use guide or model page does not exclude the candidate
    from Computer Use, prompt-injection detection, or its safety acknowledgement
    flow.

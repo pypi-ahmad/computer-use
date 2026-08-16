@@ -13,8 +13,10 @@ catalog is five Computer Use models on three executable routes, defined in
 - `claude-sonnet-5` through Anthropic Messages (`anthropic-direct`)
 - `gemini-3.7-flash` and `gemini-3.5-flash-lite` through Google Interactions (`gemini-direct`)
 
-API keys are supported for all three providers (`GOOGLE_API_KEY` is preferred
-over `GEMINI_API_KEY` and a process env var is not overwritten by `.env`).
+API keys are supported for all three providers. `GOOGLE_API_KEY` is
+preferred over `GEMINI_API_KEY`. `backend/infra/config.py` snapshots
+those names into `_USER_ENV` before `load_dotenv(..., override=False)`,
+so a user-env `GOOGLE_API_KEY` wins over `.env`.
 Gemini also supports process-local browser OAuth. The dated tables below
 describe the July 23, 2026 research snapshot, not the live allowlist.
 

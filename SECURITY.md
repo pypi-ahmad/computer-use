@@ -42,7 +42,13 @@ the model cannot do harm inside the sandbox.
 - `AGENT_SERVICE_TOKEN` is required between the backend and
   `docker/agent_service.py` (`X-Agent-Token`, `hmac.compare_digest`).
   A mismatch yields screenshot `401`.
-- `VNC_PASSWORD` is required unless `CUA_ALLOW_NOPW=1`.
+- x11vnc starts with `-nopw` (`docker/entrypoint.sh`). Compose does not
+  pass `VNC_PASSWORD`. `GET /api/v2/desktop` returns
+  `/vnc/vnc.html?autoconnect=1&reconnect=1&resize=scale&path=vnc/websockify`
+  with no `password=`. `desktopViewerSrc()` in `frontend/src/api.ts`
+  strips leftover `password` and `token` query params. When
+  `CUA_API_TOKEN` is set, the workbench token is placed on the
+  websockify `path` only (`vnc/websockify?token=…`).
 - Default action set is the executor mapping. `CUA_ENABLE_LEGACY_ACTIONS=1`
   re-enables shell/clipboard/window handlers. Do not enable that off
   loopback.
@@ -52,17 +58,40 @@ the model cannot do harm inside the sandbox.
 
 **Secrets and audit**
 
-- Repo-root `.env` is loaded with `load_dotenv(..., override=False)`.
-  A process-level `GOOGLE_API_KEY` (then `GEMINI_API_KEY`),
-  `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY` is not overwritten.
+- `backend/infra/config.py` snapshots `GOOGLE_API_KEY`, `GEMINI_API_KEY`,
+  `OPENAI_API_KEY`, and `ANTHROPIC_API_KEY` from the process environment
+  into `_USER_ENV` **before** `load_dotenv(..., override=False)`.
+  `resolve_api_key()` order: UI key, then `_USER_ENV` (Google:
+  `GOOGLE_API_KEY` then `GEMINI_API_KEY`), then values dotenv loaded
+  into the process. A user-env `GOOGLE_API_KEY` wins over a repo-root
+  `.env` assignment. v2 session start uses a credential-session secret
+  when `credentialSessionId` is set; otherwise it calls
+  `resolve_api_key()`.
 - Providers-tab keys and Google OAuth tokens live only in process
-  memory and expire within **8 hours** (28 800 s). They are not written
-  to SQLite.
+  memory and expire within **8 hours** (28 800 s, `backend/v2/credentials.py`).
+  They are not written to SQLite.
 - Safety prompts carry a nonce; decisions use
   `POST /api/v2/sessions/{id}/safety-decisions` (dashboard) or
   `POST /api/agent/safety-confirm` (v1). Comparison is
-  `hmac.compare_digest`. Unanswered prompts auto-deny after **60 s**.
+  `hmac.compare_digest`. Unanswered prompts auto-deny after **60 s**
+  (`backend/loop.py`).
 - Ambiguous OS actions are not replayed or failed over.
+
+**Host outbound fetch (web-search planning)**
+
+- Live toggle `useBuiltinSearch` runs `backend/providers/planner.py`.
+  That planner extracts or asks the selected provider for at most 3
+  public `http(s)` URLs, then `backend/infra/mcp_fetch.py` fetches
+  them through `uvx mcp-server-fetch` (override `CUA_MCP_FETCH_CMD`).
+  This is URL fetch, not a search index. The Computer Use loop stays
+  computer-only and does not attach provider `web_search` / Google
+  Search tools.
+- `_is_public_http_url` skips non-`http(s)`, `localhost`, `*.local`,
+  hostnames without a dot, and non-global IP literals. Remaining
+  hostnames are fetched from the **host** process, not the sandbox.
+  That is not a complete SSRF guarantee (DNS names with a dot pass).
+- Cap: 3 pages, 4000 characters each. MCP spawn or fetch failure
+  returns an empty page list; the run continues without a brief.
 
 **Out of scope for this policy**
 

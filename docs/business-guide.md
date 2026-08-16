@@ -1,6 +1,12 @@
 # Business Guide: Evaluating Computer Use Workbench
 
-This guide explains the repository in business terms. It is written for sponsors, operations leaders, risk owners, and product managers deciding whether a Computer Use pilot is appropriate. Technical implementation details remain available in the linked handbook and architecture references.
+This guide explains the repository in business terms. It is written for
+operations leaders, risk owners, and product managers deciding whether
+a Computer Use pilot is appropriate. “Sponsor” here means the org
+funding a local evaluation — this project does **not** want or accept
+donations, GitHub sponsorship, bounties, or paid support. Technical
+implementation details remain in the linked handbook and architecture
+references.
 
 > Computer Use agents operate graphical interfaces by looking at screenshots and issuing mouse and keyboard actions. They can make destructive mistakes. This repository is a local, single-user workbench for controlled evaluation; it is not a multi-tenant automation platform.
 
@@ -12,11 +18,15 @@ Computer Use Workbench lets a person give an AI model a task, observe it operati
 - Claude Sonnet 5 through Anthropic Messages.
 - Gemini 3.7 Flash or Gemini 3.5 Flash-Lite through Google Interactions.
 
-The current release is v3.1.1. On Windows 11, `run.cmd` installs
-anything missing, starts the local stack, and opens the dashboard at
-`http://127.0.0.1:8505` after the backend health check succeeds. The Live
-tab shows the isolated desktop as soon as the sandbox is ready; a run is
-not required to see the screen.
+The package version is v3.1.1; this document describes the current tree
+(including Unreleased work in `CHANGELOG.md`). On Windows 11, `run.cmd`
+installs anything missing, starts the local stack, and opens the
+dashboard at `http://127.0.0.1:8505` after the backend health check
+succeeds. Live defaults to Gemini 3.7 Flash (`gemini-direct`) with
+fallback Gemini 3.5 Flash-Lite. The Live tab shows the isolated desktop
+(noVNC, no VNC password) as soon as the sandbox is ready; a run is not
+required to see the screen. Optional web-search planning fetches public
+pages via Fetch MCP; it does not attach provider search tools.
 
 The practical value is not “AI that can do everything.” The useful capability is operating software that lacks a stable API, spans several visual steps, or still requires human judgment at checkpoints. The workbench is best treated as an evaluation environment for discovering which tasks are reliable enough to automate and which still need a person.
 

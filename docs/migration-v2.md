@@ -20,6 +20,9 @@ v2 is an intentional API and WebSocket break. There is no compatibility shim.
 8. Replace all model selections with the supported logical IDs:
    `gpt-5.6-luna`, `gpt-5.6-terra`, `claude-sonnet-5`, `gemini-3.7-flash`,
    and `gemini-3.5-flash-lite`.
+9. `useBuiltinSearch` / `use_builtin_search` runs MCP fetch planning
+   (`uvx mcp-server-fetch`), not provider-native `web_search`. Host
+   needs `uvx` on `PATH` (or set `CUA_MCP_FETCH_CMD`).
 
 Before deleting v1 state, run the v2 contract tests, create and delete a
 disposable session, verify approve/deny safety confirmation, export an audit

@@ -2,7 +2,7 @@
 
 ## 1) Test Stack and Commands
 
-- Backend: pytest 8.4, pytest-asyncio, pytest-cov, FastAPI/Starlette `TestClient`, and standard monkeypatch/mock facilities.
+- Backend: pytest 9.0.3, pytest-asyncio, pytest-cov, FastAPI/Starlette `TestClient`, and standard monkeypatch/mock facilities.
 - Frontend: Vitest 3 with jsdom, Testing Library, user-event, and jest-dom matchers.
 - Static gates: Ruff, Ruff format, mypy, TypeScript, and ESLint.
 - Supply-chain/runtime gates: `pip-audit`, `npm audit --audit-level=high`, Docker build, and Trivy HIGH/CRITICAL scan.
@@ -27,7 +27,8 @@ npm --prefix frontend run test:run
 - `tests/integration/test_gemini_live_sdk.py` is the opt-in live Gemini Interactions test.
 - `evals/test_degraded_container_startup.py` tests a degraded startup scenario offline with Docker/provider boundaries mocked.
 - `frontend/src/api.test.ts`, `frontend/src/App.test.tsx`, `frontend/src/protocol.test.ts`, `frontend/src/useLiveStream.test.ts`, and `frontend/src/pricing.test.ts` cover HTTP behavior, the six-tab dashboard, idle desktop stream, CUAF decoding, and session-cost list rates.
-- `tests/test_v2_platform.py` also asserts Gemini 3.7 Flash / 3.5 Flash-Lite catalog entries and that `GOOGLE_API_KEY` in the process environment marks the Google route configured.
+- `tests/test_v2_platform.py` also asserts Gemini 3.7 Flash / 3.5 Flash-Lite catalog entries, that `GOOGLE_API_KEY` in `_USER_ENV` wins over a dotenv value (`test_resolve_api_key_prefers_user_google_api_key_over_dotenv`), and that `/api/v2/desktop` has no `password=`.
+- `tests/test_mcp_fetch.py` covers public-URL filtering (localhost/private skipped) and that the planner does not attach a native search tool.
 
 Setup is centralized in `tests/conftest.py`, `evals/conftest.py`, and `frontend/src/test/setup.ts`.
 
@@ -65,6 +66,7 @@ uv run pytest -p no:warnings --tb=short
 
 # Focused contracts
 uv run pytest tests/test_v2_platform.py --tb=short
+uv run pytest tests/test_mcp_fetch.py --tb=short
 uv run pytest tests/test_provider_run_contract.py --tb=short
 uv run pytest tests/test_server.py --tb=short
 uv run pytest tests/engine --tb=short

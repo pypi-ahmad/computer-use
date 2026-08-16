@@ -16,12 +16,12 @@ and Gemini 3.7 Flash or Gemini 3.5 Flash-Lite via Google Interactions.
 React dashboard -> FastAPI v2 contract -> SQLite session/coordinator -> AgentLoop/provider engine -> sandbox action service -> audit/status/WS output
 ```
 
-1. The dashboard posts a task, logical model, explicit route/fallbacks, step limit, and optional credential reference to `/api/v2/sessions`.
+1. The dashboard (Mission control in the CONTROL sidebar) posts a task, logical model, explicit route/fallbacks, step limit, and optional credential reference to `/api/v2/sessions`. Live defaults: model `gemini-3.7-flash`, route `gemini-direct`, fallback `gemini-3.5-flash-lite@gemini-direct`.
 2. The v2 API validates the catalog selection, creates/starts a SQLite session, records an event, and launches a background coordinator.
-3. The coordinator resolves process-local/environment credentials, including Google OAuth when selected, and dispatches through the v2 orchestrator into `AgentLoop` after sandbox readiness succeeds.
-4. `ComputerUseEngine` selects the native OpenAI/Anthropic/Google client; its provider loop alternates inference with canonical actions sent by `DesktopExecutor` to the token-protected sandbox service. Safety prompts pause on an in-memory nonce handshake and the dashboard can approve or deny them.
-5. v2 persists actions, metrics, events, audit frames, and terminal state; uncertain post-action failures are not replayed or failed over.
-6. The API returns/query exposes durable audit state. The Live tab embeds noVNC at `/vnc/vnc.html` with `path=vnc/websockify` (Vite/backend proxy to container websockify). It also opens `/api/v2/ws/desktop` immediately, then `/api/v2/ws/{session_id}` during a run. Those sockets send newest-only binary CUAF frames; the session socket also carries JSON control events. Capture failures retry without closing the socket.
+3. The coordinator resolves credentials (`credentialSessionId` vault, else `resolve_api_key()` / `_USER_ENV`), including Google OAuth when selected, and dispatches through the v2 orchestrator into `AgentLoop` after sandbox readiness succeeds.
+4. If `useBuiltinSearch` is on, `maybe_plan_with_web_search()` fetches up to 3 public URLs via `backend/infra/mcp_fetch.py` (`uvx mcp-server-fetch`) and prepends a text brief. `ComputerUseEngine` then constructs CU clients with `use_builtin_search=False`. The provider loop alternates inference with canonical actions sent by `DesktopExecutor` to the token-protected sandbox service. Safety prompts pause on an in-memory nonce handshake and the dashboard can approve or deny them.
+5. v2 journals confirmed actions as `ACTION` events arrive, then writes metrics, events, audit frames, and terminal state; uncertain post-action failures are not replayed or failed over.
+6. The API returns/query exposes durable audit state. The Live tab embeds noVNC at `/vnc/vnc.html?autoconnect=1&reconnect=1&resize=scale&path=vnc/websockify` (no `password=`; Vite/backend proxy to container websockify). It also opens `/api/v2/ws/desktop` immediately, then `/api/v2/ws/{session_id}` during a run. Those sockets send newest-only binary CUAF frames; the session socket also carries JSON control events. Capture failures retry without closing the socket.
 7. The Session cost tab (`/cost`) estimates USD from SQLite `metrics` token totals (`GET /api/v2/analytics?sessionId=`) and the list rates in `frontend/src/pricing.ts`. It is not a provider invoice.
 
 ## 3) Layer/Module Responsibilities
@@ -59,8 +59,9 @@ React dashboard -> FastAPI v2 contract -> SQLite session/coordinator -> AgentLoo
 
 ## 5) Known Architectural Risks
 
-- v2 audit actions are written only after `AgentLoop` returns an `ExecutionOutcome`; a crash during a run can leave physical actions absent from the SQLite action journal.
-- `backend/server/__init__.py` combines app construction, security middleware, API endpoints, WebSockets, noVNC proxying, task registries, and execution bridging in one 2,033-line module.
+- A crash between an executed desktop action and the next `ACTION` event can still omit that step from the SQLite action journal.
+- `backend/server/__init__.py` combines app construction, security middleware, API endpoints, WebSockets, noVNC proxying, task registries, and execution bridging in one ~1,900-line module.
+- Host-side MCP fetch (`mcp_fetch.py`) is URL fetch from the backend process, not the sandbox. DNS names with a dot pass `_is_public_http_url`; it is not a complete SSRF guarantee.
 - The v2 surface depends on legacy `AgentLoop`, so changes to the original runtime can affect both API generations.
 - Process-local state prevents horizontal scaling and is intentionally lost on restart.
 
