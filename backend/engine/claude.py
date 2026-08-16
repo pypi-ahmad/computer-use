@@ -68,6 +68,7 @@ def _display_number_from_env() -> int | None:
     token = token.split(".")[0]
     return int(token) if token.isdigit() else None
 
+
 _ANTHROPIC_WEB_SEARCH_CONSOLE_URL = "https://platform.claude.com/settings/privacy"
 _ANTHROPIC_WEB_SEARCH_PROBE_TTL_SECONDS = 24 * 60 * 60
 _ANTHROPIC_WEB_SEARCH_BASIC_TOOL = "web_search_20250305"
@@ -785,7 +786,11 @@ class ClaudeCUClient:
 
             bundled = None
             if computer_indices:
-                bundled = results[last_computer].extra.get("screenshot") if last_computer is not None else None
+                bundled = (
+                    results[last_computer].extra.get("screenshot")
+                    if last_computer is not None
+                    else None
+                )
             if bundled:
                 screenshot_bytes = base64.b64decode(bundled)
             elif computer_indices:
@@ -807,7 +812,9 @@ class ClaudeCUClient:
                 result = results[idx]
                 content: list[dict] = []
                 if getattr(tu, "name", "") == MCP_FETCH_TOOL_NAME:
-                    content.append({"type": "text", "text": fetch_texts.get(idx) or result.error or ""})
+                    content.append(
+                        {"type": "text", "text": fetch_texts.get(idx) or result.error or ""}
+                    )
                 else:
                     if result.error:
                         content.append({"type": "text", "text": f"Error: {result.error}"})
@@ -959,13 +966,9 @@ class ClaudeCUClient:
             async def _do_click() -> CUActionResult:
                 if exec_name == "click_at":
                     return await executor.execute("click_at", args)
-                return await self._special_click(
-                    exec_name, coord, executor, action_id=action_id
-                )
+                return await self._special_click(exec_name, coord, executor, action_id=action_id)
 
-            return await self._with_modifiers(
-                action_input.get("key"), executor, _do_click
-            )
+            return await self._with_modifiers(action_input.get("key"), executor, _do_click)
 
         elif action == "type":
             text = action_input.get("text", "")
@@ -996,9 +999,7 @@ class ClaudeCUClient:
             if coord:
                 args["x"], args["y"] = coord[0], coord[1]
             args["direction"] = (
-                action_input.get("direction")
-                or action_input.get("scroll_direction")
-                or "down"
+                action_input.get("direction") or action_input.get("scroll_direction") or "down"
             )
             amount = action_input.get("amount", action_input.get("scroll_amount", 3))
             try:

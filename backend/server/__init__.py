@@ -1716,7 +1716,12 @@ async def vnc_http_proxy(path: str):
                 status_code=resp.status_code,
                 media_type=content_type,
             )
-        except (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError, httpx.ReadError) as exc:
+        except (
+            httpx.ConnectError,
+            httpx.TimeoutException,
+            httpx.RemoteProtocolError,
+            httpx.ReadError,
+        ) as exc:
             last_exc = exc
             if attempt + 1 >= _NOVNC_PROXY_ATTEMPTS:
                 break

@@ -386,7 +386,9 @@ class TestScreenshotFallback:
             async def get(self, *_a, **_kw):
                 calls["n"] += 1
                 if calls["n"] < 3:
-                    raise httpx.RemoteProtocolError("Server disconnected without sending a response.")
+                    raise httpx.RemoteProtocolError(
+                        "Server disconnected without sending a response."
+                    )
                 return good
 
             async def aclose(self):

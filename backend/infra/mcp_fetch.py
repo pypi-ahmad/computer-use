@@ -40,9 +40,7 @@ MCP_FETCH_DESCRIPTION = (
 def mcp_fetch_parameters() -> dict[str, Any]:
     return {
         "type": "object",
-        "properties": {
-            "url": {"type": "string", "description": "Public http(s) URL to fetch"}
-        },
+        "properties": {"url": {"type": "string", "description": "Public http(s) URL to fetch"}},
         "required": ["url"],
         "additionalProperties": False,
     }
