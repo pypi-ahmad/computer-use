@@ -598,7 +598,8 @@ curl -X POST http://127.0.0.1:8100/api/v2/sessions \
     "safetyPolicy": "provider_default",
     "useBuiltinSearch": false,
     "attachedFiles": [],
-    "retainAuditFrames": true
+    "retainAuditFrames": true,
+    "executionTarget": "docker"
   }'
 
 # Answer a safety prompt (v2)
@@ -678,6 +679,38 @@ need.
 A change to any of these takes effect on the next backend start. The
 frontend has no build-time config beyond `VITE_WS_TOKEN` and
 `VITE_API_PORT` (both optional, read at dev-server start).
+
+### Advanced tuning
+
+These variables are all optional. The defaults suit most setups; change them only when you hit a specific bottleneck.
+
+**Container readiness** — increase `CUA_CONTAINER_READY_TIMEOUT` on slow hosts or the first pull of a large image.
+
+| Variable | Default | Notes |
+|---|---|---|
+| `CUA_CONTAINER_READY_TIMEOUT` | `30.0` | Seconds to wait for container `/health` after `docker run`. Clamped `[1, 300]`. |
+| `CUA_CONTAINER_READY_POLL_BASE` | `0.5` | Initial health-check poll interval; doubles each attempt. |
+| `CUA_CONTAINER_READY_POLL_CAP` | `3.0` | Max health-check poll interval. |
+
+**Screenshot stream** — affects the WS fan-out that drives the live preview, not the model's screenshot path.
+
+| Variable | Default | Notes |
+|---|---|---|
+| `CUA_WS_SCREENSHOT_INTERVAL` | `1.5` | Seconds between periodic screenshots pushed to WS clients. Clamped `[0.05, 60]`. |
+| `CUA_WS_SCREENSHOT_SUSPEND_WHEN_IDLE` | `true` | Pause capture when no WS clients are subscribed. Set `false` to keep the old always-on behaviour. |
+| `CUA_WS_SCREENSHOT_BACKOFF_CAP` | `30.0` | Max backoff (s) on repeated capture failures. |
+| `CUA_PREVIEW_MAX_EDGE` | `960` | Downscale the fan-out frame to this max edge (px) before encoding. |
+| `CUA_PREVIEW_JPEG_QUALITY` | `60` | JPEG quality for the live preview (10–95). Lower to reduce bandwidth. |
+
+**Action settle delays** — raise if the sandbox UI is slow to repaint (e.g. on a resource-constrained host).
+
+| Variable | Default | Notes |
+|---|---|---|
+| `CUA_UI_SETTLE_DELAY` | `0.3` | Post-action settle (s) for standard actions. |
+| `CUA_UI_SETTLE_DELAY_MIN` | `0.05` | Minimum settle for fast actions (mouse-move, hover). |
+| `CUA_UI_SETTLE_DELAY_NAV` | `0.6` | Settle after navigate / type actions, which need more time for the UI to repaint. |
+| `CUA_SCREENSHOT_SETTLE_DELAY` | `0.12` | Post-capture settle before delivering the screenshot to the model. |
+| `CUA_POST_ACTION_SCREENSHOT_DELAY` | `5.0` | Delay (s) before the post-action screenshot is taken. |
 
 ## Troubleshooting
 
