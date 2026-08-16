@@ -850,12 +850,12 @@ class ComputerUseEngine:
 
             raise ValueError(GEMINI_CU_FILE_REJECTION)
 
-        # Web Search ON is implemented as a provider-native planning
-        # phase before the Computer Use loop. The CU clients themselves
-        # stay computer-only so search does not compete with desktop
-        # actions on every turn.
+        # Toggle On: model may call mcp_fetch during the CU loop.
+        # Host implements that tool with uvx mcp-server-fetch.
         planner_use_builtin_search = bool(use_builtin_search)
-        search_kwargs: dict[str, Any] = {"use_builtin_search": False}
+        search_kwargs: dict[str, Any] = {
+            "use_builtin_search": planner_use_builtin_search
+        }
         # Reference-file activation rule: only attach provider-native
         # document grounding when the user explicitly uploaded files.
         # Gemini is excluded above because its File Search tool is not

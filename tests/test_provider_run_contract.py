@@ -62,20 +62,11 @@ async def test_provider_run_streams_events_live_and_calls_on_event():
 
 
 @pytest.mark.asyncio
-async def test_provider_run_uses_web_planner_before_computer_only_loop():
+async def test_provider_run_keeps_task_and_mcp_fetch_flag_on_client():
     callback_events = []
 
-    class FakePlannerClient(FakeClient):
+    class FakeBrowseClient(FakeClient):
         _use_builtin_search = True
-        _client = SimpleNamespace(responses=SimpleNamespace())
-
-        async def _create_response(self, *, on_log, **kwargs):
-            on_log("info", "planner called")
-            assert kwargs["tools"] == [{"type": "web_search"}]
-            assert "Open Chrome" in kwargs["input"]
-            return SimpleNamespace(
-                output_text="Open the application menu, search for Chrome, then launch it."
-            )
 
         async def run_loop(
             self,
@@ -87,11 +78,9 @@ async def test_provider_run_uses_web_planner_before_computer_only_loop():
             on_turn,
             on_log,
         ):
-            assert "Original user task:" in goal
-            assert "Open Chrome" in goal
-            assert "Execution brief" in goal
-            assert self._use_builtin_search is False
-            on_log("info", "computer-only")
+            assert goal == "Open Chrome"
+            assert self._use_builtin_search is True
+            on_log("info", "mcp-fetch-enabled")
             on_turn(SimpleNamespace(turn=1, actions=[], screenshot_b64=None, model_text="acting"))
             return "done"
 
@@ -103,13 +92,12 @@ async def test_provider_run_uses_web_planner_before_computer_only_loop():
         on_event=callback_events.append,
         on_safety=None,
         executor=FakeExecutor(),
-        client=FakePlannerClient(),
+        client=FakeBrowseClient(),
         turn_limit=2,
     ):
         yielded.append(event.type)
 
-    assert yielded == ["log", "log", "log", "log", "turn", "final"]
-    assert [event.type for event in callback_events] == yielded
+    assert yielded == ["log", "turn", "final"]
     assert callback_events[-1].data["text"] == "done"
 
 
@@ -159,32 +147,23 @@ def test_runner_for_provider_aliases():
 
 
 @pytest.mark.asyncio
-async def test_anthropic_planner_probes_search_even_when_cu_client_is_computer_only():
+async def test_anthropic_planner_does_not_use_native_web_search():
+    create = AsyncMock(
+        return_value=SimpleNamespace(content=[SimpleNamespace(text="planner brief")])
+    )
+
     class FakeAnthropicClient:
         _model = "claude-sonnet-5"
         _use_builtin_search = False
+        probed = False
 
         def __init__(self):
-            self.probed = False
             self._client = SimpleNamespace(
-                beta=SimpleNamespace(
-                    messages=SimpleNamespace(
-                        create=AsyncMock(
-                            return_value=SimpleNamespace(
-                                content=[SimpleNamespace(text="planner brief")]
-                            )
-                        )
-                    )
-                )
+                beta=SimpleNamespace(messages=SimpleNamespace(create=create))
             )
 
         async def _ensure_anthropic_web_search_enabled(self, on_log):
-            assert self._use_builtin_search is True
             self.probed = True
-
-        def build_web_search_tool(self, max_uses=None):
-            # D6: planner now resolves the PUBLIC protocol method.
-            return {"type": "web_search_20260209", "name": "web_search", "max_uses": max_uses}
 
     client = FakeAnthropicClient()
     brief = await create_web_execution_brief(
@@ -192,8 +171,11 @@ async def test_anthropic_planner_probes_search_even_when_cu_client_is_computer_o
         task="Open Chrome",
         client=client,
         on_log=None,
+        fetch_pages_fn=lambda urls: (_ for _ in ()).throw(AssertionError(urls)),
     )
 
     assert brief == "planner brief"
-    assert client.probed is True
-    assert client._use_builtin_search is False
+    assert client.probed is False
+    assert create.await_count == 2
+    for call in create.await_args_list:
+        assert "tools" not in call.kwargs

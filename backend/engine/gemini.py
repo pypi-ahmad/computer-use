@@ -32,6 +32,12 @@ from backend.engine import (
     validate_builtin_search_config,
 )
 from backend.executor import ActionExecutor, CUActionResult, SafetyDecision
+from backend.infra.mcp_fetch import (
+    MCP_FETCH_TOOL_NAME,
+    fetch_url_for_model,
+    gemini_mcp_fetch_tool,
+    mcp_fetch_instruction,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -251,9 +257,7 @@ class GeminiCUClient:
             model=model,
             use_builtin_search=use_builtin_search,
         )
-        # Product-level Web Search ON is handled by backend.providers.planner
-        # before the Computer Use loop. This CU client stays computer-only
-        # so Google Search does not compete with desktop actions every turn.
+        # Toggle On: model may call mcp_fetch; host runs uvx mcp-server-fetch.
         self._use_builtin_search = bool(use_builtin_search)
         if attached_file_ids:
             raise ValueError(
@@ -283,7 +287,7 @@ class GeminiCUClient:
         request: dict[str, Any] = {
             "model": self._model,
             "input": input_items,
-            "tools": tools or [tool],
+            "tools": tools or self._interaction_tools(tool),
         }
         if self._system_instruction:
             request["system_instruction"] = self._system_instruction
@@ -355,8 +359,15 @@ class GeminiCUClient:
             outputs = getattr(interaction, "steps", None)
         return [_to_plain_dict(item) for item in (outputs or [])]
 
+    def _interaction_tools(self, computer_tool: dict[str, Any]) -> list[dict[str, Any]]:
+        tools = [computer_tool]
+        if self._use_builtin_search:
+            tools.append(gemini_mcp_fetch_tool())
+        return tools
+
     def _compose_initial_goal_text(self, goal: str) -> str:
-        """Return the unmodified goal text for the Gemini CU loop."""
+        if self._use_builtin_search:
+            return f"{goal}\n\n{mcp_fetch_instruction()}"
         return goal
 
     async def iter_turns(
@@ -521,8 +532,6 @@ class GeminiCUClient:
                 yield RunCompleted(final_text=final_text)
                 return
 
-            saw_computer_action = True
-
             yield ModelTurnStarted(
                 turn=turn + 1,
                 model_text=turn_text,
@@ -564,7 +573,20 @@ class GeminiCUClient:
                         safety_confirmed = True
 
                 args["action_id"] = f"{turn + 1}:{idx}"
-                result = await executor.execute(function_name, args)
+                if function_name == MCP_FETCH_TOOL_NAME:
+                    url = str(args.get("url") or "")
+                    text = await fetch_url_for_model(url)
+                    result = CUActionResult(
+                        name=MCP_FETCH_TOOL_NAME,
+                        success=not text.startswith("Error:"),
+                        error=text if text.startswith("Error:") else None,
+                        extra={"url": url, "text": text},
+                    )
+                    if on_log:
+                        on_log("info", f"MCP fetch {url or '(missing url)'}")
+                else:
+                    saw_computer_action = True
+                    result = await executor.execute(function_name, args)
                 # Stamp safety metadata so FunctionResponse includes
                 # safety_acknowledgement when the user confirmed.
                 if safety_confirmed:

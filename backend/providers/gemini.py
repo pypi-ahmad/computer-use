@@ -20,7 +20,6 @@ from backend.providers._common import (
     EventCallback,
     ProviderTools,
     SafetyCallback,
-    maybe_plan_with_web_search,
     normalize_tools,
     stream_client_run_loop,
 )
@@ -55,12 +54,10 @@ async def run(
             environment=options.get("environment") or Environment.DESKTOP,
             excluded_actions=options.get("excluded_actions"),
             system_instruction=options.get("system_prompt"),
-            use_builtin_search=False,
+            use_builtin_search=provider_tools.web_search,
             attached_file_ids=file_ids,
             thinking_level=options.get("thinking_level") or options.get("reasoning_effort"),
         )
-        client._planner_use_builtin_search = provider_tools.web_search
-
     created_executor = executor is None
     if executor is None:
         executor = DesktopExecutor(
@@ -71,24 +68,14 @@ async def run(
             container_name=options.get("container_name") or "cua-environment",
         )
 
-    task_for_cu, planned, planning_events = await maybe_plan_with_web_search(
-        task,
-        provider="gemini",
-        client=client,
-        tools=provider_tools,
-        on_event=on_event,
-    )
-    for event in planning_events:
-        yield event
-
     async for event in stream_client_run_loop(
-        task_for_cu,
+        task,
         client=client,
         executor=executor,
         turn_limit=int(options.get("turn_limit") or DEFAULT_TURN_LIMIT),
         on_event=on_event,
         on_safety=on_safety,
         close_executor=created_executor,
-        force_computer_only=planned,
+        force_computer_only=False,
     ):
         yield event
