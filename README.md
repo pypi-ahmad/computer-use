@@ -498,6 +498,7 @@ Jump: [operator](#operator-docs) · [community](#community-docs) ·
 | [docs/codebase/INTEGRATIONS.md](docs/codebase/INTEGRATIONS.md) | Providers, tokens, and external APIs |
 | [docs/codebase/CONCERNS.md](docs/codebase/CONCERNS.md) | Prioritized risks |
 | [docs/codebase/TESTING.md](docs/codebase/TESTING.md) | Test stack and how to run it |
+| [MODERNIZATION_PLAN.md](MODERNIZATION_PLAN.md) | Phased modernization plan: runtime upgrades, stack migration, safety ladder |
 | [docs/gemini-successor-evaluation.md](docs/gemini-successor-evaluation.md) | Checklist for evaluating a Gemini Computer Use model successor |
 | [docs/research-audit-2026-07-23.md](docs/research-audit-2026-07-23.md) | Computer Use model/platform audit vs. official vendor docs |
 | [docker/SECURITY_NOTES.md](docker/SECURITY_NOTES.md) | Sandbox / agent-service attack surface |
