@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "computer-use-workbench"
-version = "3.1.1"
+version = "3.2.0"
 description = "Open-source local Computer Use workbench. Run on your machine with your API keys."
 readme = "README.md"
 requires-python = ">=3.12,<3.15"

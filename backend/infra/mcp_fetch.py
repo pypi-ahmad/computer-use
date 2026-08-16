@@ -170,7 +170,7 @@ class _McpFetchSession:
             {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
-                "clientInfo": {"name": "computer-use-workbench", "version": "3.1.1"},
+                "clientInfo": {"name": "computer-use-workbench", "version": "3.2.0"},
             },
         )
         await self._notify("notifications/initialized", {})

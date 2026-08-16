@@ -15,7 +15,7 @@ pay the vendor with **your** API keys.
 [![Python 3.12–3.14](https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-3776AB)](pyproject.toml)
 [![Latest release](https://img.shields.io/github/v/release/pypi-ahmad/computer-use)](https://github.com/pypi-ahmad/computer-use/releases/latest)
 
-Package `computer-use-workbench` **3.1.1**. Tree may include
+Package `computer-use-workbench` **3.2.0**. Tree may include
 Unreleased work — see [CHANGELOG.md](CHANGELOG.md).
 
 [USAGE.md](USAGE.md) · [DATA.md](DATA.md) ·

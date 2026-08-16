@@ -3,7 +3,7 @@
 ## Supported Versions
 
 Security fixes are developed for the current default branch and the
-active 3.x release line (`pyproject.toml` version **3.1.1**).
+active 3.x release line (`pyproject.toml` version **3.2.0**).
 
 | Version | Supported |
 |---|---|

@@ -4,12 +4,16 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-08-16
+
 ### Added
 
 - Live **Desktop** dropdown: `Sandbox (Docker)` (default) or
   `Native host`. Host runs Computer Use on the operator machine via
   `HostDesktopExecutor`. Sandbox path is unchanged. Host start skips
   the Docker ready gate. `"local"` is still rejected.
+- Live **Session log** under the viewport, with Copy logs. Audit
+  trail last-8 strip uses newest events (`events.slice(-8)`).
 - Community wording across README, SUPPORT, CONTRIBUTING, and
   SECURITY: testing, bugs, ideas, and PRs are welcome. No donations,
   sponsorship, bounties, or paid support. There is no `FUNDING.yml`.

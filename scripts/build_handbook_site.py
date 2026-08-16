@@ -169,11 +169,20 @@ SOURCES = (
     ),
     SourceDoc(
         "release",
+        "docs/release-notes-v3.2.0.md",
+        "v3.2.0 release notes",
+        "Evidence and history",
+        ("all",),
+        "Current release: native host desktop option, session log, no-password noVNC.",
+    ),
+    SourceDoc(
+        "release-v311",
         "docs/release-notes-v3.1.1.md",
         "v3.1.1 release notes",
         "Evidence and history",
         ("all",),
-        "Current patch scope: sidebar Mission control, session cost, Google key precedence.",
+        "Historical v3.1.1 sidebar Mission control, session cost, Google key precedence.",
+        True,
     ),
     SourceDoc(
         "release-v310",
