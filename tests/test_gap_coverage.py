@@ -81,9 +81,7 @@ class TestVncHttpProxyErrors:
         mock_resp.content = b"<html>noVNC</html>"
         mock_resp.headers = {"content-type": "text/html"}
         mock_client = MagicMock()
-        mock_client.get = AsyncMock(
-            side_effect=[httpx.ConnectError("refused"), mock_resp]
-        )
+        mock_client.get = AsyncMock(side_effect=[httpx.ConnectError("refused"), mock_resp])
         with (
             patch("backend.server._get_novnc_client", return_value=mock_client),
             patch("backend.server._NOVNC_PROXY_RETRY_DELAY_S", 0),
@@ -1192,9 +1190,7 @@ class TestComposeHardening:
         path = Path(__file__).parent.parent / "docker-compose.yml"
         src = path.read_text(encoding="utf-8")
         assert (
-            "start_period: 45s" in src
-            or "start_period: 30s" in src
-            or "start_period: 20s" in src
+            "start_period: 45s" in src or "start_period: 30s" in src or "start_period: 20s" in src
         ), "D3: healthcheck must include a start_period of ≥ 20s"
         assert "6080/vnc.html" in src
         assert "9222/health" in src
