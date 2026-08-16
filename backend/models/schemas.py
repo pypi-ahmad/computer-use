@@ -148,7 +148,7 @@ class StartTaskRequest(BaseModel):
     mode: str = Field(default="desktop", max_length=20)
     engine: str = Field(default="computer_use", max_length=20)
     provider: str = Field(max_length=20)
-    execution_target: str = Field(default="docker", max_length=20)  # only "docker" is supported
+    execution_target: str = Field(default="docker", max_length=20)  # docker | host
     reasoning_effort: str | None = Field(
         default=None, max_length=10
     )  # OpenAI only: none|low|medium|high|xhigh|max

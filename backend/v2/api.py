@@ -89,6 +89,7 @@ class SessionInput(ContractModel):
     use_builtin_search: bool = False
     attached_files: list[str] = Field(default_factory=list, max_length=20)
     retain_audit_frames: bool = True
+    execution_target: str = Field(default="docker", pattern="^(docker|host)$")
 
 
 class SessionPatch(ContractModel):
@@ -451,7 +452,11 @@ async def create_session(payload: SessionInput, request: Request) -> dict[str, A
         payload.task, payload.model, primary, fallbacks=serialized_fallbacks
     )
     _store().set_session_status(stored.id, "RUNNING")
-    _store().append_event(stored.id, "SESSION_STARTED", {"primaryRoute": selections[0][0]})
+    _store().append_event(
+        stored.id,
+        "SESSION_STARTED",
+        {"primaryRoute": selections[0][0], "executionTarget": payload.execution_target},
+    )
     _retention.set_enabled(stored.id, payload.retain_audit_frames)
     selection_by_id = {key: (selected_model, route) for key, selected_model, route in selections}
     live_action_count = 0
@@ -518,6 +523,7 @@ async def create_session(payload: SessionInput, request: Request) -> dict[str, A
                     safety_policy=payload.safety_policy,
                     use_builtin_search=payload.use_builtin_search,
                     attached_files=tuple(payload.attached_files),
+                    execution_target=payload.execution_target,
                     on_event=_on_execution_event,
                 )
             )

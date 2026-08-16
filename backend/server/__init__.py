@@ -1159,9 +1159,10 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
         return _error_response(
             400, f"Invalid engine: {req.engine}. Only 'computer_use' is supported."
         )
-    if req.execution_target != "docker":
+    if req.execution_target not in {"docker", "host"}:
         return _error_response(
-            400, f"Invalid execution_target: {req.execution_target}. Only 'docker' is supported."
+            400,
+            f"Invalid execution_target: {req.execution_target}. Use 'docker' or 'host'.",
         )
     if req.provider not in _VALID_PROVIDERS:
         return _error_response(400, f"Invalid provider: {req.provider}")
@@ -1244,31 +1245,32 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
         req.execution_target,
     )
 
-    container_ok = await start_container()
-    state = get_container_state()
-    # D-READY — session creation requires a positive ready signal, not
-    # just "docker says the container exists". ``start_container()``
-    # refreshes readiness even on the already-running fast path, then we
-    # re-check the cached state here so a race between readiness and
-    # teardown can still be surfaced as a clean 409 instead of a later
-    # screenshot/action network error.
-    if not container_ok:
-        if state.get("agent") == "unready":
+    if req.execution_target == "docker":
+        container_ok = await start_container()
+        state = get_container_state()
+        # D-READY — session creation requires a positive ready signal, not
+        # just "docker says the container exists". ``start_container()``
+        # refreshes readiness even on the already-running fast path, then we
+        # re-check the cached state here so a race between readiness and
+        # teardown can still be surfaced as a clean 409 instead of a later
+        # screenshot/action network error.
+        if not container_ok:
+            if state.get("agent") == "unready":
+                detail = state.get("last_health_error") or "agent service not reachable"
+                return _error_response(
+                    409,
+                    f"Sandbox is not ready ({detail}). Restart the environment and try again.",
+                )
+            return _error_response(
+                503,
+                "Could not start the virtual environment. Please check that the system is set up correctly.",
+            )
+        if state.get("agent") != "ready":
             detail = state.get("last_health_error") or "agent service not reachable"
             return _error_response(
                 409,
                 f"Sandbox is not ready ({detail}). Restart the environment and try again.",
             )
-        return _error_response(
-            503,
-            "Could not start the virtual environment. Please check that the system is set up correctly.",
-        )
-    if state.get("agent") != "ready":
-        detail = state.get("last_health_error") or "agent service not reachable"
-        return _error_response(
-            409,
-            f"Sandbox is not ready ({detail}). Restart the environment and try again.",
-        )
 
     loop = AgentLoop(
         task=req.task,
@@ -1329,7 +1331,9 @@ async def api_start_agent(req: StartTaskRequest, request: Request):
 
 async def _start_v2_execution(req: V2ExecutionRequest) -> V2ExecutionOutcome:
     """Run and observe an AgentLoop so runtime failure can trigger fallback."""
-    if not await start_container() or get_container_state().get("agent") != "ready":
+    if req.execution_target == "docker" and (
+        not await start_container() or get_container_state().get("agent") != "ready"
+    ):
         raise RuntimeError("Sandbox is not ready")
 
     def _on_step(step) -> None:
@@ -1359,6 +1363,7 @@ async def _start_v2_execution(req: V2ExecutionRequest) -> V2ExecutionOutcome:
         model=req.model_id,
         max_steps=req.max_steps,
         provider=req.provider,
+        execution_target=req.execution_target,
         reasoning_effort=req.reasoning_effort if req.provider == "openai" else None,
         oauth_credentials=req.oauth_credentials,
         quota_project_id=req.quota_project_id,

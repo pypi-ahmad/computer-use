@@ -355,6 +355,40 @@ class TestAgentStartValidation:
         assert resp.status_code == 400
         assert "execution_target" in resp.json().get("error", "").lower()
 
+    def test_host_execution_target_skips_sandbox(self, client):
+        from backend.server import _agent_start_limiter
+
+        _agent_start_limiter._calls.clear()
+        fake_loop = SimpleNamespace(session_id="session-host-1", run=AsyncMock())
+        fake_task = Mock()
+        fake_task.done.return_value = False
+
+        def fake_create_task(coro):
+            coro.close()
+            return fake_task
+
+        with (
+            patch.dict("backend.server._active_tasks", {}, clear=True),
+            patch.dict("backend.server._active_loops", {}, clear=True),
+            patch("backend.server.resolve_api_key", return_value=("AIza-test", "ui")),
+            patch("backend.server.start_container", new_callable=AsyncMock) as start_container,
+            patch("backend.server.AgentLoop", return_value=fake_loop) as mock_agent_loop,
+            patch("backend.server.asyncio.create_task", side_effect=fake_create_task),
+        ):
+            resp = client.post(
+                "/api/agent/start",
+                json={
+                    "task": "test",
+                    "engine": "computer_use",
+                    "provider": "google",
+                    "model": "gemini-3.7-flash",
+                    "execution_target": "host",
+                },
+            )
+        assert resp.status_code == 200
+        start_container.assert_not_called()
+        assert mock_agent_loop.call_args.kwargs["execution_target"] == "host"
+
     def test_empty_task_rejected(self, client):
         resp = client.post(
             "/api/agent/start",

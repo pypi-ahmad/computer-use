@@ -33,6 +33,7 @@ from backend.executor import (
 from backend.executor import (
     _is_allowed_key_token as _is_allowed_key_token,
 )
+from backend.host_executor import HostDesktopExecutor, detect_host_screen
 from backend.infra.config import config as _app_config  # noqa: F401
 from backend.models.schemas import load_allowed_models_json as _load_allowed_models_json
 
@@ -833,10 +834,18 @@ class ComputerUseEngine:
         oauth_credentials: Any | None = None,
         quota_project_id: str | None = None,
         safety_policy: str = "provider_default",
+        execution_target: str = "docker",
     ):
+        if execution_target not in {"docker", "host"}:
+            raise ValueError(
+                f"Invalid execution_target: {execution_target}. Use 'docker' or 'host'."
+            )
+        self._execution_target = execution_target
         self.provider = provider
         self._last_completion_payload: dict[str, Any] | None = None
         self.environment = environment
+        if execution_target == "host":
+            screen_width, screen_height = detect_host_screen()
         self.screen_width = screen_width
         self.screen_height = screen_height
         self._container_name = container_name
@@ -914,14 +923,13 @@ class ComputerUseEngine:
     ) -> ActionExecutor:
         """Build the action executor for this session.
 
-        Unified Computer Use surface: a single X11 sandbox where
-        Chromium is pre-installed. The provider's CU tool decides
-        whether to drive desktop applications or Chromium itself, so
-        we always return the xdotool-backed ``DesktopExecutor``.
+        Unified Computer Use surface. ``docker`` uses the X11 sandbox
+        agent_service. ``host`` uses HostDesktopExecutor on this machine.
         """
         # Gemini uses normalized 0-999 coords; Claude/OpenAI use real pixels
         normalize = self.provider == Provider.GEMINI
-        executor: ActionExecutor = DesktopExecutor(
+        executor_cls = HostDesktopExecutor if self._execution_target == "host" else DesktopExecutor
+        executor: ActionExecutor = executor_cls(
             screen_width=self.screen_width,
             screen_height=self.screen_height,
             normalize_coords=normalize,
