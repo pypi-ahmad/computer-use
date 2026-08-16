@@ -385,9 +385,9 @@ def resolve_api_key(provider: str, ui_key: str | None = None) -> tuple[str | Non
 
     # 3. Current process env after dotenv load
     for env_var in env_vars:
-        value, source = _detect_key_source(env_var)
-        if value:
-            return value, source
+        loaded, source = _detect_key_source(env_var)
+        if loaded:
+            return loaded, source
 
     return None, "none"
 
