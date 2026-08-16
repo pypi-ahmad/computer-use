@@ -61,7 +61,12 @@ container, not a review of every click.
 
 ## Index
 
-**This README**
+Jump: [this README](#this-readme) · [operator](#operator-docs) ·
+[community](#community-docs) · [technical](#technical-docs) ·
+[history](#history-docs) · [templates and CI](#templates-and-ci).
+Longer blurbs: [Documentation](#documentation).
+
+### This README
 
 1. [What this project is](#what-this-project-is)
 2. [Open source](#open-source)
@@ -70,34 +75,105 @@ container, not a review of every click.
 5. [Tech stack](#tech-stack)
 6. [Project structure](#project-structure)
 7. [Installation and setup](#installation-and-setup)
+    - [Requirements](#requirements)
+    - [Windows (recommended)](#windows-recommended)
+    - [Manual (Windows, Linux, macOS)](#manual-windows-linux-macos)
+    - [URLs](#urls)
 8. [Environment variables](#environment-variables)
+    - [Required for the sandbox](#required-for-the-sandbox)
+    - [Provider credentials](#provider-credentials-at-least-one-route)
+    - [Networking and workbench auth](#networking-and-workbench-auth)
+    - [Sandbox and agent](#sandbox-and-agent)
+    - [Persistence and logging](#persistence-and-logging)
 9. [Usage](#usage)
+    - [Dashboard](#dashboard)
+    - [Session cost rates](#session-cost-rates)
+    - [Commands](#commands)
 10. [Examples](#examples)
+    - [Local smoke task](#local-smoke-task)
+    - [Start a session over HTTP](#start-a-session-over-http)
+    - [Production-style single process](#production-style-single-process)
 11. [How it works](#how-it-works)
 12. [Configuration options](#configuration-options)
 13. [Documentation](#documentation)
+    - [Operator](#operator)
+    - [Project and community](#project-and-community)
+    - [Technical](#technical)
+    - [History and migration](#history-and-migration)
 14. [Community](#community)
 15. [License](#license)
 16. [Acknowledgements](#acknowledgements)
 
-**All other documents**
+### Operator docs
 
-| Start here | Community | Technical | History |
-|---|---|---|---|
-| [USAGE.md](USAGE.md) | [OPEN_SOURCE.md](OPEN_SOURCE.md) | [TECHNICAL.md](TECHNICAL.md) | [CHANGELOG.md](CHANGELOG.md) |
-| [TESTING.md](TESTING.md) | [SUPPORT.md](SUPPORT.md) | [docs/codebase/ARCHITECTURE.md](docs/codebase/ARCHITECTURE.md) | [docs/migration-v2.md](docs/migration-v2.md) |
-| [DATA.md](DATA.md) | [CONTRIBUTING.md](CONTRIBUTING.md) | [docs/codebase/STACK.md](docs/codebase/STACK.md) | [docs/rollback-v2.md](docs/rollback-v2.md) |
-| [docs/deployment.md](docs/deployment.md) | [SECURITY.md](SECURITY.md) | [docs/codebase/STRUCTURE.md](docs/codebase/STRUCTURE.md) | [docs/gemini-successor-evaluation.md](docs/gemini-successor-evaluation.md) |
-| [docs/computer-use-prompt-guide.md](docs/computer-use-prompt-guide.md) | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | [docs/codebase/CONVENTIONS.md](docs/codebase/CONVENTIONS.md) | [docs/research-audit-2026-07-23.md](docs/research-audit-2026-07-23.md) |
-| [docs/business-guide.md](docs/business-guide.md) | [LICENSE](LICENSE) | [docs/codebase/INTEGRATIONS.md](docs/codebase/INTEGRATIONS.md) | [docs/release-notes-v3.1.1.md](docs/release-notes-v3.1.1.md) |
-| [docs/zero-to-hero-study-handbook.md](docs/zero-to-hero-study-handbook.md) | [AGENTS.md](AGENTS.md) | [docs/codebase/CONCERNS.md](docs/codebase/CONCERNS.md) | [docs/release-notes-v3.1.0.md](docs/release-notes-v3.1.0.md) |
-| [docs/zero-to-hero-study-handbook.html](docs/zero-to-hero-study-handbook.html) | [Bug template](.github/ISSUE_TEMPLATE/bug.yml) | [docs/codebase/TESTING.md](docs/codebase/TESTING.md) | [docs/release-notes-v3.0.3.md](docs/release-notes-v3.0.3.md) |
-| [docs/zero-to-hero-study-handbook.pdf](docs/zero-to-hero-study-handbook.pdf) | [Idea template](.github/ISSUE_TEMPLATE/feature.yml) | [docker/SECURITY_NOTES.md](docker/SECURITY_NOTES.md) | [docs/release-notes-v3.0.2.md](docs/release-notes-v3.0.2.md) |
-| | [PR template](.github/PULL_REQUEST_TEMPLATE.md) | [evals/README.md](evals/README.md) | [docs/release-notes-v3.0.1.md](docs/release-notes-v3.0.1.md) |
-| | | [.env.example](.env.example) | [docs/release-notes-v3.0.0.md](docs/release-notes-v3.0.0.md) |
-| | | | [docs/release-notes-v2.0.0.md](docs/release-notes-v2.0.0.md) |
+| Document | What it is |
+|---|---|
+| [USAGE.md](USAGE.md) | Tabs, credentials, REST, troubleshooting |
+| [TESTING.md](TESTING.md) | Manual smoke test and CI-equivalent commands |
+| [DATA.md](DATA.md) | Local storage; operator owns every payload |
+| [docs/deployment.md](docs/deployment.md) | Local and single-process production start |
+| [docs/computer-use-prompt-guide.md](docs/computer-use-prompt-guide.md) | How to write bounded Computer Use tasks |
+| [docs/business-guide.md](docs/business-guide.md) | Pilot, risk, and go/no-go for an org evaluation |
+| [docs/zero-to-hero-study-handbook.md](docs/zero-to-hero-study-handbook.md) | Study handbook (markdown source) |
+| [docs/zero-to-hero-study-handbook.html](docs/zero-to-hero-study-handbook.html) | Study handbook (standalone HTML) |
+| [docs/zero-to-hero-study-handbook.pdf](docs/zero-to-hero-study-handbook.pdf) | Study handbook (PDF; may lag the HTML build) |
 
-Descriptions: [Documentation](#documentation).
+### Community docs
+
+| Document | What it is |
+|---|---|
+| [OPEN_SOURCE.md](OPEN_SOURCE.md) | Clone, local use, own keys; no hosted service |
+| [SUPPORT.md](SUPPORT.md) | How to get help; what this repo will not debug |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Branch, test, and PR rules |
+| [SECURITY.md](SECURITY.md) | Security model and vulnerability reports |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Contributor Covenant 3.0 |
+| [LICENSE](LICENSE) | MIT license text |
+| [AGENTS.md](AGENTS.md) | Terse-response rules for coding agents |
+
+### Technical docs
+
+| Document | What it is |
+|---|---|
+| [TECHNICAL.md](TECHNICAL.md) | Runtime contracts, routes, models |
+| [docs/codebase/ARCHITECTURE.md](docs/codebase/ARCHITECTURE.md) | Modular monolith and sandbox split |
+| [docs/codebase/STACK.md](docs/codebase/STACK.md) | Languages, frameworks, and tools |
+| [docs/codebase/STRUCTURE.md](docs/codebase/STRUCTURE.md) | Top-level repository map |
+| [docs/codebase/CONVENTIONS.md](docs/codebase/CONVENTIONS.md) | Naming and code conventions |
+| [docs/codebase/INTEGRATIONS.md](docs/codebase/INTEGRATIONS.md) | Providers, tokens, and external APIs |
+| [docs/codebase/CONCERNS.md](docs/codebase/CONCERNS.md) | Prioritized risks |
+| [docs/codebase/TESTING.md](docs/codebase/TESTING.md) | Test stack and how to run it |
+| [docker/SECURITY_NOTES.md](docker/SECURITY_NOTES.md) | Sandbox / agent-service attack surface |
+| [evals/README.md](evals/README.md) | Offline deterministic evals |
+| [.env.example](.env.example) | Environment template (copy to `.env`; never commit `.env`) |
+
+### History docs
+
+| Document | What it is |
+|---|---|
+| [CHANGELOG.md](CHANGELOG.md) | Released and Unreleased changes |
+| [docs/migration-v2.md](docs/migration-v2.md) | v1 → v2 contract and ops migration |
+| [docs/rollback-v2.md](docs/rollback-v2.md) | v2 rollback triggers and checks |
+| [docs/gemini-successor-evaluation.md](docs/gemini-successor-evaluation.md) | Checklist when a Gemini CU model is replaced |
+| [docs/research-audit-2026-07-23.md](docs/research-audit-2026-07-23.md) | Historical July 2026 research note |
+| [docs/release-notes-v3.1.1.md](docs/release-notes-v3.1.1.md) | v3.1.1 |
+| [docs/release-notes-v3.1.0.md](docs/release-notes-v3.1.0.md) | v3.1.0 |
+| [docs/release-notes-v3.0.3.md](docs/release-notes-v3.0.3.md) | v3.0.3 |
+| [docs/release-notes-v3.0.2.md](docs/release-notes-v3.0.2.md) | v3.0.2 |
+| [docs/release-notes-v3.0.1.md](docs/release-notes-v3.0.1.md) | v3.0.1 |
+| [docs/release-notes-v3.0.0.md](docs/release-notes-v3.0.0.md) | v3.0.0 |
+| [docs/release-notes-v2.0.0.md](docs/release-notes-v2.0.0.md) | v2.0.0 |
+
+### Templates and CI
+
+| Document | What it is |
+|---|---|
+| [Bug template](.github/ISSUE_TEMPLATE/bug.yml) | GitHub bug report form |
+| [Idea template](.github/ISSUE_TEMPLATE/feature.yml) | GitHub feature / improvement form |
+| [Issue chooser](.github/ISSUE_TEMPLATE/config.yml) | Issue picker plus contact links |
+| [PR template](.github/PULL_REQUEST_TEMPLATE.md) | Pull-request checklist |
+| [CI workflow](.github/workflows/ci.yml) | Lint, typecheck, tests, sandbox image, Trivy |
+| [Release workflow](.github/workflows/release.yml) | Tagged-release job |
+| [Gemini changelog watchdog](.github/workflows/gemini-changelog-watchdog.yml) | Scheduled Gemini changelog check |
 
 ## Open source
 
@@ -610,7 +686,11 @@ reference files. You own those files and any data they contain.
 | [AGENTS.md](AGENTS.md) | Terse-response rules for coding agents |
 | [Bug template](.github/ISSUE_TEMPLATE/bug.yml) | GitHub bug report form |
 | [Idea template](.github/ISSUE_TEMPLATE/feature.yml) | GitHub feature / improvement form |
+| [Issue chooser](.github/ISSUE_TEMPLATE/config.yml) | Issue picker plus contact links |
 | [PR template](.github/PULL_REQUEST_TEMPLATE.md) | Pull-request checklist |
+| [CI workflow](.github/workflows/ci.yml) | Lint, typecheck, tests, sandbox image, Trivy |
+| [Release workflow](.github/workflows/release.yml) | Tagged-release job |
+| [Gemini changelog watchdog](.github/workflows/gemini-changelog-watchdog.yml) | Scheduled Gemini changelog check |
 
 ### Technical
 
