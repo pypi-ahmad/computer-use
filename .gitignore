@@ -109,11 +109,22 @@ data/
 
 # Playwright MCP's own session snapshots (not source, not curated docs).
 .playwright-mcp/
+# Playwright accessibility tree snapshots dumped to project root
+/*-desktop.yml
+/*-mobile.yml
 
 # Local .ua/ tool scratch dirs (trash/backup) — the rest of .ua/ (config,
 # fingerprints, knowledge-graph.json) is intentionally tracked.
 .ua/.trash-*/
 .ua/codegraph-backup-*/
+
+# Code intelligence tool artifacts
+.codebase-memory/
+.codegraph/
+graphify-out/
+
+# Temp debug screenshots in repo root (curated assets live under assets/)
+/*.png
 
 # Build/test artifacts (local only)
 build_log.txt
