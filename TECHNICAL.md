@@ -109,7 +109,7 @@ routes:
    route, ordered explicit fallbacks (max 10), attached files (max 20),
    and runtime options (`maxSteps` 1–200, default 50; `safetyPolicy`;
    `useBuiltinSearch`; `reasoningEffort`; `credentialSessionId`;
-   `retainAuditFrames`).
+   `retainAuditFrames`; `executionTarget` `"docker"` or `"host"`, default `"docker"`).
 2. The coordinator runs the primary route, then only the supplied
    fallbacks. It does not pick routes by cost or latency.
    `backend/v2/api.py` builds `RouteSpec(..., max_attempts=1)`.

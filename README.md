@@ -242,7 +242,8 @@ Content-Type: application/json
   "safetyPolicy": "provider_default",
   "useBuiltinSearch": false,
   "attachedFiles": [],
-  "retainAuditFrames": true
+  "retainAuditFrames": true,
+  "executionTarget": "docker"
 }
 ```
 
