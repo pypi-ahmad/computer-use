@@ -14,7 +14,8 @@ body:
     attributes:
       label: Version
       options:
-        - v3.1.1 (latest release)
+        - v3.2.0 (latest release)
+        - v3.1.1
         - main (commit SHA in the next field)
         - other
     validations:
