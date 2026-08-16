@@ -1,9 +1,9 @@
-import { Component, type ChangeEvent, type ErrorInfo, type FormEvent, type ReactNode, useEffect, useState } from 'react'
+import { Component, type ChangeEvent, type ErrorInfo, type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Activity, BookOpen, CircleDollarSign, CircleStop, History, KeyRound, MonitorPlay, Play, Plus, Power, Radio, ShieldCheck, Timer, Trash2 } from 'lucide-react'
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { api, desktopViewerSrc, getAppToken, setAppToken, waitForNovnc } from './api'
-import type { Action, Analytics, EventRecord, Session, Workflow } from './types'
+import type { Action, Analytics, EventRecord, Session, StreamEvent, Workflow } from './types'
 import { MODEL_PRICES, estimateSessionCost, formatUsd } from './pricing'
 import { useLiveStream } from './useLiveStream'
 
@@ -34,6 +34,35 @@ function useResource<T>(load: () => Promise<T>) {
 function StatusBadge({ status }: { status: string }) { return <span className={`status status-${status.toLowerCase()}`}><span aria-hidden="true" />{status}</span> }
 function Header({ eyebrow, title, aside }: { eyebrow: string; title: string; aside?: ReactNode }) { return <header className="page-header"><div><p>{eyebrow}</p><h1>{title}</h1></div>{aside}</header> }
 
+type LogLevel = 'info' | 'warn' | 'error'
+type LogLine = { key: string; level: LogLevel; message: string }
+
+function normalizeLogLevel(level: string): LogLevel {
+  const raw = level.toLowerCase()
+  if (raw === 'error') return 'error'
+  if (raw === 'warning' || raw === 'warn') return 'warn'
+  return 'info'
+}
+
+function sessionLogLines(events: StreamEvent[], streamError: string): LogLine[] {
+  const lines: LogLine[] = []
+  events.forEach((item, index) => {
+    if (item.event === 'LOG') {
+      lines.push({ key: `log-${index}`, level: normalizeLogLevel(item.level), message: item.message })
+      return
+    }
+    if (item.event === 'FRAME_CAPTURE_FAILED') {
+      lines.push({ key: `frame-${index}`, level: 'error', message: item.message || 'Frame capture failed' })
+      return
+    }
+    if (item.event === 'SESSION_TERMINAL') {
+      lines.push({ key: `term-${index}`, level: item.status === 'ERROR' ? 'error' : 'info', message: item.message || `Session ${item.status}` })
+    }
+  })
+  if (streamError) lines.push({ key: 'stream-error', level: 'error', message: streamError })
+  return lines
+}
+
 function LivePage({ credentialSessionId, preferredRoute, initialTask, session, onSession, controlSlot }: { credentialSessionId: string | null; preferredRoute: string; initialTask: string; session: Session | null; onSession: (session: Session | null) => void; controlSlot: HTMLElement | null }) {
   const models = useResource(() => api.models()); const routes = useResource(() => api.routes())
   const [task, setTask] = useState(initialTask); const [modelId, setModelId] = useState('gemini-3.7-flash'); const [routeId, setRouteId] = useState(''); const [fallback, setFallback] = useState('gemini-3.5-flash-lite@gemini-direct'); const [safetyPolicy, setSafetyPolicy] = useState('provider_default'); const [reasoning, setReasoning] = useState(''); const [search, setSearch] = useState(false); const [files, setFiles] = useState<Array<{ id: string; name: string }>>([]); const [handledNonce, setHandledNonce] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [viewerUrl, setViewerUrl] = useState('')
@@ -49,6 +78,23 @@ function LivePage({ credentialSessionId, preferredRoute, initialTask, session, o
   const safety = [...stream.events].reverse().find(item => item.event === 'SAFETY_CONFIRMATION')
   async function decide(confirm: boolean) { if (!session || safety?.event !== 'SAFETY_CONFIRMATION') return; await api.safetyDecision(session.id, safety.nonce, confirm); setHandledNonce(safety.nonce) }
   const terminal = [...stream.events].reverse().find(item => item.event === 'SESSION_TERMINAL')
+  const logLines = sessionLogLines(stream.events, stream.error)
+  const logRef = useRef<HTMLDivElement>(null)
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    const node = logRef.current
+    if (node) node.scrollTop = node.scrollHeight
+  }, [logLines.length])
+  async function copyLogs() {
+    const text = logLines.map(line => `${line.level.toUpperCase()}  ${line.message}`).join('\n')
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1500)
+    } catch {
+      setCopied(false)
+    }
+  }
   const controlForm = (
     <form className="control panel" onSubmit={event => { void start(event) }}>
       <div className="panel-head"><span>Mission control</span><ShieldCheck size={17}/></div>
@@ -73,6 +119,20 @@ function LivePage({ credentialSessionId, preferredRoute, initialTask, session, o
     {safety?.event === 'SAFETY_CONFIRMATION' && safety.nonce !== handledNonce && <section className="safety" role="alertdialog" aria-label="Safety confirmation required"><ShieldCheck/><div><strong>Approval required</strong><p>{safety.explanation}</p><button type="button" onClick={() => { void decide(false) }}>Deny</button><button type="button" className="primary" onClick={() => { void decide(true) }}>Approve</button></div></section>}
     {controlSlot ? createPortal(controlForm, controlSlot) : null}
     <section className="viewport panel live-grid"><div className="panel-head"><span>Viewport / 1440 × 900</span>{session && <StatusBadge status={session.status}/>}</div><div className="screen">{viewerUrl ? <iframe title="Sandbox desktop" src={viewerUrl} allow="clipboard-read; clipboard-write"/> : <div><MonitorPlay size={42}/><strong>Connecting to sandbox</strong><span>The interactive desktop appears here when noVNC is ready.</span></div>}</div></section>
+    <section className="session-log panel" aria-label="Session log">
+      <div className="panel-head">
+        <span>Session log</span>
+        <button type="button" disabled={!logLines.length} onClick={() => { void copyLogs() }}>{copied ? 'Copied' : 'Copy logs'}</button>
+      </div>
+      <div className="session-log-body" ref={logRef} role="log" aria-live="polite">
+        {logLines.length ? logLines.map(line => (
+          <div className={`session-log-line is-${line.level}`} key={line.key}>
+            <span className="session-log-level">{line.level}</span>
+            <span>{line.message}</span>
+          </div>
+        )) : <p className="session-log-empty">No log lines yet. Info, warnings, and errors from the run appear here.</p>}
+      </div>
+    </section>
   </>
 }
 
@@ -86,7 +146,8 @@ function AuditPage() {
     return () => { live = false }
   }, [selectedId])
   async function download() { if (!selectedId) return; const blob = await api.exportSession(selectedId, true); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = `session-${selectedId}.zip`; anchor.click(); URL.revokeObjectURL(url) }
-  return <><Header eyebrow="Flight recorder" title="Session audit trail" aside={<div><select aria-label="Session" value={selectedId} onChange={e => setSelected(e.target.value)}>{sessions.data?.data.map(item => <option value={item.id} key={item.id}>{item.task.slice(0, 42)}</option>)}</select><button type="button" onClick={() => { void download() }} disabled={!selectedId}>Export ZIP</button></div>}/><section className="panel table-panel"><div className="panel-head"><span>Confirmed action journal</span><span>{actions.length} actions</span></div><div className="timeline">{actions.length ? actions.map((action, index) => <article key={action.id ?? index}><span>{String(action.sequence ?? index + 1).padStart(3, '0')}</span><div><strong>{action.actionType ?? action.action ?? action.type ?? 'ACTION'}</strong><code>{JSON.stringify(action.payload ?? {})}</code></div></article>) : <div className="empty"><History/><h2>No recorded actions</h2><p>Confirmed actions appear here in execution order.</p></div>}</div></section><section className="event-strip">{events.slice(0, 8).map((event, i) => <div key={event.id ?? i}><span>{event.createdAt?.slice(11, 19) ?? '—'}</span>{event.eventType ?? event.type}</div>)}</section></>
+  const recent = events.slice(-8)
+  return <><Header eyebrow="Flight recorder" title="Session audit trail" aside={<div><select aria-label="Session" value={selectedId} onChange={e => setSelected(e.target.value)}>{sessions.data?.data.map(item => <option value={item.id} key={item.id}>{item.task.slice(0, 42)}</option>)}</select><button type="button" onClick={() => { void download() }} disabled={!selectedId}>Export ZIP</button></div>}/><section className="panel table-panel"><div className="panel-head"><span>Confirmed action journal</span><span>{actions.length} actions</span></div><div className="timeline">{actions.length ? actions.map((action, index) => <article key={action.id ?? index}><span>{String(action.sequence ?? index + 1).padStart(3, '0')}</span><div><strong>{action.actionType ?? action.action ?? action.type ?? 'ACTION'}</strong><code>{JSON.stringify(action.payload ?? {})}</code></div></article>) : <div className="empty"><History/><h2>No recorded actions</h2><p>Confirmed actions appear here in execution order.</p></div>}</div></section><section className="panel event-panel"><div className="panel-head"><span>Last 8 events</span><span>{recent.length} shown</span></div><section className="event-strip">{recent.length ? recent.map((event, i) => <div key={event.id ?? i}><span>{event.createdAt?.slice(11, 19) ?? '—'}</span>{event.eventType ?? event.type}</div>) : <div>No events yet</div>}</section></section></>
 }
 
 function WorkflowPage({ onUse }: { onUse: (task: string) => void }) {
