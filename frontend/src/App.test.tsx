@@ -4,8 +4,8 @@ import { MemoryRouter } from 'react-router-dom'
 import { expect, it, vi } from 'vitest'
 import App from './App'
 
-vi.stubGlobal('fetch', vi.fn((input: RequestInfo) => {
-  const url = String(input)
+vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
   const body = url.includes('/desktop') ? { viewerUrl: '/vnc/vnc.html?autoconnect=1' } : { data: [] }
   return Promise.resolve(new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } }))
 }))
@@ -20,8 +20,8 @@ it('provides all six operational workspaces', async () => {
   expect(screen.getByText(/Viewport \/ 1440/).closest('.sidebar')).toBeNull()
   const desktop = await screen.findByTitle('Sandbox desktop')
   expect(desktop).toHaveAttribute('src', '/vnc/vnc.html?autoconnect=1&path=vnc%2Fwebsockify')
-  expect(desktop.closest('.live-stage')).toBeTruthy()
-  expect(mission.closest('.live-stage')).toBeNull()
+  expect(desktop.closest('.live-grid')).toBeTruthy()
+  expect(mission.closest('.live-grid')).toBeNull()
   expect(screen.queryByText('No session on the wire')).not.toBeInTheDocument()
   await userEvent.click(screen.getByRole('link', { name: /providers/i }))
   expect(await screen.findByRole('heading', { name: /provider access/i })).toBeInTheDocument()

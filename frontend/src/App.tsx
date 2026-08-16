@@ -108,16 +108,21 @@ function ProvidersPage({ onCredential }: { onCredential: (id: string | null) => 
 
 function CostPage({ currentSession }: { currentSession: Session | null }) {
   const sessions = useResource(() => api.sessions())
-  const [selected, setSelected] = useState(currentSession?.id ?? '')
+  const currentId = currentSession?.id ?? ''
+  const [selected, setSelected] = useState(currentId)
+  const [prevCurrentId, setPrevCurrentId] = useState(currentId)
+  if (currentId !== prevCurrentId) {
+    setPrevCurrentId(currentId)
+    if (currentId) setSelected(currentId)
+  }
   const [usage, setUsage] = useState<Analytics | null>(null)
-  useEffect(() => { if (currentSession?.id) setSelected(currentSession.id) }, [currentSession?.id])
   const listed = sessions.data?.data ?? []
   const rows = currentSession && !listed.some(item => item.id === currentSession.id) ? [currentSession, ...listed] : listed
-  const selectedId = selected || currentSession?.id || rows[0]?.id || ''
+  const selectedId = selected || currentId || rows[0]?.id || ''
   const session = rows.find(item => item.id === selectedId) ?? currentSession
   const isCurrent = Boolean(currentSession && session?.id === currentSession.id)
   useEffect(() => {
-    if (!selectedId) { setUsage(null); return }
+    if (!selectedId) return
     let live = true
     async function load() {
       try { const value = await api.analytics({ sessionId: selectedId }); if (live) setUsage(value) }
@@ -127,8 +132,9 @@ function CostPage({ currentSession }: { currentSession: Session | null }) {
     const timer = session?.status === 'RUNNING' ? window.setInterval(() => { void load() }, 2000) : 0
     return () => { live = false; if (timer) window.clearInterval(timer) }
   }, [selectedId, session?.status])
-  const inputTokens = Number(usage?.inputTokens ?? 0)
-  const outputTokens = Number(usage?.outputTokens ?? 0)
+  const shown = selectedId ? usage : null
+  const inputTokens = Number(shown?.inputTokens ?? 0)
+  const outputTokens = Number(shown?.outputTokens ?? 0)
   const cost = estimateSessionCost(session?.model ?? '', inputTokens, outputTokens)
   const cards = [
     ['Input tokens', String(inputTokens)],
@@ -140,7 +146,7 @@ function CostPage({ currentSession }: { currentSession: Session | null }) {
     <section className="metrics">{cards.map(([label, value]) => <article className="panel metric" key={label}><span>{label}</span><strong>{value}</strong></article>)}</section>
     <section className="panel table-panel"><div className="panel-head"><span>{isCurrent ? 'Current session' : (cost.rate?.label ?? session?.model ?? 'No session')}</span><span>{session ? `${cost.rate?.label ?? session.model} · ${session.primaryRoute}` : ''}</span></div>
       {session ? <dl className="cost-breakdown"><div><dt>Input rate</dt><dd>{cost.rate ? `${formatUsd(cost.rate.inputPerMillion)} / 1M` : '—'}</dd></div><div><dt>Output rate</dt><dd>{cost.rate ? `${formatUsd(cost.rate.outputPerMillion)} / 1M` : '—'}</dd></div><div><dt>Input cost</dt><dd>{cost.known ? formatUsd(cost.inputUsd) : '—'}</dd></div><div><dt>Output cost</dt><dd>{cost.known ? formatUsd(cost.outputUsd) : '—'}</dd></div></dl> : <div className="empty"><CircleDollarSign/><h2>No session yet</h2><p>Start a run on Live session. Cost = recorded EXECUTION tokens / 1,000,000 × list rate below.</p></div>}
-      {session && usage && usage.sampleCount === 0 && <p className="form-error" role="status">No token metrics yet. Totals appear after the session writes an EXECUTION metric.</p>}
+      {session && shown && shown.sampleCount === 0 && <p className="form-error" role="status">No token metrics yet. Totals appear after the session writes an EXECUTION metric.</p>}
       {cost.rate && <p className="cost-note">{cost.rate.details} Estimate = tokens / 1,000,000 × list rate. Batch, cache, and Terra long-context doubling are not applied. Not an invoice.</p>}
     </section>
     <section className="panel table-panel rate-panel"><div className="panel-head"><span>List rates</span><span>USD per 1M tokens</span></div>
