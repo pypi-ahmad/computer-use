@@ -14,9 +14,10 @@ it('prices Gemini 3.7 Flash at the promo $0.75 / $3.75 rate', () => {
   expect(cost.totalUsd).toBeCloseTo(0.75 * 2 + 3.75 * 0.5)
 })
 
-it('prices Gemini 3.5 Flash Lite and Sonnet 5 list rates', () => {
+it('prices Gemini 3.5 Flash Lite, Sonnet 5, and Terra list rates', () => {
   expect(estimateSessionCost('gemini-3.5-flash-lite', 1_000_000, 0).inputUsd).toBeCloseTo(0.3)
   expect(estimateSessionCost('claude-sonnet-5', 0, 1_000_000).outputUsd).toBeCloseTo(10)
+  expect(estimateSessionCost('gpt-5.6-terra', 1_000_000, 1_000_000).totalUsd).toBeCloseTo(14)
 })
 
 it('marks unknown models as unpriced', () => {
