@@ -51,6 +51,18 @@ it('shows the audit journal, last 8 events, and ZIP export', async () => {
   expect(screen.getByRole('button', { name: /export zip/i })).toBeDisabled()
 })
 
+it('lets the operator pick sandbox or native host', async () => {
+  render(<MemoryRouter><App /></MemoryRouter>)
+  const select = await screen.findByLabelText(/desktop target/i)
+  expect(select).toHaveValue('docker')
+  expect(screen.getByTitle('Sandbox desktop')).toBeInTheDocument()
+  await userEvent.selectOptions(select, 'host')
+  expect(select).toHaveValue('host')
+  expect(screen.getByText(/watch this machine/i)).toBeInTheDocument()
+  expect(screen.getByRole('alert')).toHaveTextContent(/native host/i)
+  expect(screen.queryByTitle('Sandbox desktop')).not.toBeInTheDocument()
+})
+
 it('toggles provider web search via MCP fetch without submitting the form', async () => {
   render(<MemoryRouter><App /></MemoryRouter>)
   const toggle = await screen.findByRole('switch', { name: /provider web search/i })

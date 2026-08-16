@@ -61,7 +61,7 @@ export const api = {
   routes: () => request<Page<Route>>('/provider-routes'),
   sessions: () => request<Page<Session>>('/sessions'),
   session: (id: string) => request<Session>(`/sessions/${encodeURIComponent(id)}`),
-  createSession: (input: { task: string; model: string; primaryRoute: string; fallbackRoutes: Array<string | { model: string; route: string }>; credentialSessionId?: string; maxSteps: number; reasoningEffort?: string; safetyPolicy: string; useBuiltinSearch: boolean; attachedFiles: string[]; retainAuditFrames: boolean }) => request<Session>('/sessions', { method: 'POST', body: JSON.stringify(input) }),
+  createSession: (input: { task: string; model: string; primaryRoute: string; fallbackRoutes: Array<string | { model: string; route: string }>; credentialSessionId?: string; maxSteps: number; reasoningEffort?: string; safetyPolicy: string; useBuiltinSearch: boolean; attachedFiles: string[]; retainAuditFrames: boolean; executionTarget?: 'docker' | 'host' }) => request<Session>('/sessions', { method: 'POST', body: JSON.stringify(input) }),
   stopSession: (id: string) => request<Session>(`/sessions/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ status: 'STOPPING' }) }),
   safetyDecision: (id: string, nonce: string, confirm: boolean) => request<{ sessionId: string; confirmed: boolean }>(`/sessions/${encodeURIComponent(id)}/safety-decisions`, { method: 'POST', body: JSON.stringify({ nonce, confirm }) }),
   actions: (id: string) => request<Page<Action>>(`/sessions/${encodeURIComponent(id)}/actions?limit=100`),

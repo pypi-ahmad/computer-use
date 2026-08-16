@@ -289,6 +289,11 @@ class AgentLoop:
         from backend.prompts import get_system_prompt
 
         self._emit_log("info", "Delegating to native Computer Use engine")
+        if self._execution_target == "host":
+            self._emit_log(
+                "warn",
+                "Host desktop selected. Clicks and keystrokes run on this machine, not the sandbox.",
+            )
 
         # Map provider string → CU Provider enum
         provider_map = {
@@ -328,6 +333,7 @@ class AgentLoop:
             oauth_credentials=self._oauth_credentials,
             quota_project_id=self._quota_project_id,
             safety_policy=self._safety_policy,
+            execution_target=self._execution_target,
         )
 
         # AI2: loop-detection state. We hash (action_name + coords/text)

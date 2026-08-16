@@ -95,6 +95,8 @@ Sandbox is Ubuntu 24.04, virtual display 1440×900.
   wins over `.env`.
 - **SQLite WAL audit** — `data/computer-use-v2.sqlite3`; frames under
   `data/audit-frames` (7-day or 1 GiB eviction)
+- **Desktop target** — Live dropdown: sandbox Docker (default) or
+  native host. Host drives this machine; sandbox is unchanged.
 - **Windows one-file launcher** — `run.cmd`
 
 Live catalog: `backend/models/allowed_models.json`.

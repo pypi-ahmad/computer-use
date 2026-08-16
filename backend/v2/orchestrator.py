@@ -22,6 +22,7 @@ class ExecutionRequest:
     safety_policy: str = "provider_default"
     use_builtin_search: bool = False
     attached_files: tuple[str, ...] = ()
+    execution_target: str = "docker"
     on_event: Callable[[dict[str, Any]], None] | None = None
 
 
