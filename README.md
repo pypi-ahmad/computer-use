@@ -15,6 +15,8 @@ pay the vendor with **your** API keys.
 [![Python 3.12–3.14](https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-3776AB)](pyproject.toml)
 [![Latest release](https://img.shields.io/github/v/release/pypi-ahmad/computer-use)](https://github.com/pypi-ahmad/computer-use/releases/latest)
 
+Repository: [github.com/pypi-ahmad/computer-use](https://github.com/pypi-ahmad/computer-use)
+
 Package `computer-use-workbench` **3.2.0**. Tree may include
 Unreleased work — see [CHANGELOG.md](CHANGELOG.md).
 
@@ -380,12 +382,21 @@ return `401` and the viewport stays blank. Confirm with
 | Variable | Role |
 |---|---|
 | `OPENAI_API_KEY` | `openai-direct` |
+| `OPENAI_BASE_URL` | Optional OpenAI-compatible base URL override |
+| `OPENAI_REASONING_EFFORT` | Overrides the per-model default reasoning effort sent to the Responses API |
 | `ANTHROPIC_API_KEY` | `anthropic-direct` |
+| `CUA_CLAUDE_MAX_TOKENS` | Max output tokens for Claude, default `32768`, clamped to `1024`–`128000` |
+| `CUA_CLAUDE_CACHING` | Set `1` to opt into Anthropic prompt caching (tool + system blocks). Default off — no billing/wire-shape change unless set. |
+| `CUA_ANTHROPIC_WEB_SEARCH_ENABLED` | Set `1` to force-enable the Anthropic web search probe |
 | `GOOGLE_API_KEY` or `GEMINI_API_KEY` | `gemini-direct`. User/process `GOOGLE_API_KEY` wins. |
+| `GEMINI_MODEL` | Overrides the default Gemini model id |
 
 Or create an ephemeral credential session in the Providers tab.
 Google OAuth needs `GOOGLE_OAUTH_CLIENT_ID` and
 `GOOGLE_OAUTH_CLIENT_SECRET` (or `GOOGLE_OAUTH_CLIENT_SECRET_FILE`).
+`CUA_GOOGLE_OAUTH_REDIRECT_URI` overrides the callback URL the backend
+derives by default. `GOOGLE_CLOUD_PROJECT` is an optional quota-project
+fallback for the OAuth flow.
 
 ### Networking
 
@@ -395,13 +406,18 @@ Google OAuth needs `GOOGLE_OAUTH_CLIENT_ID` and
 | `PORT` | `8100` | Backend port |
 | `CUA_ALLOW_PUBLIC_BIND` | unset | Required for non-loopback `HOST` |
 | `CUA_API_TOKEN` | unset | Shared secret for `/api/*` (except Google OAuth callback), `/ws`, `/api/v2/ws/*`, `/vnc/websockify`. HTTP: `X-CUA-Token` or `?token=`. Open on loopback when unset. |
+| `CUA_WS_TOKEN` | unset | **Deprecated** fallback for `CUA_API_TOKEN` when the latter is unset. Prefer `CUA_API_TOKEN`. |
 | `CORS_ORIGINS` | 8505 / 8100 / 5173 / 3000 on localhost and 127.0.0.1 | Comma-separated Origin allowlist |
+| `CUA_ALLOWED_HOSTS` | derived from `CORS_ORIGINS` | Extra comma-separated allowed `Host` headers |
+| `CUA_MAX_BODY_BYTES` | `262144` (256 KiB) | Max request body size |
+| `CUA_MAX_SESSION_BROADCAST_BACKLOG` | `64` | Max pending WS broadcasts queued per session |
 
 ### Sandbox and agent
 
 | Variable | Default | Role |
 |---|---|---|
 | `CONTAINER_NAME` | `cua-environment` | Docker container name |
+| `AGENT_MODE` | `desktop` | Agent-service mode; desktop is the only supported mode |
 | `AGENT_SERVICE_HOST` / `PORT` | `127.0.0.1` / `9222` | Action service |
 | `SCREEN_WIDTH` / `SCREEN_HEIGHT` | `1440` / `900` | Virtual display |
 | `MAX_STEPS` | `50` | Default step budget (hard cap 200). Live always sends `maxSteps: 50`. |
@@ -421,6 +437,8 @@ Google OAuth needs `GOOGLE_OAUTH_CLIENT_ID` and
 |---|---|---|
 | `CUA_V2_DB_PATH` | `data/computer-use-v2.sqlite3` | SQLite WAL store |
 | `CUA_V2_FRAME_PATH` | `data/audit-frames` | Audit screenshots |
+| `CUA_UPLOAD_DIR` | library default | Root directory for the reference-file store |
+| `CUA_TRACE_DIR` | `~/.computer-use/traces/` | CUAF trace JSON output directory |
 | `CUA_FRONTEND_DIST` | `frontend/dist` | Production UI bundle |
 | `LOG_FORMAT` | `console` | Set `json` for one JSON object per line |
 | `LOG_LEVEL` | `INFO` | Python log level |
@@ -445,17 +463,21 @@ Jump: [operator](#operator-docs) · [community](#community-docs) ·
 | [TESTING.md](TESTING.md) | Manual smoke test and CI-equivalent commands |
 | [DATA.md](DATA.md) | Local storage; operator owns every payload |
 | [docs/deployment.md](docs/deployment.md) | Local and single-process production start |
+| [docs/migration-v2.md](docs/migration-v2.md) | Migrating from v1 to v2 (no compatibility shim) |
+| [docs/rollback-v2.md](docs/rollback-v2.md) | v2 rollback runbook and triggers |
 | [docs/computer-use-prompt-guide.md](docs/computer-use-prompt-guide.md) | How to write bounded Computer Use tasks |
 | [docs/business-guide.md](docs/business-guide.md) | Pilot, risk, and go/no-go for an org evaluation |
 | [docs/zero-to-hero-study-handbook.md](docs/zero-to-hero-study-handbook.md) | Study handbook (markdown source) |
 | [docs/zero-to-hero-study-handbook.html](docs/zero-to-hero-study-handbook.html) | Study handbook (standalone HTML) |
 | [docs/zero-to-hero-study-handbook.pdf](docs/zero-to-hero-study-handbook.pdf) | Study handbook (PDF; may lag the HTML build) |
+| [docs/release-notes-v3.2.0.md](docs/release-notes-v3.2.0.md) | Latest per-version release notes; earlier versions (v2.0.0–v3.1.1) live alongside it in `docs/` |
 
 ### Community docs
 
 | Document | What it is |
 |---|---|
 | [OPEN_SOURCE.md](OPEN_SOURCE.md) | Clone, local use, own keys; no hosted service |
+| [DISCLAIMER.md](DISCLAIMER.md) | No warranty, data responsibility, provider terms, no financial support |
 | [SUPPORT.md](SUPPORT.md) | How to get help; what this repo will not debug |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Branch, test, and PR rules |
 | [SECURITY.md](SECURITY.md) | Security model and vulnerability reports |
@@ -476,6 +498,8 @@ Jump: [operator](#operator-docs) · [community](#community-docs) ·
 | [docs/codebase/INTEGRATIONS.md](docs/codebase/INTEGRATIONS.md) | Providers, tokens, and external APIs |
 | [docs/codebase/CONCERNS.md](docs/codebase/CONCERNS.md) | Prioritized risks |
 | [docs/codebase/TESTING.md](docs/codebase/TESTING.md) | Test stack and how to run it |
+| [docs/gemini-successor-evaluation.md](docs/gemini-successor-evaluation.md) | Checklist for evaluating a Gemini Computer Use model successor |
+| [docs/research-audit-2026-07-23.md](docs/research-audit-2026-07-23.md) | Computer Use model/platform audit vs. official vendor docs |
 | [docker/SECURITY_NOTES.md](docker/SECURITY_NOTES.md) | Sandbox / agent-service attack surface |
 | [evals/README.md](evals/README.md) | Offline deterministic evals |
 | [.env.example](.env.example) | Environment template (never commit `.env`) |
@@ -499,3 +523,5 @@ Security reports go to [SECURITY.md](SECURITY.md), not public issues.
 Computer Use protocols belong to OpenAI, Anthropic, and Google. This
 workbench is an independent local operator surface, not an official
 vendor product.
+
+<p align="center">Made with ❤️ by Ahmad Mujtaba</p>
