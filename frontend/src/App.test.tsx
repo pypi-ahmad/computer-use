@@ -22,6 +22,9 @@ it('provides all six operational workspaces', async () => {
   expect(desktop).toHaveAttribute('src', '/vnc/vnc.html?autoconnect=1&path=vnc%2Fwebsockify')
   expect(desktop.closest('.live-grid')).toBeTruthy()
   expect(mission.closest('.live-grid')).toBeNull()
+  expect(screen.getByRole('region', { name: /session log/i })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /copy logs/i })).toBeDisabled()
+  expect(screen.getByText(/no log lines yet/i)).toBeInTheDocument()
   expect(screen.queryByText('No session on the wire')).not.toBeInTheDocument()
   await userEvent.click(screen.getByRole('link', { name: /providers/i }))
   expect(await screen.findByRole('heading', { name: /provider access/i })).toBeInTheDocument()
@@ -38,6 +41,14 @@ it('shows current-session cost and list rates on the Session cost tab', async ()
   expect(screen.getByText('GPT 5.6 Luna')).toBeInTheDocument()
   expect(screen.getByText('GPT 5.6 Terra')).toBeInTheDocument()
   expect(screen.getByText(/no session yet/i)).toBeInTheDocument()
+})
+
+it('shows the audit journal, last 8 events, and ZIP export', async () => {
+  render(<MemoryRouter initialEntries={['/audit']}><App /></MemoryRouter>)
+  expect(await screen.findByRole('heading', { name: /session audit trail/i })).toBeInTheDocument()
+  expect(screen.getByText(/confirmed action journal/i)).toBeInTheDocument()
+  expect(screen.getByText(/last 8 events/i)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /export zip/i })).toBeDisabled()
 })
 
 it('toggles provider web search via MCP fetch without submitting the form', async () => {
