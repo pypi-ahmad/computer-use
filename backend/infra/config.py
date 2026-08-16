@@ -11,6 +11,19 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
+# User/process env captured before dotenv so GOOGLE_API_KEY (and aliases)
+# from the operator environment win over a repo-root .env assignment.
+_USER_ENV: dict[str, str] = {
+    name: value.strip()
+    for name in (
+        "GOOGLE_API_KEY",
+        "GEMINI_API_KEY",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+    )
+    if (value := os.environ.get(name, "")).strip()
+}
+
 # Load .env file from project root (does NOT override existing system env vars)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _ENV_FILE = _PROJECT_ROOT / ".env"
@@ -363,8 +376,14 @@ def resolve_api_key(provider: str, ui_key: str | None = None) -> tuple[str | Non
     if ui_key and ui_key.strip():
         return ui_key.strip(), "ui"
 
-    # 2. Environment (.env file or system env var) — try each alias in order
-    env_vars = _PROVIDER_KEY_ENV_VARS.get(provider, ())
+    env_vars = _PROVIDER_KEY_ENV_VARS.get(provider.strip().lower(), ())
+    # 2. User/process env captured before dotenv (GOOGLE_API_KEY first for Google)
+    for env_var in env_vars:
+        value = _USER_ENV.get(env_var, "").strip()
+        if value:
+            return value, "env"
+
+    # 3. Current process env after dotenv load
     for env_var in env_vars:
         value, source = _detect_key_source(env_var)
         if value:
@@ -380,6 +399,10 @@ def get_all_key_statuses() -> list[dict]:
         value: str | None = None
         source = "none"
         for env_var in env_vars:
+            value = _USER_ENV.get(env_var, "").strip() or None
+            if value:
+                source = "env"
+                break
             value, source = _detect_key_source(env_var)
             if value:
                 break
