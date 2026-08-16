@@ -119,7 +119,7 @@ calls on the sandbox (`AGENT_SERVICE_TOKEN`). The sandbox is Ubuntu
 
 Jump: [this README](#this-readme) · [operator](#operator-docs) ·
 [community](#community-docs) · [technical](#technical-docs) ·
-[history](#history-docs) · [templates and CI](#templates-and-ci).
+[templates and CI](#templates-and-ci).
 Longer blurbs: [Documentation](#documentation).
 
 ### This README
@@ -160,7 +160,6 @@ Longer blurbs: [Documentation](#documentation).
     - [Operator](#operator)
     - [Project and community](#project-and-community)
     - [Technical](#technical)
-    - [History and migration](#history-and-migration)
 14. [Community](#community)
 15. [License](#license)
 16. [Acknowledgements](#acknowledgements)
@@ -206,23 +205,6 @@ Longer blurbs: [Documentation](#documentation).
 | [docker/SECURITY_NOTES.md](docker/SECURITY_NOTES.md) | Sandbox / agent-service attack surface |
 | [evals/README.md](evals/README.md) | Offline deterministic evals |
 | [.env.example](.env.example) | Environment template (copy to `.env`; never commit `.env`) |
-
-### History docs
-
-| Document | What it is |
-|---|---|
-| [CHANGELOG.md](CHANGELOG.md) | Released and Unreleased changes |
-| [docs/migration-v2.md](docs/migration-v2.md) | v1 → v2 contract and ops migration |
-| [docs/rollback-v2.md](docs/rollback-v2.md) | v2 rollback triggers and checks |
-| [docs/gemini-successor-evaluation.md](docs/gemini-successor-evaluation.md) | Checklist when a Gemini CU model is replaced |
-| [docs/research-audit-2026-07-23.md](docs/research-audit-2026-07-23.md) | Historical July 2026 research note |
-| [docs/release-notes-v3.1.1.md](docs/release-notes-v3.1.1.md) | v3.1.1 |
-| [docs/release-notes-v3.1.0.md](docs/release-notes-v3.1.0.md) | v3.1.0 |
-| [docs/release-notes-v3.0.3.md](docs/release-notes-v3.0.3.md) | v3.0.3 |
-| [docs/release-notes-v3.0.2.md](docs/release-notes-v3.0.2.md) | v3.0.2 |
-| [docs/release-notes-v3.0.1.md](docs/release-notes-v3.0.1.md) | v3.0.1 |
-| [docs/release-notes-v3.0.0.md](docs/release-notes-v3.0.0.md) | v3.0.0 |
-| [docs/release-notes-v2.0.0.md](docs/release-notes-v2.0.0.md) | v2.0.0 |
 
 ### Templates and CI
 
@@ -770,22 +752,6 @@ reference files. You own those files and any data they contain.
 | [docker/SECURITY_NOTES.md](docker/SECURITY_NOTES.md) | Sandbox / agent-service attack surface |
 | [evals/README.md](evals/README.md) | Offline deterministic evals |
 | [.env.example](.env.example) | Environment template (copy to `.env`; never commit `.env`) |
-
-### History and migration
-
-| Document | Contents |
-|---|---|
-| [docs/migration-v2.md](docs/migration-v2.md) | v1 → v2 contract and ops migration |
-| [docs/rollback-v2.md](docs/rollback-v2.md) | v2 rollback triggers and checks |
-| [docs/gemini-successor-evaluation.md](docs/gemini-successor-evaluation.md) | Checklist when a Gemini CU model is replaced |
-| [docs/research-audit-2026-07-23.md](docs/research-audit-2026-07-23.md) | Historical July 2026 research note |
-| [docs/release-notes-v3.1.1.md](docs/release-notes-v3.1.1.md) | v3.1.1 |
-| [docs/release-notes-v3.1.0.md](docs/release-notes-v3.1.0.md) | v3.1.0 |
-| [docs/release-notes-v3.0.3.md](docs/release-notes-v3.0.3.md) | v3.0.3 |
-| [docs/release-notes-v3.0.2.md](docs/release-notes-v3.0.2.md) | v3.0.2 |
-| [docs/release-notes-v3.0.1.md](docs/release-notes-v3.0.1.md) | v3.0.1 |
-| [docs/release-notes-v3.0.0.md](docs/release-notes-v3.0.0.md) | v3.0.0 |
-| [docs/release-notes-v2.0.0.md](docs/release-notes-v2.0.0.md) | v2.0.0 |
 
 ## Community
 
