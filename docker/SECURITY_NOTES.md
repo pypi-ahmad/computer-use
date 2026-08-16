@@ -234,9 +234,8 @@ providers:
 - **Agent-service auth is mandatory.** The service refuses to start when
   `AGENT_SERVICE_TOKEN` is empty unless `CUA_AGENT_INSECURE=1` is set
   explicitly (dev only). The compose path now requires `AGENT_SERVICE_TOKEN`.
-- **VNC requires a password.** `docker-compose.yml` no longer bakes in
-  `CUA_ALLOW_NOPW=1`; set `VNC_PASSWORD` (or `CUA_ALLOW_NOPW=1` for an
-  explicitly-insecure local debug session).
+- **VNC has no password.** x11vnc starts with `-nopw`. noVNC does not
+  send or prompt for a VNC password. Ports stay on `127.0.0.1`.
 - **`run_command` interpreters are gated.** `python`/`python3`/`pip`/`pip3`/
   `node`/`npm`/`npx` are no longer in the default allowlist (they are
   arbitrary-code-execution primitives). Re-enable with `CUA_ALLOW_INTERPRETERS=1`

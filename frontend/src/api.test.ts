@@ -24,6 +24,11 @@ it('puts the workbench token on the noVNC websockify path', async () => {
   expect(desktopViewerSrc('/vnc/vnc.html?autoconnect=1', 'secret')).toContain('path=vnc%2Fwebsockify%3Ftoken%3Dsecret')
 })
 
+it('strips VNC password from the noVNC viewer URL', async () => {
+  const { desktopViewerSrc } = await import('./api')
+  expect(desktopViewerSrc('/vnc/vnc.html?autoconnect=1&password=desk-secret')).not.toContain('password=')
+})
+
 it('points noVNC at the proxied /vnc/websockify socket', async () => {
   const { desktopViewerSrc } = await import('./api')
   expect(desktopViewerSrc('/vnc/vnc.html?autoconnect=1&path=websockify')).toContain('path=vnc%2Fwebsockify')

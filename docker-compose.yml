@@ -16,9 +16,6 @@ services:
       # REQUIRED: compose refuses to start without it (mirrors the agent
       # service's own fail-closed gate). Set in .env.
       - AGENT_SERVICE_TOKEN=${AGENT_SERVICE_TOKEN:?set AGENT_SERVICE_TOKEN in .env}
-      # S3 — VNC password is REQUIRED by default. For an explicitly-insecure
-      # local debug session set CUA_ALLOW_NOPW=1 in .env instead.
-      - VNC_PASSWORD=${VNC_PASSWORD:?set VNC_PASSWORD in .env (or set CUA_ALLOW_NOPW=1 for insecure local debug)}
     ports:
       - "127.0.0.1:5900:5900"
       - "127.0.0.1:6080:6080"

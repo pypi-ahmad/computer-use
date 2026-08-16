@@ -22,6 +22,8 @@ export function desktopViewerSrc(viewerUrl: string, token = getAppToken()): stri
   // noVNC builds ws://host:port/<path>. A bare "websockify" hits the
   // Vite origin at /websockify, which is not proxied. The workbench
   // websocket lives at /vnc/websockify.
+  url.searchParams.delete('password')
+  url.searchParams.delete('token')
   url.searchParams.set('path', token ? `vnc/websockify?token=${token}` : 'vnc/websockify')
   return `${url.pathname}?${url.searchParams.toString()}`
 }
