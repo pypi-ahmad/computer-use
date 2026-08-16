@@ -57,6 +57,17 @@ def test_google_route_is_configured_from_process_google_api_key(monkeypatch) -> 
     assert auth_mode == "API_KEY_OR_OAUTH"
 
 
+def test_resolve_api_key_prefers_user_google_api_key_over_dotenv(monkeypatch) -> None:
+    import backend.infra.config as cfg
+
+    monkeypatch.setitem(cfg._USER_ENV, "GOOGLE_API_KEY", "AIza-from-user-env")
+    monkeypatch.setenv("GOOGLE_API_KEY", "AIza-from-dotenv-file")
+    monkeypatch.setenv("GEMINI_API_KEY", "AIza-gemini-alias")
+    key, source = cfg.resolve_api_key("GOOGLE")
+    assert key == "AIza-from-user-env"
+    assert source == "env"
+
+
 def test_sqlite_store_persists_session_actions_events_metrics_and_workflow_versions() -> None:
     store = SqliteStore(":memory:")
     assert store.journal_mode in {"memory", "wal"}
@@ -131,7 +142,7 @@ def test_cuaf_binary_frame_round_trip() -> None:
     assert struct.calcsize(">4sBBQIIQ") < len(packed)
 
 
-def test_desktop_viewer_url_includes_novnc_and_password(monkeypatch) -> None:
+def test_desktop_viewer_url_includes_novnc_without_password(monkeypatch) -> None:
     monkeypatch.setenv("VNC_PASSWORD", "desk-secret")
     from backend.server import app
 
@@ -140,7 +151,7 @@ def test_desktop_viewer_url_includes_novnc_and_password(monkeypatch) -> None:
     assert payload["viewerUrl"].startswith("/vnc/vnc.html?")
     assert "autoconnect=1" in payload["viewerUrl"]
     assert "path=vnc%2Fwebsockify" in payload["viewerUrl"]
-    assert "password=desk-secret" in payload["viewerUrl"]
+    assert "password=" not in payload["viewerUrl"]
 
 
 def test_desktop_stream_survives_capture_failure_without_retaining_frames(monkeypatch) -> None:

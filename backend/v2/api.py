@@ -490,15 +490,10 @@ async def create_session(payload: SessionInput, request: Request) -> dict[str, A
         )
         quota_project_id = credential.quota_project_id if credential else None
         if credential is None:
-            env_names = {
-                "OPENAI": ("OPENAI_API_KEY",),
-                "ANTHROPIC": ("ANTHROPIC_API_KEY",),
-                "GOOGLE": ("GOOGLE_API_KEY", "GEMINI_API_KEY"),
-            }[route.provider]
-            raw_key = next(
-                (os.getenv(name, "").strip() for name in env_names if os.getenv(name, "").strip()),
-                "",
-            )
+            from backend.infra.config import resolve_api_key
+
+            raw_key, _source = resolve_api_key(route.provider.lower())
+            raw_key = raw_key or ""
         else:
             raw_key = credential.get_secret_value()
         if not raw_key and oauth_credentials is None:
@@ -704,9 +699,6 @@ def desktop() -> dict[str, str]:
         "resize": "scale",
         "path": "vnc/websockify",
     }
-    password = os.getenv("VNC_PASSWORD", "").strip()
-    if password:
-        params["password"] = password
     return {"viewerUrl": f"/vnc/vnc.html?{urlencode(params)}"}
 
 
