@@ -11,6 +11,10 @@ from dataclasses import dataclass
 
 CUAF_MAGIC = b"CUAF"
 DESKTOP_STREAM_ID = "desktop"
+# Big-endian layout: 4-byte magic | 1-byte version | 1-byte codec |
+# 8-byte uint64 sequence | 4-byte uint32 width | 4-byte uint32 height |
+# 8-byte uint64 timestamp_ms = 30 bytes total.
+# The matching TypeScript decoder is frontend/src/protocol.ts::decodeCuafFrame.
 _HEADER = struct.Struct(">4sBBQIIQ")
 _VERSION = 1
 

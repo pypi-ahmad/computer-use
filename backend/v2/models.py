@@ -25,6 +25,8 @@ class ComputerUseModel(BaseModel):
     supports_computer_use: bool
     context_window: int = Field(gt=0)
     max_output_tokens: int = Field(gt=0)
+    # "normalized" → Gemini-style 0–999 grid (executor denormalizes to pixels).
+    # "pixel" → absolute pixel coordinates sent directly to the action service.
     coordinate_space: str
     lifecycle: str = "ACTIVE"
     supports_prompt_caching: bool = False
@@ -67,4 +69,7 @@ class ModelCatalog:
             raise ValueError(f"Unknown Computer Use model: {logical_id}") from exc
 
 
+# Singleton loaded at import time from computer_use_models.v2.json.
+# The constructor rejects any model that declares supports_computer_use=False,
+# so callers can trust every entry is a valid CU model.
 CATALOG = ModelCatalog.load()

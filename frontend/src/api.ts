@@ -1,3 +1,9 @@
+// REST client for the v2 API surface (/api/v2/*).
+// All mutating requests attach X-CUA-Token when set; the token is stored in
+// sessionStorage (not localStorage) so it is scoped to the browser tab and
+// cleared automatically when the tab closes — intentional, since a leaked tab
+// should not carry credentials into unrelated sessions.
+
 import type { Action, Analytics, EventRecord, Model, Page, Route, Session, Workflow } from './types'
 
 const BASE = '/api/v2'

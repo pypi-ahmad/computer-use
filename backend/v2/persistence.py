@@ -55,6 +55,10 @@ class SqliteStore:
             self.path.parent.mkdir(parents=True, exist_ok=True)
         self._connection = sqlite3.connect(raw_path, check_same_thread=False)
         self._connection.row_factory = sqlite3.Row
+        # check_same_thread=False permits cross-thread reads without error,
+        # but SQLite's internal serialization does not prevent write races.
+        # _lock serializes all writes so concurrent FastAPI request handlers
+        # cannot interleave transactions.
         self._lock = threading.RLock()
         with self._connection:
             self._connection.execute("PRAGMA journal_mode=WAL")
