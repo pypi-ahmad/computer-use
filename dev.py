@@ -1,3 +1,9 @@
+"""Development launcher — starts the backend (Uvicorn) and frontend (Vite) as
+coordinated subprocesses. Not used in production; the production entrypoint is
+``backend/main.py``. Reads from the nearest ``.venv`` and falls back to the
+current interpreter, so it can run outside an activated virtual environment.
+"""
+
 from __future__ import annotations
 
 import argparse

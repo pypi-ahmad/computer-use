@@ -1,3 +1,11 @@
+// React hook that maintains a single WebSocket connection to the v2 stream
+// endpoint (/api/v2/ws/<streamId>). Binary messages are CUAF frames decoded
+// via decodeCuafFrame; each frame is stored as a blob: URL so the <img> src
+// updates without re-encoding. The previous blob URL is revoked immediately
+// after the next frame arrives to avoid a permanent memory leak — callers
+// must not hold references to frameUrl across renders. Text messages are
+// accumulated as StreamEvent[] (last 200 kept).
+
 import { useEffect, useState } from 'react'
 import { decodeCuafFrame } from './protocol'
 import type { StreamEvent } from './types'

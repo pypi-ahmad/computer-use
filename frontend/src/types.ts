@@ -1,3 +1,9 @@
+// Shared TypeScript types for the v2 REST and WebSocket contracts.
+// REST shapes are used by api.ts; StreamEvent is the v2 WebSocket wire format
+// (text frames carrying JSON, binary frames carrying CUAF — see protocol.ts).
+// Update frontend/src/types.ts and backend/server/ws_schema.py together
+// whenever a new event kind is added.
+
 export type Status = 'PENDING' | 'RUNNING' | 'STOPPING' | 'STOPPED' | 'COMPLETED' | 'ERROR'
 export interface Route { id: string; provider: string; transport: string; isConfigured: boolean; isExecutable: boolean; authMode: string; circuitState: string }
 export interface ModelRoute { id: string; provider: string; transport: string; modelId: string }
